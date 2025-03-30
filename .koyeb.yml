@@ -8,11 +8,13 @@ services:
         - PYTHON_VERSION=3.11
     env:
       - key: PORT
-        value: "8000"
+        value: "8003"
       - key: ENVIRONMENT
         value: "production"
+      - key: FASTAPI_PORT
+        value: "8003"
     ports:
-      - "8000:8000"
+      - "8003:8003"
     healthcheck:
       path: /health
       interval: 10
@@ -31,11 +33,13 @@ services:
         - PYTHON_VERSION=3.11
     env:
       - key: PORT
-        value: "3000"
+        value: "5175"
       - key: ENVIRONMENT
         value: "production"
+      - key: VITE_API_URL
+        value: "https://backend-{{APP_NAME}}.koyeb.app"
     ports:
-      - "3000:80"
+      - "5175:80"
     healthcheck:
       path: /
       interval: 10
