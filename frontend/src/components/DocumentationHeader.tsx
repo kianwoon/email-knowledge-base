@@ -15,13 +15,14 @@ import {
   DrawerCloseButton,
   VStack,
   useDisclosure,
-  useBreakpointValue
+  useBreakpointValue,
+  Text
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
-import { HamburgerIcon } from '@chakra-ui/icons';
+import { HamburgerIcon, MoonIcon, SunIcon } from '@chakra-ui/icons';
 
 const DocumentationHeader: React.FC = () => {
-  const { colorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
   
@@ -51,13 +52,23 @@ const DocumentationHeader: React.FC = () => {
         
         {isMobile ? (
           <>
-            <IconButton
-              aria-label="Open menu"
-              icon={<HamburgerIcon />}
-              onClick={onOpen}
-              variant="outline"
-              colorScheme={colorMode === 'dark' ? "whiteAlpha" : "blackAlpha"}
-            />
+            <HStack spacing={2}>
+              <IconButton
+                aria-label="Toggle color mode"
+                icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+                onClick={toggleColorMode}
+                variant="ghost"
+                color="text.primary"
+                size="sm"
+              />
+              <IconButton
+                aria-label="Open menu"
+                icon={<HamburgerIcon />}
+                onClick={onOpen}
+                variant="outline"
+                color="text.primary"
+              />
+            </HStack>
             <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
               <DrawerOverlay />
               <DrawerContent bg={colorMode === 'dark' ? "bg.primary" : "white"}>
@@ -74,6 +85,17 @@ const DocumentationHeader: React.FC = () => {
                     <Button as={RouterLink} to="/support" variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
                       Support
                     </Button>
+                    <Flex align="center" justify="space-between" w="full" pt={2} mt={2} borderTop="1px solid" borderColor={colorMode === 'dark' ? "whiteAlpha.300" : "gray.200"}>
+                      <Text fontSize="sm">Toggle theme</Text>
+                      <IconButton
+                        aria-label="Toggle color mode"
+                        icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+                        onClick={toggleColorMode}
+                        variant="ghost"
+                        color="text.primary"
+                        size="md"
+                      />
+                    </Flex>
                   </VStack>
                 </DrawerBody>
               </DrawerContent>
@@ -84,6 +106,14 @@ const DocumentationHeader: React.FC = () => {
             <Button as={RouterLink} to="/#features" variant="ghost" size="sm">Features</Button>
             <Button as={RouterLink} to="/docs" variant="ghost" size="sm">Documentation</Button>
             <Button as={RouterLink} to="/support" variant="ghost" size="sm">Support</Button>
+            <IconButton
+              aria-label="Toggle color mode"
+              icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
+              onClick={toggleColorMode}
+              variant="ghost"
+              color="text.primary"
+              size="sm"
+            />
           </HStack>
         )}
       </Flex>

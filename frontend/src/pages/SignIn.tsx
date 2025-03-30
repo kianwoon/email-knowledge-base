@@ -105,13 +105,25 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         
         {isMobile ? (
           <>
-            <IconButton
-              aria-label="Open menu"
-              icon={<Icon as={FaBars} />}
-              onClick={onOpen}
-              variant="ghost"
-              colorScheme={colorMode === 'dark' ? "whiteAlpha" : "blackAlpha"}
-            />
+            <HStack spacing={2}>
+              <IconButton
+                aria-label="Toggle color mode"
+                icon={<Icon as={colorMode === 'light' ? FaMoon : FaSun} />}
+                onClick={toggleColorMode}
+                variant="ghost"
+                color="text.primary"
+                _hover={{ bg: "bg.accent" }}
+                size="sm"
+              />
+              <IconButton
+                aria-label="Open menu"
+                icon={<Icon as={FaBars} />}
+                onClick={onOpen}
+                variant="ghost"
+                color="text.primary"
+                _hover={{ bg: "bg.accent" }}
+              />
+            </HStack>
             <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
               <DrawerOverlay />
               <DrawerContent bg={colorMode === 'dark' ? "bg.primary" : "white"}>
@@ -139,6 +151,18 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                     >
                       Sign In
                     </Button>
+                    <Flex align="center" justify="space-between" w="full" pt={2} borderTop="1px solid" borderColor={colorMode === 'dark' ? "whiteAlpha.300" : "gray.200"}>
+                      <Text fontSize="sm">Toggle theme</Text>
+                      <IconButton
+                        aria-label="Toggle color mode"
+                        icon={colorMode === 'light' ? <Icon as={FaMoon} /> : <Icon as={FaSun} />}
+                        onClick={toggleColorMode}
+                        variant="ghost"
+                        color="text.primary"
+                        _hover={{ bg: "bg.accent" }}
+                        size="md"
+                      />
+                    </Flex>
                   </VStack>
                 </DrawerBody>
               </DrawerContent>
@@ -163,7 +187,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               icon={colorMode === 'light' ? <Icon as={FaMoon} /> : <Icon as={FaSun} />}
               onClick={toggleColorMode}
               variant="ghost"
-              colorScheme={colorMode === 'dark' ? 'whiteAlpha' : 'gray'}
+              colorScheme={colorMode === 'dark' ? "whiteAlpha" : "blackAlpha"}
               color="text.primary"
               _hover={{ bg: "bg.accent" }}
               size="sm"

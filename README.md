@@ -69,6 +69,6 @@ See [architecture.md](./docs/architecture.md) for detailed information about the
 ## Mobile Responsiveness
 The application is fully responsive and optimized for mobile devices, with special attention to navigation elements and layout adjustments.
 
-## License
+## License 1.0
 
 MIT
