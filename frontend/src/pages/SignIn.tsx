@@ -13,20 +13,12 @@ import {
   Stack,
   Badge,
   Link as ChakraLink,
-  useBreakpointValue,
   Stat,
   StatNumber,
   StatHelpText,
   StatGroup,
   useToast,
-  IconButton,
-  Drawer,
-  DrawerBody,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerContent,
-  DrawerCloseButton,
-  useDisclosure,
+  useColorMode,
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -43,9 +35,7 @@ import {
   FaLightbulb,
   FaUsers,
   FaMicrosoft,
-  FaBars,
 } from 'react-icons/fa';
-import { getLoginUrl } from '../api/auth';
 
 interface SignInProps {
   onLogin: () => void;
@@ -54,8 +44,7 @@ interface SignInProps {
 const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const isMobile = useBreakpointValue({ base: true, md: false });
+  const { colorMode } = useColorMode();
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -94,115 +83,115 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
     }
   };
 
-  // Mobile Navigation Drawer
-  const MobileNav = () => (
-    <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
-      <DrawerOverlay />
-      <DrawerContent bg="#050a30">
-        <DrawerCloseButton color="white" />
-        <DrawerHeader borderBottomWidth="1px" color="white">Menu</DrawerHeader>
-        <DrawerBody>
-          <VStack spacing={4} align="stretch" mt={4}>
-            <Button as={RouterLink} to="/#features" variant="glass" size="md" onClick={onClose}>Features</Button>
-            <Button as={RouterLink} to="/docs" variant="glass" size="md" onClick={onClose}>Documentation</Button>
-            <Button as={RouterLink} to="/support" variant="glass" size="md" onClick={onClose}>Support</Button>
-          </VStack>
-        </DrawerBody>
-      </DrawerContent>
-    </Drawer>
-  );
-
   return (
-    <Box bg="#050a30" minH="100vh" position="relative" overflow="hidden">
-      {/* Header/Nav */}
-      <Box 
-        py={4} 
-        px={{ base: 4, md: 8 }} 
-        color="white" 
-        position="relative" 
-        zIndex="1"
-        bgGradient="linear(to-r, neon.dark, neon.purple, neon.pink)"
-      >
-        <Flex maxW="1400px" mx="auto" justify="space-between" align="center">
-          <Heading size={{ base: "md", md: "lg" }} fontWeight="bold">Email Knowledge Base</Heading>
-          {isMobile ? (
-            <IconButton
-              aria-label="Open menu"
-              icon={<FaBars />}
-              variant="ghost"
-              color="white"
-              onClick={onOpen}
-            />
-          ) : (
-            <HStack spacing={4}>
-              <Button as={RouterLink} to="/#features" variant="glass" size="sm">Features</Button>
-              <Button as={RouterLink} to="/docs" variant="glass" size="sm">Documentation</Button>
-              <Button as={RouterLink} to="/support" variant="glass" size="sm">Support</Button>
-            </HStack>
-          )}
-        </Flex>
-      </Box>
-      
-      {/* Mobile Navigation */}
-      <MobileNav />
-      
+    <Box bg={colorMode === 'dark' ? 'dark.bg' : 'light.bg'} minH="100vh" position="relative" overflow="hidden">
       {/* Hero Section */}
       <Box
-        py={{ base: 10, md: 28 }}
+        py={{ base: 10, md: 20 }}
         px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
       >
         <Container maxW="1400px">
-          <VStack spacing={{ base: 6, md: 8 }} align={{ base: "center", md: "flex-start" }} textAlign={{ base: "center", md: "left" }}>
-            <Badge colorScheme="purple" fontSize={{ base: "sm", md: "md" }} px={3} py={1} borderRadius="full">
-              AI-Powered Email Knowledge Base
-            </Badge>
-
-            <Heading
-              as="h1"
-              size={{ base: "xl", md: "2xl" }}
-              lineHeight="1.2"
-              bgGradient="linear(to-r, white, #3ef2f2)"
-              bgClip="text"
-              mb={{ base: 2, md: 4 }}
+          <Flex direction={{ base: "column", md: "row" }} align="center" justify="space-between" gap={{ md: 8 }} position="relative">
+            {/* Text Content */}
+            <Box 
+              w={{ base: "100%", md: "50%" }} 
+              zIndex={2} 
+              position="relative"
             >
-              Reclaim Your Time from <br />
-              Routine Email Tasks
-            </Heading>
+              <VStack spacing={{ base: 6, md: 6 }} align={{ base: "center", md: "flex-start" }} textAlign={{ base: "center", md: "left" }}>
+                <Box 
+                  bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)"} 
+                  px={3} 
+                  py={1} 
+                  borderRadius="full"
+                >
+                  <Text 
+                    fontSize={{ base: "sm", md: "md" }} 
+                    color={colorMode === 'dark' ? "cyan.400" : "blue.500"}
+                    fontWeight="medium"
+                  >
+                    AI-POWERED EMAIL KNOWLEDGE BASE
+                  </Text>
+                </Box>
 
-            <Text fontSize={{ base: "md", md: "xl" }} maxW="800px" color="whiteAlpha.900" mb={{ base: 4, md: 6 }}>
-              Office workers spend over 50% of their time on repetitive email communications.
-              Our platform extracts valuable knowledge from your emails, enabling AI to handle
-              routine tasks with personalized tone and clarity.
-            </Text>
+                <Heading
+                  as="h1"
+                  size={{ base: "xl", md: "2xl" }}
+                  color={colorMode === 'dark' ? "white" : "gray.800"}
+                  lineHeight="1.2"
+                  fontWeight="bold"
+                >
+                  Reclaim Your Time from Routine Email Tasks
+                </Heading>
 
-            <Stack direction={{ base: "column", sm: "row" }} spacing={4} w={{ base: "100%", sm: "auto" }}>
-              <Button
-                size="lg"
-                variant="neon"
-                px={8}
-                onClick={handleSignIn}
-                leftIcon={<Icon as={FaMicrosoft} />}
-                isLoading={isLoading}
-                loadingText="Connecting..."
-                width={{ base: "100%", sm: "auto" }}
-              >
-                Sign in with Microsoft
-              </Button>
-              <Button
-                as={RouterLink}
-                to="/docs"
-                size="lg"
-                variant="outline"
-                colorScheme="whiteAlpha"
-                px={8}
-                width={{ base: "100%", sm: "auto" }}
-              >
-                Learn More
-              </Button>
-            </Stack>
-          </VStack>
+                <Text fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "gray.300" : "gray.700"}>
+                  Office workers spend over 50% of their time on repetitive email communications. Our platform extracts valuable knowledge from your emails, enabling AI to handle routine tasks with personalized tone and clarity.
+                </Text>
+
+                <HStack spacing={4} pt={2}>
+                  <Button
+                    leftIcon={<Icon as={FaMicrosoft} />}
+                    onClick={handleSignIn}
+                    isLoading={isLoading}
+                    loadingText="Signing in..."
+                    size={{ base: "md", md: "md" }}
+                    colorScheme="cyan"
+                    bg={colorMode === 'dark' ? "cyan.400" : "cyan.500"}
+                    color="white"
+                    _hover={{
+                      bg: colorMode === 'dark' ? "cyan.500" : "cyan.600",
+                    }}
+                    px={6}
+                  >
+                    Sign in with Microsoft
+                  </Button>
+                  <Button
+                    as={RouterLink}
+                    to="/docs"
+                    variant="outline"
+                    size={{ base: "md", md: "md" }}
+                    borderColor={colorMode === 'dark' ? "gray.600" : "gray.300"}
+                    color={colorMode === 'dark' ? "white" : "gray.800"}
+                    _hover={{
+                      bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)",
+                    }}
+                  >
+                    Learn More
+                  </Button>
+                </HStack>
+              </VStack>
+            </Box>
+            
+            {/* Happy Man Image */}
+            <Box 
+              w={{ base: "0%", md: "50%" }}
+              h="auto"
+              position="relative"
+              display={{ base: "none", md: "block" }}
+              overflow="visible"
+              ml={{ md: 4 }}
+              textAlign="right"
+              pr={{ md: 2 }}
+            >
+              <Box
+                as="img"
+                src="/images/happy-man.png"
+                alt="Happy man making OK gesture"
+                objectFit="contain"
+                height="auto"
+                width="100%"
+                maxH="500px"
+                position="relative"
+                zIndex={2}
+                sx={{
+                  clipPath: 'circle(40% at 50% 40%)',
+                  transform: 'scale(1.8) translateX(40px)'
+                }}
+              />
+            </Box>
+          </Flex>
         </Container>
       </Box>
 
@@ -212,18 +201,18 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
-        bg="rgba(255, 255, 255, 0.03)"
-        borderTop="1px solid rgba(255, 255, 255, 0.1)"
-        borderBottom="1px solid rgba(255, 255, 255, 0.1)"
+        bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)"}
+        borderTop={colorMode === 'dark' ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.1)"}
+        borderBottom={colorMode === 'dark' ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.1)"}
       >
         <Container maxW="1400px">
-          <StatGroup textAlign="center" color="white">
+          <StatGroup textAlign="center" color={colorMode === 'dark' ? "white" : "gray.800"}>
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={{ base: 6, md: 10 }} width="100%">
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaClock} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <Icon as={FaClock} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">50%+</StatNumber>
-                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
                     Office time spent on routine emails
                   </StatHelpText>
                 </Flex>
@@ -231,9 +220,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaLightbulb} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <Icon as={FaLightbulb} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">3x</StatNumber>
-                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
                     Productivity increase with AI assistance
                   </StatHelpText>
                 </Flex>
@@ -241,9 +230,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaUsers} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <Icon as={FaUsers} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">10x</StatNumber>
-                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
                     Return on investment for enterprise users
                   </StatHelpText>
                 </Flex>
@@ -260,12 +249,11 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
             <VStack spacing={4} align="center" textAlign="center">
               <Heading
                 size={{ base: "lg", md: "xl" }}
-                bgGradient="linear(to-r, white, #3ef2f2)"
-                bgClip="text"
+                color={colorMode === 'dark' ? "white" : "gray.800"}
               >
                 Unlock the Hidden Knowledge in Your Communications
               </Heading>
-              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
+              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.600"}>
                 Transform your team's emails into a powerful knowledge resource that enables AI to handle routine tasks with personalized tone and clarity.
               </Text>
             </VStack>
@@ -323,21 +311,20 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
-        bg="rgba(255, 255, 255, 0.03)"
-        borderTop="1px solid rgba(255, 255, 255, 0.1)"
-        borderBottom="1px solid rgba(255, 255, 255, 0.1)"
+        bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.02)"}
+        borderTop={colorMode === 'dark' ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.1)"}
+        borderBottom={colorMode === 'dark' ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid rgba(0, 0, 0, 0.1)"}
       >
         <Container maxW="1400px">
           <VStack spacing={{ base: 8, md: 12 }} align="stretch">
             <VStack spacing={4} align="center" textAlign="center">
               <Heading
                 size={{ base: "lg", md: "xl" }}
-                bgGradient="linear(to-r, white, #3ef2f2)"
-                bgClip="text"
+                color={colorMode === 'dark' ? "white" : "gray.800"}
               >
                 Transforming Work Across Departments
               </Heading>
-              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
+              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.600"}>
                 See how teams across your organization can benefit from our email knowledge base solution.
               </Text>
             </VStack>
@@ -395,28 +382,41 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
-        bgGradient="linear(to-r, neon.dark, neon.purple)"
+        bg={colorMode === 'dark' ? "#2A4365" : "#3182CE"}
       >
         <Container maxW="1400px">
           <VStack spacing={{ base: 6, md: 8 }} align="center" textAlign="center">
             <Heading
               size={{ base: "lg", md: "xl" }}
-              bgGradient="linear(to-r, white, #3ef2f2)"
-              bgClip="text"
+              color="white !important"
+              textShadow="0px 1px 2px rgba(0, 0, 0, 0.5)"
+              fontWeight="bold"
+              letterSpacing="0.2px"
             >
               Ready to free your team from routine emails?
             </Heading>
-            <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
+            <Text 
+              fontSize={{ base: "md", md: "lg" }} 
+              maxW="800px" 
+              color="white !important"
+              textShadow="0px 1px 2px rgba(0, 0, 0, 0.5)"
+              fontWeight="semibold"
+              letterSpacing="0.2px"
+              opacity="1"
+            >
               Take the first step toward multiplying your team's productivity. Our platform makes it easy to harness the knowledge hidden in your emails, enabling AI to handle routine correspondence while your team focuses on making greater contributions.
             </Text>
             <Button
               size="lg"
-              variant="neon"
+              bg="white"
+              color={colorMode === 'dark' ? "#2A4365" : "#3182CE"}
+              _hover={{ bg: "gray.100" }}
               px={8}
               onClick={handleSignIn}
-              leftIcon={<Icon as={FaMicrosoft} />}
+              leftIcon={<Icon as={FaMicrosoft} color={colorMode === 'dark' ? "#2A4365" : "#3182CE"} />}
               isLoading={isLoading}
               loadingText="Connecting..."
+              boxShadow="md"
             >
               Get Started Now
             </Button>
@@ -425,19 +425,19 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       </Box>
 
       {/* Footer */}
-      <Box py={12} px={{ base: 4, md: 8 }} color="whiteAlpha.800" position="relative" zIndex="1">
+      <Box py={12} px={{ base: 4, md: 8 }} color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} position="relative" zIndex="1">
         <Container maxW="1400px">
           <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
             <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
-              <Heading size="md" color="white">Email Knowledge Base</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "white" : "gray.800"}>Email Knowledge Base</Heading>
               <Text fontSize="sm"> 2025 Email Knowledge Base. All rights reserved.</Text>
             </VStack>
 
             <HStack spacing={6} mt={{ base: 4, md: 0 }}>
-              <ChakraLink as={RouterLink} to="/docs" _hover={{ color: 'neon.blue' }}>Documentation</ChakraLink>
-              <ChakraLink as={RouterLink} to="/support" _hover={{ color: 'neon.blue' }}>Support</ChakraLink>
-              <ChakraLink href="#" _hover={{ color: 'neon.blue' }}>Privacy Policy</ChakraLink>
-              <ChakraLink href="#" _hover={{ color: 'neon.blue' }}>Terms of Service</ChakraLink>
+              <ChakraLink as={RouterLink} to="/docs" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Documentation</ChakraLink>
+              <ChakraLink as={RouterLink} to="/support" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Support</ChakraLink>
+              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Privacy Policy</ChakraLink>
+              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Terms of Service</ChakraLink>
             </HStack>
           </Stack>
         </Container>
@@ -455,23 +455,31 @@ const FeatureCard = ({ icon, title, description, link }: {
   description: string,
   link: string
 }) => {
+  const { colorMode } = useColorMode();
   return (
     <Box
-      bg="rgba(255, 255, 255, 0.05)"
+      bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.05)" : "white"}
       borderRadius="xl"
       p={{ base: 4, md: 6 }}
       transition="all 0.3s"
-      _hover={{ transform: "translateY(-5px)", bg: "rgba(255, 255, 255, 0.08)" }}
+      _hover={{ 
+        transform: "translateY(-5px)", 
+        bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.08)" : "gray.50",
+        boxShadow: "md"
+      }}
       height="100%"
+      boxShadow="sm"
+      borderWidth="1px"
+      borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
     >
-      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
-      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color="white">
+      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
+      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>
         {title}
       </Heading>
-      <Text color="whiteAlpha.800" mb={4} fontSize={{ base: "sm", md: "md" }}>
+      <Text color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} mb={4} fontSize={{ base: "sm", md: "md" }}>
         {description}
       </Text>
-      <ChakraLink as={RouterLink} to={link} color="neon.blue" fontWeight="bold">
+      <ChakraLink as={RouterLink} to={link} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} fontWeight="bold">
         Learn more →
       </ChakraLink>
     </Box>
@@ -485,23 +493,31 @@ const UseCaseCard = ({ icon, sector, title, description }: {
   title: string,
   description: string
 }) => {
+  const { colorMode } = useColorMode();
   return (
     <Box
-      bg="rgba(255, 255, 255, 0.05)"
+      bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.05)" : "white"}
       borderRadius="xl"
       p={{ base: 4, md: 6 }}
       transition="all 0.3s"
-      _hover={{ transform: "translateY(-5px)", bg: "rgba(255, 255, 255, 0.08)" }}
+      _hover={{ 
+        transform: "translateY(-5px)", 
+        bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.08)" : "gray.50",
+        boxShadow: "md"
+      }}
       height="100%"
+      boxShadow="sm"
+      borderWidth="1px"
+      borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
     >
       <Flex align="center" mb={4}>
-        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color="neon.blue" mr={3} />
-        <Badge colorScheme="purple">{sector}</Badge>
+        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mr={3} />
+        <Badge colorScheme={colorMode === 'dark' ? "purple" : "blue"}>{sector}</Badge>
       </Flex>
-      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color="white">
+      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>
         {title}
       </Heading>
-      <Text color="whiteAlpha.800" fontSize={{ base: "sm", md: "md" }}>
+      <Text color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} fontSize={{ base: "sm", md: "md" }}>
         {description}
       </Text>
     </Box>
