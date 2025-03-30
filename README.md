@@ -66,6 +66,9 @@ A secure application that connects to Microsoft Outlook, analyzes emails using A
 
 See [architecture.md](./docs/architecture.md) for detailed information about the system design and components.
 
+## Mobile Responsiveness
+The application is fully responsive and optimized for mobile devices, with special attention to navigation elements and layout adjustments.
+
 ## License
 
 MIT
