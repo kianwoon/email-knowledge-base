@@ -19,6 +19,15 @@ import {
   StatGroup,
   useToast,
   useColorMode,
+  IconButton,
+  Drawer,
+  DrawerBody,
+  DrawerHeader,
+  DrawerOverlay,
+  DrawerContent,
+  DrawerCloseButton,
+  useDisclosure,
+  useBreakpointValue,
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -35,6 +44,9 @@ import {
   FaLightbulb,
   FaUsers,
   FaMicrosoft,
+  FaBars,
+  FaSun,
+  FaMoon,
 } from 'react-icons/fa';
 
 interface SignInProps {
@@ -44,7 +56,9 @@ interface SignInProps {
 const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
-  const { colorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
+  const { isOpen, onOpen, onClose } = useDisclosure();
+  const isMobile = useBreakpointValue({ base: true, md: false });
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -83,8 +97,102 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
     }
   };
 
+  // Custom Navbar for the landing page
+  const LandingNavbar = () => (
+    <Box as="nav" bg="bg.primary" color="text.primary" boxShadow="sm" position="sticky" top="0" zIndex="sticky">
+      <Flex justify="space-between" align="center" px={{ base: 4, md: 8 }} py={2} maxW="1400px" mx="auto">
+        <Box as={RouterLink} to="/" fontWeight="bold" fontSize={{ base: "lg", md: "xl" }} color="text.primary" _hover={{ textDecoration: 'none' }}>Email Knowledge Base</Box>
+        
+        {isMobile ? (
+          <>
+            <IconButton
+              aria-label="Open menu"
+              icon={<Icon as={FaBars} />}
+              onClick={onOpen}
+              variant="ghost"
+              colorScheme={colorMode === 'dark' ? "whiteAlpha" : "blackAlpha"}
+            />
+            <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
+              <DrawerOverlay />
+              <DrawerContent bg={colorMode === 'dark' ? "bg.primary" : "white"}>
+                <DrawerCloseButton color="text.primary" />
+                <DrawerHeader color="text.primary">Menu</DrawerHeader>
+                <DrawerBody>
+                  <VStack spacing={4} align="stretch">
+                    <Button as={RouterLink} to="/#features" leftIcon={<Box as="span" fontSize="sm">🔍</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
+                      Features
+                    </Button>
+                    <Button as={RouterLink} to="/docs" leftIcon={<Box as="span" fontSize="sm">📄</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
+                      Documentation
+                    </Button>
+                    <Button as={RouterLink} to="/support" leftIcon={<Box as="span" fontSize="sm">❓</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
+                      Support
+                    </Button>
+                    <Button 
+                      onClick={() => {
+                        handleSignIn();
+                        onClose();
+                      }}
+                      colorScheme="blue"
+                      w="full"
+                      justifyContent="flex-start"
+                    >
+                      Sign In
+                    </Button>
+                  </VStack>
+                </DrawerBody>
+              </DrawerContent>
+            </Drawer>
+          </>
+        ) : (
+          <Flex align="center" gap={4}>
+            <Flex align="center" gap={1}>
+              <Box as="span" fontSize="sm">🔍</Box>
+              <Box as="a" href="/docs" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Features</Box>
+            </Flex>
+            <Flex align="center" gap={1}>
+              <Box as="span" fontSize="sm">📄</Box>
+              <Box as="a" href="/docs" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Documentation</Box>
+            </Flex>
+            <Flex align="center" gap={1}>
+              <Box as="span" fontSize="sm">❓</Box>
+              <Box as="a" href="/support" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Support</Box>
+            </Flex>
+            <IconButton
+              aria-label="Toggle color mode"
+              icon={colorMode === 'light' ? <Icon as={FaMoon} /> : <Icon as={FaSun} />}
+              onClick={toggleColorMode}
+              variant="ghost"
+              colorScheme={colorMode === 'dark' ? 'whiteAlpha' : 'gray'}
+              color="text.primary"
+              _hover={{ bg: "bg.accent" }}
+              size="sm"
+              borderRadius="full"
+            />
+            <Button
+              onClick={handleSignIn}
+              px={4}
+              py={2}
+              bg="bg.highlight"
+              color="text.inverted"
+              borderRadius="md"
+              _hover={{ opacity: 0.9 }}
+              fontSize="sm"
+              size="sm"
+            >
+              Sign In
+            </Button>
+          </Flex>
+        )}
+      </Flex>
+    </Box>
+  );
+
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'light.bg'} minH="100vh" position="relative" overflow="hidden">
+      {/* Custom Navbar */}
+      <LandingNavbar />
+      
       {/* Hero Section */}
       <Box
         py={{ base: 10, md: 20 }}
@@ -130,7 +238,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                   Office workers spend over 50% of their time on repetitive email communications. Our platform extracts valuable knowledge from your emails, enabling AI to handle routine tasks with personalized tone and clarity.
                 </Text>
 
-                <HStack spacing={4} pt={2}>
+                <HStack spacing={{ base: 2, md: 4 }} pt={2} flexDir={{ base: "column", sm: "row" }} w={{ base: "100%", sm: "auto" }}>
                   <Button
                     leftIcon={<Icon as={FaMicrosoft} />}
                     onClick={handleSignIn}
@@ -144,6 +252,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                       bg: colorMode === 'dark' ? "cyan.500" : "cyan.600",
                     }}
                     px={6}
+                    w={{ base: "100%", sm: "auto" }}
+                    mb={{ base: 2, sm: 0 }}
+                    zIndex={3}
                   >
                     Sign in with Microsoft
                   </Button>
@@ -157,6 +268,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                     _hover={{
                       bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)",
                     }}
+                    w={{ base: "100%", sm: "auto" }}
+                    zIndex={3}
                   >
                     Learn More
                   </Button>
@@ -164,16 +277,19 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               </VStack>
             </Box>
             
-            {/* Happy Man Image */}
+            {/* Happy Man Image - Now shown on mobile at a smaller size */}
             <Box 
-              w={{ base: "0%", md: "50%" }}
+              w={{ base: "70%", md: "50%" }}
               h="auto"
               position="relative"
-              display={{ base: "none", md: "block" }}
+              display="block"
               overflow="visible"
               ml={{ md: 4 }}
-              textAlign="right"
+              textAlign="center"
               pr={{ md: 2 }}
+              mt={{ base: 12, md: 0 }}
+              mb={{ base: 8, md: 0 }}
+              order={{ base: 2, md: 1 }}
             >
               <Box
                 as="img"
@@ -182,12 +298,12 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                 objectFit="contain"
                 height="auto"
                 width="100%"
-                maxH="500px"
+                maxH={{ base: "250px", md: "500px" }}
                 position="relative"
-                zIndex={2}
+                zIndex={1}
                 sx={{
                   clipPath: 'circle(40% at 50% 40%)',
-                  transform: 'scale(1.8) translateX(40px)'
+                  transform: { base: 'scale(1.2)', md: 'scale(1.8) translateX(40px)' }
                 }}
               />
             </Box>
@@ -291,7 +407,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                 icon={FaRobot}
                 title="AI Assistant Training"
                 description="Train AI to handle routine communications with personalized tone, freeing your team for higher-value work."
-                link="/docs"
+                link="/docs/ai-analysis"
               />
 
               <FeatureCard
@@ -407,7 +523,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               Take the first step toward multiplying your team's productivity. Our platform makes it easy to harness the knowledge hidden in your emails, enabling AI to handle routine correspondence while your team focuses on making greater contributions.
             </Text>
             <Button
-              size="lg"
+              size={{ base: "md", md: "lg" }}
               bg="white"
               color={colorMode === 'dark' ? "#2A4365" : "#3182CE"}
               _hover={{ bg: "gray.100" }}
@@ -417,6 +533,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               isLoading={isLoading}
               loadingText="Connecting..."
               boxShadow="md"
+              w={{ base: "100%", sm: "auto" }}
+              maxW={{ base: "100%", sm: "300px" }}
             >
               Get Started Now
             </Button>
@@ -425,20 +543,27 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       </Box>
 
       {/* Footer */}
-      <Box py={12} px={{ base: 4, md: 8 }} color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} position="relative" zIndex="1">
+      <Box py={{ base: 8, md: 12 }} px={{ base: 4, md: 8 }} color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} position="relative" zIndex="1">
         <Container maxW="1400px">
-          <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
+          <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align={{ base: 'center', md: 'flex-start' }} spacing={{ base: 6, md: 0 }}>
             <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
-              <Heading size="md" color={colorMode === 'dark' ? "white" : "gray.800"}>Email Knowledge Base</Heading>
-              <Text fontSize="sm"> 2025 Email Knowledge Base. All rights reserved.</Text>
+              <Heading size={{ base: "sm", md: "md" }} color={colorMode === 'dark' ? "white" : "gray.800"}>Email Knowledge Base</Heading>
+              <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}> 2025 Email Knowledge Base. All rights reserved.</Text>
             </VStack>
 
-            <HStack spacing={6} mt={{ base: 4, md: 0 }}>
+            <Stack 
+              direction={{ base: 'column', sm: 'row' }} 
+              spacing={{ base: 3, md: 6 }}
+              align="center"
+              flexWrap="wrap"
+              justify={{ base: 'center', md: 'flex-end' }}
+              mt={{ base: 4, md: 0 }}
+            >
               <ChakraLink as={RouterLink} to="/docs" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Documentation</ChakraLink>
               <ChakraLink as={RouterLink} to="/support" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Support</ChakraLink>
               <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Privacy Policy</ChakraLink>
               <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Terms of Service</ChakraLink>
-            </HStack>
+            </Stack>
           </Stack>
         </Container>
       </Box>
@@ -472,14 +597,14 @@ const FeatureCard = ({ icon, title, description, link }: {
       borderWidth="1px"
       borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
     >
-      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
+      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="text.highlight" mb={4} />
       <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>
         {title}
       </Heading>
       <Text color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} mb={4} fontSize={{ base: "sm", md: "md" }}>
         {description}
       </Text>
-      <ChakraLink as={RouterLink} to={link} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} fontWeight="bold">
+      <ChakraLink as={RouterLink} to={link} color="text.highlight" fontWeight="bold">
         Learn more →
       </ChakraLink>
     </Box>
@@ -511,7 +636,7 @@ const UseCaseCard = ({ icon, sector, title, description }: {
       borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
     >
       <Flex align="center" mb={4}>
-        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mr={3} />
+        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color="text.highlight" mr={3} />
         <Badge colorScheme={colorMode === 'dark' ? "purple" : "blue"}>{sector}</Badge>
       </Flex>
       <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>

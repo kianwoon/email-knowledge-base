@@ -18,6 +18,17 @@ import KnowledgeBase from './pages/documentation/KnowledgeBase';
 
 // Components
 import Navbar from './components/Navbar';
+import DocumentationHeader from './components/DocumentationHeader';
+
+// Documentation Layout Component
+const DocumentationLayout = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <>
+      <DocumentationHeader />
+      {children}
+    </>
+  );
+};
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -55,30 +66,16 @@ function App() {
   return (
     <Router>
       <Flex direction="column" minH="100vh">
-        {isAuthenticated ? (
-          <Navbar onLogout={handleLogout} />
-        ) : (
-          <Box as="nav" bg="primary.600" color="white" boxShadow="md" position="sticky" top="0" zIndex="sticky">
-            <Flex justify="space-between" align="center" px={4} py={2} maxW="1400px" mx="auto">
-              <Box fontWeight="bold" fontSize="xl">Email Knowledge Base</Box>
-              <Flex align="center" gap={4}>
-                <Box as="a" href="/docs" px={4} py={2} _hover={{ textDecoration: 'none', bg: 'primary.500' }}>Features</Box>
-                <Box as="a" href="/docs" px={4} py={2} _hover={{ textDecoration: 'none', bg: 'primary.500' }}>Documentation</Box>
-                <Box as="a" href="/support" px={4} py={2} _hover={{ textDecoration: 'none', bg: 'primary.500' }}>Support</Box>
-                <Box as="a" href="/" px={4} py={2} bg="cyan.400" color="white" borderRadius="md" _hover={{ bg: 'cyan.500' }}>Sign In</Box>
-              </Flex>
-            </Flex>
-          </Box>
-        )}
+        {isAuthenticated && <Navbar onLogout={handleLogout} />}
         
         <Routes>
-          {/* Documentation Routes - accessible without authentication and no padding */}
-          <Route path="/docs" element={<Documentation />} />
-          <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
-          <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
-          <Route path="/docs/ai-analysis" element={<AIAnalysis />} />
-          <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
-          <Route path="/support" element={<Support />} />
+          {/* Documentation Routes - accessible without authentication and with DocumentationHeader */}
+          <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
+          <Route path="/docs/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
+          <Route path="/docs/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
+          <Route path="/docs/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
+          <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+          <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
           
           {/* App Routes - with padding and authentication */}
           <Route path="/*" element={

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Heading, Text, Container, VStack } from '@chakra-ui/react';
+import { Box, Heading, Text, Container, VStack, useColorMode } from '@chakra-ui/react';
 
 interface PageBannerProps {
   title: string;
@@ -10,26 +10,49 @@ interface PageBannerProps {
 const PageBanner: React.FC<PageBannerProps> = ({ 
   title, 
   subtitle,
-  gradient = "linear(to-r, #3ef2f2, #f72585)"
+  gradient
 }) => {
+  const { colorMode } = useColorMode();
+  
+  // Default gradients if none provided
+  const defaultGradient = colorMode === 'dark' 
+    ? "linear(to-r, neon.blue, neon.purple, neon.pink)"
+    : "linear(to-r, brand.600, brand.500, brand.400)";
+  
   return (
     <Box 
       w="100%" 
-      py={12}
-      bgGradient="linear(to-b, rgba(62, 242, 242, 0.2), transparent)"
-      borderBottom="1px solid rgba(255, 255, 255, 0.1)"
+      py={{ base: 8, md: 12 }}
+      px={{ base: 4, md: 8 }}
+      bgGradient={colorMode === 'dark' 
+        ? "linear(to-br, rgba(5, 10, 48, 0.9), rgba(58, 12, 163, 0.7))"
+        : "linear(to-br, rgba(247, 249, 252, 0.9), rgba(224, 231, 255, 0.7))"
+      }
+      borderBottom="1px solid"
+      borderColor="border.primary"
     >
       <Container maxW="1200px">
-        <VStack spacing={3} align="center" textAlign="center">
+        <VStack spacing={{ base: 2, md: 3 }} align="center" textAlign="center">
           <Heading 
-            size="2xl" 
-            bgGradient={gradient}
+            size={{ base: "xl", md: "2xl" }} 
+            bgGradient={gradient || defaultGradient}
             bgClip="text"
+            sx={{
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+            px={{ base: 2, md: 0 }}
+            wordBreak="break-word"
           >
             {title}
           </Heading>
           {subtitle && (
-            <Text fontSize="lg" color="whiteAlpha.800" maxW="800px">
+            <Text 
+              fontSize={{ base: "md", md: "lg" }} 
+              color="text.secondary" 
+              maxW="800px"
+              px={{ base: 2, md: 0 }}
+            >
               {subtitle}
             </Text>
           )}
