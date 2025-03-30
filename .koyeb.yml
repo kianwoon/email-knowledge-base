@@ -37,7 +37,7 @@ services:
       - key: ENVIRONMENT
         value: "production"
       - key: VITE_API_URL
-        value: "https://backend-{{APP_NAME}}.koyeb.app"
+        value: "https://backend-email-knowledge-base-2.koyeb.app"
     ports:
       - "5175:80"
     healthcheck:
