@@ -3,21 +3,12 @@ import {
   Box,
   Button,
   Container,
+  Flex,
   Heading,
   Text,
   VStack,
-  Flex,
   HStack,
-  SimpleGrid,
-  Icon,
-  Stack,
-  Badge,
-  Link as ChakraLink,
-  Stat,
-  StatNumber,
-  StatHelpText,
-  StatGroup,
-  useToast,
+  useBreakpointValue,
   useColorMode,
   IconButton,
   Drawer,
@@ -27,27 +18,35 @@ import {
   DrawerContent,
   DrawerCloseButton,
   useDisclosure,
-  useBreakpointValue,
+  SimpleGrid,
+  Stack,
+  Link as ChakraLink,
+  Stat,
+  StatNumber,
+  StatHelpText,
+  StatGroup,
+  useToast,
+  Icon,
+  Badge,
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
-  FaRobot,
+  FaLightbulb,
   FaSearch,
+  FaBars,
+  FaMoon,
+  FaSun,
+  FaRobot,
   FaLock,
   FaBrain,
   FaFilter,
   FaDatabase,
-  FaChartLine,
-  FaBuilding,
-  FaUserTie,
-  FaClock,
-  FaLightbulb,
   FaUsers,
   FaMicrosoft,
-  FaBars,
-  FaSun,
-  FaMoon,
+  FaClock,
 } from 'react-icons/fa';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 interface SignInProps {
   onLogin: () => void;
@@ -59,6 +58,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
+  const { t } = useTranslation();
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -74,8 +74,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         onLogin();
 
         toast({
-          title: "Login successful",
-          description: "You are now signed in with a demo account",
+          title: t('toast.loginSuccess.title'),
+          description: t('toast.loginSuccess.description'),
           status: "success",
           duration: 3000,
           isClosable: true,
@@ -88,8 +88,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       setIsLoading(false);
 
       toast({
-        title: "Login failed",
-        description: "There was an error signing in",
+        title: t('toast.loginError.title'),
+        description: t('toast.loginError.description'),
         status: "error",
         duration: 3000,
         isClosable: true,
@@ -101,11 +101,12 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const LandingNavbar = () => (
     <Box as="nav" bg="bg.primary" color="text.primary" boxShadow="sm" position="sticky" top="0" zIndex="sticky">
       <Flex justify="space-between" align="center" px={{ base: 4, md: 8 }} py={2} maxW="1400px" mx="auto">
-        <Box as={RouterLink} to="/" fontWeight="bold" fontSize={{ base: "lg", md: "xl" }} color="text.primary" _hover={{ textDecoration: 'none' }}>Email Knowledge Base</Box>
+        <Box as={RouterLink} to="/" fontWeight="bold" fontSize={{ base: "lg", md: "xl" }} color="text.primary" _hover={{ textDecoration: 'none' }}>{t('app.name')}</Box>
         
         {isMobile ? (
           <>
             <HStack spacing={2}>
+              <LanguageSwitcher />
               <IconButton
                 aria-label="Toggle color mode"
                 icon={<Icon as={colorMode === 'light' ? FaMoon : FaSun} />}
@@ -128,17 +129,17 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               <DrawerOverlay />
               <DrawerContent bg={colorMode === 'dark' ? "bg.primary" : "white"}>
                 <DrawerCloseButton color="text.primary" />
-                <DrawerHeader color="text.primary">Menu</DrawerHeader>
+                <DrawerHeader color="text.primary">{t('navigation.menu')}</DrawerHeader>
                 <DrawerBody>
                   <VStack spacing={4} align="stretch">
                     <Button as={RouterLink} to="/#features" leftIcon={<Box as="span" fontSize="sm">🔍</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Features
+                      {t('navigation.features')}
                     </Button>
                     <Button as={RouterLink} to="/docs" leftIcon={<Box as="span" fontSize="sm">📄</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Documentation
+                      {t('navigation.documentation')}
                     </Button>
                     <Button as={RouterLink} to="/support" leftIcon={<Box as="span" fontSize="sm">❓</Box>} variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Support
+                      {t('navigation.support')}
                     </Button>
                     <Button 
                       onClick={() => {
@@ -149,10 +150,10 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                       w="full"
                       justifyContent="flex-start"
                     >
-                      Sign In
+                      {t('home.cta.signIn')}
                     </Button>
                     <Flex align="center" justify="space-between" w="full" pt={2} borderTop="1px solid" borderColor={colorMode === 'dark' ? "whiteAlpha.300" : "gray.200"}>
-                      <Text fontSize="sm">Toggle theme</Text>
+                      <Text fontSize="sm">{t('navigation.toggleTheme')}</Text>
                       <IconButton
                         aria-label="Toggle color mode"
                         icon={colorMode === 'light' ? <Icon as={FaMoon} /> : <Icon as={FaSun} />}
@@ -169,60 +170,43 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
             </Drawer>
           </>
         ) : (
-          <Flex align="center" gap={4}>
-            <Flex align="center" gap={1}>
-              <Box as="span" fontSize="sm">🔍</Box>
-              <Box as="a" href="/docs" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Features</Box>
-            </Flex>
-            <Flex align="center" gap={1}>
-              <Box as="span" fontSize="sm">📄</Box>
-              <Box as="a" href="/docs" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Documentation</Box>
-            </Flex>
-            <Flex align="center" gap={1}>
-              <Box as="span" fontSize="sm">❓</Box>
-              <Box as="a" href="/support" px={2} py={2} _hover={{ textDecoration: 'none' }} color="text.primary" fontSize="sm">Support</Box>
-            </Flex>
+          <HStack spacing={4}>
+            <Button as={RouterLink} to="/#features" variant="ghost" size="sm">{t('navigation.features')}</Button>
+            <Button as={RouterLink} to="/docs" variant="ghost" size="sm">{t('navigation.documentation')}</Button>
+            <Button as={RouterLink} to="/support" variant="ghost" size="sm">{t('navigation.support')}</Button>
+            <LanguageSwitcher />
             <IconButton
               aria-label="Toggle color mode"
               icon={colorMode === 'light' ? <Icon as={FaMoon} /> : <Icon as={FaSun} />}
               onClick={toggleColorMode}
               variant="ghost"
-              colorScheme={colorMode === 'dark' ? "whiteAlpha" : "blackAlpha"}
               color="text.primary"
               _hover={{ bg: "bg.accent" }}
               size="sm"
-              borderRadius="full"
             />
             <Button
               onClick={handleSignIn}
-              px={4}
-              py={2}
-              bg="bg.highlight"
-              color="text.inverted"
-              borderRadius="md"
-              _hover={{ opacity: 0.9 }}
-              fontSize="sm"
+              colorScheme="blue"
               size="sm"
             >
-              Sign In
+              {t('home.cta.signIn')}
             </Button>
-          </Flex>
+          </HStack>
         )}
       </Flex>
     </Box>
   );
 
   return (
-    <Box bg={colorMode === 'dark' ? 'dark.bg' : 'light.bg'} minH="100vh" position="relative" overflow="hidden">
+    <Box bg={colorMode === 'dark' ? "dark.bg" : "light.bg"} minH="100vh" position="relative" overflow="hidden">
       {/* Custom Navbar */}
       <LandingNavbar />
       
       {/* Hero Section */}
       <Box
-        py={{ base: 10, md: 20 }}
-        px={{ base: 4, md: 8 }}
-        position="relative"
-        zIndex="1"
+        py={{ base: 10, md: 20 }} 
+        px={4} 
+        bg={colorMode === 'dark' ? "linear-gradient(180deg, rgba(13,18,38,0) 0%, rgba(13,18,38,1) 100%)" : "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(240,240,250,1) 100%)"}
       >
         <Container maxW="1400px">
           <Flex direction={{ base: "column", md: "row" }} align="center" justify="space-between" gap={{ md: 8 }} position="relative">
@@ -231,8 +215,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               w={{ base: "100%", md: "50%" }} 
               zIndex={2} 
               position="relative"
+              textAlign={{ base: "center", md: "left" }}
             >
-              <VStack spacing={{ base: 6, md: 6 }} align={{ base: "center", md: "flex-start" }} textAlign={{ base: "center", md: "left" }}>
+              <VStack spacing={{ base: 6, md: 6 }} align={{ base: "center", md: "flex-start" }}>
                 <Box 
                   bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)"} 
                   px={3} 
@@ -244,7 +229,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                     color={colorMode === 'dark' ? "cyan.400" : "blue.500"}
                     fontWeight="medium"
                   >
-                    AI-POWERED EMAIL KNOWLEDGE BASE
+                    {t('app.tagline')}
                   </Text>
                 </Box>
 
@@ -255,11 +240,11 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                   lineHeight="1.2"
                   fontWeight="bold"
                 >
-                  Reclaim Your Time from Routine Email Tasks
+                  {t('home.hero.title')}
                 </Heading>
 
                 <Text fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "gray.300" : "gray.700"}>
-                  Office workers spend over 50% of their time on repetitive email communications. Our platform extracts valuable knowledge from your emails, enabling AI to handle routine tasks with personalized tone and clarity.
+                  {t('home.hero.description')}
                 </Text>
 
                 <HStack spacing={{ base: 2, md: 4 }} pt={2} flexDir={{ base: "column", sm: "row" }} w={{ base: "100%", sm: "auto" }}>
@@ -280,7 +265,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                     mb={{ base: 2, sm: 0 }}
                     zIndex={3}
                   >
-                    Sign in with Microsoft
+                    {t('home.cta.signIn')}
                   </Button>
                   <Button
                     as={RouterLink}
@@ -295,7 +280,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                     w={{ base: "100%", sm: "auto" }}
                     zIndex={3}
                   >
-                    Learn More
+                    {t('home.cta.learnMore')}
                   </Button>
                 </HStack>
               </VStack>
@@ -353,7 +338,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                   <Icon as={FaClock} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">50%+</StatNumber>
                   <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
-                    Office time spent on routine emails
+                    {t('stats.officeTimeSpent')}
                   </StatHelpText>
                 </Flex>
               </Stat>
@@ -363,7 +348,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                   <Icon as={FaLightbulb} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">3x</StatNumber>
                   <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
-                    Productivity increase with AI assistance
+                    {t('stats.productivityIncrease')}
                   </StatHelpText>
                 </Flex>
               </Stat>
@@ -373,7 +358,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                   <Icon as={FaUsers} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
                   <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">10x</StatNumber>
                   <StatHelpText fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "white" : "gray.600"}>
-                    Return on investment for enterprise users
+                    {t('stats.returnOnInvestment')}
                   </StatHelpText>
                 </Flex>
               </Stat>
@@ -383,65 +368,65 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       </Box>
 
       {/* Features Section */}
-      <Box py={{ base: 16, md: 20 }} px={{ base: 4, md: 8 }} position="relative" zIndex="1">
+      <Box py={{ base: 16, md: 24 }} id="features">
         <Container maxW="1400px">
-          <VStack spacing={{ base: 8, md: 12 }} align="stretch">
-            <VStack spacing={4} align="center" textAlign="center">
-              <Heading
-                size={{ base: "lg", md: "xl" }}
-                color={colorMode === 'dark' ? "white" : "gray.800"}
-              >
-                Unlock the Hidden Knowledge in Your Communications
-              </Heading>
-              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.600"}>
-                Transform your team's emails into a powerful knowledge resource that enables AI to handle routine tasks with personalized tone and clarity.
-              </Text>
-            </VStack>
-
-            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={{ base: 6, md: 8 }}>
-              <FeatureCard
-                icon={FaFilter}
-                title="Smart Email Processing"
-                description="Automatically filter and categorize emails based on content, priority, and knowledge value."
-                link="/docs/smart-filtering"
-              />
-
-              <FeatureCard
-                icon={FaBrain}
-                title="AI-Powered Knowledge Extraction"
-                description="Extract valuable insights and patterns from your communications using advanced AI algorithms."
-                link="/docs/ai-analysis"
-              />
-
-              <FeatureCard
-                icon={FaDatabase}
-                title="Centralized Knowledge Base"
-                description="Store all extracted knowledge in a searchable, secure database accessible to your entire team."
-                link="/docs/knowledge-base"
-              />
-
-              <FeatureCard
-                icon={FaLock}
-                title="Enterprise-Grade Security"
-                description="Keep your sensitive information protected with our robust security infrastructure and compliance measures."
-                link="/docs/secure-authentication"
-              />
-
-              <FeatureCard
-                icon={FaRobot}
-                title="AI Assistant Training"
-                description="Train AI to handle routine communications with personalized tone, freeing your team for higher-value work."
-                link="/docs/ai-analysis"
-              />
-
-              <FeatureCard
-                icon={FaSearch}
-                title="Powerful Search Capabilities"
-                description="Quickly find the information you need with our advanced semantic search technology."
-                link="/docs/knowledge-base"
-              />
-            </SimpleGrid>
+          <VStack spacing={{ base: 8, md: 12 }} mb={{ base: 10, md: 16 }}>
+            <Heading 
+              as="h2" 
+              size={{ base: "xl", md: "2xl" }} 
+              textAlign="center"
+              color={colorMode === 'dark' ? "white" : "gray.800"}
+            >
+              {t('features.title')}
+            </Heading>
+            <Text 
+              fontSize={{ base: "lg", md: "xl" }} 
+              textAlign="center" 
+              maxW="800px"
+              color={colorMode === 'dark' ? "gray.300" : "gray.600"}
+            >
+              {t('features.subtitle')}
+            </Text>
           </VStack>
+
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={8}>
+            <FeatureCard 
+              icon={FaFilter} 
+              title={t('features.smartEmailProcessing.title')} 
+              description={t('features.smartEmailProcessing.description')} 
+              link="/docs/email-processing" 
+            />
+            <FeatureCard 
+              icon={FaBrain} 
+              title={t('features.aiPoweredKnowledgeExtraction.title')} 
+              description={t('features.aiPoweredKnowledgeExtraction.description')} 
+              link="/docs/ai-analysis" 
+            />
+            <FeatureCard 
+              icon={FaDatabase} 
+              title={t('features.centralizedKnowledgeBase.title')} 
+              description={t('features.centralizedKnowledgeBase.description')} 
+              link="/docs/knowledge-base" 
+            />
+            <FeatureCard 
+              icon={FaLock} 
+              title={t('features.enterpriseGradeSecurity.title')} 
+              description={t('features.enterpriseGradeSecurity.description')} 
+              link="/docs/secure-authentication" 
+            />
+            <FeatureCard 
+              icon={FaRobot} 
+              title={t('features.aiAssistantTraining.title')} 
+              description={t('features.aiAssistantTraining.description')} 
+              link="/docs/ai-training" 
+            />
+            <FeatureCard 
+              icon={FaSearch} 
+              title={t('features.powerfulSearchCapabilities.title')} 
+              description={t('features.powerfulSearchCapabilities.description')} 
+              link="/docs/smart-filtering" 
+            />
+          </SimpleGrid>
         </Container>
       </Box>
 
@@ -462,54 +447,48 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                 size={{ base: "lg", md: "xl" }}
                 color={colorMode === 'dark' ? "white" : "gray.800"}
               >
-                Transforming Work Across Departments
+                {t('useCases.transformingWorkAcrossDepartments')}
               </Heading>
               <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.600"}>
-                See how teams across your organization can benefit from our email knowledge base solution.
+                {t('useCases.seeHowTeamsBenefit')}
               </Text>
             </VStack>
 
             <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={{ base: 6, md: 8 }}>
               <UseCaseCard
-                icon={FaUserTie}
-                sector="HR DEPARTMENTS"
-                title="Streamlined Employee Support"
-                description="Automate responses to common HR inquiries, onboarding processes, and policy questions with consistent, accurate information."
+                sector={t('useCases.hrDepartments')}
+                title={t('useCases.streamlinedEmployeeSupport.title')}
+                description={t('useCases.streamlinedEmployeeSupport.description')}
               />
 
               <UseCaseCard
-                icon={FaBuilding}
-                sector="ADMINISTRATIVE TEAMS"
-                title="Efficient Office Management"
-                description="Handle routine administrative requests and information sharing while maintaining personalized service levels."
+                sector={t('useCases.administrativeTeams')}
+                title={t('useCases.efficientOfficeManagement.title')}
+                description={t('useCases.efficientOfficeManagement.description')}
               />
 
               <UseCaseCard
-                icon={FaChartLine}
-                sector="FINANCE DEPARTMENTS"
-                title="Consistent Financial Communication"
-                description="Provide standardized responses to budget inquiries, expense procedures, and financial reporting questions."
+                sector={t('useCases.financeDepartments')}
+                title={t('useCases.consistentFinancialCommunication.title')}
+                description={t('useCases.consistentFinancialCommunication.description')}
               />
 
               <UseCaseCard
-                icon={FaUsers}
-                sector="SALES TEAMS"
-                title="Enhanced Client Communication"
-                description="Maintain consistent messaging across client interactions while personalizing responses based on relationship history."
+                sector={t('useCases.salesTeams')}
+                title={t('useCases.enhancedClientCommunication.title')}
+                description={t('useCases.enhancedClientCommunication.description')}
               />
 
               <UseCaseCard
-                icon={FaBrain}
-                sector="CONSULTING AGENCIES"
-                title="Client Knowledge Preservation"
-                description="Preserve high-value electronic insights as an end-to-end confidential records and archive."
+                sector={t('useCases.consultingAgencies')}
+                title={t('useCases.clientKnowledgePreservation.title')}
+                description={t('useCases.clientKnowledgePreservation.description')}
               />
 
               <UseCaseCard
-                icon={FaChartLine}
-                sector="FINANCIAL SERVICES"
-                title="Structured Deal Records"
-                description="Manage and export data recordings to structured total records accessing retention."
+                sector={t('useCases.financialServices')}
+                title={t('useCases.structuredDealRecords.title')}
+                description={t('useCases.structuredDealRecords.description')}
               />
             </SimpleGrid>
           </VStack>
@@ -533,7 +512,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               fontWeight="bold"
               letterSpacing="0.2px"
             >
-              Ready to free your team from routine emails?
+              {t('cta.readyToFreeYourTeam')}
             </Heading>
             <Text 
               fontSize={{ base: "md", md: "lg" }} 
@@ -544,7 +523,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               letterSpacing="0.2px"
               opacity="1"
             >
-              Take the first step toward multiplying your team's productivity. Our platform makes it easy to harness the knowledge hidden in your emails, enabling AI to handle routine correspondence while your team focuses on making greater contributions.
+              {t('cta.takeTheFirstStep')}
             </Text>
             <Button
               size={{ base: "md", md: "lg" }}
@@ -560,7 +539,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               w={{ base: "100%", sm: "auto" }}
               maxW={{ base: "100%", sm: "300px" }}
             >
-              Get Started Now
+              {t('cta.getStartedNow')}
             </Button>
           </VStack>
         </Container>
@@ -571,8 +550,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         <Container maxW="1400px">
           <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align={{ base: 'center', md: 'flex-start' }} spacing={{ base: 6, md: 0 }}>
             <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
-              <Heading size={{ base: "sm", md: "md" }} color={colorMode === 'dark' ? "white" : "gray.800"}>Email Knowledge Base</Heading>
-              <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}> 2025 Email Knowledge Base. All rights reserved.</Text>
+              <Heading size={{ base: "sm", md: "md" }} color={colorMode === 'dark' ? "white" : "gray.800"}>{t('app.name')}</Heading>
+              <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}>{t('footer.copyright')}</Text>
             </VStack>
 
             <Stack 
@@ -583,10 +562,10 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               justify={{ base: 'center', md: 'flex-end' }}
               mt={{ base: 4, md: 0 }}
             >
-              <ChakraLink as={RouterLink} to="/docs" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Documentation</ChakraLink>
-              <ChakraLink as={RouterLink} to="/support" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Support</ChakraLink>
-              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Privacy Policy</ChakraLink>
-              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>Terms of Service</ChakraLink>
+              <ChakraLink as={RouterLink} to="/docs" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>{t('footer.documentation')}</ChakraLink>
+              <ChakraLink as={RouterLink} to="/support" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>{t('footer.support')}</ChakraLink>
+              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>{t('footer.privacyPolicy')}</ChakraLink>
+              <ChakraLink href="#" _hover={{ color: colorMode === 'dark' ? 'neon.blue' : 'blue.500' }}>{t('footer.termsOfService')}</ChakraLink>
             </Stack>
           </Stack>
         </Container>
@@ -599,74 +578,65 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
 // Feature Card Component
 const FeatureCard = ({ icon, title, description, link }: {
-  icon: any,
+  icon: React.ComponentType,
   title: string,
   description: string,
   link: string
 }) => {
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
+  
   return (
     <Box
       bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.05)" : "white"}
-      borderRadius="xl"
-      p={{ base: 4, md: 6 }}
+      borderRadius="lg"
+      p={6}
+      boxShadow="md"
       transition="all 0.3s"
-      _hover={{ 
-        transform: "translateY(-5px)", 
-        bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.08)" : "gray.50",
-        boxShadow: "md"
-      }}
+      _hover={{ transform: "translateY(-5px)", boxShadow: "lg" }}
       height="100%"
-      boxShadow="sm"
-      borderWidth="1px"
-      borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
+      display="flex"
+      flexDirection="column"
     >
-      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="text.highlight" mb={4} />
-      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>
+      <Icon as={icon} boxSize={10} color={colorMode === 'dark' ? "neon.blue" : "blue.500"} mb={4} />
+      <Heading as="h3" size="md" mb={3} color={colorMode === 'dark' ? "white" : "gray.800"}>
         {title}
       </Heading>
-      <Text color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} mb={4} fontSize={{ base: "sm", md: "md" }}>
+      <Text color={colorMode === 'dark' ? "gray.300" : "gray.600"} mb={4} flex="1">
         {description}
       </Text>
       <ChakraLink as={RouterLink} to={link} color="text.highlight" fontWeight="bold">
-        Learn more →
+        {t('features.learnMore')}
       </ChakraLink>
     </Box>
   );
 };
 
 // Use Case Card Component
-const UseCaseCard = ({ icon, sector, title, description }: {
-  icon: any,
+const UseCaseCard = ({ sector, title, description }: {
   sector: string,
   title: string,
   description: string
 }) => {
   const { colorMode } = useColorMode();
+  
   return (
     <Box
       bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.05)" : "white"}
-      borderRadius="xl"
-      p={{ base: 4, md: 6 }}
+      borderRadius="lg"
+      p={6}
+      boxShadow="md"
       transition="all 0.3s"
-      _hover={{ 
-        transform: "translateY(-5px)", 
-        bg: colorMode === 'dark' ? "rgba(255, 255, 255, 0.08)" : "gray.50",
-        boxShadow: "md"
-      }}
+      _hover={{ transform: "translateY(-5px)", boxShadow: "lg" }}
       height="100%"
-      boxShadow="sm"
-      borderWidth="1px"
-      borderColor={colorMode === 'dark' ? "transparent" : "gray.200"}
     >
-      <Flex align="center" mb={4}>
-        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color="text.highlight" mr={3} />
-        <Badge colorScheme={colorMode === 'dark' ? "purple" : "blue"}>{sector}</Badge>
-      </Flex>
-      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color={colorMode === 'dark' ? "white" : "gray.800"}>
+      <Badge colorScheme="blue" mb={2} px={2} py={1} borderRadius="full" fontSize="xs">
+        {sector}
+      </Badge>
+      <Heading as="h3" size="md" mb={3} color={colorMode === 'dark' ? "white" : "gray.800"}>
         {title}
       </Heading>
-      <Text color={colorMode === 'dark' ? "whiteAlpha.800" : "gray.600"} fontSize={{ base: "sm", md: "md" }}>
+      <Text color={colorMode === 'dark' ? "gray.300" : "gray.600"}>
         {description}
       </Text>
     </Box>

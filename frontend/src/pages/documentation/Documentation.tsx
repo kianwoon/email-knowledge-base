@@ -14,10 +14,11 @@ import {
   Flex,
   useColorMode
 } from '@chakra-ui/react';
-import { FaDatabase, FaLock, FaFilter, FaChartLine, FaArrowRight } from 'react-icons/fa';
+import { FaDatabase, FaLock, FaFilter, FaChartLine, FaArrowRight, FaEnvelope } from 'react-icons/fa';
 import Footer from '../../components/Footer';
 import PageBanner from '../../components/PageBanner';
 import { Link as RouterLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 // Documentation Card Component
 const DocumentationCard = ({ 
@@ -32,6 +33,7 @@ const DocumentationCard = ({
   path: string
 }) => {
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
   
   return (
     <Card 
@@ -72,7 +74,7 @@ const DocumentationCard = ({
             size="sm" 
             alignSelf="flex-end"
           >
-            Learn More
+            {t('documentation.learnMore')}
           </Button>
         </VStack>
       </CardBody>
@@ -112,6 +114,7 @@ const ResourceCard = ({
 const Documentation: React.FC = () => {
   // We'll use the useColorMode hook for theme-aware styling
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
   
   return (
     <Box 
@@ -121,8 +124,8 @@ const Documentation: React.FC = () => {
       className={`documentation-page ${colorMode}`}
     >
       <PageBanner 
-        title="Documentation" 
-        subtitle="Welcome to the Email Knowledge Base documentation. Here you'll find detailed information about all aspects of our platform."
+        title={t('documentation.title')} 
+        subtitle={t('documentation.description')}
         gradient={colorMode === 'dark' 
           ? "linear(to-r, neon.blue, neon.purple, neon.pink)"
           : "linear(to-r, brand.600, brand.500, brand.400)"
@@ -131,8 +134,7 @@ const Documentation: React.FC = () => {
       <Container maxW="1200px" py={10}>
         <VStack spacing={8} align="stretch">
           <Text color="text.secondary">
-            Explore comprehensive documentation covering all aspects 
-            of our platform, from authentication to knowledge export.
+            {t('documentation.exploreText')}
           </Text>
           
           <Divider borderColor="border.primary" />
@@ -141,27 +143,33 @@ const Documentation: React.FC = () => {
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={8}>
             <DocumentationCard 
               icon={FaLock} 
-              title="Secure Authentication" 
-              description="Learn about our OAuth2-based authentication system that integrates seamlessly with Microsoft 365."
+              title={t('documentation.sections.authentication.title')} 
+              description={t('documentation.sections.authentication.description')} 
               path="/docs/secure-authentication"
             />
             <DocumentationCard 
               icon={FaFilter} 
-              title="Smart Filtering" 
-              description="Discover how to set up intelligent email filters to capture only the most relevant communications."
+              title={t('documentation.sections.filtering.title')} 
+              description={t('documentation.sections.filtering.description')} 
               path="/docs/smart-filtering"
             />
             <DocumentationCard 
               icon={FaChartLine} 
-              title="AI Analysis" 
-              description="Understand how our AI analyzes and extracts knowledge from your communications."
+              title={t('documentation.sections.analysis.title')} 
+              description={t('documentation.sections.analysis.description')} 
               path="/docs/ai-analysis"
             />
             <DocumentationCard 
               icon={FaDatabase} 
-              title="Knowledge Base" 
-              description="Learn how to search, manage, and export your organization's knowledge repository."
+              title={t('documentation.sections.knowledgeBase.title')} 
+              description={t('documentation.sections.knowledgeBase.description')} 
               path="/docs/knowledge-base"
+            />
+            <DocumentationCard 
+              icon={FaEnvelope} 
+              title={t('documentation.sections.emailProcessing.title')} 
+              description={t('documentation.sections.emailProcessing.subtitle')} 
+              path="/docs/email-processing"
             />
           </SimpleGrid>
           
@@ -169,19 +177,21 @@ const Documentation: React.FC = () => {
           
           {/* Additional Resources */}
           <Box>
-            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Additional Resources</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>
+              {t('documentation.additionalResources')}
+            </Heading>
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
               <ResourceCard 
-                title="API Documentation" 
-                description="Complete API reference for developers integrating with our platform."
+                title={t('documentation.resources.api.title')} 
+                description={t('documentation.resources.api.description')}
               />
               <ResourceCard 
-                title="Video Tutorials" 
-                description="Step-by-step video guides for common workflows and features."
+                title={t('documentation.resources.videos.title')} 
+                description={t('documentation.resources.videos.description')}
               />
               <ResourceCard 
-                title="Best Practices" 
-                description="Recommendations for optimizing your knowledge management process."
+                title={t('documentation.resources.bestPractices.title')} 
+                description={t('documentation.resources.bestPractices.description')}
               />
             </SimpleGrid>
           </Box>
@@ -192,8 +202,8 @@ const Documentation: React.FC = () => {
           <Box bg="bg.secondary" p={6} borderRadius="lg">
             <Flex direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
               <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2} mb={{ base: 4, md: 0 }}>
-                <Heading size="md" color="text.primary">Need Additional Help?</Heading>
-                <Text color="text.secondary">Our support team is available to assist you with any questions.</Text>
+                <Heading size="md" color="text.primary">{t('documentation.support.title')}</Heading>
+                <Text color="text.secondary">{t('documentation.support.description')}</Text>
               </VStack>
               <Button 
                 as={RouterLink} 
@@ -202,7 +212,7 @@ const Documentation: React.FC = () => {
                 variant={colorMode === 'dark' ? "solid" : "solid"}
                 rightIcon={<FaArrowRight />}
               >
-                Contact Support
+                {t('documentation.support.contactButton')}
               </Button>
             </Flex>
           </Box>

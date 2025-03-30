@@ -10,9 +10,11 @@ import {
   useColorMode
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 const Footer: React.FC = () => {
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
   
   return (
     <Box 
@@ -33,8 +35,8 @@ const Footer: React.FC = () => {
           spacing={{ base: 6, md: 0 }}
         >
           <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
-            <Heading size={{ base: "sm", md: "md" }} color="text.primary">Email Knowledge Base</Heading>
-            <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}> 2025 Email Knowledge Base. All rights reserved.</Text>
+            <Heading size={{ base: "sm", md: "md" }} color="text.primary">{t('app.name')}</Heading>
+            <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}>{t('footer.copyright', { year: new Date().getFullYear() })}</Text>
           </VStack>
           
           <VStack spacing={{ base: 4, md: 6 }} align={{ base: 'center', md: 'flex-end' }}>
@@ -45,10 +47,10 @@ const Footer: React.FC = () => {
               flexWrap="wrap"
               justify={{ base: 'center', md: 'flex-end' }}
             >
-              <ChakraLink as={RouterLink} to="/docs" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>Documentation</ChakraLink>
-              <ChakraLink as={RouterLink} to="/support" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>Support</ChakraLink>
-              <ChakraLink href="#" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>Privacy Policy</ChakraLink>
-              <ChakraLink href="#" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>Terms of Service</ChakraLink>
+              <ChakraLink as={RouterLink} to="/docs" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>{t('footer.documentation')}</ChakraLink>
+              <ChakraLink as={RouterLink} to="/support" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>{t('footer.support')}</ChakraLink>
+              <ChakraLink href="#" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>{t('footer.privacyPolicy')}</ChakraLink>
+              <ChakraLink href="#" color="text.primary" _hover={{ color: colorMode === 'dark' ? "neon.blue" : "brand.600" }}>{t('footer.termsOfService')}</ChakraLink>
             </Stack>
           </VStack>
         </Stack>

@@ -1,0 +1,885 @@
+{
+  "app": {
+    "name": "Email Knowledge Base",
+    "tagline": "AI-POWERED EMAIL KNOWLEDGE BASE"
+  },
+  "home": {
+    "hero": {
+      "title": "Reclaim Your Time from Routine Email Tasks",
+      "description": "Office workers spend over 50% of their time on repetitive email communications. Our platform extracts valuable knowledge from your emails, enabling AI to handle routine tasks with personalized tone and clarity."
+    },
+    "cta": {
+      "signIn": "Sign in with Microsoft",
+      "learnMore": "Learn More",
+      "getStartedNow": "Get Started Now"
+    }
+  },
+  "navigation": {
+    "features": "Features",
+    "documentation": "Documentation",
+    "support": "Support",
+    "menu": "Menu",
+    "toggleTheme": "Toggle theme"
+  },
+  "features": {
+    "title": "Unlock Hidden Knowledge",
+    "subtitle": "Transform Emails Into Knowledge",
+    "learnMore": "Learn More",
+    "smartEmailProcessing": {
+      "title": "Smart Email Processing",
+      "description": "Filter and process emails intelligently based on content, sender, and importance."
+    },
+    "aiPoweredKnowledgeExtraction": {
+      "title": "AI-Powered Knowledge Extraction",
+      "description": "Extract valuable insights and patterns from your communications using advanced AI algorithms."
+    },
+    "centralizedKnowledgeBase": {
+      "title": "Centralized Knowledge Base",
+      "description": "Store all extracted knowledge in a searchable, organized database for easy access."
+    },
+    "enterpriseGradeSecurity": {
+      "title": "Enterprise-Grade Security",
+      "description": "Protect sensitive information with advanced security measures and compliance protocols."
+    },
+    "aiAssistantTraining": {
+      "title": "AI Assistant Training",
+      "description": "Train AI assistants with your knowledge base to handle routine communications effectively."
+    },
+    "powerfulSearchCapabilities": {
+      "title": "Powerful Search Capabilities",
+      "description": "Find exactly what you need with advanced semantic search and filtering options."
+    },
+    "unlockHiddenKnowledge": "Unlock Hidden Knowledge"
+  },
+  "useCases": {
+    "transformingWorkAcrossDepartments": "Transforming Work Across Departments",
+    "seeHowTeamsBenefit": "See How Teams Benefit",
+    "hrDepartments": "HR DEPARTMENTS",
+    "administrativeTeams": "ADMINISTRATIVE TEAMS",
+    "financeDepartments": "FINANCE DEPARTMENTS",
+    "salesTeams": "SALES TEAMS",
+    "consultingAgencies": "CONSULTING AGENCIES",
+    "financialServices": "FINANCIAL SERVICES",
+    "streamlinedEmployeeSupport": {
+      "title": "Streamlined Employee Support",
+      "description": "Automate responses to common HR inquiries and maintain consistent communication with employees."
+    },
+    "efficientOfficeManagement": {
+      "title": "Efficient Office Management",
+      "description": "Organize administrative communications and automate routine office management tasks."
+    },
+    "consistentFinancialCommunication": {
+      "title": "Consistent Financial Communication",
+      "description": "Ensure accurate and consistent financial messaging across all departments and stakeholders."
+    },
+    "enhancedClientCommunication": {
+      "title": "Enhanced Client Communication",
+      "description": "Improve client relationships with personalized and timely responses to inquiries."
+    },
+    "clientKnowledgePreservation": {
+      "title": "Client Knowledge Preservation",
+      "description": "Preserve institutional knowledge about clients even as team members change roles."
+    },
+    "structuredDealRecords": {
+      "title": "Structured Deal Records",
+      "description": "Maintain comprehensive records of financial transactions and client interactions."
+    }
+  },
+  "cta": {
+    "readyToFreeYourTeam": "Ready To Free Your Team",
+    "takeTheFirstStep": "Take The First Step",
+    "getStartedNow": "Get Started Now"
+  },
+  "footer": {
+    "copyright": "  {{year}} Email Knowledge Base. All rights reserved.",
+    "documentation": "Documentation",
+    "support": "Support",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Terms of Service"
+  },
+  "stats": {
+    "officeTimeSpent": "Office Time Spent on Emails",
+    "productivityIncrease": "Productivity Increase",
+    "returnOnInvestment": "Return On Investment"
+  },
+  "documentation": {
+    "title": "Documentation",
+    "description": "Welcome to the Email Knowledge Base documentation. Here you'll find detailed information about all aspects of our platform.",
+    "exploreText": "Explore comprehensive documentation covering all aspects of our platform, from authentication to knowledge export.",
+    "learnMore": "Learn More",
+    "additionalResources": "Additional Resources",
+    "sections": {
+      "authentication": {
+        "title": "Secure Authentication",
+        "description": "Learn about our OAuth2-based authentication system that integrates seamlessly with Microsoft 365."
+      },
+      "filtering": {
+        "title": "Smart Email Processing",
+        "description": "Automatically filter and categorize emails based on content, priority, and knowledge value.",
+        "header": "Smart Filtering",
+        "categories": "Filter Categories",
+        "folder": "Folder Structure",
+        "folderDescription": "Organize content hierarchically by department, project, or category",
+        "dateRange": "Date Range",
+        "dateRangeDescription": "Filter by specific time periods (last week, month, custom range)",
+        "senderRecipient": "Contact Filtering",
+        "senderRecipientDescription": "Filter by specific contacts or domains",
+        "keywordSearch": "Keyword Search",
+        "keywordSearchDescription": "Find emails containing specific terms or phrases",
+        "attachmentType": "Attachment Type",
+        "attachmentTypeDescription": "Filter by emails with specific attachment types (.pdf, .docx, etc.)",
+        "importance": "Importance",
+        "importanceDescription": "Filter by priority flags or importance markers",
+        "alert": "Filters can be combined to create highly specific queries, allowing you to target exactly the content you need.",
+        "advancedQuerySyntax": "Advanced Query Syntax",
+        "advancedQuerySyntaxDescription": "For more complex searches, you can use the advanced query syntax:",
+        "advancedQuerySyntaxExample": "folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+        "advancedQuerySyntaxNote": "This example searches for emails in the inbox folder that are either from john@example.com or have \"important\" in the subject.",
+        "bestPractices": "Best Practices",
+        "bestPractice1": {
+          "title": "Start with specific folders: ",
+          "description": "Begin by filtering emails from relevant project or topic-specific folders."
+        },
+        "bestPractice2": {
+          "title": "Use date ranges wisely: ",
+          "description": "Narrow down your search to specific time periods relevant to your knowledge base topic."
+        },
+        "bestPractice3": {
+          "title": "Save filter templates: ",
+          "description": "Create and save templates for commonly used filter combinations to save time."
+        },
+        "bestPractice4": {
+          "title": "Process in batches: ",
+          "description": "Select and process related emails together for more coherent knowledge extraction."
+        },
+        "bestPractice5": {
+          "title": "Focus on high importance: ",
+          "description": "Start with high-importance emails as they often contain critical information."
+        },
+        "workflowSteps": "Filtering Workflow",
+        "workflowStep1": "Select Filter Categories",
+        "workflowStep1Description": "Choose the filter types most relevant to your knowledge needs",
+        "workflowStep2": "Apply Filters",
+        "workflowStep2Description": "Use the selected filters to narrow down your email collection",
+        "workflowStep3": "Refine Results",
+        "workflowStep3Description": "Analyze initial results and adjust filters to improve precision",
+        "workflowStep4": "Save Filter Templates",
+        "workflowStep4Description": "Store successful filter combinations as templates for future use",
+        "useCases": "Common Use Cases",
+        "useCase1": "Project Documentation",
+        "useCase1Description": "Capture all project-related communications for future reference and onboarding",
+        "useCase2": "Client Knowledge Base",
+        "useCase2Description": "Build comprehensive profiles of client preferences, history, and requirements",
+        "useCase3": "Technical Solutions",
+        "useCase3Description": "Preserve technical solutions, workarounds, and troubleshooting steps",
+        "filterTip3Description": "Limit searches to relevant time periods to improve performance",
+        "filterTip4": "Focus on Key Contacts",
+        "filterTip4Description": "Filter by important senders or recipients to prioritize valuable communications",
+        "knowledgeStructure": "Filter Categories",
+        "fieldsLabel": "Fields:",
+        "tagsLabel": "Tags:",
+        "executive": "Executive",
+        "management": "Management",
+        "reports": "Reports",
+        "clientRelations": "Client Relations",
+        "sales": "Sales",
+        "support": "Support",
+        "itSupport": "IT Support",
+        "engineering": "Engineering",
+        "troubleshooting": "Troubleshooting",
+        "date": "Date",
+        "creationDate": "Creation Date",
+        "modificationDate": "Modification Date",
+        "sender": "Sender",
+        "recipient": "Recipient",
+        "subject": "Subject",
+        "content": "Content",
+        "filteringProcess": "Filtering Process",
+        "filterTip1": "Combine Multiple Filters",
+        "filterTip1Description": "Use multiple filters together to narrow down results more precisely",
+        "filterTip2": "Use Tag-Based Filtering",
+        "filterTip2Description": "Filter by tags to quickly find content with specific classifications",
+        "filterTip3": "Apply Date Constraints"
+      },
+      "analysis": {
+        "title": "AI Analysis",
+        "description": "Understand how our AI analyzes and extracts knowledge from your communications.",
+        "header": "AI Analysis",
+        "capabilities": {
+          "title": "AI Capabilities",
+          "classification": {
+            "title": "Smart Classification",
+            "description": "Automatically categorizes emails by department, topic, and importance"
+          },
+          "pii": {
+            "title": "PII Detection",
+            "description": "Identifies and flags personally identifiable information for review"
+          },
+          "summarization": {
+            "title": "Content Summarization",
+            "description": "Creates concise summaries of email threads and conversations"
+          },
+          "sensitivity": {
+            "title": "Sensitivity Analysis",
+            "description": "Evaluates content for confidentiality and compliance concerns"
+          },
+          "extraction": {
+            "title": "Knowledge Extraction",
+            "description": "Identifies key facts, decisions, and actionable insights"
+          }
+        },
+        "info": "Our AI models are fine-tuned for business communications and can be customized for your organization's specific terminology and needs.",
+        "model": {
+          "title": "AI Model Specifications",
+          "base": "Base Model",
+          "fineTuning": "Fine-tuning",
+          "context": "Context Window",
+          "speed": "Processing Speed"
+        },
+        "process": {
+          "title": "Analysis Process",
+          "step1": {
+            "title": "Initial Content Scan",
+            "description": "Emails are processed to extract text, metadata, and attachment information"
+          },
+          "step2": {
+            "title": "PII & Sensitive Data Detection",
+            "description": "AI identifies personal information, confidential data, and compliance concerns"
+          },
+          "step3": {
+            "title": "Classification & Tagging",
+            "description": "Content is categorized by department, topic, priority, and knowledge value"
+          },
+          "step4": {
+            "title": "Knowledge Extraction",
+            "description": "Key facts, decisions, and insights are identified and structured"
+          },
+          "step5": {
+            "title": "Human Review Preparation",
+            "description": "Results are formatted for efficient human review and approval"
+          }
+        },
+        "warning": "AI analysis is designed to assist human reviewers, not replace them. All AI-generated tags and classifications can be modified during review.",
+        "classification": {
+          "title": "Classification Categories",
+          "department": {
+            "title": "Department",
+            "description": "Identifies which business unit the content relates to"
+          },
+          "type": {
+            "title": "Content Type",
+            "description": "Categorizes the nature of the information"
+          },
+          "sensitivity": {
+            "title": "Sensitivity",
+            "description": "Flags content requiring special handling"
+          },
+          "tags": {
+            "executive": "Executive",
+            "sales": "Sales",
+            "marketing": "Marketing",
+            "finance": "Finance",
+            "legal": "Legal",
+            "hr": "HR",
+            "it": "IT",
+            "operations": "Operations",
+            "customerSupport": "Customer Support",
+            "policy": "Policy",
+            "procedure": "Procedure",
+            "decision": "Decision",
+            "report": "Report",
+            "analysis": "Analysis",
+            "discussion": "Discussion",
+            "approval": "Approval",
+            "request": "Request",
+            "notification": "Notification",
+            "public": "Public",
+            "internal": "Internal",
+            "confidential": "Confidential",
+            "restricted": "Restricted",
+            "pii": "PII",
+            "financial": "Financial",
+            "strategic": "Strategic"
+          }
+        },
+        "pii": {
+          "title": "PII & Sensitive Data Detection",
+          "description": "Our AI system automatically identifies and flags personally identifiable information and sensitive data to ensure compliance with privacy regulations and company policies.",
+          "names": "Names",
+          "emails": "Email Addresses",
+          "phoneNumbers": "Phone Numbers",
+          "addresses": "Addresses",
+          "ssn": "SSN/ID Numbers",
+          "financialData": "Financial Data",
+          "healthInformation": "Health Information",
+          "credentials": "Credentials",
+          "success": "All flagged PII is presented for human review before being processed. You can choose to redact, anonymize, or approve each instance."
+        }
+      },
+      "knowledgeBase": {
+        "title": "Knowledge Base",
+        "subtitle": "Powerful vector database for storing, searching, and exporting your organization's knowledge.",
+        "description": "Learn how to search, manage, and export your organization's knowledge repository.",
+        "managementTitle": "Knowledge Management",
+        "managementDescription": "Our Knowledge Base provides a structured repository for your organization's valuable information, enabling you to easily store, search, and export knowledge extracted from communications.",
+        "knowledgeStructureTitle": "Knowledge Structure",
+        "emailKnowledgeTitle": "Email Knowledge",
+        "emailKnowledgeDescription": "Information extracted from email communications",
+        "documentKnowledgeTitle": "Document Knowledge",
+        "documentKnowledgeDescription": "Information extracted from attachment documents",
+        "relationshipKnowledgeTitle": "Relationship Knowledge",
+        "relationshipKnowledgeDescription": "Connections between people, topics, and content",
+        "fieldsTitle": "Fields:",
+        "senderField": "Sender",
+        "recipientsField": "Recipients",
+        "dateField": "Date",
+        "subjectField": "Subject",
+        "contentField": "Content",
+        "attachmentsField": "Attachments",
+        "tagsField": "Tags",
+        "priorityField": "Priority",
+        "filenameField": "Filename",
+        "typeField": "Type",
+        "sizeField": "Size",
+        "createdDateField": "Created Date",
+        "modifiedDateField": "Modified Date",
+        "entityTypeField": "Entity Type",
+        "entityNameField": "Entity Name",
+        "relatedEntitiesField": "Related Entities",
+        "relationshipTypeField": "Relationship Type",
+        "strengthField": "Strength",
+        "contextField": "Context",
+        "searchCapabilitiesTitle": "Search Capabilities",
+        "semanticSearchTitle": "Semantic Search",
+        "semanticSearchDescription": "Find information based on meaning and context, not just exact keyword matches",
+        "semanticSearchExample": "Example: Show all discussions about Q3 budget planning",
+        "relationshipSearchTitle": "Relationship Search",
+        "relationshipSearchDescription": "Discover connections between people and topics",
+        "relationshipSearchExample": "Example: Who was involved in the website redesign project?",
+        "trendAnalysisTitle": "Trend Analysis",
+        "trendAnalysisDescription": "Identify patterns and trends over time",
+        "trendAnalysisExample": "Example: How has customer feedback evolved over the past 6 months?",
+        "permissionBasedAccessTitle": "Permission-Based Access",
+        "permissionBasedAccessDescription": "Filter results based on user permissions",
+        "permissionBasedAccessExample": "Example: Show only knowledge from departments I have access to",
+        "exportOptionsTitle": "Export Options",
+        "exportOptionsDescription": "Knowledge can be exported in multiple formats for integration with other systems or for offline reference.",
+        "jsonExport": "JSON",
+        "csvExport": "CSV",
+        "pdfExport": "PDF",
+        "htmlExport": "HTML",
+        "markdownExport": "Markdown",
+        "customExportFormatsInfo": "Custom export formats can be configured for enterprise customers to match your existing systems.",
+        "apiAccessTitle": "API Access",
+        "apiAccessDescription": "Integrate Knowledge Base capabilities directly into your applications using our comprehensive API.",
+        "restApiEndpointsTitle": "REST API Endpoints",
+        "crudOperationsDescription": "CRUD operations for knowledge items",
+        "searchAcrossKnowledgeBaseDescription": "Search across knowledge base",
+        "exportKnowledgeDescription": "Export knowledge in various formats",
+        "knowledgeUsageAndTrendsDescription": "Knowledge usage and trends"
+      },
+      "aiTraining": {
+        "title": "AI Assistant Training",
+        "subtitle": "Leverage your knowledge base to train AI assistants that handle routine communications effectively",
+        "description": "Learn how to leverage your knowledge base to train AI assistants capable of handling routine communications and tasks.",
+        "header": "AI Assistant Training",
+        "overview": "Overview",
+        "overviewDescription": "The AI Assistant Training feature allows you to create and train specialized AI assistants using your organization's knowledge base. These assistants can handle routine communications, answer common questions, and perform basic tasks, freeing your team to focus on more complex work.",
+        "capabilities": {
+          "title": "Core Capabilities",
+          "capability1": {
+            "title": "Knowledge-Based Training",
+            "description": "Train assistants using your organization's unique knowledge base to provide contextually relevant responses."
+          },
+          "capability2": {
+            "title": "Customizable Personas",
+            "description": "Create assistants with specific tones, styles, and areas of expertise to match different use cases."
+          },
+          "capability3": {
+            "title": "Multi-Channel Deployment",
+            "description": "Deploy trained assistants across email, chat, and other communication channels."
+          },
+          "capability4": {
+            "title": "Continuous Learning",
+            "description": "Assistants improve over time through feedback and the addition of new knowledge."
+          }
+        },
+        "trainingProcess": {
+          "title": "Training Process",
+          "step1": {
+            "title": "Define Assistant Purpose",
+            "description": "Clearly define the role, responsibilities, and scope of your AI assistant."
+          },
+          "step2": {
+            "title": "Select Knowledge Sources",
+            "description": "Choose relevant sections of your knowledge base to train the assistant."
+          },
+          "step3": {
+            "title": "Configure Behavior Parameters",
+            "description": "Set response style, decision thresholds, and escalation protocols."
+          },
+          "step4": {
+            "title": "Train and Test",
+            "description": "Run the training process and test the assistant with sample scenarios."
+          },
+          "step5": {
+            "title": "Deploy and Monitor",
+            "description": "Launch the assistant and continuously monitor its performance."
+          }
+        },
+        "useCases": {
+          "title": "Common Use Cases",
+          "useCase1": {
+            "title": "Customer Support Assistant",
+            "description": "Handle common customer inquiries and troubleshooting requests based on your support knowledge base."
+          },
+          "useCase2": {
+            "title": "Internal IT Assistant",
+            "description": "Help employees with routine IT issues and procedures using your technical documentation."
+          },
+          "useCase3": {
+            "title": "HR Information Assistant",
+            "description": "Answer employee questions about policies, benefits, and procedures."
+          },
+          "useCase4": {
+            "title": "Sales Support Assistant",
+            "description": "Provide product information and handle initial customer inquiries."
+          }
+        },
+        "bestPractices": {
+          "title": "Best Practices",
+          "practice1": {
+            "title": "Start Narrow, Then Expand",
+            "description": "Begin with a focused domain before expanding the assistant's capabilities."
+          },
+          "practice2": {
+            "title": "Provide Clear Boundaries",
+            "description": "Define what the assistant should and should not attempt to handle."
+          },
+          "practice3": {
+            "title": "Establish Escalation Paths",
+            "description": "Create clear protocols for when to escalate to human team members."
+          },
+          "practice4": {
+            "title": "Regularly Update Knowledge",
+            "description": "Keep the assistant's knowledge base current with new information."
+          },
+          "practice5": {
+            "title": "Collect User Feedback",
+            "description": "Implement feedback mechanisms to continuously improve assistant performance."
+          }
+        }
+      },
+      "emailProcessing": {
+        "title": "Email Processing",
+        "subtitle": "Efficiently filter, select, and process emails for your knowledge base",
+        "overview": "Overview",
+        "description": "The Email Processing feature allows you to intelligently filter through your email archive, select relevant messages, and process them for inclusion in your knowledge base. This streamlined workflow helps you extract valuable information from your email communications and transform it into structured knowledge.",
+        "infoAlert": "Email processing is the first step in building your knowledge base. After selecting and processing emails, you'll be able to review the extracted information before it's added to your knowledge base.",
+        "keyFeatures": "Key Features",
+        "feature1": {
+          "title": "Advanced Filtering",
+          "description": "Filter emails by folder, date range, sender, keywords, importance, and attachment types to quickly find relevant messages."
+        },
+        "feature2": {
+          "title": "Filter Templates",
+          "description": "Save and reuse your filter configurations as templates for consistent processing of similar email types."
+        },
+        "feature3": {
+          "title": "Intelligent Search",
+          "description": "Use advanced query syntax to perform complex searches across your email archive."
+        },
+        "feature4": {
+          "title": "Importance Filtering",
+          "description": "Focus on high-priority emails by filtering based on importance levels."
+        },
+        "feature5": {
+          "title": "Attachment Handling",
+          "description": "Filter emails with specific attachment types or focus only on emails with attachments."
+        },
+        "feature6": {
+          "title": "Bulk Processing",
+          "description": "Select and process multiple emails simultaneously for efficient knowledge extraction."
+        },
+        "howItWorks": "How It Works",
+        "step1": {
+          "title": "Set Up Filters",
+          "description": "Configure filters to narrow down your email search based on folders, date ranges, senders, keywords, and more."
+        },
+        "step2": {
+          "title": "Search Emails",
+          "description": "Execute your search to find emails matching your filter criteria."
+        },
+        "step3": {
+          "title": "Select Relevant Emails",
+          "description": "Review the search results and select the emails you want to process for your knowledge base."
+        },
+        "step4": {
+          "title": "Process Selected Emails",
+          "description": "Submit the selected emails for analysis, which will extract key information and prepare it for review."
+        },
+        "step5": {
+          "title": "Review Extracted Information",
+          "description": "After processing, you'll be directed to the review page where you can verify and refine the extracted information."
+        },
+        "filterOptions": "Available Filter Options",
+        "filterOption1": {
+          "title": "Folder",
+          "description": "Select specific email folders to search within"
+        },
+        "filterOption2": {
+          "title": "Date Range",
+          "description": "Filter emails by start and end dates"
+        },
+        "filterOption3": {
+          "title": "Sender",
+          "description": "Filter by specific email addresses or domains"
+        },
+        "filterOption4": {
+          "title": "Keywords",
+          "description": "Search for specific words in email subject or body"
+        },
+        "filterOption5": {
+          "title": "Importance",
+          "description": "Filter by email importance (high, normal, low)"
+        },
+        "filterOption6": {
+          "title": "Attachments",
+          "description": "Filter by presence of attachments or specific types"
+        },
+        "advancedQuerySyntax": "Advanced Query Syntax",
+        "advancedQuerySyntaxDescription": "For more complex searches, you can use the advanced query syntax:",
+        "advancedQuerySyntaxExample": "folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+        "advancedQuerySyntaxNote": "This example searches for emails in the inbox folder that are either from john@example.com or have \"important\" in the subject.",
+        "bestPractices": "Best Practices",
+        "bestPractice1": {
+          "title": "Start with specific folders: ",
+          "description": "Begin by filtering emails from relevant project or topic-specific folders."
+        },
+        "bestPractice2": {
+          "title": "Use date ranges wisely: ",
+          "description": "Narrow down your search to specific time periods relevant to your knowledge base topic."
+        },
+        "bestPractice3": {
+          "title": "Save filter templates: ",
+          "description": "Create and save templates for commonly used filter combinations to save time."
+        },
+        "bestPractice4": {
+          "title": "Process in batches: ",
+          "description": "Select and process related emails together for more coherent knowledge extraction."
+        },
+        "bestPractice5": {
+          "title": "Focus on high importance: ",
+          "description": "Start with high-importance emails as they often contain critical information."
+        }
+      },
+      "secureAuthentication": {
+        "title": "Enterprise-Grade Security",
+        "subtitle": "Protect your sensitive information with our robust security infrastructure and compliance measures.",
+        "heading": "Secure Authentication",
+        "description": "Our platform uses enterprise-grade security protocols to ensure your email data is protected while providing seamless access for authorized users.",
+        "howItWorksTitle": "How It Works",
+        "oauth2Title": "OAuth 2.0 Protocol:",
+        "oauth2Description": "Industry-standard authorization framework that enables secure access without sharing passwords.",
+        "microsoftIdentityTitle": "Microsoft Identity Platform:",
+        "microsoftIdentityDescription": "Integration with Microsoft's authentication services for Outlook access.",
+        "tokenBasedAuthenticationTitle": "Token-Based Authentication:",
+        "tokenBasedAuthenticationDescription": "Uses secure tokens with limited lifespans instead of persistent credentials.",
+        "permissionScopingTitle": "Permission Scoping:",
+        "permissionScopingDescription": "Only requests specific permissions needed (read-only by default).",
+        "authenticationInfo": "All authentication is handled through Microsoft's secure login page - we never see or store your password.",
+        "requestedPermissionsTitle": "Requested Permissions",
+        "mailReadDescription": "Read user mail",
+        "mailReadBasicDescription": "Read user mail",
+        "userReadDescription": "Sign in and read user profile",
+        "offlineAccessDescription": "Maintain access",
+        "securityFeaturesTitle": "Security Features",
+        "endToEndEncryptionTitle": "End-to-End Encryption",
+        "endToEndEncryptionDescription": "All data encrypted in transit using TLS 1.2+ protocols",
+        "tokenRefreshManagementTitle": "Token Refresh Management",
+        "tokenRefreshManagementDescription": "Secure handling of refresh tokens with automatic rotation",
+        "roleBasedAccessControlTitle": "Role-Based Access Control",
+        "roleBasedAccessControlDescription": "Granular permissions based on user roles within the organization",
+        "automaticSessionTimeoutsTitle": "Automatic Session Timeouts",
+        "automaticSessionTimeoutsDescription": "Sessions expire after periods of inactivity for added security",
+        "enterpriseDeploymentsInfo": "For enterprise deployments, we support custom security policies and SSO integrations.",
+        "authenticationFlowTitle": "Authentication Flow",
+        "user": "User",
+        "ourApp": "Our App",
+        "microsoftIdentity": "Microsoft Identity",
+        "authenticationFlowStep1": "1. User initiates login → App redirects to Microsoft login page",
+        "authenticationFlowStep2": "2. User authenticates with Microsoft credentials",
+        "authenticationFlowStep3": "3. Microsoft validates credentials and requests permission consent",
+        "authenticationFlowStep4": "4. User grants consent → Microsoft issues authorization code",
+        "authenticationFlowStep5": "5. App exchanges code for access token and refresh token",
+        "authenticationFlowStep6": "6. App uses access token to request email data from Microsoft Graph API",
+        "faqTitle": "Frequently Asked Questions",
+        "faq1Title": "Can the app read all of my emails?",
+        "faq1Description": "The app only accesses emails that match your specified filters. By default, it only requests read-only permission to your mailbox.",
+        "faq2Title": "What happens if I revoke access?",
+        "faq2Description": "You can revoke access at any time through your Microsoft account settings. This will immediately block the app from accessing any new data.",
+        "faq3Title": "Does the app store my Microsoft password?",
+        "faq3Description": "No. Authentication is handled entirely by Microsoft's identity platform. We never see, access, or store your password.",
+        "faq4Title": "How long do access tokens last?",
+        "faq4Description": "Access tokens typically expire after 1 hour. The app securely manages refresh tokens to maintain access without requiring you to log in again."
+      },
+      "resources": {
+        "api": {
+          "title": "API Documentation",
+          "description": "Complete API reference for developers integrating with our platform."
+        },
+        "videos": {
+          "title": "Video Tutorials",
+          "description": "Step-by-step video guides for common workflows and features."
+        },
+        "bestPractices": {
+          "title": "Best Practices",
+          "description": "Recommendations for optimizing your knowledge management process."
+        }
+      },
+      "support": {
+        "title": "Need Additional Help?",
+        "description": "Our support team is available to assist you with any questions.",
+        "contactButton": "Contact Support"
+      }
+    },
+    "resources": {
+      "api": {
+        "title": "API Documentation",
+        "description": "Complete API reference for developers integrating with our platform."
+      },
+      "videos": {
+        "title": "Video Tutorials",
+        "description": "Step-by-step video guides for common workflows and features."
+      },
+      "bestPractices": {
+        "title": "Best Practices",
+        "description": "Recommendations for optimizing your knowledge management process."
+      }
+    },
+    "support": {
+      "title": "Need Additional Help?",
+      "description": "Our support team is available to assist you with any questions.",
+      "contactButton": "Contact Support"
+    }
+  },
+  "settings": {
+    "language": "Language",
+    "english": "English",
+    "chinese": "中文"
+  },
+  "signIn": {
+    "title": "Sign in to Email Knowledge Base",
+    "description": "Enter your email address and password to access your account",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "signIn": "Sign in",
+    "or": "or",
+    "signUp": "Sign up"
+  },
+  "toast": {
+    "loginSuccess": {
+      "title": "Login Successful",
+      "description": "You have been successfully logged in."
+    },
+    "loginError": {
+      "title": "Login Failed",
+      "description": "There was an error logging in. Please try again."
+    }
+  },
+  "support": {
+    "title": "Support & Contact",
+    "subtitle": "Our support team is ready to help you get the most out of our email knowledge base solution.",
+    "introduction": "Have questions or need assistance with our Email Knowledge Base platform? Our support team is ready to help you get the most out of our solution.",
+    "contactInformation": "Contact Information",
+    "companyInfo": {
+      "title": "Company Information",
+      "name": "Beyondsoft Singapore",
+      "department": "BFSI Delivery Service, Asia Pacific Business Group"
+    },
+    "emailSupport": {
+      "title": "Email Support",
+      "email": "BFSI_SG@beyondsoft.com",
+      "description": "For technical support, sales inquiries, and general questions"
+    },
+    "officeLocation": {
+      "title": "Office Location",
+      "address1": "38 Beach Road, #20-11",
+      "address2": "South Beach Tower",
+      "address3": "Singapore 189767"
+    },
+    "businessHours": {
+      "title": "Business Hours",
+      "weekdays": "Monday - Friday: 9:00 AM - 6:00 PM SGT",
+      "weekend": "Weekend: Closed",
+      "email": "Email support available 24/7"
+    },
+    "supportOptions": {
+      "title": "Support Options",
+      "technicalSupport": {
+        "title": "Technical Support",
+        "description": "Get help with installation, configuration, and troubleshooting."
+      },
+      "productTraining": {
+        "title": "Product Training",
+        "description": "Schedule a training session for your team to maximize productivity."
+      },
+      "customIntegration": {
+        "title": "Custom Integration",
+        "description": "Work with our experts to integrate with your existing systems."
+      }
+    },
+    "cta": {
+      "title": "Ready to get started?",
+      "description": "Contact our team today to learn more about our Email Knowledge Base solution.",
+      "button": "Contact Us"
+    }
+  },
+  "emailProcessing": {
+    "title": "Select Emails to Analyze",
+    "subtitle": "Filter and select emails to process for your knowledge base",
+    "filters": {
+      "title": "Email Filters",
+      "folder": "Folder",
+      "selectFolder": "Select folder",
+      "sender": "Sender",
+      "enterSender": "Enter sender email",
+      "startDate": "Start Date",
+      "endDate": "End Date",
+      "keywords": "Keywords",
+      "addKeyword": "Add keyword",
+      "importance": "Importance",
+      "selectImportance": "Select importance",
+      "high": "High",
+      "normal": "Normal",
+      "low": "Low",
+      "attachmentType": "Attachment Type",
+      "selectAttachmentType": "Select attachment type",
+      "hasAttachments": "Has Attachments",
+      "withAttachments": "With Attachments",
+      "withoutAttachments": "Without Attachments",
+      "any": "Any",
+      "advancedQuery": "Advanced Query",
+      "enterQuery": "Enter advanced query",
+      "templates": "Filter Templates",
+      "saveTemplate": "Save Template",
+      "loadTemplate": "Load Template",
+      "templateName": "Template Name",
+      "enterTemplateName": "Enter template name",
+      "wordDocument": "Word Document",
+      "excelSpreadsheet": "Excel Spreadsheet",
+      "powerPoint": "PowerPoint",
+      "image": "Image",
+      "archive": "Archive"
+    },
+    "actions": {
+      "search": "Search Emails",
+      "searching": "Searching...",
+      "analyze": "Analyze Selected",
+      "analyzing": "Analyzing...",
+      "save": "Save",
+      "cancel": "Cancel",
+      "refresh": "Refresh Results"
+    },
+    "results": {
+      "title": "Search Results",
+      "noResults": "No emails found matching your criteria",
+      "selected": "Selected",
+      "sender": "Sender",
+      "subject": "Subject",
+      "date": "Date",
+      "hasAttachments": "Attachments",
+      "importance": "Importance"
+    },
+    "tooltips": {
+      "folderHelp": "Select the email folder to search in",
+      "senderHelp": "Filter by sender email address",
+      "dateHelp": "Filter emails by date range",
+      "keywordsHelp": "Filter by keywords in subject or body",
+      "importanceHelp": "Filter by email importance level",
+      "attachmentsHelp": "Filter by presence of attachments",
+      "advancedQueryHelp": "Use advanced query syntax for complex filters",
+      "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")"
+    },
+    "notifications": {
+      "templateSaved": {
+        "title": "Template Saved",
+        "description": "Your filter template has been saved successfully"
+      },
+      "templateLoaded": {
+        "title": "Template Loaded",
+        "description": "Filter template has been applied"
+      },
+      "emailsSubmitted": {
+        "title": "Emails Submitted",
+        "description": "Selected emails have been submitted for analysis"
+      },
+      "noEmailsSelected": {
+        "title": "No Emails Selected",
+        "description": "Please select at least one email for analysis"
+      }
+    }
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "search": "Search",
+    "filter": "Filter",
+    "sort": "Sort",
+    "select": "Select",
+    "submit": "Submit",
+    "reset": "Reset"
+  },
+  "analysis": {
+    "classification": {
+      "tags": {
+        "executive": "Executive",
+        "sales": "Sales",
+        "marketing": "Marketing",
+        "finance": "Finance",
+        "legal": "Legal",
+        "hr": "HR",
+        "it": "IT",
+        "operations": "Operations",
+        "customerSupport": "Customer Support",
+        "policy": "Policy",
+        "procedure": "Procedure",
+        "decision": "Decision",
+        "report": "Report",
+        "analysis": "Analysis",
+        "discussion": "Discussion",
+        "approval": "Approval",
+        "request": "Request",
+        "notification": "Notification",
+        "public": "Public",
+        "internal": "Internal",
+        "confidential": "Confidential",
+        "restricted": "Restricted",
+        "pii": "PII",
+        "financial": "Financial",
+        "strategic": "Strategic"
+      }
+    },
+    "pii": {
+      "types": {
+        "names": "Names",
+        "emails": "Email Addresses",
+        "phoneNumbers": "Phone Numbers",
+        "addresses": "Addresses",
+        "ssn": "SSN/ID Numbers",
+        "financialData": "Financial Data",
+        "healthInformation": "Health Information",
+        "credentials": "Credentials"
+      }
+    }
+  }
+}

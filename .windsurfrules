@@ -1,1 +1,11 @@
-pkill -f "npm run dev"
+# Global Development Rules
+
+## Process Management
+- Use `pkill -f "npm run dev"` to stop development servers
+- Avoid infinite loops in responses
+- Do not hardcode values
+
+## Best Practices
+- Always use relative paths
+- Maintain consistent code formatting
+- Document major changes

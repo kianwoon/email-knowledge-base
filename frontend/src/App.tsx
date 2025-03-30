@@ -15,6 +15,7 @@ import SecureAuthentication from './pages/documentation/SecureAuthentication';
 import SmartFiltering from './pages/documentation/SmartFiltering';
 import AIAnalysis from './pages/documentation/AIAnalysis';
 import KnowledgeBase from './pages/documentation/KnowledgeBase';
+import AITraining from './pages/documentation/AITraining';
 
 // Components
 import Navbar from './components/Navbar';
@@ -72,9 +73,15 @@ function App() {
           {/* Documentation Routes - accessible without authentication and with DocumentationHeader */}
           <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
           <Route path="/docs/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
+          <Route path="/docs/features/security" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
           <Route path="/docs/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
           <Route path="/docs/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
           <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+          <Route path="/docs/features/knowledge-extraction" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+          <Route path="/docs/features/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+          <Route path="/docs/email-processing" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
+          <Route path="/docs/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
+          <Route path="/docs/features/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
           <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
           
           {/* App Routes - with padding and authentication */}

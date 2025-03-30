@@ -20,11 +20,14 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
 import { HamburgerIcon, MoonIcon, SunIcon } from '@chakra-ui/icons';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from './LanguageSwitcher';
 
 const DocumentationHeader: React.FC = () => {
   const { colorMode, toggleColorMode } = useColorMode();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
+  const { t } = useTranslation();
   
   return (
     <Box 
@@ -47,12 +50,13 @@ const DocumentationHeader: React.FC = () => {
           to="/" 
           _hover={{ textDecoration: 'none' }}
         >
-          Email Knowledge Base
+          {t('app.name')}
         </Heading>
         
         {isMobile ? (
           <>
             <HStack spacing={2}>
+              <LanguageSwitcher />
               <IconButton
                 aria-label="Toggle color mode"
                 icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
@@ -73,20 +77,20 @@ const DocumentationHeader: React.FC = () => {
               <DrawerOverlay />
               <DrawerContent bg={colorMode === 'dark' ? "bg.primary" : "white"}>
                 <DrawerCloseButton color="text.primary" />
-                <DrawerHeader color="text.primary">Menu</DrawerHeader>
+                <DrawerHeader color="text.primary">{t('navigation.menu')}</DrawerHeader>
                 <DrawerBody>
                   <VStack spacing={4} align="stretch">
                     <Button as={RouterLink} to="/#features" variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Features
+                      {t('navigation.features')}
                     </Button>
                     <Button as={RouterLink} to="/docs" variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Documentation
+                      {t('navigation.documentation')}
                     </Button>
                     <Button as={RouterLink} to="/support" variant="ghost" w="full" justifyContent="flex-start" onClick={onClose}>
-                      Support
+                      {t('navigation.support')}
                     </Button>
                     <Flex align="center" justify="space-between" w="full" pt={2} mt={2} borderTop="1px solid" borderColor={colorMode === 'dark' ? "whiteAlpha.300" : "gray.200"}>
-                      <Text fontSize="sm">Toggle theme</Text>
+                      <Text fontSize="sm">{t('navigation.toggleTheme')}</Text>
                       <IconButton
                         aria-label="Toggle color mode"
                         icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
@@ -103,9 +107,10 @@ const DocumentationHeader: React.FC = () => {
           </>
         ) : (
           <HStack spacing={4}>
-            <Button as={RouterLink} to="/#features" variant="ghost" size="sm">Features</Button>
-            <Button as={RouterLink} to="/docs" variant="ghost" size="sm">Documentation</Button>
-            <Button as={RouterLink} to="/support" variant="ghost" size="sm">Support</Button>
+            <Button as={RouterLink} to="/#features" variant="ghost" size="sm">{t('navigation.features')}</Button>
+            <Button as={RouterLink} to="/docs" variant="ghost" size="sm">{t('navigation.documentation')}</Button>
+            <Button as={RouterLink} to="/support" variant="ghost" size="sm">{t('navigation.support')}</Button>
+            <LanguageSwitcher />
             <IconButton
               aria-label="Toggle color mode"
               icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}

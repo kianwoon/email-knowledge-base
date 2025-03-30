@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -11,41 +11,72 @@ import {
   Flex,
   FormControl,
   FormLabel,
+  Grid,
+  GridItem,
   Heading,
+  HStack,
+  Icon,
+  IconButton,
   Input,
+  InputGroup,
+  InputRightElement,
   Select,
+  Spinner,
+  Stack,
+  Tag,
+  TagCloseButton,
+  TagLabel,
+  Text,
+  Textarea,
+  Tooltip,
+  useColorMode,
+  useToast,
+  Radio,
+  RadioGroup,
+  VStack,
   Table,
   Thead,
   Tbody,
   Tr,
   Th,
   Td,
-  Text,
-  useToast,
-  VStack,
-  HStack,
-  Spinner,
-  Icon,
-  InputGroup,
-  InputRightElement,
-  Tag,
-  TagLabel,
-  TagCloseButton,
-  Grid,
-  GridItem,
-  useColorMode,
-  IconButton,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
 } from '@chakra-ui/react';
-import { ChevronRightIcon, SearchIcon, AddIcon } from '@chakra-ui/icons';
-import { FaFilter, FaSearch, FaEnvelope, FaCalendarAlt, FaTag, FaUserAlt } from 'react-icons/fa';
+import { 
+  AddIcon, 
+  ChevronRightIcon, 
+  QuestionIcon,
+  SearchIcon
+} from '@chakra-ui/icons';
+import {
+  FaEnvelope,
+  FaUserAlt,
+  FaCalendarAlt,
+  FaTag,
+  FaFilter,
+  FaSearch,
+  FaExclamationCircle,
+  FaPaperclip,
+  FaCode,
+  FaSave,
+} from 'react-icons/fa';
+import { useTranslation } from 'react-i18next';
+import { v4 as uuidv4 } from 'uuid';
 
 import { getEmailFolders, getEmailPreviews, analyzeEmails } from '../api/email';
-import { EmailPreview, EmailFilter } from '../types/email';
+import { EmailFilter, EmailPreview } from '../types/email';
 
 const FilterSetup: React.FC = () => {
   const navigate = useNavigate();
-  const toast = useToast();
+  const { t } = useTranslation();
   const { colorMode } = useColorMode();
+  const toast = useToast();
   
   // State
   const [folders, setFolders] = useState<any[]>([]);
@@ -59,6 +90,27 @@ const FilterSetup: React.FC = () => {
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingPreviews, setIsLoadingPreviews] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterTemplates, setFilterTemplates] = useState<{id: string, name: string, filter: EmailFilter}[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  
+  // Attachment types
+  const attachmentTypes = [
+    { value: 'pdf', label: 'PDF' },
+    { value: 'doc', label: t('emailProcessing.filters.wordDocument') },
+    { value: 'xls', label: t('emailProcessing.filters.excelSpreadsheet') },
+    { value: 'ppt', label: t('emailProcessing.filters.powerPoint') },
+    { value: 'image', label: t('emailProcessing.filters.image') },
+    { value: 'zip', label: t('emailProcessing.filters.archive') },
+  ];
+  
+  // Importance levels
+  const importanceLevels = [
+    { value: 'high', label: t('emailProcessing.filters.high') },
+    { value: 'normal', label: t('emailProcessing.filters.normal') },
+    { value: 'low', label: t('emailProcessing.filters.low') },
+  ];
   
   // Load folders on component mount
   useEffect(() => {
@@ -82,11 +134,11 @@ const FilterSetup: React.FC = () => {
     loadFolders();
   }, [toast]);
   
-  // Handle filter changes
-  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+  // Handle filter change
+  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFilter(prev => ({ ...prev, [name]: value }));
-  };
+  }, []);
   
   // Add keyword to filter
   const handleAddKeyword = () => {
@@ -108,7 +160,7 @@ const FilterSetup: React.FC = () => {
   };
   
   // Preview emails based on filter
-  const handlePreviewEmails = async () => {
+  const handleSearch = async () => {
     setIsLoadingPreviews(true);
     setPreviews([]);
     setSelectedEmails([]);
@@ -137,21 +189,23 @@ const FilterSetup: React.FC = () => {
     );
   };
   
-  // Select all emails
+  // Select or deselect all emails
   const selectAllEmails = () => {
     if (selectedEmails.length === previews.length) {
+      // Deselect all
       setSelectedEmails([]);
     } else {
+      // Select all
       setSelectedEmails(previews.map(email => email.id));
     }
   };
   
   // Submit selected emails for analysis
-  const handleSubmitForAnalysis = async () => {
+  const handleAnalyzeEmails = async () => {
     if (selectedEmails.length === 0) {
       toast({
-        title: 'No emails selected',
-        description: 'Please select at least one email for analysis',
+        title: t('emailProcessing.notifications.noEmailsSelected.title'),
+        description: t('emailProcessing.notifications.noEmailsSelected.description'),
         status: 'warning',
         duration: 3000,
       });
@@ -162,16 +216,17 @@ const FilterSetup: React.FC = () => {
     try {
       await analyzeEmails(selectedEmails);
       toast({
-        title: 'Emails submitted for analysis',
-        description: `${selectedEmails.length} emails are being processed`,
+        title: t('emailProcessing.notifications.emailsSubmitted.title'),
+        description: t('emailProcessing.notifications.emailsSubmitted.description'),
         status: 'success',
         duration: 3000,
       });
       navigate('/review');
     } catch (error) {
-      console.error('Error submitting emails:', error);
+      console.error('Error submitting emails for analysis:', error);
       toast({
-        title: 'Error submitting emails',
+        title: t('common.error'),
+        description: t('Error submitting emails for analysis'),
         status: 'error',
         duration: 3000,
       });
@@ -180,13 +235,62 @@ const FilterSetup: React.FC = () => {
     }
   };
   
+  // Handle saving filter template
+  const handleSaveTemplate = useCallback(() => {
+    if (!templateName.trim()) {
+      toast({
+        title: t('emailProcessing.notifications.templateError.title'),
+        description: t('emailProcessing.notifications.templateError.description'),
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+    
+    const newTemplate = {
+      id: uuidv4(),
+      name: templateName,
+      filter: { ...filter }
+    };
+    
+    setFilterTemplates(prev => [...prev, newTemplate]);
+    setTemplateName('');
+    setShowSaveTemplateModal(false);
+    
+    toast({
+      title: t('emailProcessing.notifications.templateSaved.title'),
+      description: t('emailProcessing.notifications.templateSaved.description'),
+      status: 'success',
+      duration: 3000,
+    });
+    
+    // Save to localStorage
+    try {
+      const existingTemplates = JSON.parse(localStorage.getItem('emailFilterTemplates') || '[]');
+      localStorage.setItem('emailFilterTemplates', JSON.stringify([...existingTemplates, newTemplate]));
+    } catch (error) {
+      console.error('Error saving template to localStorage:', error);
+    }
+  }, [filter, templateName, toast, t]);
+  
+  // Load templates from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedTemplates = localStorage.getItem('emailFilterTemplates');
+      if (savedTemplates) {
+        setFilterTemplates(JSON.parse(savedTemplates));
+      }
+    } catch (error) {
+      console.error('Error loading templates from localStorage:', error);
+    }
+  }, []);
+  
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
       <Container maxW="container.xl">
-        <VStack spacing={8} align="stretch">
+        <VStack spacing={6} align="stretch">
           <Box>
-            <Heading size="lg" mb={2}>Select Emails to Analyze</Heading>
-            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Filter and select emails to process for your knowledge base</Text>
+            <Heading size="lg">{t('emailProcessing.title')}</Heading>
           </Box>
           
           {/* Filter Card */}
@@ -194,7 +298,7 @@ const FilterSetup: React.FC = () => {
             <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} pb={0}>
               <Flex align="center">
                 <Icon as={FaFilter} color="primary.500" mr={2} />
-                <Heading size="md">Email Filters</Heading>
+                <Heading size="md">{t('emailProcessing.filters.title')}</Heading>
               </Flex>
             </CardHeader>
             <CardBody>
@@ -203,7 +307,10 @@ const FilterSetup: React.FC = () => {
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaEnvelope} color="primary.500" mr={2} />
-                      Folder
+                      {t('emailProcessing.filters.folder')}
+                      <Tooltip label={t('emailProcessing.tooltips.folderHelp')} placement="top">
+                        <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                      </Tooltip>
                     </FormLabel>
                     {isLoadingFolders ? (
                       <Spinner size="sm" color="primary.500" />
@@ -212,7 +319,7 @@ const FilterSetup: React.FC = () => {
                         name="folder_id" 
                         value={filter.folder_id} 
                         onChange={handleFilterChange}
-                        placeholder="Select folder"
+                        placeholder={t('emailProcessing.filters.selectFolder')}
                         focusBorderColor="primary.400"
                         bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                         borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
@@ -231,13 +338,16 @@ const FilterSetup: React.FC = () => {
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaUserAlt} color="primary.500" mr={2} />
-                      Sender
+                      {t('emailProcessing.filters.sender')}
+                      <Tooltip label={t('emailProcessing.tooltips.senderHelp')} placement="top">
+                        <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                      </Tooltip>
                     </FormLabel>
                     <Input 
                       name="sender" 
                       value={filter.sender || ''} 
                       onChange={handleFilterChange}
-                      placeholder="Enter sender email"
+                      placeholder={t('emailProcessing.filters.enterSender')}
                       focusBorderColor="primary.400"
                       bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                       borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
@@ -249,7 +359,10 @@ const FilterSetup: React.FC = () => {
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaCalendarAlt} color="primary.500" mr={2} />
-                      Start Date
+                      {t('emailProcessing.filters.startDate')}
+                      <Tooltip label={t('emailProcessing.tooltips.dateRangeHelp')} placement="top">
+                        <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                      </Tooltip>
                     </FormLabel>
                     <Input 
                       name="start_date" 
@@ -267,7 +380,7 @@ const FilterSetup: React.FC = () => {
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaCalendarAlt} color="primary.500" mr={2} />
-                      End Date
+                      {t('emailProcessing.filters.endDate')}
                     </FormLabel>
                     <Input 
                       name="end_date" 
@@ -285,13 +398,16 @@ const FilterSetup: React.FC = () => {
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaTag} color="primary.500" mr={2} />
-                      Keywords
+                      {t('emailProcessing.filters.keywords')}
+                      <Tooltip label={t('emailProcessing.tooltips.keywordsHelp')} placement="top">
+                        <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                      </Tooltip>
                     </FormLabel>
                     <InputGroup>
                       <Input 
                         value={keywordInput} 
                         onChange={(e) => setKeywordInput(e.target.value)}
-                        placeholder="Add keyword"
+                        placeholder={t('emailProcessing.filters.addKeyword')}
                         onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
                         focusBorderColor="primary.400"
                         bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
@@ -299,7 +415,7 @@ const FilterSetup: React.FC = () => {
                       />
                       <InputRightElement>
                         <IconButton
-                          aria-label="Add keyword"
+                          aria-label={t('emailProcessing.filters.addKeyword')}
                           icon={<AddIcon />}
                           size="sm"
                           colorScheme="primary"
@@ -330,107 +446,255 @@ const FilterSetup: React.FC = () => {
                     )}
                   </FormControl>
                 </GridItem>
+                
+                {/* Advanced Filters Toggle */}
+                <GridItem colSpan={{ base: 1, md: 3 }}>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                    leftIcon={showAdvancedFilters ? <ChevronRightIcon transform="rotate(90deg)" /> : <ChevronRightIcon />}
+                    color="primary.500"
+                  >
+                    {showAdvancedFilters ? t('Hide Advanced Filters') : t('Show Advanced Filters')}
+                  </Button>
+                </GridItem>
+                
+                {/* Advanced Filters */}
+                {showAdvancedFilters && (
+                  <>
+                    <GridItem>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaExclamationCircle} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.importance')}
+                          <Tooltip label={t('emailProcessing.tooltips.importanceHelp')} placement="top">
+                            <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                          </Tooltip>
+                        </FormLabel>
+                        <Select
+                          name="importance"
+                          value={filter.importance || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.selectImportance')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                        >
+                          {importanceLevels.map(level => (
+                            <option key={level.value} value={level.value}>
+                              {level.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </GridItem>
+                    
+                    <GridItem>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaPaperclip} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.hasAttachments')}
+                          <Tooltip label={t('emailProcessing.tooltips.attachmentsHelp')} placement="top">
+                            <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                          </Tooltip>
+                        </FormLabel>
+                        <RadioGroup 
+                          onChange={(value) => setFilter(prev => ({ ...prev, has_attachments: value === 'true' ? true : value === 'false' ? false : undefined }))}
+                          value={filter.has_attachments === undefined ? '' : String(filter.has_attachments)}
+                        >
+                          <Stack direction="row">
+                            <Radio value="true">{t('emailProcessing.filters.withAttachments')}</Radio>
+                            <Radio value="false">{t('emailProcessing.filters.withoutAttachments')}</Radio>
+                            <Radio value="">{t('emailProcessing.filters.any')}</Radio>
+                          </Stack>
+                        </RadioGroup>
+                      </FormControl>
+                    </GridItem>
+                    
+                    <GridItem>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaPaperclip} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.attachmentType')}
+                        </FormLabel>
+                        <Select
+                          name="attachment_type"
+                          value={filter.attachment_type || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.selectAttachmentType')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          isDisabled={filter.has_attachments === false}
+                        >
+                          {attachmentTypes.map(type => (
+                            <option key={type.value} value={type.value}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </GridItem>
+                    
+                    <GridItem colSpan={{ base: 1, md: 3 }}>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaCode} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.advancedQuery')}
+                          <Tooltip label={t('emailProcessing.tooltips.advancedQueryHelp')} placement="top">
+                            <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                          </Tooltip>
+                        </FormLabel>
+                        <Textarea
+                          name="advanced_query"
+                          value={filter.advanced_query || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.enterQuery')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          size="sm"
+                          rows={3}
+                        />
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          {t('emailProcessing.tooltips.queryExample')}
+                        </Text>
+                      </FormControl>
+                    </GridItem>
+                    
+                    {/* Filter Templates */}
+                    <GridItem colSpan={{ base: 1, md: 3 }}>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaSave} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.templates')}
+                        </FormLabel>
+                        <Flex gap={2}>
+                          <Button
+                            leftIcon={<FaSave />}
+                            colorScheme="primary"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowSaveTemplateModal(true)}
+                          >
+                            {t('emailProcessing.filters.saveTemplate')}
+                          </Button>
+                          <Select
+                            placeholder={t('emailProcessing.filters.loadTemplate')}
+                            size="sm"
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const template = filterTemplates.find(t => t.id === e.target.value);
+                                if (template) {
+                                  setFilter(template.filter);
+                                  toast({
+                                    title: t('emailProcessing.notifications.templateLoaded.title'),
+                                    description: t('emailProcessing.notifications.templateLoaded.description'),
+                                    status: 'success',
+                                    duration: 3000,
+                                  });
+                                }
+                              }
+                            }}
+                            focusBorderColor="primary.400"
+                            bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                            borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          >
+                            {filterTemplates.map(template => (
+                              <option key={template.id} value={template.id}>
+                                {template.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </Flex>
+                      </FormControl>
+                    </GridItem>
+                  </>
+                )}
               </Grid>
               
               <Flex justify="flex-end" mt={6}>
                 <Button
                   leftIcon={<SearchIcon />}
                   colorScheme="primary"
-                  onClick={handlePreviewEmails}
+                  onClick={handleSearch}
                   isLoading={isLoadingPreviews}
-                  loadingText="Searching..."
+                  loadingText={t('emailProcessing.actions.searching')}
                   size="md"
+                  w="full"
                 >
-                  Search Emails
+                  {t('emailProcessing.actions.search')}
                 </Button>
               </Flex>
             </CardBody>
           </Card>
           
           {/* Results Card */}
-          {(previews.length > 0 || isLoadingPreviews) && (
-            <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
+          {previews.length > 0 && (
+            <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
               <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} pb={0}>
-                <Flex align="center" justify="space-between">
+                <Flex justify="space-between" align="center">
                   <Flex align="center">
                     <Icon as={FaSearch} color="primary.500" mr={2} />
-                    <Heading size="md">Search Results</Heading>
+                    <Heading size="md">{t('emailProcessing.results.title')}</Heading>
                   </Flex>
                   <HStack>
+                    <Text fontSize="sm">
+                      {t('emailProcessing.results.selected')}: {selectedEmails.length} / {previews.length}
+                    </Text>
                     <Button
-                      size="sm"
+                      colorScheme="primary"
                       variant="outline"
-                      colorScheme="primary"
-                      onClick={selectAllEmails}
+                      leftIcon={<SearchIcon />}
+                      onClick={handleSearch}
+                      isLoading={isLoadingPreviews}
                     >
-                      {selectedEmails.length === previews.length ? 'Deselect All' : 'Select All'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      colorScheme="primary"
-                      leftIcon={<ChevronRightIcon />}
-                      onClick={handleSubmitForAnalysis}
-                      isLoading={isSubmitting}
-                      loadingText="Submitting..."
-                      isDisabled={selectedEmails.length === 0}
-                    >
-                      Analyze Selected
+                      {t('emailProcessing.actions.refresh')}
                     </Button>
                   </HStack>
                 </Flex>
               </CardHeader>
               <CardBody>
-                {isLoadingPreviews ? (
-                  <Flex justify="center" align="center" py={10}>
-                    <Spinner size="xl" color="primary.500" thickness="4px" />
+                {previews.length === 0 ? (
+                  <Flex direction="column" align="center" justify="center" py={10}>
+                    <Text color="gray.500">{t('emailProcessing.results.noResults')}</Text>
                   </Flex>
                 ) : (
                   <Box overflowX="auto">
-                    <Table variant="simple">
-                      <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}>
+                    <Table variant="simple" size="sm">
+                      <Thead>
                         <Tr>
-                          <Th width="50px" px={2}>
-                            <Checkbox
+                          <Th width="40px">
+                            <Checkbox 
                               isChecked={selectedEmails.length === previews.length && previews.length > 0}
                               isIndeterminate={selectedEmails.length > 0 && selectedEmails.length < previews.length}
                               onChange={selectAllEmails}
                               colorScheme="primary"
                             />
                           </Th>
-                          <Th>Subject</Th>
-                          <Th>Sender</Th>
-                          <Th>Date</Th>
-                          <Th>Preview</Th>
+                          <Th>{t('emailProcessing.results.sender')}</Th>
+                          <Th>{t('emailProcessing.results.subject')}</Th>
+                          <Th>{t('emailProcessing.results.date')}</Th>
+                          <Th>{t('emailProcessing.results.hasAttachments')}</Th>
+                          <Th>{t('emailProcessing.results.importance')}</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
                         {previews.map(email => (
-                          <Tr 
-                            key={email.id}
-                            _hover={{ bg: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50' }}
-                            cursor="pointer"
-                            onClick={() => toggleEmailSelection(email.id)}
-                          >
-                            <Td px={2}>
-                              <Checkbox
+                          <Tr key={email.id}>
+                            <Td>
+                              <Checkbox 
                                 isChecked={selectedEmails.includes(email.id)}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  toggleEmailSelection(email.id);
-                                }}
+                                onChange={() => toggleEmailSelection(email.id)}
                                 colorScheme="primary"
                               />
                             </Td>
-                            <Td fontWeight={selectedEmails.includes(email.id) ? "bold" : "normal"}>
-                              {email.subject}
-                            </Td>
                             <Td>{email.sender}</Td>
+                            <Td>{email.subject}</Td>
                             <Td>{new Date(email.received_date).toLocaleDateString()}</Td>
-                            <Td>
-                              <Text noOfLines={1} fontSize="sm" color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                                {email.snippet}
-                              </Text>
-                            </Td>
+                            <Td>{email.has_attachments ? t('common.yes') : t('common.no')}</Td>
+                            <Td>{email.importance}</Td>
                           </Tr>
                         ))}
                       </Tbody>
@@ -438,28 +702,53 @@ const FilterSetup: React.FC = () => {
                   </Box>
                 )}
                 
-                {previews.length > 0 && (
-                  <Flex justify="space-between" align="center" mt={4}>
-                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                      {selectedEmails.length} of {previews.length} emails selected
-                    </Text>
-                    <Button
-                      colorScheme="primary"
-                      rightIcon={<ChevronRightIcon />}
-                      onClick={handleSubmitForAnalysis}
-                      isLoading={isSubmitting}
-                      loadingText="Submitting..."
-                      isDisabled={selectedEmails.length === 0}
-                    >
-                      Analyze Selected Emails
-                    </Button>
-                  </Flex>
-                )}
+                <Flex justify="space-between" mt={4}>
+                  <Text fontSize="sm">
+                    {selectedEmails.length} {t('emailProcessing.results.selected')}
+                  </Text>
+                  <Button
+                    colorScheme="primary"
+                    leftIcon={<Icon as={FaExclamationCircle} />}
+                    onClick={handleAnalyzeEmails}
+                    isLoading={isSubmitting}
+                    loadingText={t('emailProcessing.actions.analyzing')}
+                    isDisabled={selectedEmails.length === 0}
+                  >
+                    {t('emailProcessing.actions.analyze')}
+                  </Button>
+                </Flex>
               </CardBody>
             </Card>
           )}
         </VStack>
       </Container>
+      
+      {/* Save Template Modal */}
+      <Modal isOpen={showSaveTemplateModal} onClose={() => setShowSaveTemplateModal(false)}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t('emailProcessing.filters.saveTemplateTitle')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <FormControl>
+              <FormLabel>{t('emailProcessing.filters.templateName')}</FormLabel>
+              <Input 
+                value={templateName} 
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder={t('emailProcessing.filters.enterTemplateName')}
+              />
+            </FormControl>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={() => setShowSaveTemplateModal(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button colorScheme="primary" onClick={handleSaveTemplate}>
+              {t('Save')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

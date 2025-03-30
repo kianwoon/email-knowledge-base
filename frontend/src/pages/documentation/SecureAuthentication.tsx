@@ -20,9 +20,10 @@ import {
   Flex,
   useColorMode
 } from '@chakra-ui/react';
-import { FaLock, FaShieldAlt, FaKey, FaUserShield, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { FaLock, FaShieldAlt, FaKey, FaUserShield, FaCheckCircle } from 'react-icons/fa';
 import Footer from '../../components/Footer';
 import PageBanner from '../../components/PageBanner';
+import { useTranslation } from 'react-i18next';
 
 // Security Feature Card Component
 const SecurityFeatureCard = ({ 
@@ -50,11 +51,11 @@ const SecurityFeatureCard = ({
       }}
     >
       <CardBody>
-        <VStack align="flex-start" spacing={4}>
+        <HStack spacing={4} align="flex-start">
           <Flex
             w="50px"
             h="50px"
-            bg="bg.accent"
+            bg={colorMode === 'dark' ? "gray.900" : "gray.100"}
             color={colorMode === 'dark' ? "neon.blue" : "brand.600"}
             borderRadius="lg"
             justify="center"
@@ -62,10 +63,11 @@ const SecurityFeatureCard = ({
           >
             <Icon as={icon} w={6} h={6} />
           </Flex>
-          
-          <Heading size="md" color="text.primary">{title}</Heading>
-          <Text color="text.secondary">{description}</Text>
-        </VStack>
+          <Box>
+            <Heading size="sm" mb={1} color="text.primary">{title}</Heading>
+            <Text color="text.secondary">{description}</Text>
+          </Box>
+        </HStack>
       </CardBody>
     </Card>
   );
@@ -73,12 +75,13 @@ const SecurityFeatureCard = ({
 
 const SecureAuthentication: React.FC = () => {
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
   
   return (
     <Box bg="bg.primary" minH="100vh" color="text.primary">
       <PageBanner 
-        title="Enterprise-Grade Security" 
-        subtitle="Keep your sensitive information protected with our robust security infrastructure and compliance measures."
+        title={t('documentation.sections.secureAuthentication.title')}
+        subtitle={t('documentation.sections.secureAuthentication.subtitle')}
         gradient={colorMode === 'dark' 
           ? "linear(to-r, neon.blue, neon.purple, neon.pink)"
           : "linear(to-r, brand.600, brand.500, brand.400)"
@@ -97,13 +100,12 @@ const SecureAuthentication: React.FC = () => {
               }
               bgClip="text"
             >
-              Secure Authentication
+              {t('documentation.sections.secureAuthentication.heading')}
             </Heading>
           </HStack>
           
           <Text fontSize="lg" color="text.secondary">
-            Our platform uses enterprise-grade security protocols to ensure your email data remains protected
-            while providing seamless access to authorized users.
+            {t('documentation.sections.secureAuthentication.description')}
           </Text>
           
           <Divider borderColor="border.primary" />
@@ -112,177 +114,172 @@ const SecureAuthentication: React.FC = () => {
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={10}>
             {/* Left Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>How It Works</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>{t('documentation.sections.secureAuthentication.howItWorksTitle')}</Heading>
               
               <List spacing={4}>
                 <ListItem>
                   <HStack>
                     <ListIcon as={FaCheckCircle} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
-                    <Text color="text.primary"><strong>OAuth 2.0 Protocol:</strong> Industry-standard authorization framework that enables secure access without sharing passwords.</Text>
+                    <Text color="text.primary"><strong>{t('documentation.sections.secureAuthentication.oauth2Title')}</strong> {t('documentation.sections.secureAuthentication.oauth2Description')}</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
                     <ListIcon as={FaCheckCircle} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
-                    <Text color="text.primary"><strong>Microsoft Identity Platform:</strong> Integrates with Microsoft's authentication services for Outlook access.</Text>
+                    <Text color="text.primary"><strong>{t('documentation.sections.secureAuthentication.microsoftIdentityTitle')}</strong> {t('documentation.sections.secureAuthentication.microsoftIdentityDescription')}</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
                     <ListIcon as={FaCheckCircle} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
-                    <Text color="text.primary"><strong>Token-Based Authentication:</strong> Uses secure tokens with limited lifespans rather than persistent credentials.</Text>
+                    <Text color="text.primary"><strong>{t('documentation.sections.secureAuthentication.tokenBasedAuthenticationTitle')}</strong> {t('documentation.sections.secureAuthentication.tokenBasedAuthenticationDescription')}</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
                     <ListIcon as={FaCheckCircle} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
-                    <Text color="text.primary"><strong>Permission Scoping:</strong> Requests only the specific permissions needed (read-only by default).</Text>
+                    <Text color="text.primary"><strong>{t('documentation.sections.secureAuthentication.permissionScopingTitle')}</strong> {t('documentation.sections.secureAuthentication.permissionScopingDescription')}</Text>
                   </HStack>
                 </ListItem>
               </List>
               
               <Alert status="info" bg="bg.info" color="text.primary" borderRadius="md">
                 <AlertIcon color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
-                All authentication is handled through Microsoft's secure login page - we never see or store your password.
+                {t('documentation.sections.secureAuthentication.authenticationInfo')}
               </Alert>
               
               <Box>
-                <Heading size="sm" mb={2} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Requested Permissions</Heading>
+                <Heading size="sm" mb={2} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>{t('documentation.sections.secureAuthentication.requestedPermissionsTitle')}</Heading>
                 <Code p={3} borderRadius="md" bg="bg.secondary" color="text.primary" display="block" whiteSpace="pre">
-{`Mail.Read               // Read user mail
-Mail.ReadBasic           // Read user mail
-User.Read                // Sign in and read user profile
-offline_access           // Maintain access permission`}
+{`Mail.Read               // ${t('documentation.sections.secureAuthentication.mailReadDescription')}
+Mail.ReadBasic           // ${t('documentation.sections.secureAuthentication.mailReadBasicDescription')}
+User.Read                // ${t('documentation.sections.secureAuthentication.userReadDescription')}
+offline_access           // ${t('documentation.sections.secureAuthentication.offlineAccessDescription')}`}
                 </Code>
               </Box>
             </VStack>
             
             {/* Right Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Security Features</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>{t('documentation.sections.secureAuthentication.securityFeaturesTitle')}</Heading>
               
               <SimpleGrid columns={1} spacing={4}>
                 <SecurityFeatureCard 
-                  icon={FaShieldAlt}
-                  title="End-to-End Encryption"
-                  description="All data is encrypted in transit using TLS 1.2+ protocols"
+                  icon={FaShieldAlt} 
+                  title={t('documentation.sections.secureAuthentication.endToEndEncryptionTitle')}
+                  description={t('documentation.sections.secureAuthentication.endToEndEncryptionDescription')}
                 />
                 
                 <SecurityFeatureCard 
-                  icon={FaKey}
-                  title="Token Refresh Management"
-                  description="Secure handling of refresh tokens with automatic rotation"
+                  icon={FaKey} 
+                  title={t('documentation.sections.secureAuthentication.tokenRefreshManagementTitle')}
+                  description={t('documentation.sections.secureAuthentication.tokenRefreshManagementDescription')}
                 />
                 
                 <SecurityFeatureCard 
-                  icon={FaUserShield}
-                  title="Role-Based Access Control"
-                  description="Granular permissions based on user roles within your organization"
+                  icon={FaUserShield} 
+                  title={t('documentation.sections.secureAuthentication.roleBasedAccessControlTitle')}
+                  description={t('documentation.sections.secureAuthentication.roleBasedAccessControlDescription')}
                 />
                 
                 <SecurityFeatureCard 
-                  icon={FaExclamationTriangle}
-                  title="Automatic Session Timeouts"
-                  description="Sessions expire after periods of inactivity for added security"
+                  icon={FaLock} 
+                  title={t('documentation.sections.secureAuthentication.automaticSessionTimeoutsTitle')}
+                  description={t('documentation.sections.secureAuthentication.automaticSessionTimeoutsDescription')}
                 />
               </SimpleGrid>
               
               <Alert status="warning" bg="bg.warning" color="text.primary" borderRadius="md">
                 <AlertIcon color={colorMode === 'dark' ? "yellow.300" : "yellow.500"} />
-                For enterprise deployments, we support custom security policies and SSO integration.
+                {t('documentation.sections.secureAuthentication.enterpriseDeploymentsInfo')}
               </Alert>
             </VStack>
           </SimpleGrid>
           
-          <Divider borderColor="border.primary" />
-          
           {/* Authentication Flow Diagram */}
           <Box>
-            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Authentication Flow</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>{t('documentation.sections.secureAuthentication.authenticationFlowTitle')}</Heading>
             
             <Box 
               p={6} 
               bg="bg.secondary" 
               borderRadius="lg" 
-              border="1px solid" 
+              borderWidth="1px" 
               borderColor="border.primary"
             >
               <VStack spacing={4} align="stretch">
                 <HStack justify="space-between">
                   <Box textAlign="center" p={4} bg="bg.accent" borderRadius="md">
-                    <Text fontWeight="bold" color="text.primary">User</Text>
+                    <Text fontWeight="bold" color="text.primary">{t('documentation.sections.secureAuthentication.user')}</Text>
                   </Box>
                   <Icon as={FaLock} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
                   <Box textAlign="center" p={4} bg="bg.accent" borderRadius="md">
-                    <Text fontWeight="bold" color="text.primary">Our App</Text>
+                    <Text fontWeight="bold" color="text.primary">{t('documentation.sections.secureAuthentication.ourApp')}</Text>
                   </Box>
                   <Icon as={FaLock} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
                   <Box textAlign="center" p={4} bg="bg.accent" borderRadius="md">
-                    <Text fontWeight="bold" color="text.primary">Microsoft Identity</Text>
+                    <Text fontWeight="bold" color="text.primary">{t('documentation.sections.secureAuthentication.microsoftIdentity')}</Text>
                   </Box>
                 </HStack>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">1. User initiates login → App redirects to Microsoft login page</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep1')}</Text>
                 </Box>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">2. User authenticates with Microsoft credentials</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep2')}</Text>
                 </Box>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">3. Microsoft validates credentials and requests permission consent</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep3')}</Text>
                 </Box>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">4. User grants consent → Microsoft issues authorization code</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep4')}</Text>
                 </Box>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">5. App exchanges code for access and refresh tokens</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep5')}</Text>
                 </Box>
                 
                 <Box p={4} bg="bg.secondary" borderRadius="md">
-                  <Text color="text.primary">6. App uses access token to request email data from Microsoft Graph API</Text>
+                  <Text color="text.primary">{t('documentation.sections.secureAuthentication.authenticationFlowStep6')}</Text>
                 </Box>
               </VStack>
             </Box>
           </Box>
           
-          <Divider borderColor="border.primary" />
-          
           {/* FAQ Section */}
           <Box>
-            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Frequently Asked Questions</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>{t('documentation.sections.secureAuthentication.faqTitle')}</Heading>
             
             <VStack spacing={4} align="stretch">
               <Box p={4} bg="bg.secondary" borderRadius="md">
-                <Heading size="sm" mb={2} color="text.primary">Can the app read all my emails?</Heading>
-                <Text color="text.primary">The app only accesses emails that match your specified filters. By default, it requests read-only permissions to your mailbox.</Text>
+                <Heading size="sm" mb={2} color="text.primary">{t('documentation.sections.secureAuthentication.faq1Title')}</Heading>
+                <Text color="text.primary">{t('documentation.sections.secureAuthentication.faq1Description')}</Text>
               </Box>
               
               <Box p={4} bg="bg.secondary" borderRadius="md">
-                <Heading size="sm" mb={2} color="text.primary">What happens if I revoke access?</Heading>
-                <Text color="text.primary">You can revoke access at any time through your Microsoft account settings. This immediately prevents the app from accessing any new data.</Text>
+                <Heading size="sm" mb={2} color="text.primary">{t('documentation.sections.secureAuthentication.faq2Title')}</Heading>
+                <Text color="text.primary">{t('documentation.sections.secureAuthentication.faq2Description')}</Text>
               </Box>
               
               <Box p={4} bg="bg.secondary" borderRadius="md">
-                <Heading size="sm" mb={2} color="text.primary">Does the app store my Microsoft password?</Heading>
-                <Text color="text.primary">No. Authentication is handled entirely by Microsoft's identity platform. We never see, access, or store your password.</Text>
+                <Heading size="sm" mb={2} color="text.primary">{t('documentation.sections.secureAuthentication.faq3Title')}</Heading>
+                <Text color="text.primary">{t('documentation.sections.secureAuthentication.faq3Description')}</Text>
               </Box>
               
               <Box p={4} bg="bg.secondary" borderRadius="md">
-                <Heading size="sm" mb={2} color="text.primary">How long do access tokens last?</Heading>
-                <Text color="text.primary">Access tokens typically expire after 1 hour. The app securely manages refresh tokens to maintain access without requiring you to log in again.</Text>
+                <Heading size="sm" mb={2} color="text.primary">{t('documentation.sections.secureAuthentication.faq4Title')}</Heading>
+                <Text color="text.primary">{t('documentation.sections.secureAuthentication.faq4Description')}</Text>
               </Box>
             </VStack>
           </Box>
         </VStack>
       </Container>
-      
       <Footer />
     </Box>
   );

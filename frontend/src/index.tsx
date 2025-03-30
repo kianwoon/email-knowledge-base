@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import App from './App';
+import './i18n/i18n';
 // We'll add these fonts later after fixing the basic functionality
 // import '@fontsource/orbitron';
 // import '@fontsource/inter';

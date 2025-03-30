@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { EmailPreview, EmailFilter, EmailContent } from '../types/email';
+import { EmailFilter } from '../types/email';
 
 // API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -59,7 +59,9 @@ export const getEmailPreviews = async (filterParams: EmailFilter) => {
       subject: `Sample Email ${i + 1}`,
       sender: 'John Doe',
       received_date: new Date().toISOString(),
-      snippet: 'This is a sample email snippet for preview purposes...'
+      snippet: 'This is a sample email snippet for preview purposes...',
+      has_attachments: i % 2 === 0, // Every other email has attachments
+      importance: ['high', 'normal', 'low'][i % 3] // Rotate through importance levels
     }));
   }
 };

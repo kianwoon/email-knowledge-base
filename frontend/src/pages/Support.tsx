@@ -18,27 +18,29 @@ import {
 import { FaEnvelope, FaMapMarkerAlt, FaBuilding, FaGlobe } from 'react-icons/fa';
 import Footer from '../components/Footer';
 import PageBanner from '../components/PageBanner';
+import { useTranslation } from 'react-i18next';
 
 const Support: React.FC = () => {
+  const { t } = useTranslation();
+  
   return (
     <Box bg="bg.primary" minH="100vh" color="text.primary">
       <PageBanner 
-        title="Support & Contact" 
-        subtitle="Our support team is ready to help you get the most out of our email knowledge base solution."
+        title={t('support.title')}
+        subtitle={t('support.subtitle')}
       />
       <Container maxW="1200px" py={10}>
         <VStack spacing={8} align="stretch">
           {/* Introduction Text */}
           <Text fontSize="lg">
-            Have questions or need assistance with our Email Knowledge Base platform? 
-            Our support team is ready to help you get the most out of our solution.
+            {t('support.introduction')}
           </Text>
           
           <Divider borderColor="border.primary" />
           
           {/* Contact Information */}
           <Box>
-            <Heading size="md" color="text.highlight" mb={6}>Contact Information</Heading>
+            <Heading size="md" color="text.highlight" mb={6}>{t('support.contactInformation')}</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 2 }} spacing={8}>
               <Card 
@@ -52,12 +54,12 @@ const Support: React.FC = () => {
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
                       <Icon as={FaBuilding} color="text.highlight" w={6} h={6} />
-                      <Heading size="md" color="text.primary">Company Information</Heading>
+                      <Heading size="md" color="text.primary">{t('support.companyInfo.title')}</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text fontWeight="bold" color="text.primary">Beyondsoft Singapore</Text>
-                      <Text color="text.secondary">BFSI Delivery Service, Asia Pacific Business Group</Text>
+                      <Text fontWeight="bold" color="text.primary">{t('support.companyInfo.name')}</Text>
+                      <Text color="text.secondary">{t('support.companyInfo.department')}</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
@@ -74,14 +76,14 @@ const Support: React.FC = () => {
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
                       <Icon as={FaEnvelope} color="text.highlight" w={6} h={6} />
-                      <Heading size="md" color="text.primary">Email Support</Heading>
+                      <Heading size="md" color="text.primary">{t('support.emailSupport.title')}</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
                       <Link href="mailto:BFSI_SG@beyondsoft.com" color="text.highlight" fontWeight="bold">
-                        BFSI_SG@beyondsoft.com
+                        {t('support.emailSupport.email')}
                       </Link>
-                      <Text color="text.secondary">For technical support, sales inquiries, and general questions</Text>
+                      <Text color="text.secondary">{t('support.emailSupport.description')}</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
@@ -98,13 +100,13 @@ const Support: React.FC = () => {
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
                       <Icon as={FaMapMarkerAlt} color="text.highlight" w={6} h={6} />
-                      <Heading size="md" color="text.primary">Office Location</Heading>
+                      <Heading size="md" color="text.primary">{t('support.officeLocation.title')}</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text color="text.primary">38 Beach Road, #20-11</Text>
-                      <Text color="text.primary">South Beach Tower</Text>
-                      <Text color="text.primary">Singapore 189767</Text>
+                      <Text color="text.primary">{t('support.officeLocation.address1')}</Text>
+                      <Text color="text.primary">{t('support.officeLocation.address2')}</Text>
+                      <Text color="text.primary">{t('support.officeLocation.address3')}</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
@@ -121,13 +123,13 @@ const Support: React.FC = () => {
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
                       <Icon as={FaGlobe} color="text.highlight" w={6} h={6} />
-                      <Heading size="md" color="text.primary">Business Hours</Heading>
+                      <Heading size="md" color="text.primary">{t('support.businessHours.title')}</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text color="text.primary">Monday - Friday: 9:00 AM - 6:00 PM SGT</Text>
-                      <Text color="text.primary">Weekend: Closed</Text>
-                      <Text color="text.primary">Email support available 24/7</Text>
+                      <Text color="text.primary">{t('support.businessHours.weekdays')}</Text>
+                      <Text color="text.primary">{t('support.businessHours.weekend')}</Text>
+                      <Text color="text.primary">{t('support.businessHours.email')}</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
@@ -139,22 +141,22 @@ const Support: React.FC = () => {
           
           {/* Support Options */}
           <Box>
-            <Heading size="md" color="text.highlight" mb={6}>Support Options</Heading>
+            <Heading size="md" color="text.highlight" mb={6}>{t('support.supportOptions.title')}</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
               <SupportOption 
-                title="Technical Support" 
-                description="Get help with installation, configuration, and troubleshooting."
+                title={t('support.supportOptions.technicalSupport.title')}
+                description={t('support.supportOptions.technicalSupport.description')}
               />
               
               <SupportOption 
-                title="Product Training" 
-                description="Schedule a training session for your team to maximize productivity."
+                title={t('support.supportOptions.productTraining.title')}
+                description={t('support.supportOptions.productTraining.description')}
               />
               
               <SupportOption 
-                title="Custom Integration" 
-                description="Work with our experts to integrate with your existing systems."
+                title={t('support.supportOptions.customIntegration.title')}
+                description={t('support.supportOptions.customIntegration.description')}
               />
             </SimpleGrid>
           </Box>
@@ -170,8 +172,8 @@ const Support: React.FC = () => {
           >
             <Flex direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
               <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2} mb={{ base: 4, md: 0 }}>
-                <Heading size="md" color="text.primary">Ready to get started?</Heading>
-                <Text color="text.secondary">Contact our team today to learn more about our Email Knowledge Base solution.</Text>
+                <Heading size="md" color="text.primary">{t('support.cta.title')}</Heading>
+                <Text color="text.secondary">{t('support.cta.description')}</Text>
               </VStack>
               
               <Button 
@@ -181,7 +183,7 @@ const Support: React.FC = () => {
                 size="lg"
                 _hover={{ textDecoration: 'none' }}
               >
-                Contact Us
+                {t('support.cta.button')}
               </Button>
             </Flex>
           </Box>
@@ -201,15 +203,11 @@ const SupportOption = ({ title, description }: { title: string, description: str
       borderRadius="lg"
       border="1px solid"
       borderColor="border.primary"
-      transition="all 0.3s"
-      _hover={{ 
-        bg: 'bg.tertiaryHover',
-        borderColor: 'border.primaryHover'
-      }}
+      height="100%"
     >
-      <VStack align="flex-start" spacing={2}>
+      <VStack align="flex-start" spacing={3}>
         <Heading size="sm" color="text.primary">{title}</Heading>
-        <Text fontSize="sm" color="text.secondary">{description}</Text>
+        <Text color="text.secondary">{description}</Text>
       </VStack>
     </Box>
   );

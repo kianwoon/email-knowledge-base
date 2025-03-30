@@ -44,6 +44,8 @@ export interface EmailPreview {
   sender: string;
   received_date: string;
   snippet: string;
+  has_attachments?: boolean;
+  importance?: string;
 }
 
 export interface EmailFilter {
@@ -52,6 +54,10 @@ export interface EmailFilter {
   end_date?: string;
   keywords?: string[];
   sender?: string;
+  importance?: string;
+  has_attachments?: boolean;
+  attachment_type?: string;
+  advanced_query?: string;
 }
 
 export interface EmailAttachment {
