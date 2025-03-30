@@ -1,0 +1,47 @@
+version: 1
+services:
+  backend:
+    build:
+      context: ./backend
+      builder: buildpack
+      args:
+        - PYTHON_VERSION=3.11
+    env:
+      - key: PORT
+        value: "8000"
+      - key: ENVIRONMENT
+        value: "production"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      path: /health
+      interval: 10
+    restart: always
+    type: web
+    instance_type: nano
+    min_scale: 1
+    max_scale: 1
+    regions: ["was"]
+
+  frontend:
+    build:
+      context: ./frontend
+      builder: buildpack
+      args:
+        - PYTHON_VERSION=3.11
+    env:
+      - key: PORT
+        value: "3000"
+      - key: ENVIRONMENT
+        value: "production"
+    ports:
+      - "3000:80"
+    healthcheck:
+      path: /
+      interval: 10
+    restart: always
+    type: web
+    instance_type: nano
+    min_scale: 1
+    max_scale: 1
+    regions: ["was"]
