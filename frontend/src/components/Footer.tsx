@@ -36,7 +36,7 @@ const Footer: React.FC = () => {
         >
           <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
             <Heading size={{ base: "sm", md: "md" }} color="text.primary">{t('app.name')}</Heading>
-            <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}>{t('footer.copyright', { year: new Date().getFullYear() })}</Text>
+            <Text fontSize="sm" textAlign={{ base: 'center', md: 'left' }}>{new Date().getFullYear()} {t('footer.copyright')}</Text>
           </VStack>
           
           <VStack spacing={{ base: 4, md: 6 }} align={{ base: 'center', md: 'flex-end' }}>
