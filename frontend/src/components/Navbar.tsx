@@ -8,8 +8,6 @@ import {
   IconButton, 
   HStack, 
   Container,
-  Image,
-  Text,
   Avatar,
   Menu,
   MenuButton,
@@ -24,10 +22,11 @@ import {
   DrawerContent,
   DrawerCloseButton,
   VStack,
-  Icon
+  Icon,
+  Text
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon, SearchIcon, EmailIcon, SettingsIcon } from '@chakra-ui/icons';
+import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon, SettingsIcon } from '@chakra-ui/icons';
 import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook } from 'react-icons/fa';
 
 interface NavbarProps {
@@ -48,7 +47,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
   ];
   
   return (
-    <Box as="nav" bg="primary.600" color="white" boxShadow="md" position="sticky" top="0" zIndex="sticky">
+    <Box as="nav" bg="bg.primary" color="text.primary" boxShadow="md" position="sticky" top="0" zIndex="sticky">
       <Container maxW="1400px" py={2}>
         <Flex justify="space-between" align="center">
           {/* Logo and Brand */}
@@ -67,9 +66,9 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   variant="ghost"
                   colorScheme="whiteAlpha"
                   isActive={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
-                  _active={{ bg: 'primary.700', color: 'white' }}
-                  _hover={{ bg: 'primary.500' }}
-                  leftIcon={<Icon as={item.icon} />}
+                  _active={{ bg: "bg.accent", color: "text.primary" }}
+                  _hover={{ bg: "bg.hover" }}
+                  leftIcon={<Icon as={item.icon} color="text.highlight" />}
                   size="md"
                   fontWeight="medium"
                   px={4}
@@ -88,7 +87,8 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
               onClick={toggleColorMode}
               variant="ghost"
               colorScheme="whiteAlpha"
-              _hover={{ bg: 'primary.500' }}
+              _hover={{ bg: "bg.hover" }}
+              color="text.primary"
             />
             
             {/* Mobile menu button */}
@@ -99,7 +99,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
               onClick={onOpen}
               variant="ghost"
               colorScheme="whiteAlpha"
-              _hover={{ bg: 'primary.500' }}
+              _hover={{ bg: "bg.hover" }}
             />
             
             {/* User menu */}
@@ -108,15 +108,15 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                 as={Button}
                 variant="ghost"
                 colorScheme="whiteAlpha"
-                _hover={{ bg: 'primary.500' }}
+                _hover={{ bg: "bg.hover" }}
                 rightIcon={<ChevronDownIcon />}
               >
                 <HStack>
-                  <Avatar size="sm" name="User" bg="primary.300" />
+                  <Avatar size="sm" name="User" bg="bg.accent" />
                   <Text display={{ base: 'none', md: 'block' }}>Demo User</Text>
                 </HStack>
               </MenuButton>
-              <MenuList bg="white" color="gray.800">
+              <MenuList bg="bg.secondary" color="text.primary">
                 <MenuItem icon={<SettingsIcon />}>Settings</MenuItem>
                 <MenuItem as={RouterLink} to="/docs" icon={<FaBook />}>Documentation</MenuItem>
                 <MenuDivider />
@@ -132,7 +132,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
         <DrawerOverlay />
         <DrawerContent>
           <DrawerCloseButton />
-          <DrawerHeader borderBottomWidth="1px" bg="primary.600" color="white">
+          <DrawerHeader borderBottomWidth="1px" bg="bg.primary" color="text.primary">
             Email Knowledge Base
           </DrawerHeader>
           <DrawerBody>
@@ -143,8 +143,8 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   as={RouterLink}
                   to={item.path}
                   variant={location.pathname === item.path || location.pathname.startsWith(item.path + '/') ? "solid" : "ghost"}
-                  colorScheme={location.pathname === item.path || location.pathname.startsWith(item.path + '/') ? "primary" : "gray"}
-                  leftIcon={<Icon as={item.icon} />}
+                  colorScheme={location.pathname === item.path || location.pathname.startsWith(item.path + '/') ? "blue" : "gray"}
+                  leftIcon={<Icon as={item.icon} color="text.highlight" />}
                   justifyContent="flex-start"
                   onClick={onClose}
                 >

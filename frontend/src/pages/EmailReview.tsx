@@ -8,6 +8,7 @@ import {
   Container,
   Divider,
   Flex,
+  FormLabel,
   Heading,
   Table,
   Thead,
@@ -37,14 +38,15 @@ import {
   Textarea,
   useDisclosure,
   IconButton,
+  useColorMode,
 } from '@chakra-ui/react';
 import { CheckIcon, CloseIcon, ViewIcon } from '@chakra-ui/icons';
 
 import axios from 'axios';
-import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailApproval } from '../types/email';
+import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailApproval, PIIType } from '../types/email';
 
 // Mock API functions (in a real app, these would be in the API directory)
-const getPendingReviews = async (filters: any = {}) => {
+const getPendingReviews = async () => {
   // Mock data for demonstration
   return Array(8).fill(0).map((_, i) => ({
     email_id: `email_${i}`,
@@ -74,7 +76,7 @@ const getPendingReviews = async (filters: any = {}) => {
       department: Object.values(Department)[i % 9],
       tags: [`tag${i}`, 'knowledge', i % 2 === 0 ? 'important' : 'routine'],
       is_private: i % 3 === 0,
-      pii_detected: i % 3 === 0 ? ['email', 'name'] : [],
+      pii_detected: i % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
       recommended_action: i % 3 === 0 ? 'exclude' : 'store',
       summary: `This is a summary of email ${i + 1} that was analyzed by the AI.`,
       key_points: [
@@ -102,6 +104,7 @@ const bulkApprove = async (emailIds: string[], approval: EmailApproval) => {
 const EmailReview: React.FC = () => {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const { colorMode } = useColorMode();
   
   // State
   const [reviews, setReviews] = useState<EmailReviewItem[]>([]);
@@ -313,216 +316,236 @@ const EmailReview: React.FC = () => {
   };
   
   return (
-    <Container maxW="container.xl" py={6}>
-      <VStack spacing={8} align="stretch">
-        <Heading size="lg">Review Analyzed Emails</Heading>
-        
-        {/* Filters */}
-        <Card>
-          <CardHeader>
-            <Heading size="md">Filters</Heading>
-          </CardHeader>
-          <CardBody>
-            <Flex gap={4} wrap="wrap">
-              <Box minW="200px">
-                <Select
-                  name="department"
-                  value={filters.department}
-                  onChange={handleFilterChange}
-                  placeholder="All Departments"
-                >
-                  {Object.values(Department).map(dept => (
-                    <option key={dept} value={dept}>
-                      {dept.charAt(0).toUpperCase() + dept.slice(1)}
-                    </option>
-                  ))}
-                </Select>
-              </Box>
-              
-              <Box minW="200px">
-                <Select
-                  name="sensitivity"
-                  value={filters.sensitivity}
-                  onChange={handleFilterChange}
-                  placeholder="All Sensitivity Levels"
-                >
-                  {Object.values(SensitivityLevel).map(level => (
-                    <option key={level} value={level}>
-                      {level.charAt(0).toUpperCase() + level.slice(1)}
-                    </option>
-                  ))}
-                </Select>
-              </Box>
-              
-              <Box minW="200px">
-                <Select
-                  name="isPrivate"
-                  value={filters.isPrivate}
-                  onChange={handleFilterChange}
-                  placeholder="All Privacy Levels"
-                >
-                  <option value="true">Private</option>
-                  <option value="false">Not Private</option>
-                </Select>
-              </Box>
-            </Flex>
-          </CardBody>
-        </Card>
-        
-        {/* Review Table */}
-        <Card>
-          <CardHeader>
-            <Flex justify="space-between" align="center">
-              <Heading size="md">Pending Reviews ({filteredReviews.length})</Heading>
-              
-              <HStack>
-                <Button 
-                  size="sm" 
-                  onClick={selectAllReviews}
-                  variant="outline"
-                >
-                  {selectedReviews.length === filteredReviews.length ? 'Deselect All' : 'Select All'}
-                </Button>
-                
-                {selectedReviews.length > 0 && (
-                  <>
-                    <Button 
-                      size="sm"
-                      colorScheme="green"
-                      leftIcon={<CheckIcon />}
-                      onClick={() => handleBulkDecision(true)}
-                      isLoading={isSubmitting}
-                    >
-                      Approve Selected
-                    </Button>
-                    
-                    <Button 
-                      size="sm"
-                      colorScheme="red"
-                      leftIcon={<CloseIcon />}
-                      onClick={() => handleBulkDecision(false)}
-                      isLoading={isSubmitting}
-                    >
-                      Reject Selected
-                    </Button>
-                  </>
-                )}
-              </HStack>
-            </Flex>
-          </CardHeader>
-          <CardBody>
-            {isLoading ? (
-              <Flex justify="center" py={8}>
-                <Spinner size="xl" />
-              </Flex>
-            ) : filteredReviews.length === 0 ? (
-              <Text textAlign="center" py={8}>No pending reviews match your filters</Text>
-            ) : (
-              <>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr>
-                      <Th width="50px"></Th>
-                      <Th>Subject</Th>
-                      <Th>Department</Th>
-                      <Th>Sensitivity</Th>
-                      <Th>Tags</Th>
-                      <Th>Private</Th>
-                      <Th>Actions</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {filteredReviews.map(review => (
-                      <Tr key={review.email_id}>
-                        <Td>
-                          <Checkbox 
-                            isChecked={selectedReviews.includes(review.email_id)}
-                            onChange={() => toggleReviewSelection(review.email_id)}
-                          />
-                        </Td>
-                        <Td fontWeight="medium">{review.content.subject}</Td>
-                        <Td>
-                          <Badge>
-                            {review.analysis.department}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <Badge colorScheme={getSensitivityColor(review.analysis.sensitivity)}>
-                            {review.analysis.sensitivity}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <HStack>
-                            {review.analysis.tags.slice(0, 2).map(tag => (
-                              <Badge key={tag} colorScheme="blue" variant="outline">
-                                {tag}
-                              </Badge>
-                            ))}
-                            {review.analysis.tags.length > 2 && (
-                              <Badge colorScheme="blue" variant="outline">
-                                +{review.analysis.tags.length - 2}
-                              </Badge>
-                            )}
-                          </HStack>
-                        </Td>
-                        <Td>
-                          <Badge colorScheme={review.analysis.is_private ? 'red' : 'green'}>
-                            {review.analysis.is_private ? 'Yes' : 'No'}
-                          </Badge>
-                        </Td>
-                        <Td>
-                          <HStack>
-                            <IconButton
-                              aria-label="View details"
-                              icon={<ViewIcon />}
-                              size="sm"
-                              onClick={() => openReviewDetails(review)}
-                            />
-                            <IconButton
-                              aria-label="Approve"
-                              icon={<CheckIcon />}
-                              colorScheme="green"
-                              size="sm"
-                              onClick={() => handleReviewDecision(review.email_id, true)}
-                              isLoading={isSubmitting}
-                            />
-                            <IconButton
-                              aria-label="Reject"
-                              icon={<CloseIcon />}
-                              colorScheme="red"
-                              size="sm"
-                              onClick={() => handleReviewDecision(review.email_id, false)}
-                              isLoading={isSubmitting}
-                            />
-                          </HStack>
-                        </Td>
-                      </Tr>
+    <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
+      <Container maxW="container.xl">
+        <VStack spacing={8} align="stretch">
+          <Box>
+            <Heading size="lg" mb={2}>Review Analyzed Emails</Heading>
+            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Review and approve emails for your knowledge base</Text>
+          </Box>
+          
+          {/* Filters */}
+          <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
+            <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
+              <Heading size="md">Filters</Heading>
+            </CardHeader>
+            <CardBody>
+              <Flex gap={4} wrap="wrap">
+                <Box minW="200px">
+                  <Select
+                    name="department"
+                    value={filters.department}
+                    onChange={handleFilterChange}
+                    placeholder="All Departments"
+                    bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                    borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                  >
+                    {Object.values(Department).map(dept => (
+                      <option key={dept} value={dept}>
+                        {dept.charAt(0).toUpperCase() + dept.slice(1)}
+                      </option>
                     ))}
-                  </Tbody>
-                </Table>
-                
-                <Box mt={4}>
-                  <FormLabel htmlFor="approval-notes">Notes for selected emails:</FormLabel>
-                  <Textarea
-                    id="approval-notes"
-                    value={approvalNotes}
-                    onChange={(e) => setApprovalNotes(e.target.value)}
-                    placeholder="Add optional notes about your decision..."
-                    size="sm"
-                  />
+                  </Select>
                 </Box>
-              </>
-            )}
-          </CardBody>
-        </Card>
-      </VStack>
+                
+                <Box minW="200px">
+                  <Select
+                    name="sensitivity"
+                    value={filters.sensitivity}
+                    onChange={handleFilterChange}
+                    placeholder="All Sensitivity Levels"
+                    bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                    borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                  >
+                    {Object.values(SensitivityLevel).map(level => (
+                      <option key={level} value={level}>
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </option>
+                    ))}
+                  </Select>
+                </Box>
+                
+                <Box minW="200px">
+                  <Select
+                    name="isPrivate"
+                    value={filters.isPrivate}
+                    onChange={handleFilterChange}
+                    placeholder="All Privacy Levels"
+                    bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                    borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                  >
+                    <option value="true">Private</option>
+                    <option value="false">Not Private</option>
+                  </Select>
+                </Box>
+              </Flex>
+            </CardBody>
+          </Card>
+          
+          {/* Review Table */}
+          <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
+            <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
+              <Flex justify="space-between" align="center">
+                <Heading size="md">Pending Reviews ({filteredReviews.length})</Heading>
+                
+                <HStack>
+                  <Button 
+                    size="sm" 
+                    onClick={selectAllReviews}
+                    variant="outline"
+                    colorScheme="primary"
+                  >
+                    {selectedReviews.length === filteredReviews.length ? 'Deselect All' : 'Select All'}
+                  </Button>
+                  
+                  {selectedReviews.length > 0 && (
+                    <>
+                      <Button 
+                        size="sm"
+                        colorScheme="green"
+                        leftIcon={<CheckIcon />}
+                        onClick={() => handleBulkDecision(true)}
+                        isLoading={isSubmitting}
+                      >
+                        Approve Selected
+                      </Button>
+                      
+                      <Button 
+                        size="sm"
+                        colorScheme="red"
+                        leftIcon={<CloseIcon />}
+                        onClick={() => handleBulkDecision(false)}
+                        isLoading={isSubmitting}
+                      >
+                        Reject Selected
+                      </Button>
+                    </>
+                  )}
+                </HStack>
+              </Flex>
+            </CardHeader>
+            <CardBody>
+              {isLoading ? (
+                <Flex justify="center" py={8}>
+                  <Spinner size="xl" color="primary.500" />
+                </Flex>
+              ) : filteredReviews.length === 0 ? (
+                <Text textAlign="center" py={8} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>No pending reviews match your filters</Text>
+              ) : (
+                <>
+                  <Box overflowX="auto">
+                    <Table variant="simple">
+                      <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}>
+                        <Tr>
+                          <Th width="50px"></Th>
+                          <Th>Subject</Th>
+                          <Th>Department</Th>
+                          <Th>Sensitivity</Th>
+                          <Th>Tags</Th>
+                          <Th>Private</Th>
+                          <Th>Actions</Th>
+                        </Tr>
+                      </Thead>
+                      <Tbody>
+                        {filteredReviews.map(review => (
+                          <Tr 
+                            key={review.email_id}
+                            _hover={{ bg: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50' }}
+                          >
+                            <Td>
+                              <Checkbox 
+                                isChecked={selectedReviews.includes(review.email_id)}
+                                onChange={() => toggleReviewSelection(review.email_id)}
+                                colorScheme="primary"
+                              />
+                            </Td>
+                            <Td fontWeight="medium">{review.content.subject}</Td>
+                            <Td>
+                              <Badge>
+                                {review.analysis.department}
+                              </Badge>
+                            </Td>
+                            <Td>
+                              <Badge colorScheme={getSensitivityColor(review.analysis.sensitivity)}>
+                                {review.analysis.sensitivity}
+                              </Badge>
+                            </Td>
+                            <Td>
+                              <HStack>
+                                {review.analysis.tags.slice(0, 2).map(tag => (
+                                  <Badge key={tag} colorScheme="blue" variant="outline">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                                {review.analysis.tags.length > 2 && (
+                                  <Badge colorScheme="blue" variant="outline">
+                                    +{review.analysis.tags.length - 2}
+                                  </Badge>
+                                )}
+                              </HStack>
+                            </Td>
+                            <Td>
+                              <Badge colorScheme={review.analysis.is_private ? 'red' : 'green'}>
+                                {review.analysis.is_private ? 'Yes' : 'No'}
+                              </Badge>
+                            </Td>
+                            <Td>
+                              <HStack>
+                                <IconButton
+                                  aria-label="View details"
+                                  icon={<ViewIcon />}
+                                  size="sm"
+                                  onClick={() => openReviewDetails(review)}
+                                />
+                                <IconButton
+                                  aria-label="Approve"
+                                  icon={<CheckIcon />}
+                                  colorScheme="green"
+                                  size="sm"
+                                  onClick={() => handleReviewDecision(review.email_id, true)}
+                                  isLoading={isSubmitting}
+                                />
+                                <IconButton
+                                  aria-label="Reject"
+                                  icon={<CloseIcon />}
+                                  colorScheme="red"
+                                  size="sm"
+                                  onClick={() => handleReviewDecision(review.email_id, false)}
+                                  isLoading={isSubmitting}
+                                />
+                              </HStack>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                  </Box>
+                  
+                  <Box mt={4}>
+                    <FormLabel htmlFor="approval-notes" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Notes for selected emails:</FormLabel>
+                    <Textarea
+                      id="approval-notes"
+                      value={approvalNotes}
+                      onChange={(e) => setApprovalNotes(e.target.value)}
+                      placeholder="Add optional notes about your decision..."
+                      size="sm"
+                      bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                      borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                    />
+                  </Box>
+                </>
+              )}
+            </CardBody>
+          </Card>
+        </VStack>
+      </Container>
       
       {/* Review Details Drawer */}
       <Drawer isOpen={isOpen} placement="right" onClose={onClose} size="lg">
         <DrawerOverlay />
-        <DrawerContent>
+        <DrawerContent bg={colorMode === 'dark' ? 'dark.bg' : 'white'}>
           <DrawerCloseButton />
-          <DrawerHeader borderBottomWidth="1px">
+          <DrawerHeader borderBottomWidth="1px" borderBottomColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
             Email Details
           </DrawerHeader>
           
@@ -531,15 +554,15 @@ const EmailReview: React.FC = () => {
               <VStack spacing={6} align="stretch">
                 <Box>
                   <Heading size="md">{currentReview.content.subject}</Heading>
-                  <Text color="gray.600">
+                  <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
                     From: {currentReview.content.sender} ({currentReview.content.sender_email})
                   </Text>
-                  <Text color="gray.600">
+                  <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
                     Date: {new Date(currentReview.content.received_date).toLocaleString()}
                   </Text>
                 </Box>
                 
-                <Divider />
+                <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
                 
                 <Box>
                   <Heading size="sm" mb={2}>AI Analysis</Heading>
@@ -565,19 +588,19 @@ const EmailReview: React.FC = () => {
                     ))}
                   </HStack>
                   
-                  <Text fontWeight="bold">Summary:</Text>
-                  <Text mb={2}>{currentReview.analysis.summary}</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Summary:</Text>
+                  <Text mb={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{currentReview.analysis.summary}</Text>
                   
-                  <Text fontWeight="bold">Key Points:</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Key Points:</Text>
                   <VStack align="start" mb={2}>
                     {currentReview.analysis.key_points.map((point, i) => (
-                      <Text key={i}>• {point}</Text>
+                      <Text key={i} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>• {point}</Text>
                     ))}
                   </VStack>
                   
                   {currentReview.analysis.pii_detected.length > 0 && (
                     <>
-                      <Text fontWeight="bold">PII Detected:</Text>
+                      <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>PII Detected:</Text>
                       <HStack mb={2}>
                         {currentReview.analysis.pii_detected.map(pii => (
                           <Badge key={pii} colorScheme="orange">
@@ -588,16 +611,16 @@ const EmailReview: React.FC = () => {
                     </>
                   )}
                   
-                  <Text fontWeight="bold">Recommended Action:</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Recommended Action:</Text>
                   <Badge colorScheme={currentReview.analysis.recommended_action === 'store' ? 'green' : 'red'}>
                     {currentReview.analysis.recommended_action}
                   </Badge>
                 </Box>
                 
-                <Divider />
+                <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
                 
                 <Accordion allowToggle>
-                  <AccordionItem>
+                  <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
                     <h2>
                       <AccordionButton>
                         <Box flex="1" textAlign="left">
@@ -611,8 +634,9 @@ const EmailReview: React.FC = () => {
                         p={3} 
                         borderWidth="1px" 
                         borderRadius="md"
-                        bg="gray.50"
-                        _dark={{ bg: "gray.700" }}
+                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                        color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}
                         whiteSpace="pre-wrap"
                       >
                         {currentReview.content.body}
@@ -621,7 +645,7 @@ const EmailReview: React.FC = () => {
                   </AccordionItem>
                   
                   {currentReview.content.attachments && currentReview.content.attachments.length > 0 && (
-                    <AccordionItem>
+                    <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
                       <h2>
                         <AccordionButton>
                           <Box flex="1" textAlign="left">
@@ -638,12 +662,14 @@ const EmailReview: React.FC = () => {
                               p={3}
                               borderWidth="1px"
                               borderRadius="md"
+                              bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                              borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                             >
-                              <Text fontWeight="bold">{attachment.name}</Text>
-                              <Text fontSize="sm">
+                              <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{attachment.name}</Text>
+                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
                                 Type: {attachment.content_type}
                               </Text>
-                              <Text fontSize="sm">
+                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
                                 Size: {Math.round(attachment.size / 1024)} KB
                               </Text>
                             </Box>
@@ -654,7 +680,7 @@ const EmailReview: React.FC = () => {
                   )}
                 </Accordion>
                 
-                <Divider />
+                <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
                 
                 <Box>
                   <Textarea
@@ -662,6 +688,9 @@ const EmailReview: React.FC = () => {
                     onChange={(e) => setApprovalNotes(e.target.value)}
                     placeholder="Add notes about your decision..."
                     mb={4}
+                    bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                    borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                    color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}
                   />
                   
                   <HStack>
@@ -691,7 +720,7 @@ const EmailReview: React.FC = () => {
           </DrawerBody>
         </DrawerContent>
       </Drawer>
-    </Container>
+    </Box>
   );
 };
 

@@ -8,14 +8,12 @@ import {
   CardHeader,
   Checkbox,
   Container,
-  Divider,
   Flex,
   FormControl,
   FormLabel,
   Heading,
   Input,
   Select,
-  Stack,
   Table,
   Thead,
   Tbody,
@@ -26,7 +24,6 @@ import {
   useToast,
   VStack,
   HStack,
-  Badge,
   Spinner,
   Icon,
   InputGroup,
@@ -36,8 +33,10 @@ import {
   TagCloseButton,
   Grid,
   GridItem,
+  useColorMode,
+  IconButton,
 } from '@chakra-ui/react';
-import { ChevronRightIcon, SearchIcon, AddIcon, EmailIcon, TimeIcon, CalendarIcon } from '@chakra-ui/icons';
+import { ChevronRightIcon, SearchIcon, AddIcon } from '@chakra-ui/icons';
 import { FaFilter, FaSearch, FaEnvelope, FaCalendarAlt, FaTag, FaUserAlt } from 'react-icons/fa';
 
 import { getEmailFolders, getEmailPreviews, analyzeEmails } from '../api/email';
@@ -46,6 +45,7 @@ import { EmailPreview, EmailFilter } from '../types/email';
 const FilterSetup: React.FC = () => {
   const navigate = useNavigate();
   const toast = useToast();
+  const { colorMode } = useColorMode();
   
   // State
   const [folders, setFolders] = useState<any[]>([]);
@@ -181,17 +181,17 @@ const FilterSetup: React.FC = () => {
   };
   
   return (
-    <Box bg="gray.50" minH="calc(100vh - 64px)" py={8}>
+    <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
       <Container maxW="container.xl">
         <VStack spacing={8} align="stretch">
           <Box>
             <Heading size="lg" mb={2}>Select Emails to Analyze</Heading>
-            <Text color="gray.600">Filter and select emails to process for your knowledge base</Text>
+            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Filter and select emails to process for your knowledge base</Text>
           </Box>
           
           {/* Filter Card */}
-          <Card borderRadius="xl" boxShadow="md" bg="white" overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
-            <CardHeader bg="white" pb={0}>
+          <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
+            <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} pb={0}>
               <Flex align="center">
                 <Icon as={FaFilter} color="primary.500" mr={2} />
                 <Heading size="md">Email Filters</Heading>
@@ -214,7 +214,8 @@ const FilterSetup: React.FC = () => {
                         onChange={handleFilterChange}
                         placeholder="Select folder"
                         focusBorderColor="primary.400"
-                        bg="white"
+                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                       >
                         {folders.map(folder => (
                           <option key={folder.id} value={folder.id}>
@@ -238,7 +239,8 @@ const FilterSetup: React.FC = () => {
                       onChange={handleFilterChange}
                       placeholder="Enter sender email"
                       focusBorderColor="primary.400"
-                      bg="white"
+                      bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                      borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                     />
                   </FormControl>
                 </GridItem>
@@ -255,7 +257,8 @@ const FilterSetup: React.FC = () => {
                       value={filter.start_date || ''} 
                       onChange={handleFilterChange}
                       focusBorderColor="primary.400"
-                      bg="white"
+                      bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                      borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                     />
                   </FormControl>
                 </GridItem>
@@ -272,7 +275,8 @@ const FilterSetup: React.FC = () => {
                       value={filter.end_date || ''} 
                       onChange={handleFilterChange}
                       focusBorderColor="primary.400"
-                      bg="white"
+                      bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                      borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                     />
                   </FormControl>
                 </GridItem>
@@ -290,10 +294,11 @@ const FilterSetup: React.FC = () => {
                         placeholder="Add keyword"
                         onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
                         focusBorderColor="primary.400"
-                        bg="white"
+                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                       />
                       <InputRightElement>
-                        <Button
+                        <IconButton
                           aria-label="Add keyword"
                           icon={<AddIcon />}
                           size="sm"
@@ -344,8 +349,8 @@ const FilterSetup: React.FC = () => {
           
           {/* Results Card */}
           {(previews.length > 0 || isLoadingPreviews) && (
-            <Card borderRadius="xl" boxShadow="md" bg="white" overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
-              <CardHeader bg="white" pb={0}>
+            <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
+              <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} pb={0}>
                 <Flex align="center" justify="space-between">
                   <Flex align="center">
                     <Icon as={FaSearch} color="primary.500" mr={2} />
@@ -382,7 +387,7 @@ const FilterSetup: React.FC = () => {
                 ) : (
                   <Box overflowX="auto">
                     <Table variant="simple">
-                      <Thead bg="gray.50">
+                      <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}>
                         <Tr>
                           <Th width="50px" px={2}>
                             <Checkbox
@@ -402,7 +407,7 @@ const FilterSetup: React.FC = () => {
                         {previews.map(email => (
                           <Tr 
                             key={email.id}
-                            _hover={{ bg: 'gray.50' }}
+                            _hover={{ bg: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50' }}
                             cursor="pointer"
                             onClick={() => toggleEmailSelection(email.id)}
                           >
@@ -422,7 +427,7 @@ const FilterSetup: React.FC = () => {
                             <Td>{email.sender}</Td>
                             <Td>{new Date(email.received_date).toLocaleDateString()}</Td>
                             <Td>
-                              <Text noOfLines={1} fontSize="sm" color="gray.600">
+                              <Text noOfLines={1} fontSize="sm" color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
                                 {email.snippet}
                               </Text>
                             </Td>
@@ -435,7 +440,7 @@ const FilterSetup: React.FC = () => {
                 
                 {previews.length > 0 && (
                   <Flex justify="space-between" align="center" mt={4}>
-                    <Text color="gray.600">
+                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
                       {selectedEmails.length} of {previews.length} emails selected
                     </Text>
                     <Button

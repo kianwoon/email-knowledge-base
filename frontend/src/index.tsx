@@ -7,8 +7,70 @@ import App from './App';
 // import '@fontsource/inter';
 // import '@fontsource/poppins';
 
+// Define the type for color mode props
+type ColorModeProps = {
+  colorMode: 'light' | 'dark';
+};
+
 // Extend the theme to include custom colors, fonts, etc
 const theme = extendTheme({
+  config: {
+    initialColorMode: 'dark',
+    useSystemColorMode: true,
+  },
+  semanticTokens: {
+    colors: {
+      // Base colors
+      "bg.primary": { 
+        default: 'dark.bg', 
+        _light: 'light.bg' 
+      },
+      "bg.secondary": { 
+        default: 'dark.card', 
+        _light: 'light.card' 
+      },
+      "bg.accent": { 
+        default: 'rgba(62, 242, 242, 0.2)', 
+        _light: 'rgba(10, 124, 255, 0.1)' 
+      },
+      "bg.warning": { 
+        default: 'rgba(247, 37, 133, 0.2)', 
+        _light: 'rgba(247, 37, 133, 0.1)' 
+      },
+      "bg.info": { 
+        default: 'rgba(62, 242, 242, 0.2)', 
+        _light: 'rgba(62, 242, 242, 0.1)' 
+      },
+      
+      // Text colors
+      "text.primary": { 
+        default: 'dark.text', 
+        _light: 'light.text' 
+      },
+      "text.secondary": { 
+        default: 'dark.subtext', 
+        _light: 'light.subtext' 
+      },
+      "text.muted": { 
+        default: 'dark.muted', 
+        _light: 'light.muted' 
+      },
+      "text.highlight": { 
+        default: 'dark.highlight', 
+        _light: 'light.highlight' 
+      },
+      
+      // Border colors
+      "border.primary": { 
+        default: 'dark.border', 
+        _light: 'light.border' 
+      },
+      "border.accent": { 
+        default: 'rgba(62, 242, 242, 0.3)', 
+        _light: 'rgba(10, 124, 255, 0.3)' 
+      },
+    }
+  },
   colors: {
     brand: {
       50: '#e6f3ff',
@@ -43,6 +105,24 @@ const theme = extendTheme({
     glass: {
       bg: 'rgba(255, 255, 255, 0.05)',
       border: 'rgba(255, 255, 255, 0.15)',
+    },
+    dark: {
+      bg: '#050a30',
+      card: 'rgba(255, 255, 255, 0.05)',
+      text: 'white',
+      subtext: 'rgba(255, 255, 255, 0.8)',
+      muted: 'rgba(255, 255, 255, 0.6)',
+      border: 'rgba(255, 255, 255, 0.15)',
+      highlight: '#3ef2f2',
+    },
+    light: {
+      bg: '#f7f9fc',
+      card: 'white',
+      text: '#1A202C', // Chakra's gray.800
+      subtext: '#2D3748', // Chakra's gray.700
+      muted: '#4A5568', // Chakra's gray.600
+      border: '#E2E8F0', // Chakra's gray.200
+      highlight: '#0062e3', // Primary.600
     }
   },
   fonts: {
@@ -50,17 +130,13 @@ const theme = extendTheme({
     heading: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
     body: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
   },
-  config: {
-    initialColorMode: 'light',
-    useSystemColorMode: false,
-  },
   styles: {
-    global: {
+    global: (props: ColorModeProps) => ({
       body: {
-        bg: '#050a30',
-        color: 'white',
+        bg: props.colorMode === 'dark' ? 'dark.bg' : 'light.bg',
+        color: props.colorMode === 'dark' ? 'dark.text' : 'light.text',
       }
-    }
+    })
   },
   components: {
     Button: {
@@ -74,13 +150,13 @@ const theme = extendTheme({
         }
       },
       variants: {
-        solid: {
-          bg: 'primary.600',
+        solid: (props: ColorModeProps) => ({
+          bg: props.colorMode === 'dark' ? 'primary.500' : 'primary.600',
           color: 'white',
           _hover: {
-            bg: 'primary.700',
+            bg: props.colorMode === 'dark' ? 'primary.600' : 'primary.700',
           }
-        },
+        }),
         neon: {
           bg: 'neon.blue',
           color: 'black',
@@ -90,39 +166,77 @@ const theme = extendTheme({
             boxShadow: '0 0 20px #3ef2f2',
           }
         },
-        glass: {
-          bg: 'glass.bg',
-          backdropFilter: 'blur(10px)',
+        glass: (props: ColorModeProps) => ({
+          bg: props.colorMode === 'dark' ? 'glass.bg' : 'white',
+          backdropFilter: props.colorMode === 'dark' ? 'blur(10px)' : 'none',
           border: '1px solid',
-          borderColor: 'glass.border',
-          color: 'white',
+          borderColor: props.colorMode === 'dark' ? 'glass.border' : 'light.border',
+          color: props.colorMode === 'dark' ? 'white' : 'light.text',
+          boxShadow: props.colorMode === 'light' ? 'md' : 'none',
           _hover: {
-            bg: 'rgba(255, 255, 255, 0.1)',
+            bg: props.colorMode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'gray.50',
           }
-        }
+        })
       }
     },
     Card: {
-      baseStyle: {
+      baseStyle: (props: ColorModeProps) => ({
         container: {
-          background: 'rgba(255, 255, 255, 0.05)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
+          background: props.colorMode === 'dark' ? 'dark.card' : 'light.card',
+          backdropFilter: props.colorMode === 'dark' ? 'blur(10px)' : 'none',
+          border: '1px solid',
+          borderColor: props.colorMode === 'dark' ? 'dark.border' : 'light.border',
           borderRadius: 'xl',
-          boxShadow: '0 4px 30px rgba(0,0,0,0.1)',
+          boxShadow: props.colorMode === 'light' ? 'md' : '0 4px 30px rgba(0,0,0,0.1)',
         }
-      }
+      })
     },
     Heading: {
-      baseStyle: {
+      baseStyle: (props: ColorModeProps) => ({
         letterSpacing: '0.5px',
-      }
+        color: props.colorMode === 'dark' ? 'dark.text' : 'light.text',
+      })
     },
     Link: {
-      baseStyle: {
+      baseStyle: (props: ColorModeProps) => ({
+        color: props.colorMode === 'dark' ? 'dark.highlight' : 'light.highlight',
         _hover: {
           textDecoration: 'none',
+          color: props.colorMode === 'dark' ? 'neon.blue' : 'primary.500',
         }
+      })
+    },
+    Text: {
+      baseStyle: (props: ColorModeProps) => ({
+        color: props.colorMode === 'dark' ? 'dark.text' : 'light.text',
+      }),
+      variants: {
+        muted: (props: ColorModeProps) => ({
+          color: props.colorMode === 'dark' ? 'dark.muted' : 'light.muted',
+          fontSize: 'sm',
+        }),
+        subtitle: (props: ColorModeProps) => ({
+          color: props.colorMode === 'dark' ? 'dark.subtext' : 'light.subtext',
+          fontSize: 'md',
+        })
+      }
+    },
+    Badge: {
+      baseStyle: () => ({
+        borderRadius: 'md',
+        px: 2,
+        py: 1,
+        fontWeight: 'medium',
+      }),
+      variants: {
+        solid: (props: ColorModeProps) => ({
+          bg: props.colorMode === 'dark' ? 'dark.highlight' : 'light.highlight',
+          color: props.colorMode === 'dark' ? 'black' : 'white',
+        }),
+        outline: (props: ColorModeProps) => ({
+          borderColor: props.colorMode === 'dark' ? 'dark.highlight' : 'light.highlight',
+          color: props.colorMode === 'dark' ? 'dark.highlight' : 'light.highlight',
+        }),
       }
     }
   }

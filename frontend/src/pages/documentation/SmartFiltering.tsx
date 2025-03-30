@@ -24,99 +24,250 @@ import {
   Tr,
   Th,
   Td,
+  Flex,
+  useColorMode
 } from '@chakra-ui/react';
 import { FaSearch, FaFilter, FaCalendarAlt, FaUser, FaTag, FaFolder, FaPaperclip, FaInfoCircle } from 'react-icons/fa';
-import DocumentationHeader from '../../components/DocumentationHeader';
 import Footer from '../../components/Footer';
 import PageBanner from '../../components/PageBanner';
 
-const SmartFiltering: React.FC = () => {
+// Filter Tip Card Component
+const FilterTipCard = ({ 
+  icon, 
+  title, 
+  description
+}: { 
+  icon: any, 
+  title: string, 
+  description: string
+}) => {
+  const { colorMode } = useColorMode();
+  
   return (
-    <Box bg="#050a30" minH="100vh" color="white">
-      <DocumentationHeader />
+    <Card 
+      bg="bg.secondary" 
+      borderRadius="lg" 
+      border="1px solid"
+      borderColor="border.primary"
+      overflow="hidden"
+      transition="all 0.3s"
+      _hover={{ 
+        transform: 'translateY(-5px)', 
+        boxShadow: 'xl' 
+      }}
+    >
+      <CardBody>
+        <VStack align="flex-start" spacing={4}>
+          <Flex
+            w="50px"
+            h="50px"
+            bg="bg.accent"
+            color={colorMode === 'dark' ? "neon.blue" : "brand.600"}
+            borderRadius="lg"
+            justify="center"
+            align="center"
+          >
+            <Icon as={icon} w={6} h={6} />
+          </Flex>
+          
+          <Heading size="md" color="text.primary">{title}</Heading>
+          <Text color="text.secondary">{description}</Text>
+        </VStack>
+      </CardBody>
+    </Card>
+  );
+};
+
+// Workflow Step Card Component
+const WorkflowStepCard = ({ 
+  number, 
+  title, 
+  description
+}: { 
+  number: string, 
+  title: string, 
+  description: string
+}) => {
+  const { colorMode } = useColorMode();
+  
+  return (
+    <Card 
+      bg="bg.secondary" 
+      borderRadius="lg" 
+      border="1px solid"
+      borderColor="border.primary"
+      overflow="hidden"
+    >
+      <CardBody>
+        <HStack spacing={4} align="flex-start">
+          <Flex
+            w="40px"
+            h="40px"
+            bg="bg.accent"
+            color={colorMode === 'dark' ? "neon.blue" : "brand.600"}
+            borderRadius="full"
+            justify="center"
+            align="center"
+            fontSize="lg"
+            fontWeight="bold"
+          >
+            {number}
+          </Flex>
+          
+          <VStack align="flex-start" spacing={2}>
+            <Heading size="sm" color="text.primary">{title}</Heading>
+            <Text color="text.secondary">{description}</Text>
+          </VStack>
+        </HStack>
+      </CardBody>
+    </Card>
+  );
+};
+
+// Use Case Card Component
+const UseCaseCard = ({ 
+  title, 
+  description, 
+  tags 
+}: { 
+  title: string, 
+  description: string, 
+  tags: string[] 
+}) => {
+  const { colorMode } = useColorMode();
+  
+  return (
+    <Card 
+      bg="bg.secondary" 
+      borderRadius="lg" 
+      border="1px solid"
+      borderColor="border.primary"
+      overflow="hidden"
+      transition="all 0.3s"
+      _hover={{ 
+        transform: 'translateY(-5px)', 
+        boxShadow: 'xl' 
+      }}
+    >
+      <CardBody>
+        <VStack align="flex-start" spacing={4}>
+          <Heading size="md" color="text.primary">{title}</Heading>
+          <Text color="text.secondary">{description}</Text>
+          
+          <HStack spacing={2} flexWrap="wrap">
+            {tags.map((tag, index) => (
+              <Tag 
+                key={index} 
+                bg="bg.accent" 
+                color={colorMode === 'dark' ? "neon.blue" : "brand.600"}
+                borderRadius="full" 
+                size="md"
+              >
+                {tag}
+              </Tag>
+            ))}
+          </HStack>
+        </VStack>
+      </CardBody>
+    </Card>
+  );
+};
+
+const SmartFiltering: React.FC = () => {
+  const { colorMode } = useColorMode();
+  
+  return (
+    <Box bg="bg.primary" minH="100vh" color="text.primary">
       <PageBanner 
         title="Smart Email Processing" 
         subtitle="Automatically filter and categorize emails based on content, priority, and knowledge value."
+        gradient={colorMode === 'dark' 
+          ? "linear(to-r, neon.blue, neon.purple, neon.pink)"
+          : "linear(to-r, brand.600, brand.500, brand.400)"
+        }
       />
       <Container maxW="1200px" py={10}>
         <VStack spacing={8} align="stretch">
           {/* Header */}
           <HStack>
-            <Icon as={FaFilter} w={8} h={8} color="neon.blue" />
+            <Icon as={FaFilter} w={8} h={8} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
             <Heading 
               size="xl" 
-              bgGradient="linear(to-r, #3ef2f2, #f72585)" 
+              bgGradient={colorMode === 'dark' 
+                ? "linear(to-r, neon.blue, neon.purple)"
+                : "linear(to-r, brand.600, brand.400)"
+              }
               bgClip="text"
             >
               Smart Filtering
             </Heading>
           </HStack>
           
-          <Text fontSize="lg">
+          <Text fontSize="lg" color="text.secondary">
             Our advanced filtering system helps you precisely target the most valuable emails in your organization's
             mailboxes, ensuring you only process the content that matters most.
           </Text>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
           {/* Main Content */}
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={10}>
             {/* Left Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color="neon.blue">Filter Categories</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Filter Categories</Heading>
               
               <List spacing={4}>
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaFolder} color="neon.blue" />
-                    <Text><strong>Folder-based:</strong> Target specific Outlook folders and subfolders</Text>
+                    <ListIcon as={FaFolder} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Folder-based:</strong> Target specific Outlook folders and subfolders</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaCalendarAlt} color="neon.blue" />
-                    <Text><strong>Date Range:</strong> Filter by specific time periods (last week, month, custom range)</Text>
+                    <ListIcon as={FaCalendarAlt} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Date Range:</strong> Filter by specific time periods (last week, month, custom range)</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaUser} color="neon.blue" />
-                    <Text><strong>Sender/Recipient:</strong> Filter by specific contacts or domains</Text>
+                    <ListIcon as={FaUser} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Sender/Recipient:</strong> Filter by specific contacts or domains</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaSearch} color="neon.blue" />
-                    <Text><strong>Keyword Search:</strong> Find emails containing specific terms or phrases</Text>
+                    <ListIcon as={FaSearch} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Keyword Search:</strong> Find emails containing specific terms or phrases</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaPaperclip} color="neon.blue" />
-                    <Text><strong>Attachment Type:</strong> Filter by emails with specific attachment types (.pdf, .docx, etc.)</Text>
+                    <ListIcon as={FaPaperclip} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Attachment Type:</strong> Filter by emails with specific attachment types (.pdf, .docx, etc.)</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaTag} color="neon.blue" />
-                    <Text><strong>Importance:</strong> Filter by priority flags or importance markers</Text>
+                    <ListIcon as={FaTag} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Importance:</strong> Filter by priority flags or importance markers</Text>
                   </HStack>
                 </ListItem>
               </List>
               
-              <Alert status="info" bg="rgba(62, 242, 242, 0.1)" color="white" borderRadius="md">
-                <AlertIcon color="neon.blue" />
+              <Alert status="info" bg="bg.info" color="text.primary" borderRadius="md">
+                <AlertIcon color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
                 Filters can be combined to create highly specific queries, allowing you to target exactly the content you need.
               </Alert>
               
               <Box>
-                <Heading size="sm" mb={2} color="neon.blue">Advanced Query Syntax</Heading>
-                <Code p={3} borderRadius="md" bg="whiteAlpha.100" color="white" display="block" whiteSpace="pre">
+                <Heading size="sm" mb={2} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Advanced Query Syntax</Heading>
+                <Code p={3} borderRadius="md" bg="bg.secondary" color="text.primary" display="block" whiteSpace="pre">
 {`folder:"Projects" AND from:client@company.com
 date:>2023-01-01 AND subject:"Quarterly Report"
 hasAttachments:true AND attachmentType:.pdf
@@ -127,55 +278,56 @@ importance:high AND NOT from:internal@ourcompany.com`}
             
             {/* Right Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color="neon.blue">Filter Optimization</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Filter Optimization</Heading>
               
               <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
+                bg="bg.secondary" 
                 borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
+                border="1px solid"
+                borderColor="border.primary"
                 overflow="hidden"
               >
                 <CardBody>
                   <VStack align="stretch" spacing={4}>
-                    <Heading size="sm">Filter Performance Metrics</Heading>
+                    <Heading size="sm" color="text.primary">Filter Performance Metrics</Heading>
                     <Table variant="simple" size="sm">
                       <Thead>
                         <Tr>
-                          <Th color="whiteAlpha.700">Filter Type</Th>
-                          <Th color="whiteAlpha.700">Processing Speed</Th>
-                          <Th color="whiteAlpha.700">Precision</Th>
+                          <Th color="text.secondary">Filter Type</Th>
+                          <Th color="text.secondary">Processing Speed</Th>
+                          <Th color="text.secondary">Precision</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
                         <Tr>
-                          <Td>Folder-based</Td>
-                          <Td>Very Fast</Td>
-                          <Td>High</Td>
+                          <Td color="text.primary">Folder-based</Td>
+                          <Td color="text.primary">Very Fast</Td>
+                          <Td color="text.primary">High</Td>
                         </Tr>
                         <Tr>
-                          <Td>Date Range</Td>
-                          <Td>Very Fast</Td>
-                          <Td>High</Td>
+                          <Td color="text.primary">Date Range</Td>
+                          <Td color="text.primary">Very Fast</Td>
+                          <Td color="text.primary">High</Td>
                         </Tr>
                         <Tr>
-                          <Td>Sender/Recipient</Td>
-                          <Td>Fast</Td>
-                          <Td>High</Td>
+                          <Td color="text.primary">Sender/Recipient</Td>
+                          <Td color="text.primary">Fast</Td>
+                          <Td color="text.primary">High</Td>
                         </Tr>
                         <Tr>
-                          <Td>Keyword Search</Td>
-                          <Td>Moderate</Td>
-                          <Td>Medium</Td>
+                          <Td color="text.primary">Keyword Search</Td>
+                          <Td color="text.primary">Moderate</Td>
+                          <Td color="text.primary">Medium</Td>
                         </Tr>
                         <Tr>
-                          <Td>Attachment Type</Td>
-                          <Td>Fast</Td>
-                          <Td>High</Td>
+                          <Td color="text.primary">Attachment Type</Td>
+                          <Td color="text.primary">Fast</Td>
+                          <Td color="text.primary">High</Td>
                         </Tr>
                         <Tr>
-                          <Td>Combined Filters</Td>
-                          <Td>Varies</Td>
-                          <Td>Very High</Td>
+                          <Td color="text.primary">Combined Filters</Td>
+                          <Td color="text.primary">Varies</Td>
+                          <Td color="text.primary">Very High</Td>
                         </Tr>
                       </Tbody>
                     </Table>
@@ -198,223 +350,77 @@ importance:high AND NOT from:internal@ourcompany.com`}
                 
                 <FilterTipCard 
                   icon={FaInfoCircle}
-                  title="Save Common Filters"
-                  description="Save frequently used filter combinations as templates for future use"
+                  title="Optimize for Speed"
+                  description="When processing large mailboxes, start with the fastest filter types"
                 />
               </SimpleGrid>
-              
-              <Alert status="warning" bg="rgba(247, 37, 133, 0.1)" color="white" borderRadius="md">
-                <AlertIcon color="neon.pink" />
-                Very broad filters on large mailboxes may take longer to process. We recommend starting with specific folders.
-              </Alert>
             </VStack>
           </SimpleGrid>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
-          {/* Filter Workflow */}
+          {/* Workflow Section */}
           <Box>
-            <Heading size="md" mb={4} color="neon.blue">Filter Workflow</Heading>
-            
-            <Box 
-              p={6} 
-              bg="rgba(255, 255, 255, 0.05)" 
-              borderRadius="lg" 
-              border="1px solid rgba(255, 255, 255, 0.1)"
-            >
-              <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
-                <WorkflowStepCard 
-                  number="01"
-                  title="Select Filter Criteria"
-                  description="Choose folders, date ranges, senders, keywords, and other parameters"
-                />
-                
-                <WorkflowStepCard 
-                  number="02"
-                  title="Preview Results"
-                  description="View matching email count and metadata before processing"
-                />
-                
-                <WorkflowStepCard 
-                  number="03"
-                  title="Refine & Confirm"
-                  description="Adjust filters if needed, then confirm selection for analysis"
-                />
-              </SimpleGrid>
-            </Box>
-          </Box>
-          
-          <Divider borderColor="whiteAlpha.300" />
-          
-          {/* Example Use Cases */}
-          <Box>
-            <Heading size="md" mb={4} color="neon.blue">Example Use Cases</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Filtering Workflow</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-              <UseCaseCard 
-                title="Project Documentation"
-                description="Filter emails from a specific client domain within the 'Projects' folder that contain PDF attachments"
-                tags={['folder:Projects', 'from:client.com', 'attachmentType:.pdf']}
+              <WorkflowStepCard 
+                number="1"
+                title="Define Your Knowledge Goals"
+                description="Identify what types of information you want to extract and preserve from emails"
               />
               
-              <UseCaseCard 
-                title="Policy Updates"
-                description="Find all emails from the legal team containing 'policy update' in the subject line from the last quarter"
-                tags={['from:legal@company.com', 'subject:policy update', 'date:last-3-months']}
+              <WorkflowStepCard 
+                number="2"
+                title="Set Up Initial Filters"
+                description="Configure broad filters to capture potentially relevant content"
               />
               
-              <UseCaseCard 
-                title="Client Feedback"
-                description="Collect all emails with 'feedback' or 'review' keywords from external domains"
-                tags={['keyword:feedback OR review', 'from:external', 'not:internal@company.com']}
+              <WorkflowStepCard 
+                number="3"
+                title="Review & Refine"
+                description="Analyze initial results and adjust filters to improve precision"
               />
               
-              <UseCaseCard 
-                title="Executive Decisions"
-                description="Filter high-importance emails from executive team members containing specific project codenames"
-                tags={['from:executive-team', 'importance:high', 'keyword:project-alpha']}
+              <WorkflowStepCard 
+                number="4"
+                title="Save Filter Templates"
+                description="Store successful filter combinations as templates for future use"
               />
             </SimpleGrid>
           </Box>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
-          {/* FAQ Section */}
+          {/* Use Cases Section */}
           <Box>
-            <Heading size="md" mb={4} color="neon.blue">Frequently Asked Questions</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Common Use Cases</Heading>
             
-            <VStack spacing={4} align="stretch">
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>How many filters can I combine at once?</Heading>
-                <Text>You can combine up to 10 different filter criteria in a single query. This allows for highly specific targeting of emails.</Text>
-              </Box>
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
+              <UseCaseCard 
+                title="Project Documentation"
+                description="Capture all project-related communications for future reference and onboarding"
+                tags={["Project Management", "Documentation", "Onboarding"]}
+              />
               
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>Can I save my filter combinations for future use?</Heading>
-                <Text>Yes, you can save filter templates in your account settings. This makes it easy to run the same queries on a regular basis.</Text>
-              </Box>
+              <UseCaseCard 
+                title="Client Knowledge Base"
+                description="Build comprehensive profiles of client preferences, history, and requirements"
+                tags={["Client Relations", "Sales", "Support"]}
+              />
               
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>Is there a limit to how many emails I can filter?</Heading>
-                <Text>The system can handle filtering through tens of thousands of emails, but processing time will increase with volume. We recommend using date ranges to limit very large queries.</Text>
-              </Box>
-              
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>Can I filter based on email content, not just metadata?</Heading>
-                <Text>Yes, the keyword search filter examines both subject lines and email body content. For more advanced content filtering, you can use the AI Analysis features after initial filtering.</Text>
-              </Box>
-            </VStack>
+              <UseCaseCard 
+                title="Technical Solutions"
+                description="Preserve technical solutions, workarounds, and troubleshooting steps"
+                tags={["IT Support", "Engineering", "Troubleshooting"]}
+              />
+            </SimpleGrid>
           </Box>
         </VStack>
       </Container>
+      
       <Footer />
     </Box>
-  );
-};
-
-// Filter Tip Card Component
-const FilterTipCard = ({ icon, title, description }: { icon: any, title: string, description: string }) => {
-  return (
-    <Card 
-      bg="rgba(255, 255, 255, 0.05)" 
-      borderRadius="lg" 
-      border="1px solid rgba(255, 255, 255, 0.1)"
-      overflow="hidden"
-      transition="all 0.3s"
-      _hover={{ 
-        transform: 'translateY(-5px)', 
-        boxShadow: '0 8px 30px rgba(62, 242, 242, 0.2)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
-      }}
-    >
-      <CardBody>
-        <HStack spacing={4}>
-          <Box
-            p={2}
-            bg="rgba(62, 242, 242, 0.2)"
-            color="neon.blue"
-            borderRadius="md"
-            boxShadow="0 0 10px rgba(62, 242, 242, 0.3)"
-          >
-            <Icon as={icon} w={5} h={5} />
-          </Box>
-          <VStack align="start" spacing={1}>
-            <Heading size="sm">{title}</Heading>
-            <Text fontSize="sm" color="whiteAlpha.800">{description}</Text>
-          </VStack>
-        </HStack>
-      </CardBody>
-    </Card>
-  );
-};
-
-// Workflow Step Card Component
-const WorkflowStepCard = ({ number, title, description }: { number: string, title: string, description: string }) => {
-  return (
-    <VStack 
-      p={4} 
-      bg="rgba(255, 255, 255, 0.03)" 
-      borderRadius="lg"
-      spacing={4}
-      align="flex-start"
-      position="relative"
-      overflow="hidden"
-    >
-      <Box 
-        position="absolute" 
-        top="-10px" 
-        right="-10px" 
-        fontSize="80px" 
-        fontWeight="bold" 
-        opacity="0.1"
-        color="neon.blue"
-      >
-        {number}
-      </Box>
-      
-      <Heading size="md">{title}</Heading>
-      <Text color="whiteAlpha.800">{description}</Text>
-    </VStack>
-  );
-};
-
-// Use Case Card Component
-const UseCaseCard = ({ title, description, tags }: { title: string, description: string, tags: string[] }) => {
-  return (
-    <Card 
-      bg="rgba(255, 255, 255, 0.05)" 
-      borderRadius="lg" 
-      border="1px solid rgba(255, 255, 255, 0.1)"
-      overflow="hidden"
-      transition="all 0.3s"
-      _hover={{ 
-        transform: 'translateY(-5px)', 
-        boxShadow: '0 8px 30px rgba(62, 242, 242, 0.2)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
-      }}
-    >
-      <CardBody>
-        <VStack align="flex-start" spacing={3}>
-          <Heading size="md">{title}</Heading>
-          <Text color="whiteAlpha.800">{description}</Text>
-          
-          <HStack flexWrap="wrap" spacing={2} pt={2}>
-            {tags.map((tag, index) => (
-              <Tag 
-                key={index} 
-                size="sm" 
-                bg="rgba(62, 242, 242, 0.2)" 
-                color="neon.blue"
-                borderRadius="full"
-                my={1}
-              >
-                {tag}
-              </Tag>
-            ))}
-          </HStack>
-        </VStack>
-      </CardBody>
-    </Card>
   );
 };
 

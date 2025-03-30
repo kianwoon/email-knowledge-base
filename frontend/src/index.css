@@ -1,0 +1,42 @@
+/* Global styles */
+:root {
+  --dark-bg: #0a1929;
+  --light-bg: #f8f9fa;
+  --chakra-colors-dark-bg: #0a1929;
+  --chakra-colors-dark-text-primary: #fff;
+  --chakra-colors-light-bg: #f8f9fa;
+  --chakra-colors-light-text-primary: #000;
+}
+
+/* Reset default styles */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+}
+
+/* Ensure root takes full height */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dark mode styles */
+[data-theme="dark"] {
+  background-color: var(--chakra-colors-dark-bg);
+  color: var(--chakra-colors-dark-text-primary);
+}
+
+/* Light mode styles */
+[data-theme="light"] {
+  background-color: var(--chakra-colors-light-bg);
+  color: var(--chakra-colors-light-text-primary);
+}
+
+/* Smooth transitions */
+body, #root, [data-theme] {
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}

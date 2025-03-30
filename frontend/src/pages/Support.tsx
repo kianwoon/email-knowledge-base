@@ -16,127 +16,118 @@ import {
   Flex,
 } from '@chakra-ui/react';
 import { FaEnvelope, FaMapMarkerAlt, FaBuilding, FaGlobe } from 'react-icons/fa';
-import DocumentationHeader from '../components/DocumentationHeader';
 import Footer from '../components/Footer';
 import PageBanner from '../components/PageBanner';
 
 const Support: React.FC = () => {
   return (
-    <Box bg="#050a30" minH="100vh" color="white">
-      <DocumentationHeader />
+    <Box bg="bg.primary" minH="100vh" color="text.primary">
       <PageBanner 
         title="Support & Contact" 
         subtitle="Our support team is ready to help you get the most out of our email knowledge base solution."
       />
       <Container maxW="1200px" py={10}>
         <VStack spacing={8} align="stretch">
-          {/* Header */}
-          <HStack>
-            <Icon as={FaEnvelope} w={8} h={8} color="neon.blue" />
-            <Heading 
-              size="xl" 
-              bgGradient="linear(to-r, #3ef2f2, #f72585)" 
-              bgClip="text"
-            >
-              Support & Contact
-            </Heading>
-          </HStack>
-          
+          {/* Introduction Text */}
           <Text fontSize="lg">
             Have questions or need assistance with our Email Knowledge Base platform? 
             Our support team is ready to help you get the most out of our solution.
           </Text>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
           {/* Contact Information */}
           <Box>
-            <Heading size="md" color="neon.blue" mb={6}>Contact Information</Heading>
+            <Heading size="md" color="text.highlight" mb={6}>Contact Information</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 2 }} spacing={8}>
               <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
+                bg="bg.secondary" 
                 borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
+                border="1px solid"
+                borderColor="border.primary"
                 overflow="hidden"
               >
                 <CardBody>
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
-                      <Icon as={FaBuilding} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">Company Information</Heading>
+                      <Icon as={FaBuilding} color="text.highlight" w={6} h={6} />
+                      <Heading size="md" color="text.primary">Company Information</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text fontWeight="bold" color="white">Beyondsoft Singapore</Text>
-                      <Text color="white">BFSI Delivery Service, Asia Pacific Business Group</Text>
+                      <Text fontWeight="bold" color="text.primary">Beyondsoft Singapore</Text>
+                      <Text color="text.secondary">BFSI Delivery Service, Asia Pacific Business Group</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
               </Card>
               
               <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
+                bg="bg.secondary" 
                 borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
+                border="1px solid"
+                borderColor="border.primary"
                 overflow="hidden"
               >
                 <CardBody>
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
-                      <Icon as={FaEnvelope} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">Email Support</Heading>
+                      <Icon as={FaEnvelope} color="text.highlight" w={6} h={6} />
+                      <Heading size="md" color="text.primary">Email Support</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Link href="mailto:BFSI_SG@beyondsoft.com" color="neon.blue" fontWeight="bold">
+                      <Link href="mailto:BFSI_SG@beyondsoft.com" color="text.highlight" fontWeight="bold">
                         BFSI_SG@beyondsoft.com
                       </Link>
-                      <Text color="white">For technical support, sales inquiries, and general questions</Text>
+                      <Text color="text.secondary">For technical support, sales inquiries, and general questions</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
               </Card>
               
               <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
+                bg="bg.secondary" 
                 borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
+                border="1px solid"
+                borderColor="border.primary"
                 overflow="hidden"
               >
                 <CardBody>
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
-                      <Icon as={FaMapMarkerAlt} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">Office Location</Heading>
+                      <Icon as={FaMapMarkerAlt} color="text.highlight" w={6} h={6} />
+                      <Heading size="md" color="text.primary">Office Location</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text color="white">38 Beach Road, #20-11</Text>
-                      <Text color="white">South Beach Tower</Text>
-                      <Text color="white">Singapore 189767</Text>
+                      <Text color="text.primary">38 Beach Road, #20-11</Text>
+                      <Text color="text.primary">South Beach Tower</Text>
+                      <Text color="text.primary">Singapore 189767</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
               </Card>
               
               <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
+                bg="bg.secondary" 
                 borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
+                border="1px solid"
+                borderColor="border.primary"
                 overflow="hidden"
               >
                 <CardBody>
                   <VStack align="flex-start" spacing={4}>
                     <HStack>
-                      <Icon as={FaGlobe} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">Business Hours</Heading>
+                      <Icon as={FaGlobe} color="text.highlight" w={6} h={6} />
+                      <Heading size="md" color="text.primary">Business Hours</Heading>
                     </HStack>
                     
                     <VStack align="flex-start" spacing={2} pl={10}>
-                      <Text color="white">Monday - Friday: 9:00 AM - 6:00 PM SGT</Text>
-                      <Text color="white">Weekend: Closed</Text>
-                      <Text color="white">Email support available 24/7</Text>
+                      <Text color="text.primary">Monday - Friday: 9:00 AM - 6:00 PM SGT</Text>
+                      <Text color="text.primary">Weekend: Closed</Text>
+                      <Text color="text.primary">Email support available 24/7</Text>
                     </VStack>
                   </VStack>
                 </CardBody>
@@ -144,11 +135,11 @@ const Support: React.FC = () => {
             </SimpleGrid>
           </Box>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
           {/* Support Options */}
           <Box>
-            <Heading size="md" color="neon.blue" mb={6}>Support Options</Heading>
+            <Heading size="md" color="text.highlight" mb={6}>Support Options</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
               <SupportOption 
@@ -170,22 +161,23 @@ const Support: React.FC = () => {
           
           {/* CTA */}
           <Box 
-            bg="rgba(255, 255, 255, 0.05)" 
+            bg="bg.secondary" 
             p={6} 
             borderRadius="lg" 
-            border="1px solid rgba(255, 255, 255, 0.1)"
+            border="1px solid"
+            borderColor="border.primary"
             mt={4}
           >
             <Flex direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
               <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2} mb={{ base: 4, md: 0 }}>
-                <Heading size="md">Ready to get started?</Heading>
-                <Text color="white">Contact our team today to learn more about our Email Knowledge Base solution.</Text>
+                <Heading size="md" color="text.primary">Ready to get started?</Heading>
+                <Text color="text.secondary">Contact our team today to learn more about our Email Knowledge Base solution.</Text>
               </VStack>
               
               <Button 
                 as={Link} 
                 href="mailto:BFSI_SG@beyondsoft.com" 
-                variant="neon" 
+                colorScheme="blue"
                 size="lg"
                 _hover={{ textDecoration: 'none' }}
               >
@@ -205,18 +197,19 @@ const SupportOption = ({ title, description }: { title: string, description: str
   return (
     <Box
       p={5}
-      bg="rgba(255, 255, 255, 0.03)"
+      bg="bg.tertiary"
       borderRadius="lg"
-      border="1px solid rgba(255, 255, 255, 0.1)"
+      border="1px solid"
+      borderColor="border.primary"
       transition="all 0.3s"
       _hover={{ 
-        bg: 'rgba(255, 255, 255, 0.05)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
+        bg: 'bg.tertiaryHover',
+        borderColor: 'border.primaryHover'
       }}
     >
       <VStack align="flex-start" spacing={2}>
-        <Heading size="sm" color="white">{title}</Heading>
-        <Text fontSize="sm" color="white">{description}</Text>
+        <Heading size="sm" color="text.primary">{title}</Heading>
+        <Text fontSize="sm" color="text.secondary">{description}</Text>
       </VStack>
     </Box>
   );

@@ -22,109 +22,117 @@ import {
   Stat,
   StatLabel,
   StatNumber,
+  useColorMode
 } from '@chakra-ui/react';
-import { FaBrain, FaShieldAlt, FaTag, FaEye, FaLock, FaCheckCircle, FaExclamationTriangle, FaChartLine } from 'react-icons/fa';
-import DocumentationHeader from '../../components/DocumentationHeader';
+import { FaBrain, FaShieldAlt, FaTag, FaEye, FaLock, FaExclamationTriangle, FaChartLine } from 'react-icons/fa';
 import Footer from '../../components/Footer';
 import PageBanner from '../../components/PageBanner';
 
 const AIAnalysis: React.FC = () => {
+  const { colorMode } = useColorMode();
+  
   return (
-    <Box bg="#050a30" minH="100vh" color="white">
-      <DocumentationHeader />
+    <Box bg="bg.primary" minH="100vh" color="text.primary">
       <PageBanner 
         title="AI-Powered Knowledge Extraction" 
         subtitle="Extract valuable insights and patterns from your communications using advanced AI algorithms."
+        gradient={colorMode === 'dark' 
+          ? "linear(to-r, neon.blue, neon.purple, neon.pink)"
+          : "linear(to-r, brand.600, brand.500, brand.400)"
+        }
       />
       <Container maxW="1200px" py={10}>
         <VStack spacing={8} align="stretch">
           {/* Header */}
           <HStack>
-            <Icon as={FaBrain} w={8} h={8} color="neon.blue" />
+            <Icon as={FaBrain} w={8} h={8} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
             <Heading 
               size="xl" 
-              bgGradient="linear(to-r, #3ef2f2, #f72585)" 
+              bgGradient={colorMode === 'dark' 
+                ? "linear(to-r, neon.blue, neon.purple)"
+                : "linear(to-r, brand.600, brand.400)"
+              }
               bgClip="text"
             >
               AI Analysis
             </Heading>
           </HStack>
           
-          <Text fontSize="lg">
+          <Text fontSize="lg" color="text.primary">
             Our advanced AI analysis engine processes your selected emails to extract valuable insights,
             classify content, and prepare knowledge for export while ensuring privacy and compliance.
           </Text>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
           {/* Main Content */}
           <SimpleGrid columns={{ base: 1, md: 2 }} spacing={10}>
             {/* Left Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color="neon.blue">AI Capabilities</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>AI Capabilities</Heading>
               
               <List spacing={4}>
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaTag} color="neon.blue" />
-                    <Text><strong>Smart Classification:</strong> Automatically categorizes emails by department, topic, and importance</Text>
+                    <ListIcon as={FaTag} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Smart Classification:</strong> Automatically categorizes emails by department, topic, and importance</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaShieldAlt} color="neon.blue" />
-                    <Text><strong>PII Detection:</strong> Identifies and flags personally identifiable information for review</Text>
+                    <ListIcon as={FaShieldAlt} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>PII Detection:</strong> Identifies and flags personally identifiable information for review</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaEye} color="neon.blue" />
-                    <Text><strong>Content Summarization:</strong> Creates concise summaries of email threads and conversations</Text>
+                    <ListIcon as={FaEye} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Content Summarization:</strong> Creates concise summaries of email threads and conversations</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaLock} color="neon.blue" />
-                    <Text><strong>Sensitivity Analysis:</strong> Evaluates content for confidentiality and compliance concerns</Text>
+                    <ListIcon as={FaLock} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Sensitivity Analysis:</strong> Evaluates content for confidentiality and compliance concerns</Text>
                   </HStack>
                 </ListItem>
                 
                 <ListItem>
                   <HStack>
-                    <ListIcon as={FaChartLine} color="neon.blue" />
-                    <Text><strong>Knowledge Extraction:</strong> Identifies key facts, decisions, and actionable insights</Text>
+                    <ListIcon as={FaChartLine} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+                    <Text color="text.primary"><strong>Knowledge Extraction:</strong> Identifies key facts, decisions, and actionable insights</Text>
                   </HStack>
                 </ListItem>
               </List>
               
-              <Alert status="info" bg="rgba(62, 242, 242, 0.1)" color="white" borderRadius="md">
-                <AlertIcon color="neon.blue" />
+              <Alert status="info" bg="bg.info" color="text.primary" borderRadius="md">
+                <AlertIcon color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
                 Our AI models are fine-tuned for business communications and can be customized for your organization's specific terminology and needs.
               </Alert>
               
               <Box>
-                <Heading size="sm" mb={2} color="neon.blue">AI Model Specifications</Heading>
-                <Card bg="whiteAlpha.100" borderRadius="md">
+                <Heading size="sm" mb={2} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>AI Model Specifications</Heading>
+                <Card bg="bg.secondary" borderRadius="md">
                   <CardBody>
                     <SimpleGrid columns={2} spacing={4}>
                       <Stat>
-                        <StatLabel color="whiteAlpha.700">Base Model</StatLabel>
-                        <StatNumber fontSize="md">ChatGPT-4o mini</StatNumber>
+                        <StatLabel color="text.secondary">Base Model</StatLabel>
+                        <StatNumber fontSize="md" color="text.primary">ChatGPT-4o mini</StatNumber>
                       </Stat>
                       <Stat>
-                        <StatLabel color="whiteAlpha.700">Fine-tuning</StatLabel>
-                        <StatNumber fontSize="md">Business Communications</StatNumber>
+                        <StatLabel color="text.secondary">Fine-tuning</StatLabel>
+                        <StatNumber fontSize="md" color="text.primary">Business Communications</StatNumber>
                       </Stat>
                       <Stat>
-                        <StatLabel color="whiteAlpha.700">Context Window</StatLabel>
-                        <StatNumber fontSize="md">16K tokens</StatNumber>
+                        <StatLabel color="text.secondary">Context Window</StatLabel>
+                        <StatNumber fontSize="md" color="text.primary">16K tokens</StatNumber>
                       </Stat>
                       <Stat>
-                        <StatLabel color="whiteAlpha.700">Processing Speed</StatLabel>
-                        <StatNumber fontSize="md">~3-5 sec/email</StatNumber>
+                        <StatLabel color="text.secondary">Processing Speed</StatLabel>
+                        <StatNumber fontSize="md" color="text.primary">~3-5 sec/email</StatNumber>
                       </Stat>
                     </SimpleGrid>
                   </CardBody>
@@ -134,7 +142,7 @@ const AIAnalysis: React.FC = () => {
             
             {/* Right Column */}
             <VStack align="stretch" spacing={6}>
-              <Heading size="md" color="neon.blue">Analysis Process</Heading>
+              <Heading size="md" color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Analysis Process</Heading>
               
               <SimpleGrid columns={1} spacing={4}>
                 <ProcessStepCard 
@@ -173,18 +181,18 @@ const AIAnalysis: React.FC = () => {
                 />
               </SimpleGrid>
               
-              <Alert status="warning" bg="rgba(247, 37, 133, 0.1)" color="white" borderRadius="md">
-                <AlertIcon color="neon.pink" />
+              <Alert status="warning" bg="bg.warning" color="text.primary" borderRadius="md">
+                <AlertIcon color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
                 AI analysis is designed to assist human reviewers, not replace them. All AI-generated tags and classifications can be modified during review.
               </Alert>
             </VStack>
           </SimpleGrid>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
           {/* Classification Categories */}
           <Box>
-            <Heading size="md" mb={4} color="neon.blue">Classification Categories</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>Classification Categories</Heading>
             
             <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
               <ClassificationCard 
@@ -200,236 +208,148 @@ const AIAnalysis: React.FC = () => {
               />
               
               <ClassificationCard 
-                title="Sensitivity Level"
-                description="Evaluates confidentiality requirements"
-                tags={['Public', 'Internal', 'Confidential', 'Restricted', 'PII Present', 'Legal Hold']}
+                title="Sensitivity"
+                description="Flags content requiring special handling"
+                tags={['Public', 'Internal', 'Confidential', 'Restricted', 'PII', 'Financial', 'Legal', 'Strategic']}
               />
             </SimpleGrid>
           </Box>
           
-          <Divider borderColor="whiteAlpha.300" />
+          <Divider borderColor="border.primary" />
           
-          {/* Privacy & Compliance */}
+          {/* PII Detection */}
           <Box>
-            <Heading size="md" mb={4} color="neon.blue">Privacy & Compliance</Heading>
+            <Heading size="md" mb={4} color={colorMode === 'dark' ? "neon.blue" : "brand.600"}>PII & Sensitive Data Detection</Heading>
             
-            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-              <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
-                borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
-                overflow="hidden"
-              >
-                <CardBody>
-                  <VStack align="flex-start" spacing={4}>
-                    <HStack>
-                      <Icon as={FaShieldAlt} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">PII Detection</Heading>
-                    </HStack>
-                    
-                    <Text>Our AI is trained to identify over 50 types of personally identifiable information, including:</Text>
-                    
-                    <SimpleGrid columns={2} spacing={2}>
-                      <PIITag label="Names" />
-                      <PIITag label="Email Addresses" />
-                      <PIITag label="Phone Numbers" />
-                      <PIITag label="Addresses" />
-                      <PIITag label="SSN/ID Numbers" />
-                      <PIITag label="Credit Card Data" />
-                      <PIITag label="Financial Info" />
-                      <PIITag label="Health Data" />
-                    </SimpleGrid>
-                    
-                    <Text>Detected PII is flagged for review and can be automatically redacted before export.</Text>
-                  </VStack>
-                </CardBody>
-              </Card>
-              
-              <Card 
-                bg="rgba(255, 255, 255, 0.05)" 
-                borderRadius="lg" 
-                border="1px solid rgba(255, 255, 255, 0.1)"
-                overflow="hidden"
-              >
-                <CardBody>
-                  <VStack align="flex-start" spacing={4}>
-                    <HStack>
-                      <Icon as={FaLock} color="neon.blue" w={6} h={6} />
-                      <Heading size="md">Compliance Framework</Heading>
-                    </HStack>
-                    
-                    <Text>Our AI analysis is designed with regulatory compliance in mind:</Text>
-                    
-                    <List spacing={2}>
-                      <ListItem>
-                        <HStack>
-                          <ListIcon as={FaCheckCircle} color="neon.blue" />
-                          <Text><strong>GDPR:</strong> Identifies EU personal data for proper handling</Text>
-                        </HStack>
-                      </ListItem>
-                      
-                      <ListItem>
-                        <HStack>
-                          <ListIcon as={FaCheckCircle} color="neon.blue" />
-                          <Text><strong>CCPA/CPRA:</strong> Flags California resident information</Text>
-                        </HStack>
-                      </ListItem>
-                      
-                      <ListItem>
-                        <HStack>
-                          <ListIcon as={FaCheckCircle} color="neon.blue" />
-                          <Text><strong>HIPAA:</strong> Detects protected health information</Text>
-                        </HStack>
-                      </ListItem>
-                      
-                      <ListItem>
-                        <HStack>
-                          <ListIcon as={FaCheckCircle} color="neon.blue" />
-                          <Text><strong>PCI DSS:</strong> Identifies payment card information</Text>
-                        </HStack>
-                      </ListItem>
-                    </List>
-                    
-                    <Text>All processing is logged for audit purposes, maintaining a compliance trail.</Text>
-                  </VStack>
-                </CardBody>
-              </Card>
+            <Text mb={4} color="text.primary">
+              Our AI system automatically identifies and flags personally identifiable information and sensitive data
+              to ensure compliance with privacy regulations and company policies.
+            </Text>
+            
+            <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mb={6}>
+              <PIITag label="Names" />
+              <PIITag label="Email Addresses" />
+              <PIITag label="Phone Numbers" />
+              <PIITag label="Addresses" />
+              <PIITag label="SSN/ID Numbers" />
+              <PIITag label="Financial Data" />
+              <PIITag label="Health Information" />
+              <PIITag label="Credentials" />
             </SimpleGrid>
-          </Box>
-          
-          <Divider borderColor="whiteAlpha.300" />
-          
-          {/* FAQ Section */}
-          <Box>
-            <Heading size="md" mb={4} color="neon.blue">Frequently Asked Questions</Heading>
             
-            <VStack spacing={4} align="stretch">
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>How accurate is the AI classification?</Heading>
-                <Text>Our AI achieves 85-95% accuracy in most business contexts. The human review stage allows for correction of any misclassifications before final export.</Text>
-              </Box>
-              
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>Can I customize the classification categories?</Heading>
-                <Text>Yes, enterprise customers can define custom classification taxonomies and train the system on organization-specific terminology.</Text>
-              </Box>
-              
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>Where is the AI processing performed?</Heading>
-                <Text>All AI analysis is performed within your security perimeter. For cloud deployments, data is processed in compliance with your data residency requirements.</Text>
-              </Box>
-              
-              <Box p={4} bg="rgba(255, 255, 255, 0.05)" borderRadius="md">
-                <Heading size="sm" mb={2}>How does the system handle multi-language content?</Heading>
-                <Text>Our AI supports analysis in 25+ languages, with full classification capabilities in English, Spanish, French, German, Italian, Portuguese, Japanese, and Chinese.</Text>
-              </Box>
-            </VStack>
+            <Alert status="success" bg="bg.success" color="text.primary" borderRadius="md">
+              <AlertIcon color={colorMode === 'dark' ? "neon.blue" : "brand.600"} />
+              All flagged PII is presented for human review before being processed. You can choose to redact, anonymize, or approve each instance.
+            </Alert>
           </Box>
         </VStack>
       </Container>
+      
       <Footer />
     </Box>
   );
 };
 
 // Process Step Card Component
-const ProcessStepCard = ({ number, title, description, progress }: { 
+const ProcessStepCard: React.FC<{ 
   number: string, 
   title: string, 
   description: string,
   progress: number
-}) => {
+}> = ({ number, title, description, progress }) => {
+  const { colorMode } = useColorMode();
+  
   return (
     <Card 
-      bg="rgba(255, 255, 255, 0.05)" 
-      borderRadius="lg" 
-      border="1px solid rgba(255, 255, 255, 0.1)"
+      bg="bg.secondary" 
+      borderRadius="md" 
       overflow="hidden"
-      transition="all 0.3s"
-      _hover={{ 
-        transform: 'translateY(-5px)', 
-        boxShadow: '0 8px 30px rgba(62, 242, 242, 0.2)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
-      }}
+      position="relative"
+      border="1px solid"
+      borderColor="border.primary"
     >
       <CardBody>
-        <HStack spacing={4} align="flex-start">
-          <Box
-            p={2}
-            bg="rgba(62, 242, 242, 0.2)"
-            color="neon.blue"
-            borderRadius="md"
-            boxShadow="0 0 10px rgba(62, 242, 242, 0.3)"
-            fontSize="lg"
+        <Flex align="center" mb={2}>
+          <Box 
+            w="30px" 
+            h="30px" 
+            borderRadius="full" 
+            bg={colorMode === 'dark' ? "neon.blue" : "brand.600"}
+            color="white"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
             fontWeight="bold"
-            minW="40px"
-            textAlign="center"
+            mr={3}
           >
             {number}
           </Box>
-          <VStack align="start" spacing={2} flex="1">
-            <Heading size="sm">{title}</Heading>
-            <Text fontSize="sm" color="whiteAlpha.800">{description}</Text>
-            <Progress 
-              value={progress} 
-              size="xs" 
-              w="100%" 
-              colorScheme="blue" 
-              bg="whiteAlpha.200" 
-              borderRadius="full"
-              mt={1}
-            />
-          </VStack>
-        </HStack>
+          <Heading size="sm" color="text.primary">{title}</Heading>
+        </Flex>
+        <Text color="text.secondary" fontSize="sm" mb={3}>{description}</Text>
+        <Progress 
+          value={progress} 
+          size="sm" 
+          colorScheme={colorMode === 'dark' ? "cyan" : "blue"} 
+          borderRadius="full" 
+        />
       </CardBody>
     </Card>
   );
 };
 
 // Classification Card Component
-const ClassificationCard = ({ title, description, tags }: { 
+const ClassificationCard: React.FC<{ 
   title: string, 
   description: string, 
   tags: string[] 
-}) => {
+}> = ({ title, description, tags }) => {
+  const { colorMode } = useColorMode();
+  
   return (
     <Card 
-      bg="rgba(255, 255, 255, 0.05)" 
-      borderRadius="lg" 
-      border="1px solid rgba(255, 255, 255, 0.1)"
-      overflow="hidden"
+      bg="bg.secondary" 
+      borderRadius="md"
+      border="1px solid"
+      borderColor="border.primary"
     >
       <CardBody>
-        <VStack align="flex-start" spacing={4}>
-          <Heading size="md">{title}</Heading>
-          <Text color="whiteAlpha.800">{description}</Text>
-          
-          <Flex flexWrap="wrap" gap={2}>
-            {tags.map((tag, index) => (
-              <Tag 
-                key={index} 
-                bg="rgba(62, 242, 242, 0.1)" 
-                color="neon.blue"
-                borderRadius="full"
-                size="sm"
-              >
-                {tag}
-              </Tag>
-            ))}
-          </Flex>
-        </VStack>
+        <Heading size="sm" mb={2} color="text.primary">{title}</Heading>
+        <Text fontSize="sm" color="text.secondary" mb={4}>{description}</Text>
+        <Flex wrap="wrap" gap={2}>
+          {tags.map((tag, index) => (
+            <Tag 
+              key={index} 
+              size="sm" 
+              bg={colorMode === 'dark' ? "rgba(62, 242, 242, 0.2)" : "rgba(10, 124, 255, 0.1)"}
+              color={colorMode === 'dark' ? "neon.blue" : "brand.600"}
+              borderRadius="full"
+            >
+              {tag}
+            </Tag>
+          ))}
+        </Flex>
       </CardBody>
     </Card>
   );
 };
 
 // PII Tag Component
-const PIITag = ({ label }: { label: string }) => {
+const PIITag: React.FC<{ label: string }> = ({ label }) => {
+  const { colorMode } = useColorMode();
+  
   return (
-    <HStack>
-      <Icon as={FaExclamationTriangle} color="neon.pink" w={3} h={3} />
-      <Text fontSize="sm">{label}</Text>
-    </HStack>
+    <Flex 
+      bg="bg.warning" 
+      p={3} 
+      borderRadius="md" 
+      align="center"
+      border="1px solid"
+      borderColor="border.primary"
+    >
+      <Icon as={FaExclamationTriangle} color={colorMode === 'dark' ? "neon.blue" : "brand.600"} mr={2} />
+      <Text fontSize="sm" fontWeight="medium" color="text.primary">{label}</Text>
+    </Flex>
   );
 };
 

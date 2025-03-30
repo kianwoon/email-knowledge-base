@@ -14,12 +14,6 @@ import {
   Input,
   InputGroup,
   InputRightElement,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
   Text,
   useToast,
   VStack,
@@ -38,6 +32,7 @@ import {
   AccordionButton,
   AccordionPanel,
   AccordionIcon,
+  useColorMode,
 } from '@chakra-ui/react';
 import { SearchIcon, ViewIcon } from '@chakra-ui/icons';
 
@@ -107,6 +102,7 @@ The knowledge item contains important information about the topic you searched f
 const Search: React.FC = () => {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const { colorMode } = useColorMode();
   
   // State
   const [searchQuery, setSearchQuery] = useState('');
@@ -168,191 +164,205 @@ const Search: React.FC = () => {
   };
   
   return (
-    <Container maxW="container.xl" py={6}>
-      <VStack spacing={8} align="stretch">
-        <Heading size="lg">Search Knowledge Base</Heading>
-        
-        {/* Search Box */}
-        <Card>
-          <CardBody>
-            <VStack spacing={4}>
-              <FormControl>
-                <FormLabel>Search Query</FormLabel>
-                <InputGroup size="lg">
-                  <Input
-                    placeholder="Enter search terms..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                  />
-                  <InputRightElement width="4.5rem">
-                    <Button 
-                      h="1.75rem" 
-                      size="sm" 
-                      onClick={handleSearch}
-                      isLoading={isSearching}
-                    >
-                      <SearchIcon />
-                    </Button>
-                  </InputRightElement>
-                </InputGroup>
-              </FormControl>
-              
-              <Text fontSize="sm" color="gray.500">
-                Search for knowledge extracted from your approved emails
-              </Text>
-            </VStack>
-          </CardBody>
-        </Card>
-        
-        {/* Search Results */}
-        {(results.length > 0 || isSearching) && (
-          <Card>
-            <CardHeader>
-              <Heading size="md">
-                {isSearching 
-                  ? 'Searching...' 
-                  : `Search Results (${results.length} of ${totalResults})`}
-              </Heading>
-            </CardHeader>
+    <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
+      <Container maxW="container.xl">
+        <VStack spacing={8} align="stretch">
+          <Box>
+            <Heading size="lg" mb={2}>Search Knowledge Base</Heading>
+            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Find information from your approved emails</Text>
+          </Box>
+          
+          {/* Search Box */}
+          <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
             <CardBody>
-              {isSearching ? (
-                <Flex justify="center" py={8}>
-                  <Spinner size="xl" />
-                </Flex>
-              ) : (
-                <VStack spacing={4} align="stretch">
-                  {results.map((result) => (
-                    <Box 
-                      key={result.id} 
-                      p={4} 
-                      borderWidth="1px" 
-                      borderRadius="md"
-                      _hover={{ bg: 'gray.50', _dark: { bg: 'gray.700' } }}
-                    >
-                      <Flex justify="space-between" align="start">
-                        <VStack align="start" spacing={1}>
-                          <Heading size="sm">{result.subject}</Heading>
-                          <HStack>
-                            <Text fontSize="sm" color="gray.500">
-                              From: {result.sender}
-                            </Text>
-                            <Text fontSize="sm" color="gray.500">
-                              • {new Date(result.date).toLocaleDateString()}
-                            </Text>
-                          </HStack>
-                        </VStack>
-                        <Badge colorScheme="green">
-                          {Math.round(result.score * 100)}% match
-                        </Badge>
-                      </Flex>
-                      
-                      <Text mt={2} noOfLines={2}>
-                        {result.snippet}
-                      </Text>
-                      
-                      <Flex mt={3} justify="space-between" align="center">
-                        <HStack>
-                          {result.tags.map(tag => (
-                            <Badge key={tag} colorScheme="blue" variant="outline">
-                              {tag}
-                            </Badge>
-                          ))}
-                          <Badge colorScheme="purple" variant="outline">
-                            {result.department}
-                          </Badge>
-                        </HStack>
-                        
-                        <Button
-                          size="sm"
-                          leftIcon={<ViewIcon />}
-                          onClick={() => handleViewItem(result.id)}
-                          variant="ghost"
-                        >
-                          View
-                        </Button>
-                      </Flex>
-                    </Box>
-                  ))}
-                </VStack>
-              )}
+              <VStack spacing={4}>
+                <FormControl>
+                  <FormLabel color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Search Query</FormLabel>
+                  <InputGroup size="lg">
+                    <Input
+                      placeholder="Enter search terms..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                      bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                      borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                      color={colorMode === 'dark' ? 'white' : 'black'}
+                    />
+                    <InputRightElement width="4.5rem">
+                      <Button 
+                        h="1.75rem" 
+                        size="sm" 
+                        onClick={handleSearch}
+                        isLoading={isSearching}
+                        colorScheme="primary"
+                      >
+                        <SearchIcon />
+                      </Button>
+                    </InputRightElement>
+                  </InputGroup>
+                </FormControl>
+                
+                <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
+                  Search for knowledge extracted from your approved emails
+                </Text>
+              </VStack>
             </CardBody>
           </Card>
-        )}
-      </VStack>
-      
-      {/* Content Modal */}
-      <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Knowledge Item</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody pb={6}>
-            {isLoadingItem ? (
-              <Flex justify="center" py={8}>
-                <Spinner size="xl" />
-              </Flex>
-            ) : selectedItem && (
-              <VStack spacing={4} align="stretch">
-                <Heading size="md">{selectedItem.subject}</Heading>
-                
-                <HStack wrap="wrap">
-                  <Badge colorScheme="purple">{selectedItem.department}</Badge>
-                  {selectedItem.tags.map((tag: string) => (
-                    <Badge key={tag} colorScheme="blue" variant="outline">
-                      {tag}
-                    </Badge>
-                  ))}
-                </HStack>
-                
-                <Divider />
-                
-                <Box>
-                  <Text fontWeight="bold">Source:</Text>
-                  <Text>{selectedItem.source}</Text>
-                  
-                  <Text fontWeight="bold" mt={2}>From:</Text>
-                  <Text>{selectedItem.sender} ({selectedItem.sender_email})</Text>
-                  
-                  <Text fontWeight="bold" mt={2}>Date:</Text>
-                  <Text>{new Date(selectedItem.date).toLocaleString()}</Text>
-                  
-                  <Text fontWeight="bold" mt={2}>Added to Knowledge Base:</Text>
-                  <Text>{new Date(selectedItem.extracted_date).toLocaleString()}</Text>
-                </Box>
-                
-                <Divider />
-                
-                <Accordion defaultIndex={[0]} allowToggle>
-                  <AccordionItem>
-                    <h2>
-                      <AccordionButton>
-                        <Box flex="1" textAlign="left">
-                          Content
-                        </Box>
-                        <AccordionIcon />
-                      </AccordionButton>
-                    </h2>
-                    <AccordionPanel pb={4}>
+          
+          {/* Search Results */}
+          {(results.length > 0 || isSearching) && (
+            <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
+              <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
+                <Heading size="md">
+                  {isSearching 
+                    ? 'Searching...' 
+                    : `Search Results (${results.length} of ${totalResults})`}
+                </Heading>
+              </CardHeader>
+              <CardBody>
+                {isSearching ? (
+                  <Flex justify="center" py={8}>
+                    <Spinner size="xl" color="primary.500" />
+                  </Flex>
+                ) : (
+                  <VStack spacing={4} align="stretch">
+                    {results.map((result) => (
                       <Box 
-                        p={3} 
+                        key={result.id} 
+                        p={4} 
                         borderWidth="1px" 
                         borderRadius="md"
-                        bg="gray.50"
-                        _dark={{ bg: "gray.700" }}
-                        whiteSpace="pre-wrap"
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                        _hover={{ bg: colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50' }}
                       >
-                        {selectedItem.body}
+                        <Flex justify="space-between" align="start">
+                          <VStack align="start" spacing={1}>
+                            <Heading size="sm">{result.subject}</Heading>
+                            <HStack>
+                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
+                                From: {result.sender}
+                              </Text>
+                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
+                                • {new Date(result.date).toLocaleDateString()}
+                              </Text>
+                            </HStack>
+                          </VStack>
+                          <Badge colorScheme="green">
+                            {Math.round(result.score * 100)}% match
+                          </Badge>
+                        </Flex>
+                        
+                        <Text mt={2} noOfLines={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>
+                          {result.snippet}
+                        </Text>
+                        
+                        <Flex mt={3} justify="space-between" align="center">
+                          <HStack>
+                            {result.tags.map(tag => (
+                              <Badge key={tag} colorScheme="blue" variant="outline">
+                                {tag}
+                              </Badge>
+                            ))}
+                            <Badge colorScheme="purple" variant="outline">
+                              {result.department}
+                            </Badge>
+                          </HStack>
+                          
+                          <Button
+                            size="sm"
+                            leftIcon={<ViewIcon />}
+                            onClick={() => handleViewItem(result.id)}
+                            variant="ghost"
+                            colorScheme="primary"
+                          >
+                            View
+                          </Button>
+                        </Flex>
                       </Box>
-                    </AccordionPanel>
-                  </AccordionItem>
-                </Accordion>
-              </VStack>
-            )}
-          </ModalBody>
-        </ModalContent>
-      </Modal>
-    </Container>
+                    ))}
+                  </VStack>
+                )}
+              </CardBody>
+            </Card>
+          )}
+        </VStack>
+        
+        {/* Content Modal */}
+        <Modal isOpen={isOpen} onClose={onClose} size="xl" scrollBehavior="inside">
+          <ModalOverlay />
+          <ModalContent bg={colorMode === 'dark' ? 'dark.bg' : 'white'}>
+            <ModalHeader borderBottomWidth="1px" borderBottomColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
+              Knowledge Item
+            </ModalHeader>
+            <ModalCloseButton />
+            <ModalBody pb={6}>
+              {isLoadingItem ? (
+                <Flex justify="center" py={8}>
+                  <Spinner size="xl" color="primary.500" />
+                </Flex>
+              ) : selectedItem && (
+                <VStack spacing={4} align="stretch">
+                  <Heading size="md">{selectedItem.subject}</Heading>
+                  
+                  <HStack wrap="wrap">
+                    <Badge colorScheme="purple">{selectedItem.department}</Badge>
+                    {selectedItem.tags.map((tag: string) => (
+                      <Badge key={tag} colorScheme="blue" variant="outline">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </HStack>
+                  
+                  <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
+                  
+                  <Box>
+                    <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Source:</Text>
+                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{selectedItem.source}</Text>
+                    
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>From:</Text>
+                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{selectedItem.sender} ({selectedItem.sender_email})</Text>
+                    
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Date:</Text>
+                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{new Date(selectedItem.date).toLocaleString()}</Text>
+                    
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Added to Knowledge Base:</Text>
+                    <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{new Date(selectedItem.extracted_date).toLocaleString()}</Text>
+                  </Box>
+                  
+                  <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
+                  
+                  <Accordion defaultIndex={[0]} allowToggle>
+                    <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
+                      <h2>
+                        <AccordionButton>
+                          <Box flex="1" textAlign="left">
+                            Content
+                          </Box>
+                          <AccordionIcon />
+                        </AccordionButton>
+                      </h2>
+                      <AccordionPanel pb={4}>
+                        <Box 
+                          p={3} 
+                          borderWidth="1px" 
+                          borderRadius="md"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}
+                          whiteSpace="pre-wrap"
+                        >
+                          {selectedItem.body}
+                        </Box>
+                      </AccordionPanel>
+                    </AccordionItem>
+                  </Accordion>
+                </VStack>
+              )}
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+      </Container>
+    </Box>
   );
 };
 
