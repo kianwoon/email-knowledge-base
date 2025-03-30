@@ -19,6 +19,14 @@ import {
   StatHelpText,
   StatGroup,
   useToast,
+  IconButton,
+  Drawer,
+  DrawerBody,
+  DrawerHeader,
+  DrawerOverlay,
+  DrawerContent,
+  DrawerCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -35,6 +43,7 @@ import {
   FaLightbulb,
   FaUsers,
   FaMicrosoft,
+  FaBars,
 } from 'react-icons/fa';
 import { getLoginUrl } from '../api/auth';
 
@@ -45,6 +54,8 @@ interface SignInProps {
 const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
+  const { isOpen, onOpen, onClose } = useDisclosure();
+  const isMobile = useBreakpointValue({ base: true, md: false });
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -83,59 +94,90 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
     }
   };
 
+  // Mobile Navigation Drawer
+  const MobileNav = () => (
+    <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
+      <DrawerOverlay />
+      <DrawerContent bg="#050a30">
+        <DrawerCloseButton color="white" />
+        <DrawerHeader borderBottomWidth="1px" color="white">Menu</DrawerHeader>
+        <DrawerBody>
+          <VStack spacing={4} align="stretch" mt={4}>
+            <Button as={RouterLink} to="/#features" variant="glass" size="md" onClick={onClose}>Features</Button>
+            <Button as={RouterLink} to="/docs" variant="glass" size="md" onClick={onClose}>Documentation</Button>
+            <Button as={RouterLink} to="/support" variant="glass" size="md" onClick={onClose}>Support</Button>
+          </VStack>
+        </DrawerBody>
+      </DrawerContent>
+    </Drawer>
+  );
+
   return (
     <Box bg="#050a30" minH="100vh" position="relative" overflow="hidden">
       {/* Header/Nav */}
       <Box 
         py={4} 
-        px={8} 
+        px={{ base: 4, md: 8 }} 
         color="white" 
         position="relative" 
         zIndex="1"
         bgGradient="linear(to-r, neon.dark, neon.purple, neon.pink)"
       >
         <Flex maxW="1400px" mx="auto" justify="space-between" align="center">
-          <Heading size="lg" fontWeight="bold">Email Knowledge Base</Heading>
-          <HStack spacing={4}>
-            <Button as={RouterLink} to="/#features" variant="glass" size="sm">Features</Button>
-            <Button as={RouterLink} to="/docs" variant="glass" size="sm">Documentation</Button>
-            <Button as={RouterLink} to="/support" variant="glass" size="sm">Support</Button>
-          </HStack>
+          <Heading size={{ base: "md", md: "lg" }} fontWeight="bold">Email Knowledge Base</Heading>
+          {isMobile ? (
+            <IconButton
+              aria-label="Open menu"
+              icon={<FaBars />}
+              variant="ghost"
+              color="white"
+              onClick={onOpen}
+            />
+          ) : (
+            <HStack spacing={4}>
+              <Button as={RouterLink} to="/#features" variant="glass" size="sm">Features</Button>
+              <Button as={RouterLink} to="/docs" variant="glass" size="sm">Documentation</Button>
+              <Button as={RouterLink} to="/support" variant="glass" size="sm">Support</Button>
+            </HStack>
+          )}
         </Flex>
       </Box>
       
+      {/* Mobile Navigation */}
+      <MobileNav />
+      
       {/* Hero Section */}
       <Box
-        py={{ base: 16, md: 28 }}
-        px={8}
+        py={{ base: 10, md: 28 }}
+        px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
       >
         <Container maxW="1400px">
-          <VStack spacing={8} align={{ base: "center", md: "flex-start" }} textAlign={{ base: "center", md: "left" }}>
-            <Badge colorScheme="purple" fontSize="md" px={3} py={1} borderRadius="full">
+          <VStack spacing={{ base: 6, md: 8 }} align={{ base: "center", md: "flex-start" }} textAlign={{ base: "center", md: "left" }}>
+            <Badge colorScheme="purple" fontSize={{ base: "sm", md: "md" }} px={3} py={1} borderRadius="full">
               AI-Powered Email Knowledge Base
             </Badge>
 
             <Heading
               as="h1"
-              size="2xl"
+              size={{ base: "xl", md: "2xl" }}
               lineHeight="1.2"
               bgGradient="linear(to-r, white, #3ef2f2)"
               bgClip="text"
-              mb={4}
+              mb={{ base: 2, md: 4 }}
             >
               Reclaim Your Time from <br />
               Routine Email Tasks
             </Heading>
 
-            <Text fontSize="xl" maxW="800px" color="whiteAlpha.900" mb={6}>
+            <Text fontSize={{ base: "md", md: "xl" }} maxW="800px" color="whiteAlpha.900" mb={{ base: 4, md: 6 }}>
               Office workers spend over 50% of their time on repetitive email communications.
               Our platform extracts valuable knowledge from your emails, enabling AI to handle
               routine tasks with personalized tone and clarity.
             </Text>
 
-            <HStack spacing={4}>
+            <Stack direction={{ base: "column", sm: "row" }} spacing={4} w={{ base: "100%", sm: "auto" }}>
               <Button
                 size="lg"
                 variant="neon"
@@ -144,6 +186,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                 leftIcon={<Icon as={FaMicrosoft} />}
                 isLoading={isLoading}
                 loadingText="Connecting..."
+                width={{ base: "100%", sm: "auto" }}
               >
                 Sign in with Microsoft
               </Button>
@@ -154,18 +197,19 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
                 variant="outline"
                 colorScheme="whiteAlpha"
                 px={8}
+                width={{ base: "100%", sm: "auto" }}
               >
                 Learn More
               </Button>
-            </HStack>
+            </Stack>
           </VStack>
         </Container>
       </Box>
 
       {/* Stats Section */}
       <Box
-        py={12}
-        px={8}
+        py={{ base: 8, md: 12 }}
+        px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
         bg="rgba(255, 255, 255, 0.03)"
@@ -174,12 +218,12 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       >
         <Container maxW="1400px">
           <StatGroup textAlign="center" color="white">
-            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={10} width="100%">
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={{ base: 6, md: 10 }} width="100%">
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaClock} w={10} h={10} color="neon.blue" mb={4} />
-                  <StatNumber fontSize="4xl" fontWeight="bold">50%+</StatNumber>
-                  <StatHelpText fontSize="lg" color="white">
+                  <Icon as={FaClock} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">50%+</StatNumber>
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
                     Office time spent on routine emails
                   </StatHelpText>
                 </Flex>
@@ -187,9 +231,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaLightbulb} w={10} h={10} color="neon.blue" mb={4} />
-                  <StatNumber fontSize="4xl" fontWeight="bold">3x</StatNumber>
-                  <StatHelpText fontSize="lg" color="white">
+                  <Icon as={FaLightbulb} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">3x</StatNumber>
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
                     Productivity increase with AI assistance
                   </StatHelpText>
                 </Flex>
@@ -197,10 +241,10 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
               <Stat>
                 <Flex direction="column" align="center">
-                  <Icon as={FaUsers} w={10} h={10} color="neon.blue" mb={4} />
-                  <StatNumber fontSize="4xl" fontWeight="bold">10x</StatNumber>
-                  <StatHelpText fontSize="lg" color="white">
-                    Impact when team knowledge is combined
+                  <Icon as={FaUsers} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+                  <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold">10x</StatNumber>
+                  <StatHelpText fontSize={{ base: "md", md: "lg" }} color="white">
+                    Return on investment for enterprise users
                   </StatHelpText>
                 </Flex>
               </Stat>
@@ -210,23 +254,23 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       </Box>
 
       {/* Features Section */}
-      <Box py={16} px={8} position="relative" zIndex="1">
+      <Box py={{ base: 16, md: 20 }} px={{ base: 4, md: 8 }} position="relative" zIndex="1">
         <Container maxW="1400px">
-          <VStack spacing={16} align="stretch">
+          <VStack spacing={{ base: 8, md: 12 }} align="stretch">
             <VStack spacing={4} align="center" textAlign="center">
               <Heading
-                size="xl"
+                size={{ base: "lg", md: "xl" }}
                 bgGradient="linear(to-r, white, #3ef2f2)"
                 bgClip="text"
               >
                 Unlock the Hidden Knowledge in Your Communications
               </Heading>
-              <Text fontSize="lg" maxW="800px" color="whiteAlpha.900">
+              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
                 Transform your team's emails into a powerful knowledge resource that enables AI to handle routine tasks with personalized tone and clarity.
               </Text>
             </VStack>
 
-            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={8}>
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={{ base: 6, md: 8 }}>
               <FeatureCard
                 icon={FaFilter}
                 title="Smart Email Processing"
@@ -275,8 +319,8 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
       {/* Use Cases Section */}
       <Box
-        py={16}
-        px={8}
+        py={{ base: 16, md: 20 }}
+        px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
         bg="rgba(255, 255, 255, 0.03)"
@@ -284,21 +328,21 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
         borderBottom="1px solid rgba(255, 255, 255, 0.1)"
       >
         <Container maxW="1400px">
-          <VStack spacing={16} align="stretch">
+          <VStack spacing={{ base: 8, md: 12 }} align="stretch">
             <VStack spacing={4} align="center" textAlign="center">
               <Heading
-                size="xl"
+                size={{ base: "lg", md: "xl" }}
                 bgGradient="linear(to-r, white, #3ef2f2)"
                 bgClip="text"
               >
                 Transforming Work Across Departments
               </Heading>
-              <Text fontSize="lg" maxW="800px" color="whiteAlpha.900">
+              <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
                 See how teams across your organization can benefit from our email knowledge base solution.
               </Text>
             </VStack>
 
-            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={8}>
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={{ base: 6, md: 8 }}>
               <UseCaseCard
                 icon={FaUserTie}
                 sector="HR DEPARTMENTS"
@@ -347,22 +391,22 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
 
       {/* CTA Section */}
       <Box
-        py={16}
-        px={8}
+        py={{ base: 16, md: 20 }}
+        px={{ base: 4, md: 8 }}
         position="relative"
         zIndex="1"
         bgGradient="linear(to-r, neon.dark, neon.purple)"
       >
         <Container maxW="1400px">
-          <VStack spacing={8} align="center" textAlign="center">
+          <VStack spacing={{ base: 6, md: 8 }} align="center" textAlign="center">
             <Heading
-              size="xl"
+              size={{ base: "lg", md: "xl" }}
               bgGradient="linear(to-r, white, #3ef2f2)"
               bgClip="text"
             >
               Ready to free your team from routine emails?
             </Heading>
-            <Text fontSize="lg" maxW="800px" color="whiteAlpha.900">
+            <Text fontSize={{ base: "md", md: "lg" }} maxW="800px" color="whiteAlpha.900">
               Take the first step toward multiplying your team's productivity. Our platform makes it easy to harness the knowledge hidden in your emails, enabling AI to handle routine correspondence while your team focuses on making greater contributions.
             </Text>
             <Button
@@ -381,7 +425,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       </Box>
 
       {/* Footer */}
-      <Box py={12} px={8} color="whiteAlpha.800" position="relative" zIndex="1">
+      <Box py={12} px={{ base: 4, md: 8 }} color="whiteAlpha.800" position="relative" zIndex="1">
         <Container maxW="1400px">
           <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align="center">
             <VStack align={{ base: 'center', md: 'flex-start' }} spacing={2}>
@@ -414,36 +458,22 @@ const FeatureCard = ({ icon, title, description, link }: {
   return (
     <Box
       bg="rgba(255, 255, 255, 0.05)"
-      borderRadius="lg"
-      p={6}
-      flex="1"
-      border="1px solid rgba(255, 255, 255, 0.1)"
+      borderRadius="xl"
+      p={{ base: 4, md: 6 }}
       transition="all 0.3s"
-      _hover={{
-        transform: 'translateY(-5px)',
-        boxShadow: '0 8px 30px rgba(62, 242, 242, 0.2)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
-      }}
-      as={RouterLink}
-      to={link}
-      textDecoration="none"
+      _hover={{ transform: "translateY(-5px)", bg: "rgba(255, 255, 255, 0.08)" }}
+      height="100%"
     >
-      <VStack spacing={4} align="flex-start">
-        <Flex
-          w="50px"
-          h="50px"
-          bg="rgba(62, 242, 242, 0.2)"
-          color="neon.blue"
-          borderRadius="md"
-          justify="center"
-          align="center"
-          boxShadow="0 0 10px rgba(62, 242, 242, 0.3)"
-        >
-          <Icon as={icon} w={6} h={6} />
-        </Flex>
-        <Heading size="md" color="white">{title}</Heading>
-        <Text color="whiteAlpha.800">{description}</Text>
-      </VStack>
+      <Icon as={icon} w={{ base: 8, md: 10 }} h={{ base: 8, md: 10 }} color="neon.blue" mb={4} />
+      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color="white">
+        {title}
+      </Heading>
+      <Text color="whiteAlpha.800" mb={4} fontSize={{ base: "sm", md: "md" }}>
+        {description}
+      </Text>
+      <ChakraLink as={RouterLink} to={link} color="neon.blue" fontWeight="bold">
+        Learn more →
+      </ChakraLink>
     </Box>
   );
 };
@@ -457,38 +487,23 @@ const UseCaseCard = ({ icon, sector, title, description }: {
 }) => {
   return (
     <Box
-      p={6}
       bg="rgba(255, 255, 255, 0.05)"
-      borderRadius="lg"
-      border="1px solid rgba(255, 255, 255, 0.1)"
-      boxShadow="0 4px 30px rgba(0,0,0,0.1)"
+      borderRadius="xl"
+      p={{ base: 4, md: 6 }}
       transition="all 0.3s"
-      _hover={{
-        transform: 'translateY(-5px)',
-        boxShadow: '0 8px 30px rgba(62, 242, 242, 0.2)',
-        borderColor: 'rgba(62, 242, 242, 0.3)'
-      }}
-      position="relative"
-      overflow="hidden"
+      _hover={{ transform: "translateY(-5px)", bg: "rgba(255, 255, 255, 0.08)" }}
+      height="100%"
     >
-      <Box position="absolute" top="-20px" right="-20px" opacity="0.1">
-        <Icon as={icon} w="100px" h="100px" color="neon.blue" />
-      </Box>
-      <VStack align="flex-start" spacing={4} position="relative" zIndex={1}>
-        <Text
-          bg="rgba(62, 242, 242, 0.2)"
-          color="neon.blue"
-          fontSize="sm"
-          px={2}
-          py={1}
-          borderRadius="full"
-          fontWeight="bold"
-        >
-          {sector}
-        </Text>
-        <Heading size="md">{title}</Heading>
-        <Text color="whiteAlpha.800">{description}</Text>
-      </VStack>
+      <Flex align="center" mb={4}>
+        <Icon as={icon} w={{ base: 6, md: 8 }} h={{ base: 6, md: 8 }} color="neon.blue" mr={3} />
+        <Badge colorScheme="purple">{sector}</Badge>
+      </Flex>
+      <Heading as="h3" size={{ base: "md", md: "lg" }} mb={2} color="white">
+        {title}
+      </Heading>
+      <Text color="whiteAlpha.800" fontSize={{ base: "sm", md: "md" }}>
+        {description}
+      </Text>
     </Box>
   );
 };
