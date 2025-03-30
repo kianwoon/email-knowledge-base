@@ -98,7 +98,6 @@ const SearchFeatureCard = ({
   icon: React.ElementType
 }) => {
   const { colorMode } = useColorMode();
-  const { t } = useTranslation();
   
   return (
     <Card 
@@ -116,7 +115,7 @@ const SearchFeatureCard = ({
           <Text fontSize="sm" color={colorMode === 'dark' ? "gray.400" : "gray.600"}>{description}</Text>
           
           <Box bg={colorMode === 'dark' ? "gray.700" : "gray.100"} p={2} borderRadius="md" width="100%">
-            <Text fontSize="xs" fontStyle="italic">{t('documentation.sections.knowledgeBase.example')}: {example}</Text>
+            <Text fontSize="xs" fontStyle="italic">{example}</Text>
           </Box>
         </VStack>
       </CardBody>

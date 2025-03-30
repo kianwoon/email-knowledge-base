@@ -511,6 +511,7 @@
         "relationshipTypeField": "关系类型",
         "strengthField": "强度",
         "contextField": "上下文",
+        "example": "示例",
         "searchCapabilitiesTitle": "搜索功能",
         "semanticSearchTitle": "语义搜索",
         "semanticSearchDescription": "基于含义和上下文查找信息，而不仅仅是精确的关键词匹配",

@@ -350,6 +350,7 @@
         "strengthField": "Strength",
         "contextField": "Context",
         "searchCapabilitiesTitle": "Search Capabilities",
+        "example": "Example",
         "semanticSearchTitle": "Semantic Search",
         "semanticSearchDescription": "Find information based on meaning and context, not just exact keyword matches",
         "semanticSearchExample": "Example: Show all discussions about Q3 budget planning",
