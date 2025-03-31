@@ -17,6 +17,8 @@
             padding: 10px;
             border-radius: 5px;
             overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
         button {
             background-color: #0078d4;
@@ -39,6 +41,19 @@
             height: 300px;
             overflow-y: auto;
         }
+        .auth-url-container {
+            margin-top: 20px;
+            display: none;
+        }
+        .auth-url-link {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            text-decoration: none;
+            color: #0078d4;
+        }
     </style>
 </head>
 <body>
@@ -50,7 +65,14 @@
     <h2>Test Authentication</h2>
     <button id="test-login">Test Microsoft Login</button>
     <button id="test-login-no-redirect">Test Login (No Redirect)</button>
+    <button id="test-direct-api">Test Direct API Call</button>
     <button id="clear-logs">Clear Logs</button>
+    
+    <div id="auth-url-container" class="auth-url-container">
+        <h3>Authentication URL</h3>
+        <div id="auth-url-display"></div>
+        <a id="auth-url-link" href="#" class="auth-url-link" target="_blank">Open in New Tab</a>
+    </div>
     
     <h2>Console Logs</h2>
     <div class="log-container" id="log-output"></div>
@@ -68,7 +90,9 @@
             // Add to our log display
             const args = Array.from(arguments);
             const message = args.map(arg => {
-                if (typeof arg === 'object') {
+                if (typeof arg === 'object' && arg instanceof Error) {
+                    return `${arg.name}: ${arg.message}\n${arg.stack || ''}`;
+                } else if (typeof arg === 'object') {
                     return JSON.stringify(arg, null, 2);
                 } else {
                     return String(arg);
@@ -160,6 +184,15 @@ Full URL: ${window.location.href}
                 if (data && data.auth_url) {
                     console.log('Received login URL:', data.auth_url);
                     
+                    // Display the auth URL
+                    const authUrlContainer = document.getElementById('auth-url-container');
+                    const authUrlDisplay = document.getElementById('auth-url-display');
+                    const authUrlLink = document.getElementById('auth-url-link');
+                    
+                    authUrlContainer.style.display = 'block';
+                    authUrlDisplay.innerHTML = `<pre>${data.auth_url}</pre>`;
+                    authUrlLink.href = data.auth_url;
+                    
                     if (shouldRedirect) {
                         console.log('Redirecting to Microsoft login page...');
                         window.location.href = data.auth_url;
@@ -174,9 +207,67 @@ Full URL: ${window.location.href}
             }
         }
         
+        // Test direct API call using XMLHttpRequest
+        async function testDirectApiCall() {
+            console.log('Testing direct API call with XMLHttpRequest...');
+            
+            const isProduction = window.location.hostname !== 'localhost';
+            const API_BASE_URL = isProduction 
+                ? 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app'
+                : 'http://localhost:8000';
+            
+            console.log(`Using API base URL: ${API_BASE_URL}`);
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', `${API_BASE_URL}/auth/login`, true);
+            xhr.setRequestHeader('Accept', 'application/json');
+            
+            xhr.onreadystatechange = function() {
+                console.log(`XHR readyState: ${xhr.readyState}, status: ${xhr.status}`);
+                
+                if (xhr.readyState === 4) {
+                    console.log(`XHR response headers: ${xhr.getAllResponseHeaders()}`);
+                    console.log(`XHR response text: ${xhr.responseText}`);
+                    
+                    if (xhr.status === 200) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            console.log('XHR parsed response:', data);
+                            
+                            if (data && data.auth_url) {
+                                console.log('XHR received auth URL:', data.auth_url);
+                                
+                                // Display the auth URL
+                                const authUrlContainer = document.getElementById('auth-url-container');
+                                const authUrlDisplay = document.getElementById('auth-url-display');
+                                const authUrlLink = document.getElementById('auth-url-link');
+                                
+                                authUrlContainer.style.display = 'block';
+                                authUrlDisplay.innerHTML = `<pre>${data.auth_url}</pre>`;
+                                authUrlLink.href = data.auth_url;
+                            } else {
+                                console.error('XHR invalid response format: missing auth_url');
+                            }
+                        } catch (error) {
+                            console.error('XHR error parsing JSON:', error);
+                        }
+                    } else {
+                        console.error(`XHR request failed with status: ${xhr.status}`);
+                    }
+                }
+            };
+            
+            xhr.onerror = function() {
+                console.error('XHR network error occurred');
+            };
+            
+            xhr.send();
+        }
+        
         // Add event listeners
         document.getElementById('test-login').addEventListener('click', () => testLogin(true));
         document.getElementById('test-login-no-redirect').addEventListener('click', () => testLogin(false));
+        document.getElementById('test-direct-api').addEventListener('click', testDirectApiCall);
         
         // Clear logs
         document.getElementById('clear-logs').addEventListener('click', function() {
