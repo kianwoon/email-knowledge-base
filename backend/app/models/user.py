@@ -26,6 +26,8 @@ class User(UserBase):
     ms_token_data: Optional[TokenData] = None
     is_active: bool = True
     preferences: Dict[str, Any] = Field(default_factory=dict)
+    photo_url: Optional[str] = None
+    organization: Optional[str] = None
 
     class Config:
         orm_mode = True

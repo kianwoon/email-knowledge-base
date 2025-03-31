@@ -21,6 +21,33 @@ async def get_user_info(access_token: str) -> Dict[str, Any]:
         return response.json()
 
 
+async def get_user_photo(access_token: str) -> Optional[str]:
+    """Get user profile photo from Microsoft Graph API
+    
+    Returns:
+        Optional[str]: Base64 encoded photo or None if no photo is available
+    """
+    async with httpx.AsyncClient() as client:
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
+        try:
+            # Try to get the photo
+            response = await client.get(
+                "https://graph.microsoft.com/v1.0/me/photo/$value",
+                headers=headers
+            )
+            response.raise_for_status()
+            
+            # Convert photo to base64
+            import base64
+            photo_base64 = base64.b64encode(response.content).decode('utf-8')
+            return f"data:image/jpeg;base64,{photo_base64}"
+        except Exception as e:
+            print(f"Error getting user photo: {str(e)}")
+            return None
+
+
 async def get_email_folders(access_token: str) -> List[Dict[str, Any]]:
     """Get list of email folders from Outlook"""
     async with httpx.AsyncClient() as client:
