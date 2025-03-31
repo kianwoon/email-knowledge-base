@@ -52,7 +52,15 @@ async def login():
         redirect_uri = urllib.parse.quote(settings.MS_REDIRECT_URI)
         scopes = urllib.parse.quote("User.Read Mail.Read offline_access")  # Space-separated scopes
         
-        # Make sure we're using the correct frontend URL (port 5173)
+        # Debug logging for environment variables
+        print(f"DEBUG - Environment variables:")
+        print(f"DEBUG - BACKEND_URL: {settings.BACKEND_URL}")
+        print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
+        print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
+        print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID}")
+        print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID}")
+        
+        # Make sure we're using the correct frontend URL
         frontend_url = settings.FRONTEND_URL
         print(f"Using frontend URL: {frontend_url}")
         
