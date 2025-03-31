@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.staticfiles import StaticFiles
+import os
 
 from app.config import settings
 from app.routes import auth, email, review, vector, test
@@ -26,6 +28,10 @@ app.include_router(email.router, prefix="/email", tags=["Email Management"])
 app.include_router(review.router, prefix="/review", tags=["Review Process"])
 app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
 app.include_router(test.router, prefix="/test", tags=["Testing"])
+
+# Mount static files directory
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/", tags=["Health Check"])
 async def root():
