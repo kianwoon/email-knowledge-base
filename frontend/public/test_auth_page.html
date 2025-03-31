@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microsoft Auth Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #106ebe;
+        }
+        .log-container {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Microsoft Auth Test Page</h1>
+    
+    <h2>Environment Information</h2>
+    <div id="env-info"></div>
+    
+    <h2>Test Authentication</h2>
+    <button id="test-login">Test Microsoft Login</button>
+    <button id="clear-logs">Clear Logs</button>
+    
+    <h2>Console Logs</h2>
+    <div class="log-container" id="log-output"></div>
+    
+    <script>
+        // Override console.log to capture output
+        const logOutput = document.getElementById('log-output');
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        
+        console.log = function() {
+            // Call original console.log
+            originalConsoleLog.apply(console, arguments);
+            
+            // Add to our log display
+            const args = Array.from(arguments);
+            const message = args.map(arg => {
+                if (typeof arg === 'object') {
+                    return JSON.stringify(arg, null, 2);
+                } else {
+                    return String(arg);
+                }
+            }).join(' ');
+            
+            const logEntry = document.createElement('pre');
+            logEntry.textContent = `LOG: ${message}`;
+            logOutput.appendChild(logEntry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        };
+        
+        console.error = function() {
+            // Call original console.error
+            originalConsoleError.apply(console, arguments);
+            
+            // Add to our log display
+            const args = Array.from(arguments);
+            const message = args.map(arg => {
+                if (typeof arg === 'object') {
+                    return JSON.stringify(arg, null, 2);
+                } else {
+                    return String(arg);
+                }
+            }).join(' ');
+            
+            const logEntry = document.createElement('pre');
+            logEntry.textContent = `ERROR: ${message}`;
+            logEntry.style.color = 'red';
+            logOutput.appendChild(logEntry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+        };
+        
+        // Display environment information
+        const envInfo = document.getElementById('env-info');
+        const hostname = window.location.hostname;
+        const isProduction = hostname !== 'localhost';
+        
+        envInfo.innerHTML = `
+            <pre>
+Hostname: ${hostname}
+Is Production: ${isProduction}
+Protocol: ${window.location.protocol}
+Full URL: ${window.location.href}
+            </pre>
+        `;
+        
+        // Test login function
+        document.getElementById('test-login').addEventListener('click', async function() {
+            try {
+                console.log('Testing Microsoft login...');
+                
+                // Determine API base URL based on environment
+                const isProduction = window.location.hostname !== 'localhost';
+                const API_BASE_URL = isProduction 
+                    ? 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app'
+                    : 'http://localhost:8000';
+                
+                console.log(`Using API base URL: ${API_BASE_URL}`);
+                
+                // Make request to login endpoint
+                console.log('Fetching login URL from backend...');
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                console.log(`Response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Failed to get login URL: ${response.status} ${response.statusText}\n${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Received login URL:', data);
+                
+                if (data && data.auth_url) {
+                    console.log('Redirecting to Microsoft login page...');
+                    window.location.href = data.auth_url;
+                } else {
+                    throw new Error('Invalid response format: missing auth_url');
+                }
+            } catch (error) {
+                console.error('Error during login test:', error);
+            }
+        });
+        
+        // Clear logs
+        document.getElementById('clear-logs').addEventListener('click', function() {
+            logOutput.innerHTML = '';
+        });
+    </script>
+</body>
+</html>
