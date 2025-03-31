@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 
 from app.config import settings
-from app.routes import auth, email, review, vector
+from app.routes import auth, email, review, vector, test
 
 app = FastAPI(
     title="Email Knowledge Base API",
@@ -25,6 +25,7 @@ app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(email.router, prefix="/email", tags=["Email Management"])
 app.include_router(review.router, prefix="/review", tags=["Review Process"])
 app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix="/test", tags=["Testing"])
 
 @app.get("/", tags=["Health Check"])
 async def root():
