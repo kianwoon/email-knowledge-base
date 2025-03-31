@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -29,7 +29,7 @@ import {
   Icon,
   Badge,
 } from '@chakra-ui/react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useLocation } from 'react-router-dom';
 import {
   FaLightbulb,
   FaSearch,
@@ -47,6 +47,7 @@ import {
 } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import { getLoginUrl } from '../api/auth';
 
 interface SignInProps {
   onLogin: () => void;
@@ -59,30 +60,52 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
   const { t } = useTranslation();
+  const location = useLocation();
+
+  // Check for token in URL (after OAuth redirect)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    const expires = params.get('expires');
+    
+    if (token && expires) {
+      // Store token in localStorage
+      localStorage.setItem('token', token);
+      localStorage.setItem('expires', new Date(Number(expires) * 1000).toISOString());
+      
+      // Call the onLogin callback to update authentication state
+      onLogin();
+      
+      // Show success message
+      toast({
+        title: t('toast.loginSuccess.title'),
+        description: t('toast.loginSuccess.description'),
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+      
+      // Clear the URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [location, onLogin, toast, t]);
 
   const handleSignIn = async () => {
     setIsLoading(true);
     try {
-      // For demo purposes, we'll bypass the actual OAuth flow
-      // and simulate a successful login
-      setTimeout(() => {
-        // Store a mock token in localStorage
-        localStorage.setItem('token', 'mock-token-12345');
-        localStorage.setItem('expires', new Date(Date.now() + 86400000).toISOString());
-
-        // Call the onLogin callback to update authentication state
-        onLogin();
-
-        toast({
-          title: t('toast.loginSuccess.title'),
-          description: t('toast.loginSuccess.description'),
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
-
-        setIsLoading(false);
-      }, 1000);
+      // Get the Microsoft login URL from our backend
+      console.log("Attempting to get login URL from backend...");
+      const response = await getLoginUrl();
+      
+      console.log("Login URL response:", response);
+      
+      if (response && response.auth_url) {
+        // Redirect to Microsoft login page
+        console.log("Redirecting to auth URL:", response.auth_url);
+        window.location.href = response.auth_url;
+      } else {
+        throw new Error('Failed to get login URL');
+      }
     } catch (error) {
       console.error('Login error:', error);
       setIsLoading(false);

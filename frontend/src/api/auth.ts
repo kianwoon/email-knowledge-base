@@ -32,10 +32,7 @@ export const getLoginUrl = async () => {
     return response.data;
   } catch (error) {
     console.error('Error getting login URL:', error);
-    // For demo purposes, return a mock URL
-    return { 
-      auth_url: 'http://localhost:8000/auth/callback?mock=true' 
-    };
+    throw error;
   }
 };
 

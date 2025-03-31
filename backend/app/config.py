@@ -9,19 +9,21 @@ class Settings(BaseSettings):
     # Application settings
     DEBUG: bool = os.getenv("DEBUG", "False") == "True"
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     
     # Microsoft OAuth2 settings
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")
+    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
     MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", f"{BACKEND_URL}/auth/callback")
-    MS_AUTHORITY: str = "https://login.microsoftonline.com/common"
-    MS_SCOPE: list = ["Mail.Read", "Mail.ReadWrite", "offline_access"]
+    MS_AUTHORITY: str = f"https://login.microsoftonline.com/{os.getenv('MS_TENANT_ID', '')}"
+    MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]
     
     # JWT settings
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    JWT_EXPIRATION: int = int(os.getenv("JWT_EXPIRATION", "86400"))
+    # Hardcoded JWT expiration to 24 hours (86400 seconds)
+    JWT_EXPIRATION: int = 86400
     
     # OpenAI settings
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
