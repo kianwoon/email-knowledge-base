@@ -48,6 +48,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import { getLoginUrl } from '../api/auth';
+import ImageCarousel from '../components/ImageCarousel';
 
 interface SignInProps {
   onLogin: () => void;
@@ -119,6 +120,29 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
       });
     }
   };
+
+  const carouselImages = [
+    {
+      src: '/images/happy-man.png',
+      alt: 'Happy man making an OK gesture'
+    },
+    {
+      src: '/images/happy2.png',
+      alt: 'Happy person 2'
+    },
+    {
+      src: '/images/happy3.png',
+      alt: 'Happy person 3'
+    },
+    {
+      src: '/images/happy4.png',
+      alt: 'Happy person 4'
+    },
+    {
+      src: '/images/happy5.png',
+      alt: 'Happy person 5'
+    }
+  ];
 
   // Custom Navbar for the landing page
   const LandingNavbar = () => (
@@ -309,7 +333,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               </VStack>
             </Box>
             
-            {/* Happy Man Image - Now shown on mobile at a smaller size */}
+            {/* Replace Happy Man Image with ImageCarousel */}
             <Box 
               w={{ base: "70%", md: "50%" }}
               h="auto"
@@ -323,21 +347,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
               mb={{ base: 8, md: 0 }}
               order={{ base: 2, md: 1 }}
             >
-              <Box
-                as="img"
-                src="/images/happy-man.png"
-                alt="Happy man making OK gesture"
-                objectFit="contain"
-                height="auto"
-                width="100%"
-                maxH={{ base: "250px", md: "500px" }}
-                position="relative"
-                zIndex={1}
-                sx={{
-                  clipPath: 'circle(40% at 50% 40%)',
-                  transform: { base: 'scale(1.2)', md: 'scale(1.8) translateX(40px)' }
-                }}
-              />
+              <ImageCarousel images={carouselImages} />
             </Box>
           </Flex>
         </Container>
