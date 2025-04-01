@@ -2,14 +2,11 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy configuration files first
-COPY package.json package-lock.json tsconfig.json tsconfig.node.json ./
+# Copy all files
+COPY . .
 
 # Install dependencies
 RUN npm install
-
-# Copy source code and other files
-COPY . .
 
 # Set environment variables
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
