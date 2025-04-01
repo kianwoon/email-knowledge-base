@@ -47,12 +47,17 @@ import {
   ModalFooter,
   ModalBody,
   ModalCloseButton,
+  ButtonGroup,
 } from '@chakra-ui/react';
 import { 
   AddIcon, 
   ChevronRightIcon, 
   QuestionIcon,
-  SearchIcon
+  SearchIcon,
+  MoonIcon,
+  SunIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon as ChevronRightIconSolid,
 } from '@chakra-ui/icons';
 import {
   FaEnvelope,
@@ -68,18 +73,30 @@ import {
 } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 
 import { getEmailFolders, getEmailPreviews, analyzeEmails } from '../api/email';
 import { EmailFilter, EmailPreview } from '../types/email';
 
+interface EmailFolder {
+  id: string;
+  displayName: string;
+}
+
+interface FilterTemplate {
+  id: string;
+  name: string;
+  filter: EmailFilter;
+}
+
 const FilterSetup: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { colorMode } = useColorMode();
+  const { colorMode, toggleColorMode } = useColorMode();
   const toast = useToast();
   
   // State
-  const [folders, setFolders] = useState<any[]>([]);
+  const [folders, setFolders] = useState<EmailFolder[]>([]);
   const [filter, setFilter] = useState<EmailFilter>({
     folder_id: '',
     keywords: [],
@@ -89,11 +106,16 @@ const FilterSetup: React.FC = () => {
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingPreviews, setIsLoadingPreviews] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [filterTemplates, setFilterTemplates] = useState<{id: string, name: string, filter: EmailFilter}[]>([]);
+  const [filterTemplates, setFilterTemplates] = useState<FilterTemplate[]>([]);
   const [templateName, setTemplateName] = useState('');
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalEmails, setTotalEmails] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const itemsPerPage = 10;
   
   // Attachment types
   const attachmentTypes = [
@@ -119,6 +141,14 @@ const FilterSetup: React.FC = () => {
       try {
         const folderData = await getEmailFolders();
         setFolders(folderData);
+        
+        // Set default folder to Inbox
+        const inboxFolder = folderData.find((folder: EmailFolder) => 
+          folder.displayName.toLowerCase() === 'inbox'
+        );
+        if (inboxFolder) {
+          setFilter((prev: EmailFilter) => ({ ...prev, folder_id: inboxFolder.id }));
+        }
       } catch (error) {
         console.error('Error loading folders:', error);
         toast({
@@ -134,16 +164,44 @@ const FilterSetup: React.FC = () => {
     loadFolders();
   }, [toast]);
   
+  // Load previews when folder changes
+  useEffect(() => {
+    const loadPreviews = async () => {
+      if (!filter.folder_id) return;
+      
+      setIsLoadingPreviews(true);
+      setPreviews([]);
+      setSelectedEmails([]);
+      try {
+        const previewData = await getEmailPreviews(filter);
+        if (Array.isArray(previewData)) {
+          setPreviews(previewData);
+        }
+      } catch (error) {
+        console.error('Error loading previews:', error);
+        toast({
+          title: 'Error loading email previews',
+          status: 'error',
+          duration: 3000,
+        });
+      } finally {
+        setIsLoadingPreviews(false);
+      }
+    };
+    
+    loadPreviews();
+  }, [filter, toast]);
+  
   // Handle filter change
   const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFilter(prev => ({ ...prev, [name]: value }));
+    setFilter((prev: EmailFilter) => ({ ...prev, [name]: value }));
   }, []);
   
   // Add keyword to filter
   const handleAddKeyword = () => {
     if (keywordInput.trim() && !filter.keywords?.includes(keywordInput.trim())) {
-      setFilter(prev => ({
+      setFilter((prev: EmailFilter) => ({
         ...prev,
         keywords: [...(prev.keywords || []), keywordInput.trim()],
       }));
@@ -159,15 +217,25 @@ const FilterSetup: React.FC = () => {
     }));
   };
   
-  // Preview emails based on filter
+  // Add pagination handlers
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+  };
+  
+  // Update the handleSearch function
   const handleSearch = async () => {
+    setCurrentPage(1); // Reset to first page on new search
     setIsLoadingPreviews(true);
     setPreviews([]);
-    setSelectedEmails([]);
-    
     try {
-      const previewData = await getEmailPreviews(filter);
-      setPreviews(previewData);
+      const previewData = await getEmailPreviews({
+        ...filter,
+        page: 1,
+        per_page: itemsPerPage
+      });
+      setPreviews(previewData.items || []);
+      setTotalEmails(previewData.total);
+      setTotalPages(previewData.total_pages);
     } catch (error) {
       console.error('Error loading previews:', error);
       toast({
@@ -287,11 +355,13 @@ const FilterSetup: React.FC = () => {
   
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
-      <Container maxW="container.xl">
+      <Container maxW="1400px" py={8}>
         <VStack spacing={6} align="stretch">
-          <Box>
-            <Heading size="lg">{t('emailProcessing.title')}</Heading>
-          </Box>
+          <Flex justify="space-between" align="center">
+            <Heading size="lg" fontWeight="bold">
+              {t('emailProcessing.filters.title')}
+            </Heading>
+          </Flex>
           
           {/* Filter Card */}
           <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden" borderTop="4px solid" borderTopColor="primary.500">
@@ -641,7 +711,7 @@ const FilterSetup: React.FC = () => {
                   </Flex>
                   <HStack>
                     <Text fontSize="sm">
-                      {t('emailProcessing.results.selected')}: {selectedEmails.length} / {previews.length}
+                      {t('emailProcessing.results.showing')} {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalEmails)} {t('emailProcessing.results.of')} {totalEmails}
                     </Text>
                     <Button
                       colorScheme="primary"
@@ -702,10 +772,44 @@ const FilterSetup: React.FC = () => {
                   </Box>
                 )}
                 
-                <Flex justify="space-between" mt={4}>
+                {/* Add pagination controls */}
+                <Flex justify="space-between" align="center" mt={4}>
                   <Text fontSize="sm">
                     {selectedEmails.length} {t('emailProcessing.results.selected')}
                   </Text>
+                  <HStack spacing={2}>
+                    <ButtonGroup variant="outline" size="sm" isAttached>
+                      <Button
+                        onClick={() => handlePageChange(1)}
+                        isDisabled={currentPage === 1 || isLoadingPreviews}
+                      >
+                        <ChevronLeftIcon />
+                        <ChevronLeftIcon ml="-1.5" />
+                      </Button>
+                      <Button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        isDisabled={currentPage === 1 || isLoadingPreviews}
+                      >
+                        <ChevronLeftIcon />
+                      </Button>
+                      <Button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        isDisabled={currentPage === totalPages || isLoadingPreviews}
+                      >
+                        <ChevronRightIconSolid />
+                      </Button>
+                      <Button
+                        onClick={() => handlePageChange(totalPages)}
+                        isDisabled={currentPage === totalPages || isLoadingPreviews}
+                      >
+                        <ChevronRightIconSolid />
+                        <ChevronRightIconSolid ml="-1.5" />
+                      </Button>
+                    </ButtonGroup>
+                    <Text fontSize="sm" minW="100px" textAlign="center">
+                      {t('emailProcessing.results.page')} {currentPage} {t('emailProcessing.results.of')} {totalPages}
+                    </Text>
+                  </HStack>
                   <Button
                     colorScheme="primary"
                     leftIcon={<Icon as={FaExclamationCircle} />}

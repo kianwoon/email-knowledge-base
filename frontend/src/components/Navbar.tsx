@@ -24,12 +24,14 @@ import {
   VStack,
   Icon,
   Text,
-  Spinner
+  Spinner,
+  useColorModeValue
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon, SettingsIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe } from 'react-icons/fa';
 import { getCurrentUser } from '../api/auth';
+import { useTranslation } from 'react-i18next';
 
 // Define user interface
 interface UserInfo {
@@ -50,6 +52,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { t, i18n } = useTranslation();
   
   // Fetch user information when component mounts
   useEffect(() => {
@@ -76,6 +79,10 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
     { path: '/docs', label: 'Documentation', icon: FaBook },
   ];
   
+  const changeLanguage = (lng: string) => {
+    i18n.changeLanguage(lng);
+  };
+
   return (
     <Box as="nav" bg="bg.primary" color="text.primary" boxShadow="md" position="sticky" top="0" zIndex="sticky">
       <Container maxW="1400px" py={2}>
@@ -94,14 +101,14 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   as={RouterLink}
                   to={item.path}
                   variant="ghost"
-                  colorScheme="whiteAlpha"
                   isActive={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
-                  _active={{ bg: "bg.accent", color: "text.primary" }}
-                  _hover={{ bg: "bg.hover" }}
-                  leftIcon={<Icon as={item.icon} color="text.highlight" />}
+                  _active={{ bg: "blue.500", color: "white" }}
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                  leftIcon={<Icon as={item.icon} />}
                   size="md"
                   fontWeight="medium"
                   px={4}
+                  color={useColorModeValue('gray.800', 'whiteAlpha.900')}
                 >
                   {item.label}
                 </Button>
@@ -111,6 +118,40 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
           
           {/* Right side controls */}
           <HStack spacing={2}>
+            {/* Language Switcher */}
+            <Menu>
+              <MenuButton
+                as={Button}
+                aria-label="Change language"
+                leftIcon={<Icon as={FaGlobe} />}
+                variant="ghost"
+                _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                size="md"
+                px={2}
+                color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+              >
+                {i18n.language === 'zh' ? 'CN' : 'EN'}
+              </MenuButton>
+              <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
+                <MenuItem
+                  onClick={() => changeLanguage('en')}
+                  bg={i18n.language === 'en' ? useColorModeValue('blue.50', 'blue.900') : undefined}
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                  color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+                >
+                  English
+                </MenuItem>
+                <MenuItem
+                  onClick={() => changeLanguage('zh')}
+                  bg={i18n.language === 'zh' ? useColorModeValue('blue.50', 'blue.900') : undefined}
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                  color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+                >
+                  中文
+                </MenuItem>
+              </MenuList>
+            </Menu>
+
             <IconButton
               aria-label="Toggle color mode"
               icon={colorMode === 'light' ? <MoonIcon /> : <SunIcon />}
