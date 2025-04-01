@@ -3,11 +3,11 @@ FROM node:18-alpine AS build
 WORKDIR /app
 
 # Copy package.json and package-lock.json first for better caching
-COPY frontend/package*.json ./
+COPY package*.json ./
 RUN npm install
 
 # Copy the rest of the frontend code
-COPY frontend/ ./
+COPY . .
 
 # Set environment variables
 ENV TSC_COMPILE_ON_ERROR=true
@@ -25,7 +25,7 @@ FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Copy nginx configuration
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
