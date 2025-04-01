@@ -19,19 +19,19 @@ FROM nginx:alpine
 # Copy built files
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Create a simple nginx config
+# Configure nginx
 RUN echo 'server { \n\
-    listen 3000; \n\
-    root /usr/share/nginx/html; \n\
-    index index.html; \n\
+    listen 80; \n\
     location / { \n\
+        root /usr/share/nginx/html; \n\
         try_files $uri $uri/ /index.html; \n\
+        add_header Cache-Control "no-cache"; \n\
     } \n\
 }' > /etc/nginx/conf.d/default.conf
 
 # Test nginx config
 RUN nginx -t
 
-EXPOSE 3000
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
