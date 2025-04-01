@@ -12,10 +12,10 @@ services:
       builder: python
       command: cd backend && pip install -r requirements.txt
     run:
-      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8003
+      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     env:
       - name: PORT
-        value: "8003"
+        value: "8000"
       - name: HOST
         value: "0.0.0.0"
       - name: ENVIRONMENT
@@ -29,9 +29,9 @@ services:
       - name: FRONTEND_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: BACKEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: MS_REDIRECT_URI
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback"
+        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback"
       - name: IS_KOYEB
         value: "true"
       - name: JWT_SECRET
@@ -39,7 +39,7 @@ services:
       - name: DEBUG
         value: "true"
     health_check:
-      port: 8003
+      port: 8000
       path: /health
       initial_delay: 30s
       interval: 10s
@@ -60,14 +60,16 @@ services:
       builder: nodejs
       command: cd frontend && npm install && npm run build
     run:
-      command: cd frontend && npm run preview -- --host 0.0.0.0 --port $PORT
+      command: cd frontend && npm run dev -- --host 0.0.0.0 --port $PORT
     env:
+      - name: PORT
+        value: "5173"
       - name: VITE_API_BASE_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: VITE_BACKEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
     health_check:
-      port: 4173
+      port: 5173
       path: /
     restart_policy:
       type: on-failure
