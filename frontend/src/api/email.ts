@@ -1,11 +1,8 @@
 import axios from 'axios';
 import { EmailFilter } from '../types/email';
 
-// Determine if we're in production by checking the current URL
-const isProduction = window.location.hostname !== 'localhost';
-const API_BASE_URL = isProduction 
-  ? 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app'
-  : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000');
+// Get the API base URL from environment variables
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -110,3 +107,5 @@ export const analyzeEmails = async (emailIds: string[]) => {
     throw error;
   }
 };
+
+export default api;

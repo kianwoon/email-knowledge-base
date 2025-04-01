@@ -1,9 +1,7 @@
 import axios from 'axios';
 
-// Determine if we're in production by checking the current URL
-const isProduction = window.location.hostname !== 'localhost';
-const API_BASE_URL = isProduction 
-  ? 'https://backend-service.email-knowledge-base-2.internal:8000' : 'http://localhost:8000';
+// Get the API base URL from environment variables
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -68,3 +66,5 @@ export const refreshToken = async () => {
     throw error;
   }
 };
+
+export default api;

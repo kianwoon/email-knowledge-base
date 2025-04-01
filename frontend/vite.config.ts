@@ -11,26 +11,23 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 3000,
     open: true,
     proxy: {
       '/api': {
-        target: process.env.VITE_BACKEND_URL || 'http://localhost:8000',
+        target: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      '/auth': {
-        target: process.env.VITE_BACKEND_URL || 'http://localhost:8000',
-        changeOrigin: true,
-      },
+      }
     },
   },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
     emptyOutDir: true,
-    rollupOptions: {
-      input: './index.html',
-    },
   },
+  preview: {
+    port: 3000,
+    host: true
+  }
 });

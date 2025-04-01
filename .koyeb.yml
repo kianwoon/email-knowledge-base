@@ -29,9 +29,9 @@ services:
       - name: FRONTEND_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: BACKEND_URL
-        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
       - name: MS_REDIRECT_URI
-        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback"
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback"
       - name: IS_KOYEB
         value: "true"
       - name: JWT_SECRET
@@ -49,6 +49,9 @@ services:
       type: on-failure
       max_retries: 10
     public: true
+    routes:
+      - path: /api
+        port: 8000
 
   - name: frontend-service
     instance_type: nano
@@ -60,18 +63,13 @@ services:
       builder: nodejs
       command: cd frontend && npm install && npm run build
     run:
-      command: cd frontend && npm run dev -- --host 0.0.0.0 --port $PORT
+      command: cd frontend && npm run preview
     env:
       - name: PORT
-        value: "5173"
+        value: "3000"
       - name: VITE_API_BASE_URL
-        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
-      - name: VITE_BACKEND_URL
-        value: "https://backend-email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
-    health_check:
-      port: 5173
-      path: /
-    restart_policy:
-      type: on-failure
-      max_retries: 10
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+    routes:
+      - path: /
+        port: 3000
     public: true
