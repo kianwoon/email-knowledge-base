@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from app.config import settings
 
 router = APIRouter()
 
@@ -130,81 +131,81 @@ Full URL: ${window.location.href}
             </pre>
         `;
         
-        // Test login function
-        async function testLogin() {
-            try {
-                console.log('Testing Microsoft login...');
-                
-                // Determine API base URL based on environment
-                const API_BASE_URL = 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app';
-                
-                console.log(`Using API base URL: ${API_BASE_URL}`);
-                
-                // Make request to login endpoint
-                console.log('Fetching login URL from backend...');
-                const response = await fetch(`${API_BASE_URL}/auth/login`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    }
-                });
-                
-                console.log(`Response status: ${response.status}`);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Response data:', data);
-                    
-                    if (data && data.auth_url) {
-                        console.log('Redirecting to auth URL:', data.auth_url);
-                        window.location.href = data.auth_url;
-                    } else {
-                        throw new Error('Invalid response format: missing auth_url');
-                    }
-                } else {
-                    const errorText = await response.text();
-                    throw new Error(`API request failed: ${response.status} ${errorText}`);
-                }
-            } catch (error) {
-                console.error('Error during login test:', error);
-            }
+        function log(message) {
+            const logOutput = document.getElementById('log-output');
+            const timestamp = new Date().toISOString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color:#888">[${timestamp}]</span> ${message}`;
+            logOutput.appendChild(logEntry);
+            logOutput.scrollTop = logOutput.scrollHeight;
+            console.log(message);
         }
         
-        // Test API function
-        async function testApi() {
-            try {
-                console.log('Testing API connection...');
-                
-                // Determine API base URL based on environment
-                const API_BASE_URL = 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app';
-                
-                console.log(`Using API base URL: ${API_BASE_URL}`);
-                
-                // Make request to root endpoint
-                console.log('Fetching API health check...');
-                const response = await fetch(`${API_BASE_URL}/`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
+        function testApi() {
+            log('Testing API connection...');
+            
+            // Show the current URL being used
+            const apiUrl = window.location.origin + '/auth/login';
+            log(`Making request to: ${apiUrl}`);
+            
+            fetch(apiUrl)
+                .then(response => {
+                    log(`Response status: ${response.status} ${response.statusText}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
                     }
+                    return response.json();
+                })
+                .then(data => {
+                    log('API response successful:');
+                    log(JSON.stringify(data, null, 2));
+                    
+                    // Display the auth URL
+                    if (data.auth_url) {
+                        document.getElementById('auth-url').textContent = data.auth_url;
+                    }
+                })
+                .catch(error => {
+                    log(`Error testing API: ${error.message}`);
+                    if (error.message.includes('Failed to fetch')) {
+                        log('This may indicate a CORS issue or the server is not responding.');
+                    }
+                    console.error('API test error:', error);
                 });
-                
-                console.log(`Response status: ${response.status}`);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Response data:', data);
-                } else {
-                    const errorText = await response.text();
-                    throw new Error(`API request failed: ${response.status} ${errorText}`);
-                }
-            } catch (error) {
-                console.error('Error during API test:', error);
-            }
+        }
+        
+        function testMicrosoftLogin() {
+            log('Testing Microsoft login...');
+            
+            const apiUrl = window.location.origin + '/auth/login';
+            log(`Getting login URL from: ${apiUrl}`);
+            
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.auth_url) {
+                        log(`Redirecting to Microsoft login: ${data.auth_url}`);
+                        // Store timestamp to track redirect
+                        localStorage.setItem('ms_auth_test_time', Date.now());
+                        // Redirect to Microsoft login
+                        window.location.href = data.auth_url;
+                    } else {
+                        throw new Error('No auth_url in response');
+                    }
+                })
+                .catch(error => {
+                    log(`Error getting login URL: ${error.message}`);
+                    console.error('Login error:', error);
+                });
         }
         
         // Add event listeners
-        document.getElementById('test-login').addEventListener('click', testLogin);
+        document.getElementById('test-login').addEventListener('click', testMicrosoftLogin);
         document.getElementById('test-api').addEventListener('click', testApi);
         
         // Clear logs
@@ -212,10 +213,25 @@ Full URL: ${window.location.href}
             logOutput.innerHTML = '';
         });
     </script>
+    <!-- ENV_PLACEHOLDER -->
 </body>
 </html>"""
 
 @router.get("/auth-test", response_class=HTMLResponse)
 async def auth_test_page(request: Request):
     """Serve the Microsoft authentication test page"""
-    return HTMLResponse(content=TEST_PAGE_HTML)
+    # Create HTML with environment variables injected
+    html_with_env = TEST_PAGE_HTML.replace(
+        "<!-- ENV_PLACEHOLDER -->",
+        f"""
+        <h3>Environment Variables:</h3>
+        <pre>
+BACKEND_URL: {settings.BACKEND_URL}
+FRONTEND_URL: {settings.FRONTEND_URL}
+MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}
+MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}
+MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}
+        </pre>
+        """
+    )
+    return HTMLResponse(content=html_with_env)
