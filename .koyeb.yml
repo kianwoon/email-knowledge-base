@@ -12,7 +12,7 @@ services:
       builder: python
       command: cd backend && pip install -r requirements.txt
     run:
-      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     env:
       - name: PORT
         value: "8000"
@@ -37,11 +37,12 @@ services:
       - name: JWT_SECRET
         value: "production_secret_key_123"
     health_check:
-      port: $PORT
+      port: 8000
       path: /health
-      initial_delay: 10s
-      interval: 5s
+      initial_delay: 30s
+      interval: 10s
       timeout: 5s
+      retries: 5
     restart_policy:
       type: on-failure
       max_retries: 10
