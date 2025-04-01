@@ -1,28 +1,22 @@
-FROM node:18 AS build
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies with clean npm cache and install
-RUN npm cache clean --force && \
-    npm install --no-optional --production=false
-
-# Copy source files
+# Copy all files
 COPY . .
 
-# Set memory limits and environment variables
-ENV NODE_OPTIONS="--max-old-space-size=2048"
+# Install dependencies
+RUN npm install
+
+# Set environment variables
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
 ENV NODE_ENV=production
 
-# Attempt build with error logging
-RUN set -x && \
-    npm run build > build.log 2>&1 || (cat build.log && exit 1)
+# Build the application
+RUN npm run build
 
 # Production stage
-FROM nginx:stable-alpine
+FROM nginx:alpine
 
 # Copy built files
 COPY --from=build /app/dist /usr/share/nginx/html
