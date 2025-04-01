@@ -36,6 +36,8 @@ services:
         value: "true"
       - name: JWT_SECRET
         value: "production_secret_key_123"
+      - name: DEBUG
+        value: "true"
     health_check:
       port: 8003
       path: /health
