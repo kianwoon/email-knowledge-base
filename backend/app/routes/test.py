@@ -258,3 +258,73 @@ async def simple_test():
 async def plain_test():
     """A very simple test endpoint that returns plain text"""
     return HTMLResponse(content="Plain text test endpoint is working. This is a simple test page.")
+
+@router.get("/debug-env")
+async def debug_env():
+    """Return detailed environment information for debugging"""
+    import os
+    import sys
+    import platform
+    
+    # Get all environment variables (excluding sensitive ones)
+    env_vars = {}
+    for key, value in os.environ.items():
+        # Skip sensitive environment variables
+        if any(sensitive in key.lower() for sensitive in ['secret', 'password', 'token', 'key']):
+            env_vars[key] = f"{value[:3]}...{value[-3:]}" if value else "Not set"
+        else:
+            env_vars[key] = value
+    
+    # Get file system information
+    try:
+        cwd = os.getcwd()
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        dir_contents = os.listdir(app_dir)
+        static_dir = os.path.join(app_dir, "static")
+        static_contents = os.listdir(static_dir) if os.path.exists(static_dir) else ["Directory not found"]
+    except Exception as e:
+        dir_contents = f"Error listing directory: {str(e)}"
+        static_contents = f"Error listing static directory: {str(e)}"
+    
+    # Get import information
+    import_paths = sys.path
+    
+    return {
+        "system": {
+            "platform": platform.platform(),
+            "python_version": sys.version,
+            "cwd": cwd,
+            "app_directory": app_dir,
+            "directory_contents": dir_contents,
+            "static_directory": static_dir,
+            "static_contents": static_contents,
+        },
+        "environment_variables": env_vars,
+        "import_paths": import_paths,
+    }
+
+@router.get("/debug-request")
+async def debug_request(request: Request):
+    """Return detailed request information for debugging"""
+    headers = dict(request.headers)
+    
+    # Remove sensitive information from headers
+    if "authorization" in headers:
+        headers["authorization"] = "Bearer [REDACTED]"
+    if "cookie" in headers:
+        headers["cookie"] = "[REDACTED]"
+    
+    return {
+        "client": {
+            "host": request.client.host if request.client else "Unknown",
+            "port": request.client.port if request.client else "Unknown",
+        },
+        "request": {
+            "method": request.method,
+            "url": str(request.url),
+            "base_url": str(request.base_url),
+            "path_params": dict(request.path_params),
+            "query_params": dict(request.query_params),
+            "headers": headers,
+        }
+    }
