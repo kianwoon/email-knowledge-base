@@ -2,18 +2,21 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy all files
-COPY . .
+# Copy dependency files first
+COPY package*.json ./
 
-# Install dependencies
+# Install dependencies first
 RUN npm install
+
+# Then copy the rest of the application
+COPY . .
 
 # Set environment variables
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
 ENV NODE_ENV=production
 
-# Build the application
-RUN npm run build
+# Build with verbose output to see what's failing
+RUN npm run build --verbose
 
 # Production stage
 FROM nginx:alpine
