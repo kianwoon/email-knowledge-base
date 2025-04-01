@@ -12,10 +12,10 @@ services:
       builder: python
       command: cd backend && pip install -r requirements.txt
     run:
-      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8003
     env:
       - name: PORT
-        value: "8000"
+        value: "8003"
       - name: HOST
         value: "0.0.0.0"
       - name: ENVIRONMENT
@@ -37,7 +37,7 @@ services:
       - name: JWT_SECRET
         value: "production_secret_key_123"
     health_check:
-      port: 8000
+      port: 8003
       path: /health
       initial_delay: 30s
       interval: 10s
