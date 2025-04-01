@@ -43,7 +43,7 @@ services:
       - key: ENVIRONMENT
         value: "production"
       - key: VITE_API_BASE_URL
-        value: "http://backend-service:8000"
+        value: "http://backend-service.email-knowledge-base-2-automationtesting.internal:8000"
     ports:
       - "80:80"
     healthcheck:
