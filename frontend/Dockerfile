@@ -9,7 +9,7 @@ RUN npm install
 # Copy source files
 COPY . .
 
-# Build the application
+# Set environment variables and build
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
 RUN npm run build
 
