@@ -415,10 +415,6 @@ const AITraining = () => {
                 title={t('documentation.sections.aiTraining.bestPractices.practice4.title')} 
                 description={t('documentation.sections.aiTraining.bestPractices.practice4.description')} 
               />
-              <BestPracticeCard 
-                title={t('documentation.sections.aiTraining.bestPractices.practice5.title')} 
-                description={t('documentation.sections.aiTraining.bestPractices.practice5.description')} 
-              />
             </VStack>
           </Box>
 
