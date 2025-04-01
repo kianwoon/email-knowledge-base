@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")
     MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
-    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", f"{BACKEND_URL}/auth/callback")
+    # Fix: Use the provided MS_REDIRECT_URI directly instead of constructing it from BACKEND_URL
+    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "http://localhost:8000/auth/callback")
     MS_AUTHORITY: str = f"https://login.microsoftonline.com/{os.getenv('MS_TENANT_ID', '')}"
     MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]
     
