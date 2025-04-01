@@ -100,8 +100,14 @@ async def login():
 async def auth_callback(request: Request):
     """Handle OAuth callback from Microsoft"""
     print("Received callback request")
+    print(f"DEBUG - Full request URL: {request.url}")
+    print(f"DEBUG - Request headers: {dict(request.headers)}")
     print(f"Query params: {dict(request.query_params)}")
-    print(f"DEBUG - MS_REDIRECT_URI used for token exchange: {settings.MS_REDIRECT_URI}")
+    print(f"DEBUG - Current settings:")
+    print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
+    print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID}")
+    print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID}")
+    print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
     
     code = request.query_params.get("code")
     state = request.query_params.get("state")
@@ -110,17 +116,14 @@ async def auth_callback(request: Request):
     
     if error:
         print(f"Auth error: {error}, Description: {error_description}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Authentication error: {error_description}"
-        )
+        # Instead of raising an exception, redirect to frontend with error
+        error_url = f"{settings.FRONTEND_URL}?error={error}&error_description={error_description}"
+        return RedirectResponse(url=error_url)
     
     if not code:
         print("No authorization code provided")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authorization code not provided"
-        )
+        error_url = f"{settings.FRONTEND_URL}?error=no_code&error_description=No authorization code provided"
+        return RedirectResponse(url=error_url)
     
     # Exchange code for tokens using direct HTTP request instead of MSAL
     print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
@@ -136,18 +139,17 @@ async def auth_callback(request: Request):
             'scope': 'User.Read Mail.Read offline_access'
         }
         
+        print(f"DEBUG - Token request data (excluding secret): {dict(token_data, client_secret='[REDACTED]')}")
+        
         # Make the token request
         token_response = requests.post(token_url, data=token_data)
         result = token_response.json()
         
-        print(f"Token response status: {token_response.status_code}")
-        
-        if "error" in result:
-            print(f"Token acquisition error: {result.get('error')}, Description: {result.get('error_description')}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Authentication failed: {result.get('error_description')}"
-            )
+        print(f"DEBUG - Token response status: {token_response.status_code}")
+        if token_response.status_code != 200:
+            print(f"DEBUG - Token response error: {result}")
+            error_url = f"{settings.FRONTEND_URL}?error=token_error&error_description={result.get('error_description', 'Token exchange failed')}"
+            return RedirectResponse(url=error_url)
         
         print("Successfully acquired token")
         
@@ -224,10 +226,8 @@ async def auth_callback(request: Request):
         return RedirectResponse(url=redirect_url)
     except Exception as e:
         print(f"Error during token exchange: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Authentication error: {str(e)}"
-        )
+        error_url = f"{settings.FRONTEND_URL}?error=token_exchange_error&error_description={str(e)}"
+        return RedirectResponse(url=error_url)
 
 
 @router.get("/me", response_model=User)
