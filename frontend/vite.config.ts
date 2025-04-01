@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
+      __API_BASE_URL__: JSON.stringify(env.VITE_API_BASE_URL),
+      __BACKEND_URL__: JSON.stringify(env.VITE_BACKEND_URL),
       'process.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
       'process.env.VITE_BACKEND_URL': JSON.stringify(env.VITE_BACKEND_URL),
     },
@@ -26,6 +28,7 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_BACKEND_URL || 'http://localhost:8000',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
+          secure: false,
         }
       },
     },
@@ -34,9 +37,10 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         '/api': {
-          target: env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:8000',
+          target: env.VITE_API_BASE_URL?.replace('/api', '') || env.VITE_BACKEND_URL,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
+          secure: false,
         }
       },
     }
