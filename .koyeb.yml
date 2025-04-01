@@ -18,7 +18,9 @@ services:
       - key: FRONTEND_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - key: BACKEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - key: MS_REDIRECT_URI
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback"
     ports:
       - "8000:8000"
     healthcheck:
