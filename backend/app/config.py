@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     MS_CLIENT_ID: str = "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
     MS_TENANT_ID: str = "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
-    MS_REDIRECT_URI: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback" if IS_KOYEB else "http://localhost:8000/auth/callback"
+    MS_REDIRECT_URI: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback" if IS_KOYEB else "http://localhost:8000/api/auth/callback"
     MS_AUTHORITY: str = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]
     

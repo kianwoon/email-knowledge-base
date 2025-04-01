@@ -28,7 +28,7 @@ logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_I
 logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
 app = FastAPI(
-    root_path="",
+    root_path="/api",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json"
@@ -41,6 +41,8 @@ origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     # Add the full Koyeb URL
+    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app",
+    # Add the Koyeb frontend URL
     "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
 ]
 
