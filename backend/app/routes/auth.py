@@ -56,7 +56,21 @@ async def login():
     
     try:
         # Create state with next_url for callback
-        state = json.dumps({"next_url": settings.FRONTEND_URL})
+        frontend_url = settings.FRONTEND_URL
+        print(f"DEBUG - Using frontend URL for state: {frontend_url}")
+        
+        # Ensure we have a valid frontend URL
+        if not frontend_url or not frontend_url.startswith(('http://', 'https://')):
+            print(f"DEBUG - Invalid frontend URL, using hardcoded value")
+            # Fallback to hardcoded URL if environment variable is not set correctly
+            if "localhost" in settings.MS_REDIRECT_URI:
+                frontend_url = "http://localhost:5173"
+            else:
+                frontend_url = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+            print(f"DEBUG - Fallback frontend URL: {frontend_url}")
+        
+        state = json.dumps({"next_url": frontend_url})
+        print(f"DEBUG - Generated state: {state}")
         
         # Generate auth URL
         auth_url = f"https://login.microsoftonline.com/{settings.MS_TENANT_ID}/oauth2/v2.0/authorize"
@@ -181,14 +195,32 @@ async def auth_callback(request: Request):
         
         # Redirect to frontend with token
         next_url = settings.FRONTEND_URL
+        print(f"DEBUG - Default next_url from settings: {next_url}")
+        
         if state:
             try:
+                print(f"DEBUG - State parameter received: {state}")
                 state_data = json.loads(state)
-                next_url = state_data.get("next_url", settings.FRONTEND_URL)
-            except:
-                pass
+                if "next_url" in state_data:
+                    next_url = state_data.get("next_url")
+                    print(f"DEBUG - next_url from state: {next_url}")
+                    
+                    # Ensure the next_url is valid and matches our expected domain
+                    if "email-knowledge-base-2-automationtesting-ba741710.koyeb.app" not in next_url and "localhost" not in next_url:
+                        print(f"DEBUG - next_url domain doesn't match expected domains, using default: {settings.FRONTEND_URL}")
+                        next_url = settings.FRONTEND_URL
+            except Exception as e:
+                print(f"DEBUG - Error parsing state parameter: {str(e)}")
+                next_url = settings.FRONTEND_URL
+        
+        # Ensure we have a valid frontend URL for the redirect
+        if not next_url or not next_url.startswith(('http://', 'https://')):
+            print(f"DEBUG - Invalid next_url, using default: {settings.FRONTEND_URL}")
+            next_url = settings.FRONTEND_URL
         
         redirect_url = f"{next_url}?token={access_token}&expires={expires_at.timestamp()}"
+        print(f"DEBUG - Final redirect URL: {redirect_url}")
+        
         return RedirectResponse(url=redirect_url)
     except Exception as e:
         print(f"Error during token exchange: {str(e)}")
