@@ -2,18 +2,22 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy all files
-COPY . .
+# Copy package files first
+COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install dependencies with legacy peer deps to match local environment
+RUN npm install --legacy-peer-deps
+
+# Copy the rest of the files
+COPY . .
 
 # Set environment variables
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
 ENV NODE_ENV=production
+ENV CI=false
 
-# Build the application
-RUN npm run build
+# Build the application with increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # Production stage
 FROM nginx:alpine
