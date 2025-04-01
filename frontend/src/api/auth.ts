@@ -1,7 +1,7 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
 
 // Get the API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const API_BASE_URL = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api" //import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 console.log('Using API base URL:', API_BASE_URL); // Add logging to help debug
 
