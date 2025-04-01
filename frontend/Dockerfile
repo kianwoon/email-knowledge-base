@@ -1,21 +1,21 @@
 FROM node:18-alpine AS build
 
+# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json first for better caching
+# Copy package files first for better caching
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
 # Copy the rest of the frontend code
 COPY . .
 
 # Set environment variables
-ENV TSC_COMPILE_ON_ERROR=true
-ENV CI=false
 ENV VITE_API_URL=https://backend-service-email-knowledge-base-2.koyeb.app
 
-# Skip TypeScript type checking entirely
-RUN sed -i 's/tsc && vite build/vite build/g' package.json
+# Build the application
 RUN npm run build
 
 # Production stage
