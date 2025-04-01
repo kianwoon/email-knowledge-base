@@ -235,3 +235,26 @@ MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if setti
         """
     )
     return HTMLResponse(content=html_with_env)
+
+@router.get("/simple-test")
+async def simple_test():
+    """A very simple test endpoint that returns basic text"""
+    try:
+        return {
+            "status": "ok",
+            "message": "Simple test endpoint is working",
+            "env": {
+                "backend_url": settings.BACKEND_URL,
+                "frontend_url": settings.FRONTEND_URL,
+                "ms_redirect_uri": settings.MS_REDIRECT_URI,
+                "ms_client_id_partial": f"{settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:]}" if settings.MS_CLIENT_ID else "Not set",
+                "ms_tenant_id_partial": f"{settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:]}" if settings.MS_TENANT_ID else "Not set"
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.get("/plain-test", response_class=HTMLResponse)
+async def plain_test():
+    """A very simple test endpoint that returns plain text"""
+    return HTMLResponse(content="Plain text test endpoint is working. This is a simple test page.")
