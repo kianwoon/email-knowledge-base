@@ -8,13 +8,19 @@ services:
         - PYTHON_VERSION=3.11
     env:
       - key: PORT
-        value: "8003"
+        value: "8000"
       - key: ENVIRONMENT
         value: "production"
-      - key: FASTAPI_PORT
-        value: "8003"
+      - key: MS_CLIENT_ID
+        value: "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
+      - key: MS_TENANT_ID
+        value: "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
+      - key: FRONTEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - key: BACKEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
     ports:
-      - "8003:8003"
+      - "8000:8000"
     healthcheck:
       path: /health
       interval: 10
@@ -24,22 +30,25 @@ services:
     min_scale: 1
     max_scale: 1
     regions: ["was"]
+    routes:
+      - path: /api/*
+        port: 8000
 
   frontend-service:
     build:
       context: ./frontend
       builder: buildpack
       args:
-        - PYTHON_VERSION=3.11
+        - NODE_VERSION=18
     env:
       - key: PORT
-        value: "5175"
+        value: "3000"
       - key: ENVIRONMENT
         value: "production"
-      - key: VITE_API_URL
-        value: "https://backend-service-email-knowledge-base-2.koyeb.app"
+      - key: VITE_API_BASE_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
     ports:
-      - "5175:80"
+      - "3000:3000"
     healthcheck:
       path: /
       interval: 10
@@ -49,3 +58,6 @@ services:
     min_scale: 1
     max_scale: 1
     regions: ["was"]
+    routes:
+      - path: /*
+        port: 3000
