@@ -20,9 +20,11 @@ export default defineConfig(({ mode }) => {
       __BACKEND_URL__: JSON.stringify(env.VITE_BACKEND_URL),
       'process.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
       'process.env.VITE_BACKEND_URL': JSON.stringify(env.VITE_BACKEND_URL),
+      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
+      'import.meta.env.VITE_BACKEND_URL': JSON.stringify(env.VITE_BACKEND_URL),
     },
     server: {
-      port: 3000,
+      port: 5173,
       proxy: {
         '/api': {
           target: env.VITE_BACKEND_URL || 'http://localhost:8000',
@@ -33,7 +35,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: {
-      port: 3000,
+      port: 5173,
       host: true,
       proxy: {
         '/api': {

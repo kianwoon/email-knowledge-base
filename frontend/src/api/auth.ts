@@ -2,6 +2,9 @@ import axios, { InternalAxiosRequestConfig } from 'axios';
 
 // Get the API base URL from environment variables
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+if (!API_BASE_URL) {
+  throw new Error('VITE_API_BASE_URL is not defined in environment variables. Please check your .env files.');
+}
 
 console.log('Using API base URL:', API_BASE_URL); // Add logging to help debug
 

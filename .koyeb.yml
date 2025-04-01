@@ -59,7 +59,12 @@ services:
       branch: main
     build:
       builder: nodejs
-      command: cd frontend && npm install && VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api npm run build
+      command: cd frontend && npm install && npm run build
+      env:
+        - name: VITE_API_BASE_URL
+          value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+        - name: VITE_BACKEND_URL
+          value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
     run:
       command: cd frontend && npm run preview -- --host
     env:
@@ -69,6 +74,8 @@ services:
         value: "0.0.0.0"
       - name: VITE_API_BASE_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+      - name: VITE_BACKEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
     routes:
       - path: /
         port: 3000
