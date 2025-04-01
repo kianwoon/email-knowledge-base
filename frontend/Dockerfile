@@ -12,7 +12,7 @@ COPY frontend/ ./
 # Set environment variables
 ENV TSC_COMPILE_ON_ERROR=true
 ENV CI=false
-ENV VITE_API_URL=https://backend-service-email-knowledge-base-2.koyeb.app
+ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app
 
 # Skip TypeScript type checking entirely
 RUN sed -i 's/tsc && vite build/vite build/g' package.json
