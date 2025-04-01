@@ -7,6 +7,7 @@ from jose import jwt
 from typing import Dict, Optional
 import urllib.parse
 import requests
+from urllib.parse import urlencode
 
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
@@ -45,47 +46,39 @@ def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
 @router.get("/login")
 async def login():
     """Generate Microsoft OAuth login URL"""
+    # Enhanced logging for debugging
+    print(f"DEBUG - Environment variables:")
+    print(f"DEBUG - BACKEND_URL: {settings.BACKEND_URL}")
+    print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
+    print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
+    print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
+    print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
+    
     try:
-        # Build the authorization URL manually to avoid MSAL scope issues
-        tenant_id = settings.MS_TENANT_ID
-        client_id = settings.MS_CLIENT_ID
-        redirect_uri = urllib.parse.quote(settings.MS_REDIRECT_URI)
-        scopes = urllib.parse.quote("User.Read Mail.Read offline_access")  # Space-separated scopes
+        # Create state with next_url for callback
+        state = json.dumps({"next_url": settings.FRONTEND_URL})
         
-        # Debug logging for environment variables
-        print(f"DEBUG - Environment variables:")
-        print(f"DEBUG - BACKEND_URL: {settings.BACKEND_URL}")
-        print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
-        print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
-        print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID}")
-        print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID}")
+        # Generate auth URL
+        auth_url = f"https://login.microsoftonline.com/{settings.MS_TENANT_ID}/oauth2/v2.0/authorize"
+        auth_params = {
+            "client_id": settings.MS_CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": settings.MS_REDIRECT_URI,
+            "scope": "User.Read Mail.Read offline_access",
+            "state": state,
+            "prompt": "select_account"
+        }
         
-        # Make sure we're using the correct frontend URL
-        frontend_url = settings.FRONTEND_URL
-        print(f"Using frontend URL: {frontend_url}")
+        # Log the full auth URL for debugging
+        full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
+        print(f"DEBUG - Full auth URL: {full_auth_url}")
         
-        state_data = json.dumps({"next_url": frontend_url})
-        state = urllib.parse.quote(state_data)
-        
-        # Construct the URL with prompt=consent to force the consent dialog
-        auth_url = (
-            f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
-            f"?client_id={client_id}"
-            f"&response_type=code"
-            f"&redirect_uri={redirect_uri}"
-            f"&response_mode=query"
-            f"&scope={scopes}"
-            f"&state={state}"
-            f"&prompt=consent"  # Force consent dialog
-        )
-        
-        print(f"Manually generated auth URL: {auth_url}")
-        return {"auth_url": auth_url}
+        return {"auth_url": full_auth_url}
     except Exception as e:
-        print(f"Error generating auth URL: {str(e)}")
+        print(f"ERROR - Exception in login route: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating auth URL: {str(e)}"
+            detail=f"Failed to generate login URL: {str(e)}"
         )
 
 
@@ -94,6 +87,7 @@ async def auth_callback(request: Request):
     """Handle OAuth callback from Microsoft"""
     print("Received callback request")
     print(f"Query params: {dict(request.query_params)}")
+    print(f"DEBUG - MS_REDIRECT_URI used for token exchange: {settings.MS_REDIRECT_URI}")
     
     code = request.query_params.get("code")
     state = request.query_params.get("state")
