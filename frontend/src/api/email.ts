@@ -32,7 +32,7 @@ api.interceptors.request.use(
  */
 export const getEmailFolders = async () => {
   try {
-    const response = await api.get('/email/folders');
+    const response = await api.get('/emails/folders');
     return response.data;
   } catch (error) {
     console.error('Error getting email folders:', error);
@@ -52,7 +52,7 @@ export const getEmailFolders = async () => {
  */
 export const getEmailPreviews = async (filterParams: EmailFilter) => {
   try {
-    const response = await api.post('/email/preview', filterParams);
+    const response = await api.post('/emails/preview', filterParams);
     return response.data;
   } catch (error) {
     console.error('Error getting email previews:', error);
@@ -74,7 +74,7 @@ export const getEmailPreviews = async (filterParams: EmailFilter) => {
  */
 export const getEmailContent = async (emailId: string) => {
   try {
-    const response = await api.get(`/email/content/${emailId}`);
+    const response = await api.get(`/emails/content/${emailId}`);
     return response.data;
   } catch (error) {
     console.error('Error getting email content:', error);
@@ -103,7 +103,7 @@ export const getEmailContent = async (emailId: string) => {
  */
 export const analyzeEmails = async (emailIds: string[]) => {
   try {
-    const response = await api.post('/email/analyze', emailIds);
+    const response = await api.post('/emails/analyze', emailIds);
     return response.data;
   } catch (error) {
     console.error('Error submitting emails for analysis:', error);
