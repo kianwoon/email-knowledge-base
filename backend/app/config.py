@@ -8,22 +8,25 @@ load_dotenv()
 class Settings(BaseSettings):
     # Application settings
     DEBUG: bool = os.getenv("DEBUG", "False") == "True"
-    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000")
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    
+    # Determine if we're running on Koyeb
+    IS_KOYEB: bool = os.getenv("K_SERVICE", "") != ""
+    
+    # URLs based on environment
+    BACKEND_URL: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app" if IS_KOYEB else "http://localhost:8000"
+    FRONTEND_URL: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app" if IS_KOYEB else "http://localhost:5173"
     
     # Microsoft OAuth2 settings
-    MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
-    MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")
-    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
-    # Fix: Use the provided MS_REDIRECT_URI directly instead of constructing it from BACKEND_URL
-    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "http://localhost:8000/auth/callback")
-    MS_AUTHORITY: str = f"https://login.microsoftonline.com/{os.getenv('MS_TENANT_ID', '')}"
+    MS_CLIENT_ID: str = "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
+    MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
+    MS_TENANT_ID: str = "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
+    MS_REDIRECT_URI: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback" if IS_KOYEB else "http://localhost:8000/auth/callback"
+    MS_AUTHORITY: str = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]
     
     # JWT settings
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "")
-    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    # Hardcoded JWT expiration to 24 hours (86400 seconds)
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")  # Keep this from env for security
+    JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION: int = 86400
     
     # OpenAI settings
@@ -38,7 +41,7 @@ class Settings(BaseSettings):
     
     # Email processing settings
     MAX_PREVIEW_EMAILS: int = 10
-    EMBEDDING_DIMENSION: int = 1536  # For text-embedding-3-small
+    EMBEDDING_DIMENSION: int = 1536
     
     model_config = {
         "env_file": ".env",
