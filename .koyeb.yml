@@ -1,61 +1,67 @@
-version: 1
-services:
-  backend-service:
-    build:
-      context: ./backend
-      builder: buildpack
-      args:
-        - PYTHON_VERSION=3.11
-    env:
-      - key: PORT
-        value: "8000"
-      - key: ENVIRONMENT
-        value: "production"
-      - key: MS_CLIENT_ID
-        value: "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
-      - key: MS_TENANT_ID
-        value: "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
-      - key: FRONTEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
-      - key: BACKEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
-      - key: MS_REDIRECT_URI
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback"
-      - key: IS_KOYEB
-        value: "true"
-    ports:
-      - "8000:8000"
-    healthcheck:
-      path: /health
-      interval: 10
-    restart: always
-    type: worker
-    instance_type: nano
-    min_scale: 1
-    max_scale: 1
-    regions: ["was"]
+app:
+  name: email-knowledge-base
 
-  frontend-service:
-    build:
-      context: ./frontend
-      builder: docker
-    env:
-      - key: ENVIRONMENT
-        value: "production"
-      - key: VITE_API_BASE_URL
-        value: "http://backend-service.email-knowledge-base-2-automationtesting.internal:8000"
-    ports:
-      - "80:80"
-    healthcheck:
-      path: /
-      interval: 10
-    restart: always
-    type: web
+services:
+  - name: backend-service
     instance_type: nano
-    min_scale: 1
-    max_scale: 1
-    regions: ["was"]
-    routes:
-      - path: /*
-        port: 80
+    instance_count: 1
+    git:
+      repository: kianwoon/email-knowledge-base
+      branch: main
+    build:
+      builder: python
+      command: cd backend && pip install -r requirements.txt
+    run:
+      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    env:
+      - name: PORT
+        value: "8000"
+      - name: HOST
+        value: "0.0.0.0"
+      - name: ENVIRONMENT
+        value: "production"
+      - name: MS_CLIENT_ID
+        value: "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
+      - name: MS_TENANT_ID
+        value: "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
+      - name: MS_CLIENT_SECRET
+        secret: MS_CLIENT_SECRET
+      - name: FRONTEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - name: BACKEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - name: MS_REDIRECT_URI
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback"
+      - name: IS_KOYEB
+        value: "true"
+    health_check:
+      port: 8000
+      path: /health
+    restart_policy:
+      type: on-failure
+      max_retries: 10
+    public: true
+
+  - name: frontend-service
+    instance_type: nano
+    instance_count: 1
+    git:
+      repository: kianwoon/email-knowledge-base
+      branch: main
+    build:
+      builder: nodejs
+      command: cd frontend && npm install && npm run build
+    run:
+      command: cd frontend && npm run preview -- --host 0.0.0.0 --port $PORT
+    env:
+      - name: VITE_API_BASE_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - name: VITE_BACKEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+    health_check:
+      port: 4173
+      path: /
+    restart_policy:
+      type: on-failure
+      max_retries: 10
     public: true
