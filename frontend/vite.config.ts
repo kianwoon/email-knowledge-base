@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, process.cwd(), '');
   
+  const apiBaseUrl = env.VITE_API_BASE_URL || 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api';
+  const backendUrl = env.VITE_BACKEND_URL || 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app';
+  
   return {
     plugins: [react()],
     resolve: {
@@ -16,18 +19,18 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      __API_BASE_URL__: JSON.stringify(env.VITE_API_BASE_URL),
-      __BACKEND_URL__: JSON.stringify(env.VITE_BACKEND_URL),
-      'process.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
-      'process.env.VITE_BACKEND_URL': JSON.stringify(env.VITE_BACKEND_URL),
-      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(env.VITE_API_BASE_URL),
-      'import.meta.env.VITE_BACKEND_URL': JSON.stringify(env.VITE_BACKEND_URL),
+      __API_BASE_URL__: JSON.stringify(apiBaseUrl),
+      __BACKEND_URL__: JSON.stringify(backendUrl),
+      'process.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+      'process.env.VITE_BACKEND_URL': JSON.stringify(backendUrl),
+      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+      'import.meta.env.VITE_BACKEND_URL': JSON.stringify(backendUrl),
     },
     server: {
       port: 5173,
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL || 'http://localhost:8000',
+          target: backendUrl,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
           secure: false,
@@ -39,7 +42,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         '/api': {
-          target: env.VITE_API_BASE_URL?.replace('/api', '') || env.VITE_BACKEND_URL,
+          target: apiBaseUrl,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api/, ''),
           secure: false,
