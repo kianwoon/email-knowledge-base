@@ -29,17 +29,11 @@ services:
       path: /health
       interval: 10
     restart: always
-    type: web
+    type: worker
     instance_type: nano
     min_scale: 1
     max_scale: 1
     regions: ["was"]
-    routes:
-      - path: /api/*
-        port: 8000
-        priority: 1
-        strip_path: false
-    public: true
 
   frontend-service:
     build:
@@ -49,7 +43,7 @@ services:
       - key: ENVIRONMENT
         value: "production"
       - key: VITE_API_BASE_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+        value: "http://backend-service:8000"
     ports:
       - "80:80"
     healthcheck:
@@ -64,6 +58,4 @@ services:
     routes:
       - path: /*
         port: 80
-        priority: 2
-        exclude: ["/api/*"]
     public: true
