@@ -3,7 +3,7 @@ import axios from 'axios';
 // Determine if we're in production by checking the current URL
 const isProduction = window.location.hostname !== 'localhost';
 const API_BASE_URL = isProduction 
-  ? import.meta.env.VITE_API_BASE_URL : 'http://localhost:8000';
+  ? 'http://backend-service.email-knowledge-base-2.internal:8000' : 'http://localhost:8000';
 
 // Create axios instance with default config
 const api = axios.create({
