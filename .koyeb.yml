@@ -37,6 +37,7 @@ services:
     routes:
       - path: /api/*
         port: 8000
+        priority: 1
 
   frontend-service:
     build:
@@ -61,3 +62,4 @@ services:
     routes:
       - path: /*
         port: 80
+        priority: 2
