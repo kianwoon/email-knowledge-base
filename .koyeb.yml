@@ -56,7 +56,7 @@ services:
       - key: ENVIRONMENT
         value: "production"
       - key: VITE_API_BASE_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
     ports:
       - "80:80"
     healthcheck:
