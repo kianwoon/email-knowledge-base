@@ -34,9 +34,14 @@ services:
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/auth/callback"
       - name: IS_KOYEB
         value: "true"
+      - name: JWT_SECRET
+        value: "production_secret_key_123"
     health_check:
-      port: 8000
+      port: $PORT
       path: /health
+      initial_delay: 10s
+      interval: 5s
+      timeout: 5s
     restart_policy:
       type: on-failure
       max_retries: 10
