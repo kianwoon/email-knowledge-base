@@ -12,10 +12,10 @@ services:
       builder: python
       command: cd backend && pip install -r requirements.txt
     run:
-      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8003
+      command: cd backend && PYTHONPATH=$PYTHONPATH:. python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
     env:
       - name: PORT
-        value: "8003"
+        value: "8000"
       - name: HOST
         value: "0.0.0.0"
       - name: ENVIRONMENT
@@ -39,7 +39,7 @@ services:
       - name: DEBUG
         value: "true"
     health_check:
-      port: 8003
+      port: 8000
       path: /health
       initial_delay: 30s
       interval: 10s
