@@ -37,14 +37,20 @@ services:
   frontend-service:
     build:
       context: ./frontend
-      builder: docker
+      builder: buildpack
+      args:
+        - NODE_VERSION=18
     env:
       - key: ENVIRONMENT
         value: "production"
       - key: VITE_API_BASE_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+      - key: PORT
+        value: "3000"
+      - key: NODE_ENV
+        value: "production"
     ports:
-      - "80:80"
+      - "3000:3000"
     healthcheck:
       path: /
       interval: 10
@@ -56,4 +62,4 @@ services:
     regions: ["was"]
     routes:
       - path: /*
-        port: 80
+        port: 3000
