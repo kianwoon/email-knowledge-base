@@ -2,15 +2,21 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package files
+# Install dependencies first (including devDependencies)
 COPY package.json package-lock.json ./
 RUN npm install
 
 # Copy source files
 COPY . .
 
-# Set environment variables and build
+# Set environment variables
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
+ENV NODE_ENV=production
+
+# Ensure TypeScript and Vite are available
+RUN npm install -g typescript vite
+
+# Build the application
 RUN npm run build
 
 # Production stage
