@@ -39,6 +39,7 @@ services:
         port: 8000
         priority: 1
         strip_path: false
+    public: true
 
   frontend-service:
     build:
@@ -65,3 +66,4 @@ services:
         port: 80
         priority: 2
         exclude: ["/api/*"]
+    public: true
