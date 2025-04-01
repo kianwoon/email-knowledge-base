@@ -61,13 +61,9 @@ async def login():
         
         # Ensure we have a valid frontend URL
         if not frontend_url or not frontend_url.startswith(('http://', 'https://')):
-            print(f"DEBUG - Invalid frontend URL, using hardcoded value")
-            # Fallback to hardcoded URL if environment variable is not set correctly
-            if "localhost" in settings.MS_REDIRECT_URI:
-                frontend_url = "http://localhost:5173"
-            else:
-                frontend_url = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
-            print(f"DEBUG - Fallback frontend URL: {frontend_url}")
+            print(f"DEBUG - Invalid frontend URL, using settings value")
+            frontend_url = settings.FRONTEND_URL
+            print(f"DEBUG - Using frontend URL from settings: {frontend_url}")
         
         state = json.dumps({"next_url": frontend_url})
         print(f"DEBUG - Generated state: {state}")

@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     
     # Microsoft OAuth2 settings
-    MS_CLIENT_ID: str = "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
+    MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
-    MS_TENANT_ID: str = "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
+    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
     MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", f"{BACKEND_URL}/auth/callback")
     MS_AUTHORITY: str = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]

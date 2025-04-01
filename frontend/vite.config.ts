@@ -8,8 +8,8 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, process.cwd(), '');
   
-  const apiBaseUrl = env.VITE_API_BASE_URL || 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api';
-  const backendUrl = env.VITE_BACKEND_URL || 'https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app';
+  const apiBaseUrl = env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+  const backendUrl = env.VITE_BACKEND_URL || 'http://localhost:8000';
   
   return {
     plugins: [react()],

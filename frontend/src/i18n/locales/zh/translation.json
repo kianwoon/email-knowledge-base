@@ -543,132 +543,126 @@
         "apiDocumentationInfo": "为开发人员提供全面的API文档，包括身份验证、速率限制和示例代码。"
       },
       "aiTraining": {
-        "title": "人工智能助手培训",
-        "subtitle": "利用您的知识库培训人工智能助手，有效处理日常通信",
-        "description": "了解如何利用您的知识库培训能够处理日常通信和任务的人工智能助手。",
-        "header": "人工智能助手培训",
+        "header": "人工智能训练文档",
+        "subtitle": "学习如何使用您的电子邮件知识库有效训练人工智能模型",
         "overview": "概述",
-        "overviewDescription": "人工智能助手培训功能允许您使用组织的知识库创建和培训专业的人工智能助手。这些助手可以处理日常通信，回答常见问题，并执行基本任务，从而为您的团队节省更多时间用于处理更复杂的工作。",
+        "overviewDescription": "我们的人工智能训练系统允许您创建理解贵组织通信模式和知识库的自定义人工智能模型。",
         "capabilities": {
           "title": "核心功能",
           "capability1": {
-            "title": "基于知识的培训",
-            "description": "使用组织独特的知识库培训助手，以提供与上下文相关的回应。"
+            "title": "知识集成",
+            "description": "将提取的电子邮件知识无缝集成到人工智能训练数据集中"
           },
           "capability2": {
-            "title": "可定制的角色",
-            "description": "创建具有特定语调、风格和专业领域的助手，以匹配不同的使用场景。"
+            "title": "自定义训练",
+            "description": "使用贵组织特定的通信风格和领域知识训练人工智能模型"
           },
           "capability3": {
-            "title": "多渠道部署",
-            "description": "在电子邮件、聊天和其他通信渠道部署培训好的助手。"
+            "title": "多语言支持",
+            "description": "训练人工智能模型以有效处理多语言通信"
           },
           "capability4": {
-            "title": "持续学习",
-            "description": "助手通过反馈和新知识的添加不断改进。"
+            "title": "性能分析",
+            "description": "通过详细分析监控和优化人工智能模型性能"
           }
         },
         "trainingProcess": {
-          "title": "培训流程",
+          "title": "训练流程",
           "step1": {
-            "title": "定义助手目的",
-            "description": "明确您的人工智能助手的角色、职责和范围。"
+            "title": "数据准备",
+            "description": "选择和准备相关的电子邮件数据用于训练"
           },
           "step2": {
-            "title": "选择知识来源",
-            "description": "选择知识库中相关部分来培训助手。"
+            "title": "模型配置",
+            "description": "配置人工智能模型参数和训练目标"
           },
           "step3": {
-            "title": "配置行为参数",
-            "description": "设置响应风格、决策阈值和升级协议。"
+            "title": "执行训练",
+            "description": "使用选定的数据集执行训练过程"
           },
           "step4": {
-            "title": "培训和测试",
-            "description": "运行培训过程并使用示例场景测试助手。"
+            "title": "性能评估",
+            "description": "评估模型性能并进行必要的调整"
           },
           "step5": {
-            "title": "部署和监控",
-            "description": "启动助手并持续监控其性能。"
+            "title": "部署",
+            "description": "部署训练好的模型以处理实时通信"
           }
         },
         "useCases": {
-          "title": "常见用例",
+          "title": "使用场景",
           "useCase1": {
-            "title": "客户支持助手",
-            "description": "根据您的支持知识库处理常见客户咨询和故障排除请求。"
+            "title": "客户支持",
+            "description": "训练人工智能处理常见客户咨询和支持请求"
           },
           "useCase2": {
-            "title": "内部IT助手",
-            "description": "使用您的技术文档帮助员工解决常规IT问题和程序。"
+            "title": "内部沟通",
+            "description": "自动化日常内部通信和知识共享"
           },
           "useCase3": {
-            "title": "入职指南",
-            "description": "在入职过程中帮助新员工了解公司政策和程序。"
+            "title": "文档处理",
+            "description": "处理和分类收到的文档和附件"
           },
           "useCase4": {
-            "title": "销售咨询响应者",
-            "description": "提供包含产品信息和资格问题的初步销售咨询回复。"
+            "title": "知识分发",
+            "description": "向相应团队成员分发相关知识"
           }
         },
         "bestPractices": {
           "title": "最佳实践",
           "practice1": {
-            "title": "从专注开始",
-            "description": "在扩展助手功能之前，先为其定义一个范围明确的角色。"
+            "title": "数据质量",
+            "description": "确保训练数据清晰、相关且具有代表性"
           },
           "practice2": {
-            "title": "精选培训数据",
-            "description": "仔细选择高质量的知识项目进行培训，以确保准确的响应。"
+            "title": "定期更新",
+            "description": "使用新知识和模式持续更新模型"
           },
           "practice3": {
-            "title": "建立明确界限",
-            "description": "明确定义何时助手应将复杂问题升级给人类团队成员。"
+            "title": "性能监控",
+            "description": "定期监控和评估模型性能"
           },
           "practice4": {
-            "title": "定期重新培训",
-            "description": "随着知识库的增长和发展，安排定期重新培训。"
-          },
-          "practice5": {
-            "title": "收集用户反馈",
-            "description": "实施反馈机制以持续改进助手性能。"
+            "title": "反馈整合",
+            "description": "将用户反馈纳入模型改进中"
           }
         },
         "performance": {
           "title": "性能指标",
           "metric1": {
             "title": "响应准确率",
-            "description": "正确解决查询的响应百分比。"
+            "description": "人工智能模型正确解决查询的百分比"
           },
           "metric2": {
             "title": "解决率",
-            "description": "无需人工干预即可完全解决的查询百分比。"
+            "description": "无需人工干预即可完全解决的查询百分比"
           },
           "metric3": {
             "title": "平均响应时间",
-            "description": "生成和传递响应所需的时间。"
+            "description": "生成和传递响应所需的时间"
           },
           "metric4": {
             "title": "用户满意度",
-            "description": "与助手互动的用户反馈评分。"
+            "description": "用户对人工智能互动的反馈评分"
           }
         },
         "integration": {
           "title": "集成选项",
           "option1": {
             "title": "电子邮件集成",
-            "description": "将助手连接到电子邮件系统以处理传入消息。"
+            "description": "将人工智能模型连接到电子邮件系统以处理传入消息"
           },
           "option2": {
             "title": "聊天平台",
-            "description": "在内部或面向客户的聊天界面上部署助手。"
+            "description": "在内部或面向客户的聊天界面上部署人工智能模型"
           },
           "option3": {
             "title": "知识库前端",
-            "description": "直接在知识库界面中嵌入助手。"
+            "description": "直接在知识库界面中嵌入人工智能功能"
           },
           "option4": {
             "title": "API访问",
-            "description": "通过我们的API将助手连接到自定义应用程序。"
+            "description": "通过我们的API将人工智能模型连接到自定义应用程序"
           }
         }
       },

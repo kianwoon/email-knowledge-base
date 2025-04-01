@@ -380,94 +380,126 @@
         "knowledgeUsageAndTrendsDescription": "Knowledge usage and trends"
       },
       "aiTraining": {
-        "title": "AI Assistant Training",
-        "subtitle": "Leverage your knowledge base to train AI assistants that handle routine communications effectively",
-        "description": "Learn how to leverage your knowledge base to train AI assistants capable of handling routine communications and tasks.",
-        "header": "AI Assistant Training",
+        "header": "AI Training Documentation",
+        "subtitle": "Learn how to effectively train AI models using your email knowledge base",
         "overview": "Overview",
-        "overviewDescription": "The AI Assistant Training feature allows you to create and train specialized AI assistants using your organization's knowledge base. These assistants can handle routine communications, answer common questions, and perform basic tasks, freeing your team to focus on more complex work.",
+        "overviewDescription": "Our AI training system allows you to create custom AI models that understand your organization's communication patterns and knowledge base.",
         "capabilities": {
-          "title": "Core Capabilities",
+          "title": "Key Capabilities",
           "capability1": {
-            "title": "Knowledge-Based Training",
-            "description": "Train assistants using your organization's unique knowledge base to provide contextually relevant responses."
+            "title": "Knowledge Integration",
+            "description": "Seamlessly integrate extracted email knowledge into AI training datasets"
           },
           "capability2": {
-            "title": "Customizable Personas",
-            "description": "Create assistants with specific tones, styles, and areas of expertise to match different use cases."
+            "title": "Custom Training",
+            "description": "Train AI models with your organization's specific communication style and domain knowledge"
           },
           "capability3": {
-            "title": "Multi-Channel Deployment",
-            "description": "Deploy trained assistants across email, chat, and other communication channels."
+            "title": "Multilingual Support",
+            "description": "Train AI models to handle communications in multiple languages effectively"
           },
           "capability4": {
-            "title": "Continuous Learning",
-            "description": "Assistants improve over time through feedback and the addition of new knowledge."
+            "title": "Performance Analytics",
+            "description": "Monitor and optimize AI model performance with detailed analytics"
           }
         },
         "trainingProcess": {
           "title": "Training Process",
           "step1": {
-            "title": "Define Assistant Purpose",
-            "description": "Clearly define the role, responsibilities, and scope of your AI assistant."
+            "title": "Data Preparation",
+            "description": "Select and prepare relevant email data for training"
           },
           "step2": {
-            "title": "Select Knowledge Sources",
-            "description": "Choose relevant sections of your knowledge base to train the assistant."
+            "title": "Model Configuration",
+            "description": "Configure AI model parameters and training objectives"
           },
           "step3": {
-            "title": "Configure Behavior Parameters",
-            "description": "Set response style, decision thresholds, and escalation protocols."
+            "title": "Training Execution",
+            "description": "Execute the training process with selected datasets"
           },
           "step4": {
-            "title": "Train and Test",
-            "description": "Run the training process and test the assistant with sample scenarios."
+            "title": "Performance Evaluation",
+            "description": "Evaluate model performance and make necessary adjustments"
           },
           "step5": {
-            "title": "Deploy and Monitor",
-            "description": "Launch the assistant and continuously monitor its performance."
+            "title": "Deployment",
+            "description": "Deploy trained models to handle live communications"
           }
         },
         "useCases": {
-          "title": "Common Use Cases",
+          "title": "Use Cases",
           "useCase1": {
-            "title": "Customer Support Assistant",
-            "description": "Handle common customer inquiries and troubleshooting requests based on your support knowledge base."
+            "title": "Customer Support",
+            "description": "Train AI to handle common customer inquiries and support requests"
           },
           "useCase2": {
-            "title": "Internal IT Assistant",
-            "description": "Help employees with routine IT issues and procedures using your technical documentation."
+            "title": "Internal Communication",
+            "description": "Automate routine internal communications and knowledge sharing"
           },
           "useCase3": {
-            "title": "HR Information Assistant",
-            "description": "Answer employee questions about policies, benefits, and procedures."
+            "title": "Document Processing",
+            "description": "Process and categorize incoming documents and attachments"
           },
           "useCase4": {
-            "title": "Sales Support Assistant",
-            "description": "Provide product information and handle initial customer inquiries."
+            "title": "Knowledge Distribution",
+            "description": "Distribute relevant knowledge to appropriate team members"
           }
         },
         "bestPractices": {
           "title": "Best Practices",
           "practice1": {
-            "title": "Start Narrow, Then Expand",
-            "description": "Begin with a focused domain before expanding the assistant's capabilities."
+            "title": "Data Quality",
+            "description": "Ensure training data is clean, relevant, and representative"
           },
           "practice2": {
-            "title": "Provide Clear Boundaries",
-            "description": "Define what the assistant should and should not attempt to handle."
+            "title": "Regular Updates",
+            "description": "Continuously update models with new knowledge and patterns"
           },
           "practice3": {
-            "title": "Establish Escalation Paths",
-            "description": "Create clear protocols for when to escalate to human team members."
+            "title": "Performance Monitoring",
+            "description": "Regularly monitor and evaluate model performance"
           },
           "practice4": {
-            "title": "Regularly Update Knowledge",
-            "description": "Keep the assistant's knowledge base current with new information."
+            "title": "Feedback Integration",
+            "description": "Incorporate user feedback into model improvements"
+          }
+        },
+        "performance": {
+          "title": "Performance Metrics",
+          "metric1": {
+            "title": "Response Accuracy",
+            "description": "Percentage of queries correctly resolved by the AI model"
           },
-          "practice5": {
-            "title": "Collect User Feedback",
-            "description": "Implement feedback mechanisms to continuously improve assistant performance."
+          "metric2": {
+            "title": "Resolution Rate",
+            "description": "Percentage of queries resolved without human intervention"
+          },
+          "metric3": {
+            "title": "Average Response Time",
+            "description": "Time taken to generate and deliver responses"
+          },
+          "metric4": {
+            "title": "User Satisfaction",
+            "description": "User feedback ratings for AI interactions"
+          }
+        },
+        "integration": {
+          "title": "Integration Options",
+          "option1": {
+            "title": "Email Integration",
+            "description": "Connect AI models to email systems for processing incoming messages"
+          },
+          "option2": {
+            "title": "Chat Platforms",
+            "description": "Deploy AI models on internal or customer-facing chat interfaces"
+          },
+          "option3": {
+            "title": "Knowledge Base Frontend",
+            "description": "Embed AI capabilities directly in knowledge base interface"
+          },
+          "option4": {
+            "title": "API Access",
+            "description": "Connect AI models to custom applications via our API"
           }
         }
       },
