@@ -9,18 +9,18 @@ class Settings(BaseSettings):
     # Application settings
     DEBUG: bool = os.getenv("DEBUG", "False") == "True"
     
-    # Determine if we're running on Koyeb
-    IS_KOYEB: bool = os.getenv("K_SERVICE", "") != ""
+    # Determine if we're in production
+    IS_PRODUCTION: bool = os.getenv("ENVIRONMENT", "") == "production"
     
     # URLs based on environment
-    BACKEND_URL: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api" if IS_KOYEB else "http://localhost:8000/api"
-    FRONTEND_URL: str = "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app" if IS_KOYEB else "http://localhost:5173"
+    BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000/api")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     
     # Microsoft OAuth2 settings
     MS_CLIENT_ID: str = "a4b11a39-ee9e-42b6-ab30-788ccef14d89"
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
     MS_TENANT_ID: str = "fda15b03-7d0b-4604-b6a0-00a0712abcf5"
-    MS_REDIRECT_URI: str = f"{BACKEND_URL}/auth/callback"
+    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", f"{BACKEND_URL}/auth/callback")
     MS_AUTHORITY: str = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
     MS_SCOPE: list = ["User.Read", "Mail.Read", "offline_access"]
     
