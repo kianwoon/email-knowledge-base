@@ -2,6 +2,7 @@ import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from typing import List
+from pydantic import validator
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,12 +23,22 @@ class Settings(BaseSettings):
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
     MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
     MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "http://localhost:8000/auth/callback")
-    MS_AUTHORITY: str = f"https://login.microsoftonline.com/{MS_TENANT_ID}"
+    
+    @property
+    def MS_AUTHORITY(self) -> str:
+        return f"https://login.microsoftonline.com/{self.MS_TENANT_ID}"
+    
     MS_SCOPE: List[str] = [
         "User.Read",  # Basic profile info
         "Mail.Read",  # Read mail
         "offline_access"  # For refresh tokens
     ]
+    
+    @validator("MS_CLIENT_SECRET")
+    def validate_client_secret(cls, v):
+        if not v:
+            raise ValueError("MS_CLIENT_SECRET must be set in .env file")
+        return v
     
     # JWT settings
     JWT_SECRET: str = os.getenv("JWT_SECRET", "development_secret_key")

@@ -39,7 +39,11 @@ origins = [
     settings.FRONTEND_URL,
     # Add localhost for development
     "http://localhost:5173",
-    "http://localhost:3000",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
     # Add the full Koyeb URL
     "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app",
     # Add the Koyeb frontend URL
