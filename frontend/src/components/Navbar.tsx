@@ -29,7 +29,7 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon, SettingsIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome } from 'react-icons/fa';
 import { getCurrentUser } from '../api/auth';
 import { useTranslation } from 'react-i18next';
 
@@ -84,6 +84,7 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
   
   // Define navigation items
   const navItems = [
+    { path: '/', label: 'Home', icon: FaHome },
     { path: '/filter', label: 'Filter Emails', icon: FaFilter },
     { path: '/review', label: 'Review', icon: FaClipboardCheck },
     { path: '/search', label: 'Search', icon: FaSearch },

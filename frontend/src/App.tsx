@@ -115,10 +115,6 @@ function App() {
         try {
           await getCurrentUser();
           setIsAuthenticated(true);
-          // If we're on the landing page and authenticated, redirect to filter
-          if (window.location.pathname === '/') {
-            navigate('/filter', { replace: true });
-          }
         } catch (error: any) {
           console.error('Token verification failed:', error);
           handleLogout();
@@ -155,11 +151,16 @@ function App() {
       <Routes>
         {/* Documentation Routes - with documentation layout */}
         <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
+        <Route path="/docs/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
+        <Route path="/docs/features/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
+        <Route path="/docs/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
+        <Route path="/docs/features/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
         <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
         <Route path="/docs/features/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
         <Route path="/docs/email-processing" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
+        <Route path="/docs/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
+        <Route path="/docs/features/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
         <Route path="/docs/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
-        <Route path="/docs/features/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
         <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
         
         {/* App Routes - with padding and authentication */}
@@ -171,13 +172,12 @@ function App() {
                 <Route 
                   path="/" 
                   element={
-                    isAuthenticated ? (
-                      <Navigate to="/filter" replace={true} />
-                    ) : (
-                      <SignIn onLogin={() => {
+                    <SignIn 
+                      onLogin={() => {
                         setIsAuthenticated(true);
-                      }} />
-                    )
+                      }}
+                      isAuthenticated={isAuthenticated}
+                    />
                   } 
                 />
                 <Route 
