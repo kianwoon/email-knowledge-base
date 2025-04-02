@@ -45,11 +45,12 @@ class ReviewStatus(str, Enum):
 
 
 class EmailPreview(BaseModel):
+    """Model for email preview data"""
     id: str
     subject: str
     sender: str
-    received_date: datetime
-    snippet: str
+    received_date: str
+    snippet: str  # This field stores the preview/summary of the email body
 
 
 class EmailFilter(BaseModel):
@@ -61,6 +62,7 @@ class EmailFilter(BaseModel):
 
 
 class EmailAttachment(BaseModel):
+    """Model for email attachments"""
     id: str
     name: str
     content_type: str
@@ -69,20 +71,13 @@ class EmailAttachment(BaseModel):
 
 
 class EmailContent(BaseModel):
+    """Model for full email content"""
     id: str
-    internet_message_id: str
     subject: str
     sender: str
-    sender_email: str
-    recipients: List[str]
-    cc_recipients: Optional[List[str]] = None
-    received_date: datetime
+    received_date: str
     body: str
-    is_html: bool = False
-    folder_id: str
-    folder_name: str
-    attachments: Optional[List[EmailAttachment]] = None
-    importance: str = "normal"
+    attachments: Optional[List[EmailAttachment]] = []
 
 
 class EmailAnalysis(BaseModel):

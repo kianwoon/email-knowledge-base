@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
     MS_CLIENT_SECRET: str = os.getenv("MS_CLIENT_SECRET", "")  # Keep this from env for security
     MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "")
-    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "http://localhost:8000/auth/callback")
+    MS_REDIRECT_URI: str = os.getenv("MS_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
     
     @property
     def MS_AUTHORITY(self) -> str:

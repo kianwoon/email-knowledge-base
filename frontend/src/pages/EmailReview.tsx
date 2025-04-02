@@ -39,54 +39,76 @@ import {
   useDisclosure,
   IconButton,
   useColorMode,
+  ButtonGroup,
 } from '@chakra-ui/react';
-import { CheckIcon, CloseIcon, ViewIcon } from '@chakra-ui/icons';
+import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
 import axios from 'axios';
 import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailApproval, PIIType } from '../types/email';
 
 // Mock API functions (in a real app, these would be in the API directory)
-const getPendingReviews = async () => {
+const getPendingReviews = async (params: { page?: number; per_page?: number } = {}) => {
   // Mock data for demonstration
-  return Array(8).fill(0).map((_, i) => ({
-    email_id: `email_${i}`,
-    content: {
-      id: `email_${i}`,
-      internet_message_id: `message_${i}`,
-      subject: `Sample Email ${i + 1} for Review`,
-      sender: 'John Doe',
-      sender_email: 'john.doe@example.com',
-      recipients: ['user@example.com'],
-      cc_recipients: [],
-      received_date: new Date().toISOString(),
-      body: `This is the full content of sample email ${i + 1}. It contains information that needs to be reviewed before adding to the knowledge base.`,
-      is_html: false,
-      folder_id: 'inbox',
-      folder_name: 'Inbox',
-      attachments: i % 3 === 0 ? [{
-        id: `attachment_${i}`,
-        name: 'document.pdf',
-        content_type: 'application/pdf',
-        size: 1024 * 1024,
-      }] : [],
-      importance: i % 4 === 0 ? 'high' : 'normal'
-    },
-    analysis: {
-      sensitivity: Object.values(SensitivityLevel)[i % 4],
-      department: Object.values(Department)[i % 9],
-      tags: [`tag${i}`, 'knowledge', i % 2 === 0 ? 'important' : 'routine'],
-      is_private: i % 3 === 0,
-      pii_detected: i % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
-      recommended_action: i % 3 === 0 ? 'exclude' : 'store',
-      summary: `This is a summary of email ${i + 1} that was analyzed by the AI.`,
-      key_points: [
-        `Key point 1 from email ${i + 1}`,
-        `Key point 2 from email ${i + 1}`,
-        `Key point 3 from email ${i + 1}`
-      ]
-    },
-    status: ReviewStatus.PENDING
-  }));
+  const itemsPerPage = params.per_page || 10;
+  const currentPage = params.page || 1;
+  const totalItems = 28; // Total number of items in the mock data
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  
+  // Calculate start and end indices for the current page
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  
+  // Generate mock data for the current page
+  const items = Array(endIndex - startIndex).fill(0).map((_, i) => {
+    const itemIndex = startIndex + i;
+    return {
+      email_id: `email_${itemIndex}`,
+      content: {
+        id: `email_${itemIndex}`,
+        internet_message_id: `message_${itemIndex}`,
+        subject: `Sample Email ${itemIndex + 1} for Review`,
+        sender: 'John Doe',
+        sender_email: 'john.doe@example.com',
+        recipients: ['user@example.com'],
+        cc_recipients: [],
+        received_date: new Date().toISOString(),
+        body: `This is the full content of sample email ${itemIndex + 1}. It contains information that needs to be reviewed before adding to the knowledge base.`,
+        is_html: false,
+        folder_id: 'inbox',
+        folder_name: 'Inbox',
+        attachments: itemIndex % 3 === 0 ? [{
+          id: `attachment_${itemIndex}`,
+          name: 'document.pdf',
+          content_type: 'application/pdf',
+          size: 1024 * 1024,
+        }] : [],
+        importance: itemIndex % 4 === 0 ? 'high' : 'normal'
+      },
+      analysis: {
+        sensitivity: Object.values(SensitivityLevel)[itemIndex % 4],
+        department: Object.values(Department)[itemIndex % 9],
+        tags: [`tag${itemIndex}`, 'knowledge', itemIndex % 2 === 0 ? 'important' : 'routine'],
+        is_private: itemIndex % 3 === 0,
+        pii_detected: itemIndex % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
+        recommended_action: itemIndex % 3 === 0 ? 'exclude' : 'store',
+        summary: `This is a summary of email ${itemIndex + 1} that was analyzed by the AI.`,
+        key_points: [
+          `Key point 1 from email ${itemIndex + 1}`,
+          `Key point 2 from email ${itemIndex + 1}`,
+          `Key point 3 from email ${itemIndex + 1}`
+        ]
+      },
+      status: ReviewStatus.PENDING
+    };
+  });
+  
+  return {
+    items,
+    total: totalItems,
+    total_pages: totalPages,
+    current_page: currentPage,
+    per_page: itemsPerPage
+  };
 };
 
 const approveReview = async (emailId: string, approval: EmailApproval) => {
@@ -115,6 +137,12 @@ const EmailReview: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const itemsPerPage = 10;
+  
   // Filters
   const [filters, setFilters] = useState({
     department: '',
@@ -122,14 +150,19 @@ const EmailReview: React.FC = () => {
     isPrivate: '',
   });
   
-  // Load reviews on component mount
+  // Load reviews on component mount and when page changes
   useEffect(() => {
     const loadReviews = async () => {
       setIsLoading(true);
       try {
-        const reviewData = await getPendingReviews();
-        setReviews(reviewData);
-        setFilteredReviews(reviewData);
+        const response = await getPendingReviews({
+          page: currentPage,
+          per_page: itemsPerPage
+        });
+        setReviews(response.items);
+        setFilteredReviews(response.items);
+        setTotalPages(response.total_pages);
+        setTotalItems(response.total);
       } catch (error) {
         console.error('Error loading reviews:', error);
         toast({
@@ -143,7 +176,7 @@ const EmailReview: React.FC = () => {
     };
     
     loadReviews();
-  }, [toast]);
+  }, [toast, currentPage]);
   
   // Apply filters
   useEffect(() => {
@@ -315,6 +348,12 @@ const EmailReview: React.FC = () => {
     }
   };
   
+  // Handle page change
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage);
+    setSelectedReviews([]); // Clear selections when changing pages
+  };
+  
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
       <Container maxW="container.xl">
@@ -386,9 +425,12 @@ const EmailReview: React.FC = () => {
           <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
             <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
               <Flex justify="space-between" align="center">
-                <Heading size="md">Pending Reviews ({filteredReviews.length})</Heading>
+                <Heading size="md">Pending Reviews ({totalItems})</Heading>
                 
                 <HStack>
+                  <Text fontSize="sm">
+                    Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
+                  </Text>
                   <Button 
                     size="sm" 
                     onClick={selectAllReviews}
@@ -533,6 +575,46 @@ const EmailReview: React.FC = () => {
                       borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                     />
                   </Box>
+                  
+                  {/* Pagination Controls */}
+                  <Flex justify="space-between" align="center" mt={4}>
+                    <Text fontSize="sm">
+                      {selectedReviews.length} selected
+                    </Text>
+                    <HStack spacing={2}>
+                      <ButtonGroup variant="outline" size="sm" isAttached>
+                        <Button
+                          onClick={() => handlePageChange(1)}
+                          isDisabled={currentPage === 1 || isLoading}
+                        >
+                          <ChevronLeftIcon />
+                          <ChevronLeftIcon ml="-1.5" />
+                        </Button>
+                        <Button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          isDisabled={currentPage === 1 || isLoading}
+                        >
+                          <ChevronLeftIcon />
+                        </Button>
+                        <Button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          isDisabled={currentPage === totalPages || isLoading}
+                        >
+                          <ChevronRightIcon />
+                        </Button>
+                        <Button
+                          onClick={() => handlePageChange(totalPages)}
+                          isDisabled={currentPage === totalPages || isLoading}
+                        >
+                          <ChevronRightIcon />
+                          <ChevronRightIcon ml="-1.5" />
+                        </Button>
+                      </ButtonGroup>
+                      <Text fontSize="sm" minW="100px" textAlign="center">
+                        Page {currentPage} of {totalPages}
+                      </Text>
+                    </HStack>
+                  </Flex>
                 </>
               )}
             </CardBody>

@@ -27,9 +27,9 @@ api.interceptors.request.use(
 /**
  * Get pending email reviews
  */
-export const getPendingReviews = async (filters: any = {}) => {
+export const getPendingReviews = async (params: { page?: number; per_page?: number } & Record<string, any> = {}) => {
   try {
-    const response = await api.get('/review/pending', { params: filters });
+    const response = await api.get('/review/pending', { params });
     return response.data;
   } catch (error) {
     console.error('Error getting pending reviews:', error);

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import logging
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from typing import List, Optional
 from datetime import datetime
 
@@ -8,6 +9,8 @@ from app.routes.auth import get_current_user
 from app.models.user import User
 
 router = APIRouter()
+
+logger = logging.getLogger("app")
 
 
 @router.get("/folders", response_model=List[dict])
@@ -29,32 +32,45 @@ async def list_folders(current_user: User = Depends(get_current_user)):
         )
 
 
-@router.post("/preview", response_model=List[EmailPreview])
+@router.post("/preview", response_model=dict)
 async def preview_emails(
     filter_params: EmailFilter,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=10, ge=1, le=50),
     current_user: User = Depends(get_current_user)
 ):
-    """Preview emails based on filter criteria"""
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Microsoft access token not available"
-        )
-    
+    """Get preview of emails based on filter criteria"""
     try:
-        previews = await get_email_preview(
+        if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Microsoft access token not available"
+            )
+
+        # Get email previews
+        result = await get_email_preview(
             access_token=current_user.ms_token_data.access_token,
             folder_id=filter_params.folder_id,
             start_date=filter_params.start_date,
             end_date=filter_params.end_date,
             keywords=filter_params.keywords,
-            sender=filter_params.sender
+            sender=filter_params.sender,
+            page=page,
+            per_page=per_page
         )
-        return previews
+
+        # Format response to match frontend expectations
+        return {
+            "items": result.get("emails", []),
+            "total": result.get("total", 0),
+            "total_pages": (result.get("total", 0) + per_page - 1) // per_page
+        }
+
     except Exception as e:
+        logger.error(f"Error getting email previews: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch email previews: {str(e)}"
+            status_code=500,
+            detail=f"Error getting email previews: {str(e)}"
         )
 
 

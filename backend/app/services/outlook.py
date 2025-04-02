@@ -1,6 +1,7 @@
 import httpx
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from fastapi import HTTPException, status
 
 from app.models.email import EmailPreview, EmailContent, EmailAttachment
 from app.config import settings
@@ -64,75 +65,145 @@ async def get_email_folders(access_token: str) -> List[Dict[str, Any]]:
         return data.get("value", [])
 
 
+def sanitize_keyword(keyword: str) -> str:
+    # Remove any quotes and escape special characters
+    return keyword.replace("'", "").replace('"', "")
+
+
 async def get_email_preview(
     access_token: str,
     folder_id: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     keywords: Optional[List[str]] = None,
-    sender: Optional[str] = None
-) -> List[EmailPreview]:
-    """Get preview of emails based on filter criteria"""
-    # Build filter query
-    filter_parts = []
-    
-    if start_date:
-        filter_parts.append(f"receivedDateTime ge {start_date.isoformat()}")
-    
-    if end_date:
-        filter_parts.append(f"receivedDateTime le {end_date.isoformat()}")
-    
-    if sender:
-        filter_parts.append(f"from/emailAddress/address eq '{sender}'")
-    
-    # Build search query for keywords
-    search_query = ""
-    if keywords and len(keywords) > 0:
-        search_query = " OR ".join(keywords)
-    
-    # Determine folder endpoint
-    folder_path = f"/{folder_id}" if folder_id else ""
-    
-    # Build query parameters
-    params = {
-        "$top": settings.MAX_PREVIEW_EMAILS,
-        "$select": "id,subject,from,receivedDateTime,bodyPreview",
-        "$orderby": "receivedDateTime desc"
-    }
-    
-    if filter_parts:
-        params["$filter"] = " and ".join(filter_parts)
-    
-    if search_query:
-        params["$search"] = f'"{search_query}"'
-    
-    # Make API request
-    async with httpx.AsyncClient() as client:
+    sender: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 10
+) -> Dict[str, Any]:
+    """Get email preview with optional filtering."""
+    try:
+        # Base headers
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
+            "Accept": "application/json"
         }
-        response = await client.get(
-            f"https://graph.microsoft.com/v1.0/me/mailFolders{folder_path}/messages",
-            headers=headers,
-            params=params
-        )
-        response.raise_for_status()
-        data = response.json()
+
+        # Initialize parameters with basic settings
+        params = {
+            "$top": per_page,
+            "$skip": (page - 1) * per_page,
+            "$orderby": "receivedDateTime desc",
+            "$select": "id,subject,sender,receivedDateTime,bodyPreview",
+            "$count": True
+        }
+
+        # Build filter conditions
+        filter_conditions = []
         
-        # Convert to EmailPreview objects
-        previews = []
-        for item in data.get("value", []):
-            preview = EmailPreview(
-                id=item.get("id"),
-                subject=item.get("subject", "(No subject)"),
-                sender=item.get("from", {}).get("emailAddress", {}).get("name", "Unknown"),
-                received_date=datetime.fromisoformat(item.get("receivedDateTime").replace("Z", "+00:00")),
-                snippet=item.get("bodyPreview", "")
+        if start_date:
+            filter_conditions.append(f"receivedDateTime ge {start_date.isoformat()}Z")
+        if end_date:
+            filter_conditions.append(f"receivedDateTime le {end_date.isoformat()}Z")
+        if sender:
+            filter_conditions.append(f"from/emailAddress/address eq '{sender}'")
+
+        # Handle keywords if provided
+        if keywords and isinstance(keywords, list) and len(keywords) > 0:
+            valid_keywords = [k.strip() for k in keywords if k and isinstance(k, str) and k.strip()]
+            if valid_keywords:
+                # Add ConsistencyLevel header which is required for $search
+                headers["ConsistencyLevel"] = "eventual"
+                params["$search"] = f'"{" ".join(valid_keywords)}"'
+
+        # Add filter conditions if any exist
+        if filter_conditions:
+            params["$filter"] = " and ".join(filter_conditions)
+
+        # Determine folder endpoint
+        folder_path = f"/{folder_id}" if folder_id else "/inbox"
+        
+        # Construct final URL
+        base_url = "https://graph.microsoft.com/v1.0/me/mailFolders"
+        final_url = f"{base_url}{folder_path}/messages"
+
+        # Log request details for debugging
+        print("\n=== Graph API Request Details ===")
+        print(f"➡ Base URL: {base_url}")
+        print(f"➡ Folder Path: {folder_path}")
+        print(f"➡ Final URL: {final_url}")
+        print(f"➡ Headers: {headers}")
+        print(f"➡ Parameters: {params}")
+        print("==============================\n")
+
+        # Make API request
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                final_url,
+                headers=headers,
+                params=params,
+                timeout=30.0  # Set a longer timeout
             )
-            previews.append(preview)
-        
-        return previews
+            
+            # Log response details
+            print("\n=== Graph API Response Details ===")
+            print(f"➡ Status Code: {response.status_code}")
+            print(f"➡ Response Headers: {dict(response.headers)}")
+            if response.status_code >= 400:
+                print(f"➡ Error Response: {response.text}")
+            else:
+                print(f"➡ Response Preview: {response.text[:500]}...")
+            print("==============================\n")
+
+            response.raise_for_status()
+            data = response.json()
+
+            # Log the data structure
+            print("\n=== Response Data Structure ===")
+            print(f"➡ Keys in response: {data.keys()}")
+            if "value" in data:
+                print(f"➡ Number of emails: {len(data['value'])}")
+                if len(data['value']) > 0:
+                    print(f"➡ Sample email keys: {data['value'][0].keys()}")
+            print("==============================\n")
+
+            # Convert to EmailPreview objects
+            emails = []
+            for email in data.get("value", []):
+                try:
+                    preview = EmailPreview(
+                        id=email["id"],
+                        subject=email.get("subject", "(No subject)"),
+                        sender=email["sender"]["emailAddress"]["address"],
+                        received_date=email["receivedDateTime"],
+                        snippet=email.get("bodyPreview", "")
+                    )
+                    emails.append(preview)
+                except Exception as e:
+                    print(f"Error processing email: {str(e)}")
+                    print(f"Email data: {email}")
+                    continue
+
+            return {
+                "emails": emails,
+                "total": data.get("@odata.count", 0)
+            }
+
+    except httpx.HTTPError as e:
+        print(f"HTTP Error: {str(e)}")
+        if hasattr(e, 'response'):
+            print(f"Response Status: {e.response.status_code}")
+            print(f"Response Headers: {dict(e.response.headers)}")
+            print(f"Response Text: {e.response.text}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch emails: {str(e)}"
+        )
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
 
 
 async def get_email_content(

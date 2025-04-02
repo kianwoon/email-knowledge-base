@@ -27,43 +27,33 @@ logger.debug(f"MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
 logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
 logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
-app = FastAPI(
-    root_path="/api",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json"
-)
+app = FastAPI()
 
-# Configure CORS
+# Configure CORS - must be added before any routes
 origins = [
-    settings.FRONTEND_URL,
-    # Add localhost for development
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:5175",
-    # Add the full Koyeb URL
-    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app",
-    # Add the Koyeb frontend URL
-    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+    "http://localhost:5173",  # Development frontend
+    "http://localhost:5174",  # Alternative development port
+    "http://localhost:5175",  # Alternative development port
+    settings.FRONTEND_URL,    # Production frontend
 ]
+logger.debug(f"Configuring CORS with allowed origins: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,  # Cache preflight requests for 24 hours
 )
 
 # Mount routes
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(email.router, prefix="/emails", tags=["emails"])
-app.include_router(review.router, prefix="/review", tags=["Review Process"])
-app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
-app.include_router(test.router, prefix="/test", tags=["test"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(email.router, prefix="/api/emails", tags=["emails"])
+app.include_router(review.router, prefix="/api/review", tags=["Review Process"])
+app.include_router(vector.router, prefix="/api/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix="/api/test", tags=["test"])
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")

@@ -49,26 +49,31 @@ export const getEmailFolders = async () => {
  */
 export const getEmailPreviews = async (filterParams: EmailFilter & { page?: number; per_page?: number }) => {
   try {
-    const response = await api.post('/emails/preview', filterParams);
+    // Format the parameters
+    const formattedParams = {
+      ...filterParams,
+      page: filterParams.page || 1,
+      per_page: filterParams.per_page || 10
+    };
+
+    // Remove any undefined values
+    Object.keys(formattedParams).forEach(key => {
+      if (formattedParams[key] === undefined) {
+        delete formattedParams[key];
+      }
+    });
+
+    console.log('Email preview request params:', formattedParams);
+
+    const response = await api.post<{ items: EmailPreview[]; total: number; total_pages: number }>(
+      '/emails/preview',
+      formattedParams
+    );
+
     return response.data;
   } catch (error) {
     console.error('Error getting email previews:', error);
-    // For demo purposes, return mock data
-    const mockEmails = Array(5).fill(0).map((_, i) => ({
-      id: `email_${i}`,
-      subject: `Sample Email ${i + 1}`,
-      sender: 'John Doe',
-      received_date: new Date().toISOString(),
-      snippet: 'This is a sample email snippet for preview purposes...',
-      has_attachments: i % 2 === 0, // Every other email has attachments
-      importance: ['high', 'normal', 'low'][i % 3] // Rotate through importance levels
-    }));
-    return {
-      items: mockEmails,
-      total: 20,
-      total_pages: 4,
-      current_page: filterParams.page || 1
-    };
+    throw error;
   }
 };
 
@@ -77,7 +82,7 @@ export const getEmailPreviews = async (filterParams: EmailFilter & { page?: numb
  */
 export const getEmailContent = async (emailId: string) => {
   try {
-    const response = await api.get(`/emails/content/${emailId}`);
+    const response = await api.get(`/api/emails/content/${emailId}`);
     return response.data;
   } catch (error) {
     console.error('Error getting email content:', error);
@@ -106,7 +111,7 @@ export const getEmailContent = async (emailId: string) => {
  */
 export const analyzeEmails = async (emailIds: string[]) => {
   try {
-    const response = await api.post('/emails/analyze', emailIds);
+    const response = await api.post('/api/emails/analyze', emailIds);
     return response.data;
   } catch (error) {
     console.error('Error submitting emails for analysis:', error);

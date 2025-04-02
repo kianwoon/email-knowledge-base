@@ -1,12 +1,12 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
 
 // Get the API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL?.trim();
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 // Debug environment variables
 console.log('=== Auth API Configuration ===');
 console.log('Environment Mode:', import.meta.env.MODE);
-console.log('VITE_BACKEND_URL:', import.meta.env.VITE_BACKEND_URL);
+console.log('VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
 console.log('Final API_BASE_URL:', API_BASE_URL);
 
 if (!API_BASE_URL) {
