@@ -15,7 +15,10 @@
     }
   },
   "navigation": {
-    "features": "Features",
+    "home": "Home",
+    "filterEmails": "Filter Emails",
+    "review": "Review",
+    "search": "Search",
     "documentation": "Documentation",
     "support": "Support",
     "menu": "Menu",
@@ -699,7 +702,7 @@
   "settings": {
     "language": "Language",
     "english": "English",
-    "chinese": "中文"
+    "chinese": "Chinese"
   },
   "signIn": {
     "title": "Sign in to Email Knowledge Base",
@@ -917,5 +920,16 @@
         "credentials": "Credentials"
       }
     }
+  },
+  "language": {
+    "english": "English",
+    "chinese": "中文"
+  },
+  "userMenu": {
+    "account": "Account",
+    "signOut": "Sign Out"
+  },
+  "auth": {
+    "signInWithMicrosoft": "Sign in with Microsoft"
   }
 }

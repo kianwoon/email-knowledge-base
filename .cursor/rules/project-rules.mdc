@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+- do not change the .env without asking for permission.
+- the .env has confirmed correct. 
+- the new error could be likely caused by last changed.

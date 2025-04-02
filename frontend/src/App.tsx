@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Box, Flex, Spinner, Center, VStack, Text, useToast } from '@chakra-ui/react';
 import { getCurrentUser, refreshToken } from './api/auth';
 
@@ -19,18 +19,7 @@ import KnowledgeBase from './pages/documentation/KnowledgeBase';
 import AITraining from './pages/documentation/AITraining';
 
 // Components
-import Navbar from './components/Navbar';
-import DocumentationHeader from './components/DocumentationHeader';
-
-// Documentation Layout Component
-const DocumentationLayout = ({ children }: { children: React.ReactNode }) => {
-  return (
-    <>
-      <DocumentationHeader />
-      {children}
-    </>
-  );
-};
+import TopNavbar from './components/TopNavbar';
 
 // Loading Component
 const LoadingScreen = () => (
@@ -148,25 +137,25 @@ function App() {
 
   return (
     <Box minH="100vh" display="flex" flexDirection="column">
+      <TopNavbar onLogout={handleLogout} isAuthenticated={isAuthenticated} />
       <Routes>
-        {/* Documentation Routes - with documentation layout */}
-        <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
-        <Route path="/docs/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
-        <Route path="/docs/features/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
-        <Route path="/docs/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
-        <Route path="/docs/features/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
-        <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
-        <Route path="/docs/features/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
-        <Route path="/docs/email-processing" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
-        <Route path="/docs/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
-        <Route path="/docs/features/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
-        <Route path="/docs/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
-        <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
+        {/* Documentation Routes */}
+        <Route path="/docs" element={<Documentation />} />
+        <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
+        <Route path="/docs/features/secure-authentication" element={<SecureAuthentication />} />
+        <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
+        <Route path="/docs/features/smart-filtering" element={<SmartFiltering />} />
+        <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
+        <Route path="/docs/features/knowledge-base" element={<KnowledgeBase />} />
+        <Route path="/docs/email-processing" element={<SmartFiltering />} />
+        <Route path="/docs/ai-analysis" element={<AIAnalysis />} />
+        <Route path="/docs/features/ai-analysis" element={<AIAnalysis />} />
+        <Route path="/docs/ai-training" element={<AITraining />} />
+        <Route path="/support" element={<Support />} />
         
         {/* App Routes - with padding and authentication */}
         <Route path="/*" element={
           <Box flex="1">
-            {isAuthenticated && <Navbar onLogout={handleLogout} />}
             <Box p={4}>
               <Routes>
                 <Route 
@@ -216,8 +205,6 @@ function App() {
                     )
                   } 
                 />
-                {/* Catch-all route for unknown paths */}
-                <Route path="*" element={<Navigate to="/" replace={true} />} />
               </Routes>
             </Box>
           </Box>

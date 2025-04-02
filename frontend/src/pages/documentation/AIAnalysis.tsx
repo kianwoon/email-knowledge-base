@@ -199,15 +199,15 @@ const AIAnalysis: React.FC = () => {
                 title={t('documentation.sections.analysis.classification.department.title')}
                 description={t('documentation.sections.analysis.classification.department.description')}
                 tags={[
-                  t('analysis.classification.tags.executive'), 
-                  t('analysis.classification.tags.sales'), 
-                  t('analysis.classification.tags.marketing'), 
-                  t('analysis.classification.tags.finance'), 
-                  t('analysis.classification.tags.legal'), 
-                  t('analysis.classification.tags.hr'), 
-                  t('analysis.classification.tags.it'), 
-                  t('analysis.classification.tags.operations'), 
-                  t('analysis.classification.tags.customerSupport')
+                  t('documentation.sections.analysis.classification.tags.executive'), 
+                  t('documentation.sections.analysis.classification.tags.sales'), 
+                  t('documentation.sections.analysis.classification.tags.marketing'), 
+                  t('documentation.sections.analysis.classification.tags.finance'), 
+                  t('documentation.sections.analysis.classification.tags.legal'), 
+                  t('documentation.sections.analysis.classification.tags.hr'), 
+                  t('documentation.sections.analysis.classification.tags.it'), 
+                  t('documentation.sections.analysis.classification.tags.operations'), 
+                  t('documentation.sections.analysis.classification.tags.customerSupport')
                 ]}
               />
               
@@ -215,15 +215,15 @@ const AIAnalysis: React.FC = () => {
                 title={t('documentation.sections.analysis.classification.type.title')}
                 description={t('documentation.sections.analysis.classification.type.description')}
                 tags={[
-                  t('analysis.classification.tags.policy'), 
-                  t('analysis.classification.tags.procedure'), 
-                  t('analysis.classification.tags.decision'), 
-                  t('analysis.classification.tags.report'), 
-                  t('analysis.classification.tags.analysis'), 
-                  t('analysis.classification.tags.discussion'), 
-                  t('analysis.classification.tags.approval'), 
-                  t('analysis.classification.tags.request'), 
-                  t('analysis.classification.tags.notification')
+                  t('documentation.sections.analysis.classification.tags.policy'), 
+                  t('documentation.sections.analysis.classification.tags.procedure'), 
+                  t('documentation.sections.analysis.classification.tags.decision'), 
+                  t('documentation.sections.analysis.classification.tags.report'), 
+                  t('documentation.sections.analysis.classification.tags.analysis'), 
+                  t('documentation.sections.analysis.classification.tags.discussion'), 
+                  t('documentation.sections.analysis.classification.tags.approval'), 
+                  t('documentation.sections.analysis.classification.tags.request'), 
+                  t('documentation.sections.analysis.classification.tags.notification')
                 ]}
               />
               
@@ -231,14 +231,14 @@ const AIAnalysis: React.FC = () => {
                 title={t('documentation.sections.analysis.classification.sensitivity.title')}
                 description={t('documentation.sections.analysis.classification.sensitivity.description')}
                 tags={[
-                  t('analysis.classification.tags.public'), 
-                  t('analysis.classification.tags.internal'), 
-                  t('analysis.classification.tags.confidential'), 
-                  t('analysis.classification.tags.restricted'), 
-                  t('analysis.classification.tags.pii'), 
-                  t('analysis.classification.tags.financial'), 
-                  t('analysis.classification.tags.legal'), 
-                  t('analysis.classification.tags.strategic')
+                  t('documentation.sections.analysis.classification.tags.public'), 
+                  t('documentation.sections.analysis.classification.tags.internal'), 
+                  t('documentation.sections.analysis.classification.tags.confidential'), 
+                  t('documentation.sections.analysis.classification.tags.restricted'), 
+                  t('documentation.sections.analysis.classification.tags.pii'), 
+                  t('documentation.sections.analysis.classification.tags.financial'), 
+                  t('documentation.sections.analysis.classification.tags.legal'), 
+                  t('documentation.sections.analysis.classification.tags.strategic')
                 ]}
               />
             </SimpleGrid>

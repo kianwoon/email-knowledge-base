@@ -15,7 +15,10 @@
     }
   },
   "navigation": {
-    "features": "功能特点",
+    "home": "首页",
+    "filterEmails": "邮件过滤",
+    "review": "审核",
+    "search": "搜索",
     "documentation": "文档",
     "support": "支持",
     "menu": "菜单",
@@ -968,5 +971,16 @@
         "credentials": "凭证"
       }
     }
+  },
+  "language": {
+    "english": "English",
+    "chinese": "中文"
+  },
+  "userMenu": {
+    "account": "账户",
+    "signOut": "退出登录"
+  },
+  "auth": {
+    "signInWithMicrosoft": "使用 Microsoft 登录"
   }
 }
