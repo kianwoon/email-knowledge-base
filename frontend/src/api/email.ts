@@ -47,14 +47,14 @@ export const getEmailFolders = async () => {
 /**
  * Get email previews based on filter criteria
  */
-export const getEmailPreviews = async (filterParams: EmailFilter) => {
+export const getEmailPreviews = async (filterParams: EmailFilter & { page?: number; per_page?: number }) => {
   try {
     const response = await api.post('/emails/preview', filterParams);
     return response.data;
   } catch (error) {
     console.error('Error getting email previews:', error);
     // For demo purposes, return mock data
-    return Array(5).fill(0).map((_, i) => ({
+    const mockEmails = Array(5).fill(0).map((_, i) => ({
       id: `email_${i}`,
       subject: `Sample Email ${i + 1}`,
       sender: 'John Doe',
@@ -63,6 +63,12 @@ export const getEmailPreviews = async (filterParams: EmailFilter) => {
       has_attachments: i % 2 === 0, // Every other email has attachments
       importance: ['high', 'normal', 'low'][i % 3] // Rotate through importance levels
     }));
+    return {
+      items: mockEmails,
+      total: 20,
+      total_pages: 4,
+      current_page: filterParams.page || 1
+    };
   }
 };
 
