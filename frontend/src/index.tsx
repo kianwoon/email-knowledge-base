@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
+import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './i18n/i18n';
 // We'll add these fonts later after fixing the basic functionality
@@ -249,7 +250,9 @@ if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <ChakraProvider theme={theme}>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </ChakraProvider>
     </React.StrictMode>
   );

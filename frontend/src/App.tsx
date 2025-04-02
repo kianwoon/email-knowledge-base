@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Box, Flex, Spinner } from '@chakra-ui/react';
+import { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Box, Flex, Spinner, Center, VStack, Text, useToast } from '@chakra-ui/react';
+import { getCurrentUser, refreshToken } from './api/auth';
 
 // Pages
 import SignIn from './pages/SignIn';
@@ -31,11 +32,64 @@ const DocumentationLayout = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+// Loading Component
+const LoadingScreen = () => (
+  <Center height="100vh">
+    <VStack spacing={4}>
+      <Spinner size="xl" thickness="4px" speed="0.65s" />
+      <Text>Loading your profile...</Text>
+    </VStack>
+  </Center>
+);
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const toast = useToast();
+  const navigate = useNavigate();
   
-  // Check for token on load
+  // Function to refresh token
+  const handleTokenRefresh = useCallback(async () => {
+    try {
+      const refreshTokenValue = localStorage.getItem('refresh_token');
+      if (!refreshTokenValue) {
+        throw new Error('No refresh token available');
+      }
+
+      const response = await refreshToken();
+      if (response.access_token) {
+        localStorage.setItem('token', response.access_token);
+        localStorage.setItem('expires', response.expires_at);
+        if (response.refresh_token) {
+          localStorage.setItem('refresh_token', response.refresh_token);
+        }
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Token refresh failed:', error);
+      return false;
+    }
+  }, []);
+
+  // Function to check token expiration and refresh if needed
+  const checkAndRefreshToken = useCallback(async () => {
+    const expires = localStorage.getItem('expires');
+    if (!expires) return false;
+
+    const expiryDate = new Date(expires);
+    const now = new Date();
+    const timeUntilExpiry = expiryDate.getTime() - now.getTime();
+
+    // If token expires in less than 5 minutes, try to refresh it
+    if (timeUntilExpiry < 5 * 60 * 1000) {
+      return await handleTokenRefresh();
+    }
+    return true;
+  }, [handleTokenRefresh]);
+
+  // Check for token on load and set up refresh interval
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -45,107 +99,131 @@ function App() {
         
         if (!token || !expires) {
           setIsAuthenticated(false);
+          setIsLoading(false);
+          setIsInitialLoad(false);
           return;
         }
 
         // Check if token is expired
         const expiryDate = new Date(expires);
         if (expiryDate <= new Date()) {
-          // Token is expired
-          localStorage.removeItem('token');
-          localStorage.removeItem('expires');
-          setIsAuthenticated(false);
+          handleLogout();
           return;
         }
         
-        setIsAuthenticated(true);
-      } catch (error) {
+        // Verify token with backend
+        try {
+          await getCurrentUser();
+          setIsAuthenticated(true);
+          // If we're on the landing page and authenticated, redirect to filter
+          if (window.location.pathname === '/') {
+            navigate('/filter', { replace: true });
+          }
+        } catch (error: any) {
+          console.error('Token verification failed:', error);
+          handleLogout();
+        }
+      } catch (error: any) {
         console.error('Auth check error:', error);
-        setIsAuthenticated(false);
+        handleLogout();
       } finally {
         setIsLoading(false);
+        setIsInitialLoad(false);
       }
     };
-    
-    // Check for token in URL (from OAuth redirect)
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    const expires = urlParams.get('expires');
-    
-    if (urlToken && expires) {
-      localStorage.setItem('token', urlToken);
-      localStorage.setItem('expires', expires);
-      setIsAuthenticated(true);
-      setIsLoading(false);
-      
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else {
-      checkAuth();
-    }
-  }, []);
+
+    // Check auth on mount
+    checkAuth();
+  }, [navigate]);
   
   // Handle logout
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('expires');
+    localStorage.removeItem('refresh_token');
     setIsAuthenticated(false);
-  };
+    navigate('/', { replace: true });
+  }, [navigate]);
   
-  if (isLoading) {
-    return (
-      <Box height="100vh" display="flex" alignItems="center" justifyContent="center">
-        <Spinner size="xl" />
-      </Box>
-    );
+  // Show loading screen only during initial load
+  if (isInitialLoad && isLoading) {
+    return <LoadingScreen />;
   }
 
   return (
-    <Router>
-      <Flex direction="column" minH="100vh">
-        {isAuthenticated && <Navbar onLogout={handleLogout} />}
+    <Box minH="100vh" display="flex" flexDirection="column">
+      <Routes>
+        {/* Documentation Routes - with documentation layout */}
+        <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
+        <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+        <Route path="/docs/features/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
+        <Route path="/docs/email-processing" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
+        <Route path="/docs/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
+        <Route path="/docs/features/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
+        <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
         
-        <Routes>
-          {/* Documentation Routes - accessible without authentication and with DocumentationHeader */}
-          <Route path="/docs" element={<DocumentationLayout><Documentation /></DocumentationLayout>} />
-          <Route path="/docs/secure-authentication" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
-          <Route path="/docs/features/security" element={<DocumentationLayout><SecureAuthentication /></DocumentationLayout>} />
-          <Route path="/docs/smart-filtering" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
-          <Route path="/docs/ai-analysis" element={<DocumentationLayout><AIAnalysis /></DocumentationLayout>} />
-          <Route path="/docs/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
-          <Route path="/docs/features/knowledge-extraction" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
-          <Route path="/docs/features/knowledge-base" element={<DocumentationLayout><KnowledgeBase /></DocumentationLayout>} />
-          <Route path="/docs/email-processing" element={<DocumentationLayout><SmartFiltering /></DocumentationLayout>} />
-          <Route path="/docs/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
-          <Route path="/docs/features/ai-training" element={<DocumentationLayout><AITraining /></DocumentationLayout>} />
-          <Route path="/support" element={<DocumentationLayout><Support /></DocumentationLayout>} />
-          
-          {/* App Routes - with padding and authentication */}
-          <Route path="/*" element={
-            <Box flex="1" p={4}>
+        {/* App Routes - with padding and authentication */}
+        <Route path="/*" element={
+          <Box flex="1">
+            {isAuthenticated && <Navbar onLogout={handleLogout} />}
+            <Box p={4}>
               <Routes>
                 <Route 
                   path="/" 
-                  element={isAuthenticated ? <Navigate to="/filter" /> : <SignIn onLogin={() => setIsAuthenticated(true)} />} 
+                  element={
+                    isAuthenticated ? (
+                      <Navigate to="/filter" replace={true} />
+                    ) : (
+                      <SignIn onLogin={() => {
+                        setIsAuthenticated(true);
+                      }} />
+                    )
+                  } 
                 />
                 <Route 
                   path="/filter" 
-                  element={isAuthenticated ? <FilterSetup /> : <Navigate to="/" />} 
+                  element={
+                    isLoading ? (
+                      <LoadingScreen />
+                    ) : isAuthenticated ? (
+                      <FilterSetup />
+                    ) : (
+                      <Navigate to="/" replace={true} />
+                    )
+                  } 
                 />
                 <Route 
                   path="/review" 
-                  element={isAuthenticated ? <EmailReview /> : <Navigate to="/" />} 
+                  element={
+                    isLoading ? (
+                      <LoadingScreen />
+                    ) : isAuthenticated ? (
+                      <EmailReview />
+                    ) : (
+                      <Navigate to="/" replace={true} />
+                    )
+                  } 
                 />
                 <Route 
                   path="/search" 
-                  element={isAuthenticated ? <Search /> : <Navigate to="/" />} 
+                  element={
+                    isLoading ? (
+                      <LoadingScreen />
+                    ) : isAuthenticated ? (
+                      <Search />
+                    ) : (
+                      <Navigate to="/" replace={true} />
+                    )
+                  } 
                 />
+                {/* Catch-all route for unknown paths */}
+                <Route path="*" element={<Navigate to="/" replace={true} />} />
               </Routes>
             </Box>
-          } />
-        </Routes>
-      </Flex>
-    </Router>
+          </Box>
+        } />
+      </Routes>
+    </Box>
   );
 }
 

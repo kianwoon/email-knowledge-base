@@ -29,7 +29,7 @@ import {
   Icon,
   Badge,
 } from '@chakra-ui/react';
-import { Link as RouterLink, useLocation } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   FaLightbulb,
   FaSearch,
@@ -62,34 +62,34 @@ const SignIn: React.FC<SignInProps> = ({ onLogin }) => {
   const isMobile = useBreakpointValue({ base: true, md: false });
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
 
-  // Check for token in URL (after OAuth redirect)
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
+    // Check for token in URL after OAuth redirect
+    const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     const expires = params.get('expires');
-    
+
     if (token && expires) {
-      // Store token in localStorage
+      // Store tokens
       localStorage.setItem('token', token);
-      localStorage.setItem('expires', new Date(Number(expires) * 1000).toISOString());
-      
-      // Call the onLogin callback to update authentication state
+      localStorage.setItem('expires', expires);
+
+      // Clear URL parameters
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // Update auth state and redirect
       onLogin();
+      navigate('/filter', { replace: true });
       
-      // Show success message
       toast({
-        title: t('toast.loginSuccess.title'),
-        description: t('toast.loginSuccess.description'),
-        status: "success",
+        title: 'Login successful',
+        status: 'success',
         duration: 3000,
         isClosable: true,
       });
-      
-      // Clear the URL parameters
-      window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [location, onLogin, toast, t]);
+  }, [onLogin, navigate, toast]);
 
   const handleSignIn = async () => {
     setIsLoading(true);
