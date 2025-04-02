@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Box, Flex } from '@chakra-ui/react';
+import { Box, Flex, Spinner } from '@chakra-ui/react';
 
 // Pages
 import SignIn from './pages/SignIn';
@@ -33,14 +33,39 @@ const DocumentationLayout = ({ children }: { children: React.ReactNode }) => {
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Check for token on load
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      // In a real app, we would validate the token here
-      setIsAuthenticated(true);
-    }
+    const checkAuth = async () => {
+      try {
+        setIsLoading(true);
+        const token = localStorage.getItem('token');
+        const expires = localStorage.getItem('expires');
+        
+        if (!token || !expires) {
+          setIsAuthenticated(false);
+          return;
+        }
+
+        // Check if token is expired
+        const expiryDate = new Date(expires);
+        if (expiryDate <= new Date()) {
+          // Token is expired
+          localStorage.removeItem('token');
+          localStorage.removeItem('expires');
+          setIsAuthenticated(false);
+          return;
+        }
+        
+        setIsAuthenticated(true);
+      } catch (error) {
+        console.error('Auth check error:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
     // Check for token in URL (from OAuth redirect)
     const urlParams = new URLSearchParams(window.location.search);
@@ -51,9 +76,12 @@ function App() {
       localStorage.setItem('token', urlToken);
       localStorage.setItem('expires', expires);
       setIsAuthenticated(true);
+      setIsLoading(false);
       
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+      checkAuth();
     }
   }, []);
   
@@ -64,6 +92,14 @@ function App() {
     setIsAuthenticated(false);
   };
   
+  if (isLoading) {
+    return (
+      <Box height="100vh" display="flex" alignItems="center" justifyContent="center">
+        <Spinner size="xl" />
+      </Box>
+    );
+  }
+
   return (
     <Router>
       <Flex direction="column" minH="100vh">

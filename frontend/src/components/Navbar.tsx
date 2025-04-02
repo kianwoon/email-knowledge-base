@@ -58,11 +58,22 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
   useEffect(() => {
     const fetchUserInfo = async () => {
       try {
+        // Check if we have a token before making the API call
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setIsLoading(false);
+          return;
+        }
+
         setIsLoading(true);
         const userData = await getCurrentUser();
         setUser(userData);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching user info:', error);
+        // Only clear user if it's an authentication error
+        if (error.response?.status === 401) {
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -188,13 +199,17 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   ) : (
                     <Avatar 
                       size="sm" 
-                      name={user?.display_name || "User"} 
+                      name={user?.display_name} 
                       src={user?.photo_url} 
                       bg="bg.accent" 
                     />
                   )}
                   <Text display={{ base: 'none', md: 'block' }}>
-                    {user?.display_name || "Demo User"}
+                    {isLoading ? (
+                      <Spinner size="xs" />
+                    ) : user?.display_name || (
+                      <Text color="gray.500">Not signed in</Text>
+                    )}
                   </Text>
                 </HStack>
               </MenuButton>
@@ -204,14 +219,22 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   <Flex>
                     <Avatar 
                       size="md" 
-                      name={user?.display_name || "User"} 
+                      name={user?.display_name} 
                       src={user?.photo_url} 
                       bg={useColorModeValue('blue.500', 'blue.400')} 
                       mr={3} 
                     />
                     <Box>
-                      <Text fontWeight="bold" color={useColorModeValue('gray.800', 'white')}>{user?.display_name || "Demo User"}</Text>
-                      <Text fontSize="sm" color={useColorModeValue('gray.600', 'whiteAlpha.800')}>{user?.email || "user@example.com"}</Text>
+                      <Text fontWeight="bold" color={useColorModeValue('gray.800', 'white')}>
+                        {isLoading ? (
+                          <Spinner size="xs" />
+                        ) : user?.display_name || (
+                          <Text color="gray.500">Not signed in</Text>
+                        )}
+                      </Text>
+                      <Text fontSize="sm" color={useColorModeValue('gray.600', 'whiteAlpha.800')}>
+                        {user?.email || ""}
+                      </Text>
                       <HStack mt={2} spacing={2}>
                         <Button size="xs" variant="outline" colorScheme="blue">View account</Button>
                         <Button size="xs" variant="outline" colorScheme="blue">Switch directory</Button>
