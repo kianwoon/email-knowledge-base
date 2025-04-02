@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "NODE_ENV=development vite --mode development",
     "build": "tsc && vite build --mode production",
-    "preview": "vite preview --port $PORT --host",
+    "preview": "vite preview --port 5173 --host",
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "jest",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
