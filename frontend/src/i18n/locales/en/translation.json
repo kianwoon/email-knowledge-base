@@ -823,7 +823,10 @@
       "subject": "Subject",
       "date": "Date",
       "hasAttachments": "Attachments",
-      "importance": "Importance"
+      "importance": "Importance",
+      "page": "Page",
+      "of": "of",
+      "showing": "Showing"
     },
     "tooltips": {
       "folderHelp": "Select the email folder to search in",

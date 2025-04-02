@@ -864,7 +864,10 @@
       "subject": "主题",
       "date": "日期",
       "hasAttachments": "附件",
-      "importance": "重要性"
+      "importance": "重要性",
+      "page": "页",
+      "of": "共",
+      "showing": "显示"
     },
     "tooltips": {
       "folderHelp": "选择要搜索的邮件文件夹",

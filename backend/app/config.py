@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,
-        "extra": "ignore"  # This will ignore extra environment variables
+        "extra": "allow"  # Allow extra environment variables
     }
 
 settings = Settings()

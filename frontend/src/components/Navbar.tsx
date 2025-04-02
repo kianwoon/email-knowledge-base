@@ -198,20 +198,20 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                   </Text>
                 </HStack>
               </MenuButton>
-              <MenuList bg="bg.secondary" color="text.primary" p={0} minWidth="320px">
+              <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')} p={0} minWidth="320px">
                 {/* User profile header */}
-                <Box p={4} borderBottomWidth="1px" borderColor="whiteAlpha.200">
+                <Box p={4} borderBottomWidth="1px" borderColor={useColorModeValue('gray.200', 'whiteAlpha.200')}>
                   <Flex>
                     <Avatar 
                       size="md" 
                       name={user?.display_name || "User"} 
                       src={user?.photo_url} 
-                      bg="bg.accent" 
+                      bg={useColorModeValue('blue.500', 'blue.400')} 
                       mr={3} 
                     />
                     <Box>
-                      <Text fontWeight="bold">{user?.display_name || "Demo User"}</Text>
-                      <Text fontSize="sm" opacity={0.8}>{user?.email || "user@example.com"}</Text>
+                      <Text fontWeight="bold" color={useColorModeValue('gray.800', 'white')}>{user?.display_name || "Demo User"}</Text>
+                      <Text fontSize="sm" color={useColorModeValue('gray.600', 'whiteAlpha.800')}>{user?.email || "user@example.com"}</Text>
                       <HStack mt={2} spacing={2}>
                         <Button size="xs" variant="outline" colorScheme="blue">View account</Button>
                         <Button size="xs" variant="outline" colorScheme="blue">Switch directory</Button>
@@ -222,17 +222,17 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                 
                 {/* Organization section */}
                 {user?.organization && (
-                  <Box p={3} borderBottomWidth="1px" borderColor="whiteAlpha.200">
+                  <Box p={3} borderBottomWidth="1px" borderColor={useColorModeValue('gray.200', 'whiteAlpha.200')}>
                     <Flex align="center">
                       <Avatar 
                         size="sm" 
-                        icon={<Icon as={FaUsers} fontSize="1.2rem" />} 
-                        bg="gray.600" 
+                        icon={<Icon as={FaUsers} fontSize="1.2rem" color={useColorModeValue('white', 'gray.800')} />} 
+                        bg={useColorModeValue('blue.500', 'blue.400')} 
                         mr={3} 
                       />
                       <Box>
-                        <Text fontSize="sm" fontWeight="medium">{user.organization}</Text>
-                        <Text fontSize="xs" opacity={0.8}>{user.email}</Text>
+                        <Text fontSize="sm" fontWeight="medium" color={useColorModeValue('gray.800', 'white')}>{user.organization}</Text>
+                        <Text fontSize="xs" color={useColorModeValue('gray.600', 'whiteAlpha.800')}>{user.email}</Text>
                       </Box>
                       <Box ml="auto">
                         <IconButton
@@ -240,6 +240,8 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                           icon={<ChevronDownIcon />}
                           variant="ghost"
                           size="sm"
+                          color={useColorModeValue('gray.600', 'whiteAlpha.800')}
+                          _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
                         />
                       </Box>
                     </Flex>
@@ -247,10 +249,34 @@ const Navbar: React.FC<NavbarProps> = ({ onLogout }) => {
                 )}
                 
                 {/* Menu items */}
-                <MenuItem icon={<SettingsIcon />} py={3}>Settings</MenuItem>
-                <MenuItem as={RouterLink} to="/docs" icon={<FaBook />} py={3}>Documentation</MenuItem>
-                <MenuDivider my={0} />
-                <MenuItem icon={<FaSignOutAlt />} onClick={onLogout} py={3} color="red.300">Sign out</MenuItem>
+                <MenuItem 
+                  icon={<SettingsIcon />} 
+                  py={3} 
+                  color={useColorModeValue('gray.700', 'white')}
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                >
+                  Settings
+                </MenuItem>
+                <MenuItem 
+                  as={RouterLink} 
+                  to="/docs" 
+                  icon={<FaBook />} 
+                  py={3}
+                  color={useColorModeValue('gray.700', 'white')}
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                >
+                  Documentation
+                </MenuItem>
+                <MenuDivider my={0} borderColor={useColorModeValue('gray.200', 'whiteAlpha.200')} />
+                <MenuItem 
+                  icon={<FaSignOutAlt />} 
+                  onClick={onLogout} 
+                  py={3} 
+                  color="red.400"
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                >
+                  Sign out
+                </MenuItem>
               </MenuList>
             </Menu>
           </HStack>
