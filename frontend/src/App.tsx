@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Box, Flex, Spinner, Center, VStack, Text, useToast } from '@chakra-ui/react';
+import { Box, Flex, Spinner, Center, VStack, Text, useToast, Container } from '@chakra-ui/react';
 import { getCurrentUser, refreshToken } from './api/auth';
 
 // Pages
@@ -136,80 +136,82 @@ function App() {
   }
 
   return (
-    <Box minH="100vh" display="flex" flexDirection="column">
+    <Box minH="100vh">
       <TopNavbar onLogout={handleLogout} isAuthenticated={isAuthenticated} />
-      <Routes>
-        {/* Documentation Routes */}
-        <Route path="/docs" element={<Documentation />} />
-        <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
-        <Route path="/docs/features/secure-authentication" element={<SecureAuthentication />} />
-        <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
-        <Route path="/docs/features/smart-filtering" element={<SmartFiltering />} />
-        <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
-        <Route path="/docs/features/knowledge-base" element={<KnowledgeBase />} />
-        <Route path="/docs/email-processing" element={<SmartFiltering />} />
-        <Route path="/docs/ai-analysis" element={<AIAnalysis />} />
-        <Route path="/docs/features/ai-analysis" element={<AIAnalysis />} />
-        <Route path="/docs/ai-training" element={<AITraining />} />
-        <Route path="/support" element={<Support />} />
-        
-        {/* App Routes - with padding and authentication */}
-        <Route path="/*" element={
-          <Box flex="1">
-            <Box p={4}>
-              <Routes>
-                <Route 
-                  path="/" 
-                  element={
-                    <SignIn 
-                      onLogin={() => {
-                        setIsAuthenticated(true);
-                      }}
-                      isAuthenticated={isAuthenticated}
-                    />
-                  } 
-                />
-                <Route 
-                  path="/filter" 
-                  element={
-                    isLoading ? (
-                      <LoadingScreen />
-                    ) : isAuthenticated ? (
-                      <FilterSetup />
-                    ) : (
-                      <Navigate to="/" replace={true} />
-                    )
-                  } 
-                />
-                <Route 
-                  path="/review" 
-                  element={
-                    isLoading ? (
-                      <LoadingScreen />
-                    ) : isAuthenticated ? (
-                      <EmailReview />
-                    ) : (
-                      <Navigate to="/" replace={true} />
-                    )
-                  } 
-                />
-                <Route 
-                  path="/search" 
-                  element={
-                    isLoading ? (
-                      <LoadingScreen />
-                    ) : isAuthenticated ? (
-                      <Search />
-                    ) : (
-                      <Navigate to="/" replace={true} />
-                    )
-                  } 
-                />
-              </Routes>
+      <Container maxW="1400px" py={4}>
+        <Routes>
+          {/* Documentation Routes */}
+          <Route path="/docs" element={<Documentation />} />
+          <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
+          <Route path="/docs/features/secure-authentication" element={<SecureAuthentication />} />
+          <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
+          <Route path="/docs/features/smart-filtering" element={<SmartFiltering />} />
+          <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
+          <Route path="/docs/features/knowledge-base" element={<KnowledgeBase />} />
+          <Route path="/docs/email-processing" element={<SmartFiltering />} />
+          <Route path="/docs/ai-analysis" element={<AIAnalysis />} />
+          <Route path="/docs/features/ai-analysis" element={<AIAnalysis />} />
+          <Route path="/docs/ai-training" element={<AITraining />} />
+          <Route path="/support" element={<Support />} />
+          
+          {/* App Routes - with padding and authentication */}
+          <Route path="/*" element={
+            <Box flex="1">
+              <Box p={4}>
+                <Routes>
+                  <Route 
+                    path="/" 
+                    element={
+                      <SignIn 
+                        onLogin={() => {
+                          setIsAuthenticated(true);
+                        }}
+                        isAuthenticated={isAuthenticated}
+                      />
+                    } 
+                  />
+                  <Route 
+                    path="/filter" 
+                    element={
+                      isLoading ? (
+                        <LoadingScreen />
+                      ) : isAuthenticated ? (
+                        <FilterSetup />
+                      ) : (
+                        <Navigate to="/" replace={true} />
+                      )
+                    } 
+                  />
+                  <Route 
+                    path="/review" 
+                    element={
+                      isLoading ? (
+                        <LoadingScreen />
+                      ) : isAuthenticated ? (
+                        <EmailReview />
+                      ) : (
+                        <Navigate to="/" replace={true} />
+                      )
+                    } 
+                  />
+                  <Route 
+                    path="/search" 
+                    element={
+                      isLoading ? (
+                        <LoadingScreen />
+                      ) : isAuthenticated ? (
+                        <Search />
+                      ) : (
+                        <Navigate to="/" replace={true} />
+                      )
+                    } 
+                  />
+                </Routes>
+              </Box>
             </Box>
-          </Box>
-        } />
-      </Routes>
+          } />
+        </Routes>
+      </Container>
     </Box>
   );
 }

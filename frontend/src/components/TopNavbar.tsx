@@ -171,17 +171,16 @@ const TopNavbar = ({ onLogout, isAuthenticated }: TopNavbarProps): JSX.Element =
         <Flex justify="space-between" align="center">
           {/* Logo and Brand */}
           <Flex align="center">
-            <Heading
-              size="md"
-              fontWeight="bold"
+            <Box
               as={RouterLink}
               to="/"
-              _hover={{ textDecoration: 'none' }}
-              color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+              _hover={{ opacity: 0.8 }}
               mr={8}
+              display="flex"
+              alignItems="center"
             >
-              {t('app.name')}
-            </Heading>
+              <img src="/NLOGO.svg" alt={t('app.name')} style={{ height: '32px' }} />
+            </Box>
 
             {/* Desktop Navigation */}
             <HStack spacing={1} display={{ base: 'none', md: 'flex' }}>
