@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { EmailFilter } from '../types/email';
+import { EmailFilter, EmailPreview } from '../types/email';
 
 // Get the API base URL from environment variables
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
@@ -47,28 +47,36 @@ export const getEmailFolders = async () => {
 /**
  * Get email previews based on filter criteria
  */
-export const getEmailPreviews = async (filterParams: EmailFilter & { page?: number; per_page?: number }) => {
+export const getEmailPreviews = async (filterParams: EmailFilter & { page?: number; per_page?: number; next_link?: string }) => {
   try {
-    // Format the parameters
-    const formattedParams = {
-      ...filterParams,
-      page: filterParams.page || 1,
-      per_page: filterParams.per_page || 10
-    };
-
-    // Remove any undefined values
-    Object.keys(formattedParams).forEach(key => {
-      if (formattedParams[key] === undefined) {
-        delete formattedParams[key];
-      }
-    });
-
-    console.log('Email preview request params:', formattedParams);
-
-    const response = await api.post<{ items: EmailPreview[]; total: number; total_pages: number }>(
-      '/emails/preview',
-      formattedParams
+    // Directly clean the incoming parameters
+    const cleanParams = Object.fromEntries(
+      Object.entries(filterParams).filter(([_, value]) => 
+        value !== undefined && 
+        value !== null && 
+        (Array.isArray(value) ? value.length > 0 : true) &&
+        value !== '' // Also remove empty strings
+      )
     );
+
+    // --- ADD LOGGING --- 
+    console.log('[api/email] Final parameters being sent to /emails/preview:', JSON.stringify(cleanParams));
+    // --- END LOGGING ---
+
+    console.log('[api/email] Sending email preview request params:', cleanParams);
+
+    const response = await api.post<{
+      items: EmailPreview[];
+      total: number;
+      next_link?: string;
+      total_pages: number;
+      current_page: number;
+    }>(
+      '/emails/preview',
+      cleanParams
+    );
+
+    console.log('Email preview response:', response.data);
 
     return response.data;
   } catch (error) {

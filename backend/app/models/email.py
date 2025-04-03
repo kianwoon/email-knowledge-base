@@ -57,10 +57,11 @@ class EmailPreview(BaseModel):
 
 class EmailFilter(BaseModel):
     folder_id: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     keywords: Optional[List[str]] = None
     sender: Optional[str] = None
+    next_link: Optional[str] = None  # For pagination using Microsoft Graph API's nextLink
 
 
 class EmailAttachment(BaseModel):

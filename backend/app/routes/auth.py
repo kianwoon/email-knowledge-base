@@ -1,30 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import RedirectResponse
-import msal
 import json
 from datetime import datetime, timedelta
 from jose import jwt
 from typing import Dict, Optional
 import urllib.parse
 import requests
+import httpx
 from urllib.parse import urlencode
+import logging
 
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
-from app.services.outlook import get_user_info, get_user_photo
+from app.services.outlook import OutlookService
+from app.dependencies.auth import get_current_user, users_db, msal_app
+
+# Instantiate logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Create MSAL app for authentication
-msal_app = msal.ConfidentialClientApplication(
-    settings.MS_CLIENT_ID,
-    authority=settings.MS_AUTHORITY,
-    client_credential=settings.MS_CLIENT_SECRET
-)
-
-# In-memory user storage (replace with database in production)
-users_db = {}
-
 
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token for internal auth"""
@@ -139,24 +133,36 @@ async def auth_callback(request: Request):
         
         print(f"DEBUG - Token request data (excluding secret): {dict(token_data, client_secret='[REDACTED]')}")
         
-        # Make the token request
-        token_response = requests.post(token_url, data=token_data)
-        result = token_response.json()
+        # Make the token request asynchronously using httpx
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(token_url, data=token_data)
+            # Check for HTTP errors immediately
+            if token_response.status_code != 200:
+                 try:
+                     # result = await token_response.json() # Await json even on error for details
+                     result = token_response.json() # <-- REMOVE AWAIT
+                     print(f"DEBUG - Token response error details: {result}")
+                     error_description = result.get('error_description', 'Token exchange failed')
+                 except Exception as json_err:
+                     print(f"DEBUG - Could not parse error response JSON: {json_err}")
+                     error_description = f"Token exchange failed with status {token_response.status_code}"
+                 error_url = f"{settings.FRONTEND_URL}?error=token_error&error_description={error_description}"
+                 return RedirectResponse(url=error_url)
+            
+            # If successful, call the JSON result synchronously
+            result = token_response.json()
         
         print(f"DEBUG - Token response status: {token_response.status_code}")
-        if token_response.status_code != 200:
-            print(f"DEBUG - Token response error: {result}")
-            error_url = f"{settings.FRONTEND_URL}?error=token_error&error_description={result.get('error_description', 'Token exchange failed')}"
-            return RedirectResponse(url=error_url)
         
         print("Successfully acquired token")
         
-        # Get user info from Microsoft Graph
+        # Get user info from Microsoft Graph using OutlookService
         ms_token = result.get("access_token")
-        user_info = await get_user_info(ms_token)
+        outlook_service = OutlookService(ms_token)
+        user_info = await outlook_service.get_user_info()
         
         # Try to get user's profile photo
-        photo_url = await get_user_photo(ms_token)
+        photo_url = await outlook_service.get_user_photo()
         
         # Extract organization information if available
         organization = None
@@ -224,50 +230,17 @@ async def auth_callback(request: Request):
         return RedirectResponse(url=redirect_url)
     except Exception as e:
         print(f"Error during token exchange: {str(e)}")
+        # Add traceback logging
+        import traceback
+        traceback.print_exc()
         error_url = f"{settings.FRONTEND_URL}?error=token_exchange_error&error_description={str(e)}"
         return RedirectResponse(url=error_url)
 
 
 @router.get("/me", response_model=User)
-async def get_current_user(request: Request):
+async def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user information"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    token = auth_header.split(" ")[1]
-    try:
-        payload = jwt.decode(
-            token, 
-            settings.JWT_SECRET, 
-            algorithms=[settings.JWT_ALGORITHM]
-        )
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user = users_db.get(user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    return user
+    return current_user
 
 
 @router.post("/refresh", response_model=Token)

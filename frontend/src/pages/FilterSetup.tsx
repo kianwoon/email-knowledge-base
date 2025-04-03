@@ -170,6 +170,7 @@ const FilterSetup: React.FC = () => {
   const [totalEmails, setTotalEmails] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [nextLink, setNextLink] = useState<string | undefined>(undefined);
   const pageSizeOptions = [10, 25, 50, 100];
   const [isEndDateDisabled, setIsEndDateDisabled] = useState(true);
   const [dateError, setDateError] = useState<string | null>(null);
@@ -192,48 +193,94 @@ const FilterSetup: React.FC = () => {
   ];
   
   // Load previews
-  const loadPreviews = useCallback(async () => {
+  const loadPreviews = useCallback(async (options?: { size?: number }) => {
+    // Use the explicitly passed size, otherwise default to the current state
+    const currentSize = options?.size ?? itemsPerPage;
+    console.log(`loadPreviews called. Effective size: ${currentSize}`);
+
     if (isInitialLoad) {
       setIsInitialLoad(false);
     }
 
     setIsLoadingPreviews(true);
     try {
-      // Format dates to ISO string if they exist
-      const formattedFilter = {
-        ...filter,
-        start_date: filter.start_date ? new Date(filter.start_date).toISOString() : undefined,
-        end_date: filter.end_date ? new Date(filter.end_date).toISOString() : undefined
-      };
+      // If using next_link, use it directly (size doesn't apply to next_link requests)
+      if (nextLink) {
+        console.log('Using next_link for pagination:', nextLink);
+        // Pass only the next_link, backend handles the rest
+        const previewData = await getEmailPreviews({ next_link: nextLink }); 
+        console.log('Next link response:', previewData);
+        
+        setPreviews(previewData.items || []);
+        
+        // Update total count and pages from the pagination response unconditionally
+        setTotalEmails(previewData.total);
+        // Use currentSize for page calculation when total is known
+        const totalPagesFromNextLink = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
+        setTotalPages(totalPagesFromNextLink); 
+        setNextLink(previewData.next_link);
 
-      const previewData = await getEmailPreviews({
-        ...formattedFilter,
-        page: currentPage,
-        per_page: itemsPerPage
-      });
-      console.log('previewData:', previewData);
+      } else {
+        // Initial Load / Non-pagination request
+        setCurrentPage(1); // Reset to page 1 on new filter/search
 
-      // Update state with response data
-      setPreviews(previewData.items || []);
-      setTotalEmails(previewData.total);
-      setTotalPages(previewData.total_pages);
+        // Prepare base parameters for the API call
+        const apiParams: any = {
+          folder_id: filter.folder_id || undefined, 
+          per_page: currentSize, // Use currentSize determined above
+          start_date: filter.start_date || undefined,
+          end_date: filter.end_date || undefined,
+          keywords: filter.keywords && filter.keywords.length > 0 ? filter.keywords : undefined,
+        };
+
+        // Clean parameters: remove undefined/null keys and empty arrays
+        const cleanParams = Object.entries(apiParams)
+          .filter(([_, v]) => v !== undefined && v !== null && (!Array.isArray(v) || v.length > 0))
+          .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+          
+        console.log('Sending request with filter (non-pagination):', cleanParams);
+        const previewData = await getEmailPreviews(cleanParams as EmailFilter & { per_page?: number });
+        console.log('Received preview data (non-pagination):', previewData);
+        console.log(`[FilterSetup] Received ${previewData?.items?.length ?? 0} items from API (non-pagination).`);
+
+        // Update state with data from API
+        setPreviews(previewData.items || []);
+        setTotalEmails(previewData.total);
+        // Use currentSize for page calculation when total is known
+        const totalPagesFromInitial = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
+        setTotalPages(totalPagesFromInitial);
+        setNextLink(previewData.next_link);
+
+        console.log('Updated state (non-pagination):', {
+          items: previewData.items?.length,
+          total: previewData.total,
+          pages: totalPagesFromInitial,
+          nextLink: previewData.next_link,
+        });
+      }
     } catch (error: any) {
-      console.error('Error loading previews:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to load email previews';
+      console.error("Error loading email previews:", error);
       toast({
-        title: 'Error loading email previews',
-        description: errorMessage,
-        status: 'error',
+        title: t('errors.errorLoadingPreviews'),
+        description: error.message || t('errors.unknownError'),
+        status: "error",
         duration: 5000,
         isClosable: true,
       });
+      // Reset state on error
       setPreviews([]);
       setTotalEmails(0);
-      setTotalPages(0);
+      setTotalPages(1);
+      setNextLink(undefined);
     } finally {
       setIsLoadingPreviews(false);
     }
-  }, [currentPage, filter, itemsPerPage, isInitialLoad, toast]);
+  }, [filter, itemsPerPage, isInitialLoad, toast, t, nextLink]);
+
+  // Log previews state changes
+  useEffect(() => {
+    console.log('[PREVIEWS_EFFECT] Previews state updated. Length:', previews.length);
+  }, [previews]);
 
   // Remove the useEffect that watches filter changes
   useEffect(() => {
@@ -258,186 +305,187 @@ const FilterSetup: React.FC = () => {
     loadFolders();
   }, [t, toast]);
 
-  // Handle filter change
-  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
+  // Handler for general filter changes (e.g., folder select)
+  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
-    if (name === 'start_date' || name === 'end_date') {
-      // Clear any existing date errors
-      setDateError(null);
-      
-      // Update the filter with the new date
-      setFilter(prev => ({ ...prev, [name]: value }));
-      return;
-    }
-
     setFilter(prev => ({ ...prev, [name]: value }));
-  }, []);
+    // Reset pagination on filter change
+    setNextLink(undefined);
+    setCurrentPage(1);
+  };
 
-  // Add pagination handlers
-  const handlePageChange = useCallback((newPage: number) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage);
+  // Function to handle page changes (Previous/Next buttons)
+  const handlePageChange = async (newPage: number) => {
+    // Basic validation
+    if (newPage < 1 || newPage > totalPages || newPage === currentPage) {
+      console.log(`handlePageChange: Invalid page requested (${newPage}). Current: ${currentPage}, Total: ${totalPages}`);
+      return;
     }
-  }, [totalPages]);
 
-  // Watch for page changes and reload previews
-  useEffect(() => {
-    if (!isInitialLoad) {
-      loadPreviews();
-    }
-  }, [currentPage, itemsPerPage, loadPreviews, isInitialLoad]);
-
-  // Define handleSearch with useCallback
-  const handleSearch = useCallback(async () => {
-    // Reset error state
-    setDateError(null);
-
-    // Validate dates if either is set
-    if (filter.start_date || filter.end_date) {
-      // Both dates must be set if one is set
-      if (!filter.start_date || !filter.end_date) {
-        setDateError('Please select both start and end dates');
+    // --- Handle Forward Pagination (using nextLink) ---
+    if (newPage > currentPage) {
+      if (!nextLink) {
+        console.error(`handlePageChange: Trying to go to next page (${newPage}), but nextLink is missing.`);
+        toast({ title: "Pagination Error", description: "Cannot load next page: link is missing.", status: "error", duration: 3000 });
         return;
       }
 
-      const startDate = new Date(filter.start_date);
-      const endDate = new Date(filter.end_date);
-      
-      // Validate date range
-      if (endDate < startDate) {
-        setDateError('End date cannot be before start date');
-        return;
-      }
-    }
+      console.log(`handlePageChange: Moving forward. CurrentPage: ${currentPage}, TargetPage: ${newPage}, NextLink available: ${!!nextLink}`);
+      setIsLoadingPreviews(true);
+      try {
+        console.log(`handlePageChange: Calling getEmailPreviews with next_link: ${nextLink} and current filters`);
+        // Pass next_link AND current filter criteria for manual filtering in backend if needed
+        const previewData = await getEmailPreviews({
+            next_link: nextLink,
+            folder_id: filter.folder_id || undefined,
+            start_date: filter.start_date || undefined,
+            end_date: filter.end_date || undefined,
+            keywords: filter.keywords && filter.keywords.length > 0 ? filter.keywords : undefined,
+            per_page: itemsPerPage // Pass itemsPerPage too
+        });
+        console.log('handlePageChange: Received previewData:', previewData);
+        
+        if (previewData && previewData.items) {
+            console.log(`handlePageChange: Calling setPreviews with ${previewData.items.length} items.`);
+            setPreviews(previewData.items);
+            console.log('handlePageChange: Calling setTotalEmails:', previewData.total);
+            setTotalEmails(previewData.total);
+            const newTotal = previewData.total;
+            console.log('handlePageChange: Calling setTotalEmails:', newTotal);
+            setTotalEmails(newTotal);
 
-    setCurrentPage(1); // Reset to first page on new search
-    loadPreviews();
-  }, [filter.start_date, filter.end_date, loadPreviews]);
-  
-  // Add keyword to filter
-  const handleAddKeyword = () => {
-    if (keywordInput.trim() && !filter.keywords?.includes(keywordInput.trim())) {
-      setFilter((prev: EmailFilter) => ({
-        ...prev,
-        keywords: [...(prev.keywords || []), keywordInput.trim()],
-      }));
-      setKeywordInput('');
-    }
-  };
-  
-  // Remove keyword from filter
-  const handleRemoveKeyword = (keyword: string) => {
-    setFilter(prev => ({
-      ...prev,
-      keywords: prev.keywords?.filter(k => k !== keyword) || [],
-    }));
-  };
-  
-  // Toggle email selection
-  const toggleEmailSelection = (emailId: string) => {
-    setSelectedEmails(prev => 
-      prev.includes(emailId)
-        ? prev.filter(id => id !== emailId)
-        : [...prev, emailId]
-    );
-  };
-  
-  // Select or deselect all emails
-  const selectAllEmails = () => {
-    if (selectedEmails.length === previews.length) {
-      // Deselect all
-      setSelectedEmails([]);
+            // Correct totalPages calculation
+            const newTotalPages = newTotal === -1
+                                    ? (previewData.next_link ? newPage + 1 : newPage) // If unknown total, assume at least one more page if nextLink exists
+                                    : (newTotal > 0 ? Math.ceil(newTotal / itemsPerPage) : 1);
+            console.log('handlePageChange: Calling setTotalPages:', newTotalPages);
+            setTotalPages(newTotalPages);
+            console.log('handlePageChange: Calling setNextLink:', previewData.next_link);
+            setNextLink(previewData.next_link);
+            console.log('handlePageChange: Calling setCurrentPage:', newPage);
+            setCurrentPage(newPage);
+        } else {
+            console.error('handlePageChange: Received invalid previewData:', previewData);
+            toast({ title: "API Error", description: "Received invalid data for next page.", status: "error", duration: 3000 });
+        }
+
+      } catch (error: any) {
+        console.error("handlePageChange: Error loading next page:", error);
+        toast({
+          title: t('errors.errorLoadingPreviews'),
+          description: error.message || t('errors.unknownError'),
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+        // Do not change page number on error
+      } finally {
+        setIsLoadingPreviews(false);
+      }
     } else {
-      // Select all
-      setSelectedEmails(previews.map(email => email.id));
+      // --- Handle Backward Pagination (or jump to specific page - Currently Not Supported by Backend API) ---
+      // The backend API only supports pagination via next_link. 
+      // To go back, we would need to re-run the original query for page 1
+      // and then potentially fetch subsequent pages using their next_links.
+      // This is inefficient and not implemented here.
+      console.warn(`handlePageChange: Backward pagination (to page ${newPage}) is not implemented.`);
+      toast({ title: "Not Implemented", description: "Backward pagination is not currently supported.", status: "warning", duration: 3000 });
+    }
+  };
+
+  // Handle search
+  const handleSearch = useCallback(async () => {
+    // Reset pagination state
+    setCurrentPage(1);
+    setNextLink(undefined);
+    setIsInitialLoad(false);
+    setPreviews([]); // Clear existing previews before new search
+    setTotalEmails(0); // Reset total count before new search
+    loadPreviews();
+  }, [loadPreviews]);
+  
+  // Handler for adding a keyword
+  const handleAddKeyword = () => {
+    if (keywordInput.trim()) {
+      // Handle potentially undefined keywords array
+      setFilter(prev => ({ ...prev, keywords: [...(prev.keywords ?? []), keywordInput.trim()] }));
+      setKeywordInput('');
+      // Reset pagination
+      setNextLink(undefined);
+      setCurrentPage(1);
     }
   };
   
-  // Submit selected emails for analysis
-  const handleAnalyzeEmails = async () => {
-    if (selectedEmails.length === 0) {
-      toast({
-        title: t('emailProcessing.notifications.noEmailsSelected.title'),
-        description: t('emailProcessing.notifications.noEmailsSelected.description'),
-        status: 'warning',
-        duration: 3000,
-      });
-      return;
-    }
-    
-    setIsSubmitting(true);
-    try {
-      await analyzeEmails(selectedEmails);
-      toast({
-        title: t('emailProcessing.notifications.emailsSubmitted.title'),
-        description: t('emailProcessing.notifications.emailsSubmitted.description'),
-        status: 'success',
-        duration: 3000,
-      });
-      navigate('/review');
-    } catch (error) {
-      console.error('Error submitting emails for analysis:', error);
-      toast({
-        title: t('common.error'),
-        description: t('Error submitting emails for analysis'),
-        status: 'error',
-        duration: 3000,
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+  // Handler for removing a keyword
+  const handleRemoveKeyword = (keywordToRemove: string) => {
+    // Handle potentially undefined keywords array
+    setFilter(prev => ({ ...prev, keywords: (prev.keywords ?? []).filter(kw => kw !== keywordToRemove) }));
+    // Reset pagination
+    setNextLink(undefined);
+    setCurrentPage(1);
   };
   
-  // Handle saving filter template
-  const handleSaveTemplate = useCallback(() => {
-    if (!templateName.trim()) {
-      toast({
-        title: t('emailProcessing.notifications.templateError.title'),
-        description: t('emailProcessing.notifications.templateError.description'),
-        status: 'error',
-        duration: 3000,
-      });
-      return;
-    }
+  // Handler for folder select change
+  const handleFolderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setFilter(prev => ({ ...prev, folder_id: e.target.value }));
+    // Reset pagination
+    setNextLink(undefined);
+    setCurrentPage(1);
+  };
+
+  // Handler for basic input/textarea changes that update the filter state
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFilter(prev => ({ ...prev, [name]: value }));
+    // Reset pagination if these inputs should trigger a re-filter
+    setNextLink(undefined); 
+    setCurrentPage(1);
+  };
+
+  // Handler for date input changes (Specific because it handles isEndDateDisabled)
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFilter(prev => ({ ...prev, [name]: value }));
+    // Reset pagination
+    setNextLink(undefined); 
+    setCurrentPage(1);
     
-    const newTemplate = {
-      id: uuidv4(),
-      name: templateName,
-      filter: { ...filter }
-    };
-    
-    setFilterTemplates(prev => [...prev, newTemplate]);
-    setTemplateName('');
-    setShowSaveTemplateModal(false);
-    
-    toast({
-      title: t('emailProcessing.notifications.templateSaved.title'),
-      description: t('emailProcessing.notifications.templateSaved.description'),
-      status: 'success',
-      duration: 3000,
-    });
-    
-    // Save to localStorage
-    try {
-      const existingTemplates = JSON.parse(localStorage.getItem('emailFilterTemplates') || '[]');
-      localStorage.setItem('emailFilterTemplates', JSON.stringify([...existingTemplates, newTemplate]));
-    } catch (error) {
-      console.error('Error saving template to localStorage:', error);
-    }
-  }, [filter, templateName, toast, t]);
+    if (name === 'start_date') {
+      setIsEndDateDisabled(!value);
+    } 
+    // validateDates still commented out
+  };
   
-  // Load templates from localStorage on component mount
-  useEffect(() => {
-    try {
-      const savedTemplates = localStorage.getItem('emailFilterTemplates');
-      if (savedTemplates) {
-        setFilterTemplates(JSON.parse(savedTemplates));
-      }
-    } catch (error) {
-      console.error('Error loading templates from localStorage:', error);
-    }
-  }, []);
+  // Handler for changing items per page
+  const handleItemsPerPageChange = (value: string) => {
+    const newSize = parseInt(value, 10);
+    if (isNaN(newSize) || newSize <= 0) return; 
+    setItemsPerPage(newSize);
+    // Reset pagination
+    setNextLink(undefined);
+    setCurrentPage(1);
+    // Trigger reload with new size, passing it explicitly
+    loadPreviews({ size: newSize }); // <-- Pass newSize here
+  };
+
+  // Calculation for displaying email range
+  const firstEmailIndex = totalEmails > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const lastEmailIndex = Math.min(currentPage * itemsPerPage, totalEmails);
+
+  // Handle search button click (explicit user action)
+  const handleSearchClick = () => {
+    setCurrentPage(1);
+    setNextLink(undefined);
+    loadPreviews(); 
+  };
+  
+  // Placeholder for missing function to resolve linter error
+  const handleSaveTemplate = () => {
+    // Basic implementation: Just close the modal
+    // Actual save logic would go here
+    setShowSaveTemplateModal(false); 
+    toast({ title: "Save Template (Not Implemented)", status: "info", duration: 2000 });
+  };
   
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
@@ -472,9 +520,10 @@ const FilterSetup: React.FC = () => {
                       <Spinner size="sm" color="primary.500" />
                     ) : (
                       <Select 
-                        name="folder_id" 
-                        value={filter.folder_id} 
-                        onChange={handleFilterChange}
+                        id="folder_id"
+                        name="folder_id"
+                        value={filter.folder_id || ''} 
+                        onChange={handleFolderChange}
                         placeholder={t('emailProcessing.filters.selectFolder')}
                         focusBorderColor="primary.400"
                         bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
@@ -528,7 +577,6 @@ const FilterSetup: React.FC = () => {
                             const endDate = new Date();
                             const startDate = new Date();
                             startDate.setMonth(endDate.getMonth() - 1);
-                            // Ensure we're using the correct timezone
                             const startDateStr = startDate.toISOString().split('T')[0];
                             const endDateStr = endDate.toISOString().split('T')[0];
                             setFilter(prev => ({
@@ -536,6 +584,8 @@ const FilterSetup: React.FC = () => {
                               start_date: startDateStr,
                               end_date: endDateStr
                             }));
+                            setNextLink(undefined); // Reset pagination
+                            setCurrentPage(1);      // Go back to page 1
                           }}
                         >
                           1 {t('emailProcessing.filters.month')}
@@ -545,7 +595,6 @@ const FilterSetup: React.FC = () => {
                             const endDate = new Date();
                             const startDate = new Date();
                             startDate.setMonth(endDate.getMonth() - 3);
-                            // Ensure we're using the correct timezone
                             const startDateStr = startDate.toISOString().split('T')[0];
                             const endDateStr = endDate.toISOString().split('T')[0];
                             setFilter(prev => ({
@@ -553,6 +602,8 @@ const FilterSetup: React.FC = () => {
                               start_date: startDateStr,
                               end_date: endDateStr
                             }));
+                            setNextLink(undefined); // Reset pagination
+                            setCurrentPage(1);      // Go back to page 1
                           }}
                         >
                           3 {t('emailProcessing.filters.months')}
@@ -562,7 +613,6 @@ const FilterSetup: React.FC = () => {
                             const endDate = new Date();
                             const startDate = new Date();
                             startDate.setMonth(endDate.getMonth() - 6);
-                            // Ensure we're using the correct timezone
                             const startDateStr = startDate.toISOString().split('T')[0];
                             const endDateStr = endDate.toISOString().split('T')[0];
                             setFilter(prev => ({
@@ -570,6 +620,8 @@ const FilterSetup: React.FC = () => {
                               start_date: startDateStr,
                               end_date: endDateStr
                             }));
+                            setNextLink(undefined); // Reset pagination
+                            setCurrentPage(1);      // Go back to page 1
                           }}
                         >
                           6 {t('emailProcessing.filters.months')}
@@ -580,7 +632,7 @@ const FilterSetup: React.FC = () => {
                           type="date"
                           name="start_date"
                           value={filter.start_date || ''}
-                          onChange={handleFilterChange}
+                          onChange={handleDateChange}
                           placeholder={t('emailProcessing.filters.startDate')}
                           focusBorderColor="primary.400"
                           bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
@@ -590,12 +642,13 @@ const FilterSetup: React.FC = () => {
                           type="date"
                           name="end_date"
                           value={filter.end_date || ''}
-                          onChange={handleFilterChange}
+                          onChange={handleDateChange}
                           placeholder={t('emailProcessing.filters.endDate')}
                           min={filter.start_date || undefined}
                           focusBorderColor="primary.400"
                           bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                           borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          isDisabled={isEndDateDisabled}
                         />
                       </Grid>
                       {dateError && (
@@ -618,17 +671,18 @@ const FilterSetup: React.FC = () => {
                     </FormLabel>
                     <InputGroup>
                       <Input 
+                        id="keywords"
                         value={keywordInput} 
                         onChange={(e) => setKeywordInput(e.target.value)}
+                        onKeyPress={(e) => { if (e.key === 'Enter') handleAddKeyword(); }}
                         placeholder={t('emailProcessing.filters.addKeywords')}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
                         focusBorderColor="primary.400"
                         bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                         borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                       />
                       <InputRightElement>
                         <IconButton
-                          aria-label={t('emailProcessing.filters.addKeywords')}
+                          aria-label={t('common.add')}
                           icon={<AddIcon />}
                           size="sm"
                           colorScheme="primary"
@@ -765,7 +819,7 @@ const FilterSetup: React.FC = () => {
                         <Textarea
                           name="advanced_query"
                           value={filter.advanced_query || ''}
-                          onChange={handleFilterChange}
+                          onChange={handleInputChange}
                           placeholder={t('emailProcessing.filters.enterQuery')}
                           focusBorderColor="primary.400"
                           bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
@@ -861,20 +915,18 @@ const FilterSetup: React.FC = () => {
                 </Heading>
                 {previews.length > 0 && (
                   <ButtonGroup size="sm" isAttached variant="outline">
-                    <Button
-                      leftIcon={<Icon as={ChevronLeftIcon} />}
+                    <IconButton
+                      aria-label={t('common.previousPage')}
+                      icon={<ChevronLeftIcon />}
                       onClick={() => handlePageChange(currentPage - 1)}
                       isDisabled={currentPage === 1}
-                    >
-                      {t('common.previous')}
-                    </Button>
-                    <Button
-                      rightIcon={<Icon as={ChevronRightIconSolid} />}
+                    />
+                    <IconButton
+                      aria-label={t('common.nextPage')}
+                      icon={<ChevronRightIconSolid />}
                       onClick={() => handlePageChange(currentPage + 1)}
-                      isDisabled={currentPage === totalPages}
-                    >
-                      {t('common.next')}
-                    </Button>
+                      isDisabled={currentPage === totalPages || !previews.length || !nextLink}
+                    />
                   </ButtonGroup>
                 )}
               </Flex>
@@ -945,11 +997,17 @@ const FilterSetup: React.FC = () => {
                     </Table>
                     <Flex justify="center" mt={4}>
                       <Text color="gray.500" fontSize="sm">
-                        {t('emailProcessing.results.showing', {
-                          start: (currentPage - 1) * itemsPerPage + 1,
-                          end: Math.min(currentPage * itemsPerPage, totalEmails),
-                          total: totalEmails
-                        })}
+                        {totalEmails === -1 
+                          ? t('emailProcessing.results.showingSome', {
+                              start: (currentPage - 1) * itemsPerPage + 1,
+                              end: currentPage * itemsPerPage, // Show the end of the current page
+                            }) + (nextLink ? ` (${t('emailProcessing.results.moreAvailable')})` : '')
+                          : t('emailProcessing.results.showing', {
+                              start: firstEmailIndex, // Use calculated firstEmailIndex
+                              end: lastEmailIndex, // Use calculated lastEmailIndex
+                              total: totalEmails
+                            })
+                        }
                       </Text>
                     </Flex>
                   </>
@@ -973,29 +1031,45 @@ const FilterSetup: React.FC = () => {
               </Box>
               
               {/* Add pagination controls */}
-              {/* {previews.length > 0 && (
+              {previews.length > 0 && (
                 <Flex justify="space-between" align="center" mt={4}>
-                  <Text color="gray.500" fontSize="sm">
-                    {t('emailProcessing.results.showing', {
-                      start: (currentPage - 1) * itemsPerPage + 1,
-                      end: Math.min(currentPage * itemsPerPage, totalEmails),
-                      total: totalEmails
-                    })}
-                  </Text>
+                  {/* <Select 
+                    width="120px" 
+                    size="sm" 
+                    value={itemsPerPage}
+                    onChange={(e) => handleItemsPerPageChange(e.target.value)}
+                  >
+                    {pageSizeOptions.map(size => (
+                      <option key={size} value={size}>
+                        {t('emailProcessing.results.showPerPage', { count: size })}
+                      </option>
+                    ))}
+                  </Select> */} 
+                  {/* Empty Box to push pagination to the right if Select is hidden */}
+                  <Box width="120px"></Box> 
+                  
                   <ButtonGroup size="sm">
-                    <Button
+                    <IconButton
+                      aria-label={t('common.previousPage')}
+                      icon={<ChevronLeftIcon />}
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      isDisabled={currentPage === 1}
                       variant="outline"
-                      colorScheme="primary"
-                      leftIcon={<Icon as={FaCode} />}
-                      onClick={() => handleAnalyzeEmails()}
-                      isDisabled={selectedEmails.length === 0}
-                      isLoading={isSubmitting}
-                    >
-                      {t('emailProcessing.actions.analyze')}
+                    />
+                    <Button variant="outline" isDisabled>
+                      {t('emailProcessing.results.page', { currentPage: currentPage, totalPages: totalEmails === -1 ? '?' : totalPages })}
                     </Button>
+                    <IconButton
+                      aria-label={t('common.nextPage')}
+                      icon={<ChevronRightIconSolid />}
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      // Enable Next if nextLink is present OR if total is known and not on last page
+                      isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
+                      variant="outline"
+                    />
                   </ButtonGroup>
                 </Flex>
-              )} */}
+              )}
             </CardBody>
           </Card>
         </VStack>

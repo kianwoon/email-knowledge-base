@@ -58,6 +58,7 @@ export interface EmailFilter {
   has_attachments?: boolean;
   attachment_type?: string;
   advanced_query?: string;
+  next_link?: string | undefined;
 }
 
 export interface EmailAttachment {

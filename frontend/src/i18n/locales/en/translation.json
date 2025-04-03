@@ -664,12 +664,15 @@
           "date": "Date",
           "hasAttachments": "Attachments",
           "importance": "Importance",
-          "page": "Page",
+          "page": "Page {{currentPage}} of {{totalPages}}",
           "of": "of",
           "showing": "Showing {{start}} - {{end}} of {{total}} emails",
+          "showingSome": "Showing {{start}} - {{end}}",
+          "moreAvailable": "more available",
           "found": "emails found",
           "noEmails": "No emails found",
-          "tryDifferentFilters": "Try adjusting your filters or search criteria"
+          "tryDifferentFilters": "Try adjusting your filters or search criteria",
+          "showPerPage": "Show {{count}}"
         },
         "tooltips": {
           "folderHelp": "Select the email folder to search in",
@@ -932,13 +935,15 @@
       "date": "Date",
       "hasAttachments": "Attachments",
       "importance": "Importance",
-      "page": "Page",
+      "page": "Page {{currentPage}} of {{totalPages}}",
       "of": "of",
       "showing": "Showing {{start}} - {{end}} of {{total}} emails",
-      "viewing": "Viewing",
+      "showingSome": "Showing {{start}} - {{end}}",
+      "moreAvailable": "more available",
       "found": "emails found",
       "noEmails": "No emails found",
-      "tryDifferentFilters": "Try adjusting your filters or search criteria"
+      "tryDifferentFilters": "Try adjusting your filters or search criteria",
+      "showPerPage": "Show {{count}}"
     },
     "tooltips": {
       "folderHelp": "Select the email folder to search in",

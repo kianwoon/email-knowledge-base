@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.models.email import EmailPreview, EmailFilter, EmailContent
-from app.services.outlook import get_email_folders, get_email_preview, get_email_content
+from app.services.outlook import OutlookService
 from app.routes.auth import get_current_user
 from app.models.user import User
 
@@ -23,7 +23,8 @@ async def list_folders(current_user: User = Depends(get_current_user)):
         )
     
     try:
-        folders = await get_email_folders(current_user.ms_token_data.access_token)
+        outlook = OutlookService(current_user.ms_token_data.access_token)
+        folders = await outlook.get_email_folders()
         return folders
     except Exception as e:
         raise HTTPException(
@@ -48,22 +49,32 @@ async def preview_emails(
             )
 
         # Get email previews
-        result = await get_email_preview(
-            access_token=current_user.ms_token_data.access_token,
+        outlook = OutlookService(current_user.ms_token_data.access_token)
+        result = await outlook.get_email_preview(
             folder_id=filter_params.folder_id,
             start_date=filter_params.start_date,
             end_date=filter_params.end_date,
             keywords=filter_params.keywords,
             sender=filter_params.sender,
             page=page,
-            per_page=per_page
+            per_page=per_page,
+            next_link=filter_params.next_link
         )
+
+        # Calculate current page based on total and per_page
+        current_page = page
+        if filter_params.next_link:
+            # If next_link was used, increment the page
+            current_page = page + 1
 
         # Format response to match frontend expectations
         return {
-            "items": result.get("emails", []),
+            "items": result.get("items", []),
             "total": result.get("total", 0),
-            "total_pages": (result.get("total", 0) + per_page - 1) // per_page
+            "next_link": result.get("next_link"),
+            "current_page": current_page,
+            "total_pages": (result.get("total", 0) + per_page - 1) // per_page,
+            "per_page": per_page
         }
 
     except Exception as e:
@@ -74,7 +85,7 @@ async def preview_emails(
         )
 
 
-@router.get("/content/{email_id}", response_model=EmailContent)
+@router.get("/{email_id}", response_model=EmailContent)
 async def get_email(
     email_id: str,
     current_user: User = Depends(get_current_user)
@@ -87,15 +98,37 @@ async def get_email(
         )
     
     try:
-        content = await get_email_content(
-            access_token=current_user.ms_token_data.access_token,
-            email_id=email_id
-        )
+        outlook = OutlookService(current_user.ms_token_data.access_token)
+        content = await outlook.get_email_content(email_id)
         return content
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch email content: {str(e)}"
+        )
+
+
+@router.get("/{email_id}/attachments/{attachment_id}")
+async def get_email_attachment(
+    email_id: str,
+    attachment_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get email attachment by ID"""
+    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Microsoft access token not available"
+        )
+    
+    try:
+        outlook = OutlookService(current_user.ms_token_data.access_token)
+        attachment = await outlook.get_email_attachment(email_id, attachment_id)
+        return attachment
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch attachment: {str(e)}"
         )
 
 
