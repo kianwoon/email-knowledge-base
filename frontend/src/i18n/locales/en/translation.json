@@ -607,6 +607,102 @@
         "bestPractice5": {
           "title": "Focus on high importance: ",
           "description": "Start with high-importance emails as they often contain critical information."
+        },
+        "filters": {
+          "title": "Email Filtering",
+          "folder": "Folder",
+          "selectFolder": "Select Folder",
+          "sender": "Sender",
+          "enterSender": "Enter sender email",
+          "dateRange": "Date Range",
+          "startDate": "Start Date",
+          "endDate": "End Date",
+          "month": "Month",
+          "months": "Months",
+          "importance": "Importance",
+          "selectImportance": "Select importance",
+          "high": "High",
+          "normal": "Normal",
+          "low": "Low",
+          "attachmentType": "Attachment Type",
+          "selectAttachmentType": "Select attachment type",
+          "hasAttachments": "Has Attachments",
+          "withAttachments": "With Attachments",
+          "withoutAttachments": "Without Attachments",
+          "any": "Any",
+          "advancedQuery": "Advanced Query",
+          "enterQuery": "Enter advanced query",
+          "templates": "Filter Templates",
+          "saveTemplate": "Save Template",
+          "loadTemplate": "Load Template",
+          "templateName": "Template Name",
+          "enterTemplateName": "Enter template name",
+          "wordDocument": "Word Document",
+          "excelSpreadsheet": "Excel Spreadsheet",
+          "powerPoint": "PowerPoint",
+          "image": "Image",
+          "archive": "Archive",
+          "activeFilters": "Active Filters",
+          "clearAll": "Clear All",
+          "noFilters": "No active filters",
+          "keywords": "Keywords",
+          "addKeywords": "Add Keywords"
+        },
+        "quickFilters": {
+          "title": "Quick Filters",
+          "today": "Today's Emails",
+          "lastWeek": "Last 7 Days",
+          "withAttachments": "With Attachments",
+          "highImportance": "High Importance"
+        },
+        "results": {
+          "title": "Search Results",
+          "noResults": "No emails found matching your criteria",
+          "selected": "Selected",
+          "sender": "Sender",
+          "subject": "Subject",
+          "date": "Date",
+          "hasAttachments": "Attachments",
+          "importance": "Importance",
+          "page": "Page",
+          "of": "of",
+          "showing": "Showing {{start}} - {{end}} of {{total}} emails",
+          "found": "emails found",
+          "noEmails": "No emails found",
+          "tryDifferentFilters": "Try adjusting your filters or search criteria"
+        },
+        "tooltips": {
+          "folderHelp": "Select the email folder to search in",
+          "senderHelp": "Filter by sender email address",
+          "dateHelp": "Filter emails by date range",
+          "keywordsHelp": "Filter by keywords in subject or body",
+          "importanceHelp": "Filter by email importance level",
+          "attachmentsHelp": "Filter by presence of attachments",
+          "advancedQueryHelp": "Use advanced query syntax for complex filters",
+          "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+          "quickFiltersHelp": "Apply predefined filter combinations"
+        },
+        "notifications": {
+          "templateSaved": {
+            "title": "Template Saved",
+            "description": "Your filter template has been saved successfully"
+          },
+          "templateLoaded": {
+            "title": "Template Loaded",
+            "description": "Filter template has been applied"
+          },
+          "emailsSubmitted": {
+            "title": "Emails Submitted",
+            "description": "Selected emails have been submitted for analysis"
+          },
+          "noEmailsSelected": {
+            "title": "No Emails Selected",
+            "description": "Please select at least one email for analysis"
+          },
+          "templateError": {
+            "title": "Template Error",
+            "description": "Please enter a template name"
+          }
         }
       },
       "secureAuthentication": {
@@ -776,14 +872,16 @@
     "title": "Select Emails to Analyze",
     "subtitle": "Filter and select emails to process for your knowledge base",
     "filters": {
-      "title": "Email Filters",
+      "title": "Email Filtering",
       "folder": "Folder",
-      "selectFolder": "Select folder",
+      "selectFolder": "Select Folder",
       "sender": "Sender",
       "enterSender": "Enter sender email",
+      "dateRange": "Date Range",
       "startDate": "Start Date",
       "endDate": "End Date",
-      "dateRange": "Date Range",
+      "month": "Month",
+      "months": "Months",
       "keywords": "Keywords",
       "addKeyword": "Add keyword",
       "importance": "Importance",
@@ -809,7 +907,11 @@
       "powerPoint": "PowerPoint",
       "image": "Image",
       "archive": "Archive",
-      "saveTemplateTitle": "Save Filter Template"
+      "saveTemplateTitle": "Save Filter Template",
+      "activeFilters": "Active Filters",
+      "clearAll": "Clear All",
+      "noFilters": "No active filters",
+      "addKeywords": "Add Keywords"
     },
     "actions": {
       "search": "Search Emails",
@@ -832,8 +934,11 @@
       "importance": "Importance",
       "page": "Page",
       "of": "of",
-      "showing": "Showing",
-      "viewing": "Viewing"
+      "showing": "Showing {{start}} - {{end}} of {{total}} emails",
+      "viewing": "Viewing",
+      "found": "emails found",
+      "noEmails": "No emails found",
+      "tryDifferentFilters": "Try adjusting your filters or search criteria"
     },
     "tooltips": {
       "folderHelp": "Select the email folder to search in",
@@ -843,7 +948,8 @@
       "importanceHelp": "Filter by email importance level",
       "attachmentsHelp": "Filter by presence of attachments",
       "advancedQueryHelp": "Use advanced query syntax for complex filters",
-      "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")"
+      "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+      "quickFiltersHelp": "Apply predefined filter combinations"
     },
     "notifications": {
       "templateSaved": {
@@ -884,7 +990,9 @@
     "sort": "Sort",
     "select": "Select",
     "submit": "Submit",
-    "reset": "Reset"
+    "reset": "Reset",
+    "previous": "Previous",
+    "next": "Next"
   },
   "analysis": {
     "classification": {

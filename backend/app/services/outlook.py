@@ -82,63 +82,69 @@ async def get_email_preview(
 ) -> Dict[str, Any]:
     """Get email preview with optional filtering."""
     try:
-        # Base headers
+        # Base headers - ConsistencyLevel: eventual is required for $search and $count
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
+            "ConsistencyLevel": "eventual"
         }
 
         # Initialize parameters with basic settings
         params = {
-            "$select": "id,subject,sender,receivedDateTime,bodyPreview,hasAttachments,importance",
+            "$select": "id,subject,sender,receivedDateTime,bodyPreview,importance,hasAttachments"
         }
 
-        # If we have keywords, use $search and handle date filtering in memory
-        if keywords and isinstance(keywords, list) and len(keywords) > 0:
+        # Determine if we need to use search
+        has_search = keywords and isinstance(keywords, list) and len([k for k in keywords if k and isinstance(k, str) and k.strip()])
+
+        # Construct base URL and handle folder selection
+        base_url = "https://graph.microsoft.com/v1.0/me"
+        folder_path = f"/mailFolders/{folder_id}" if folder_id else "/mailFolders/inbox"
+        final_url = f"{base_url}{folder_path}/messages"
+
+        # If using search, we'll need to fetch more results to account for post-filtering
+        if has_search:
+            # Simple search query without complex expressions
             valid_keywords = [k.strip() for k in keywords if k and isinstance(k, str) and k.strip()]
-            if valid_keywords:
-                # When using search, we need to fetch more results for date filtering
-                params["$top"] = per_page * 3  # Fetch more items to account for date filtering
-                params["$search"] = f'"{" ".join(valid_keywords)}"'
-                # Required header for $search
-                headers["ConsistencyLevel"] = "eventual"
-                print("Using $search with ConsistencyLevel: eventual header")
+            params["$search"] = f'"{" ".join(valid_keywords)}"'
+            
+            # When using search, fetch enough results for the current page
+            # We multiply by 3 to account for filtering
+            params["$top"] = page * per_page * 3
         else:
-            # If no keywords, we can use $filter for date and sender filtering
+            # If no search, use OData filters and sorting
+            params["$orderby"] = "receivedDateTime desc"
+            params["$count"] = "true"
+            
             filter_conditions = []
             
+            # Date filters
             if start_date:
-                start_str = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                start_str = start_date.astimezone().replace(microsecond=0).isoformat()
+                if start_str.endswith('+00:00'):
+                    start_str = start_str[:-6] + 'Z'
                 filter_conditions.append(f"receivedDateTime ge {start_str}")
+            
             if end_date:
-                end_str = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                end_str = end_date.astimezone().replace(microsecond=0).isoformat()
+                if end_str.endswith('+00:00'):
+                    end_str = end_str[:-6] + 'Z'
                 filter_conditions.append(f"receivedDateTime le {end_str}")
+            
+            # Sender filter
             if sender:
                 filter_conditions.append(f"from/emailAddress/address eq '{sender}'")
 
             if filter_conditions:
                 params["$filter"] = " and ".join(filter_conditions)
-                # Add count when using filter
-                params["$count"] = "true"
-                # Required header for $count
-                headers["ConsistencyLevel"] = "eventual"
-            
-            # Only add orderby when not using search
-            params["$orderby"] = "receivedDateTime desc"
+
+            # Standard pagination for non-search queries
             params["$top"] = per_page
             params["$skip"] = (page - 1) * per_page
-
-        # Determine folder endpoint
-        folder_path = f"/{folder_id}" if folder_id else "/inbox"
-        
-        # Construct final URL
-        base_url = "https://graph.microsoft.com/v1.0/me/mailFolders"
-        final_url = f"{base_url}{folder_path}/messages"
 
         # Log request details for debugging
         print("\n=== Graph API Request Details ===")
         print(f"➡ Base URL: {base_url}")
-        print(f"➡ Folder Path: {folder_path}")
         print(f"➡ Final URL: {final_url}")
         print(f"➡ Headers: {headers}")
         print(f"➡ Parameters: {params}")
@@ -146,27 +152,12 @@ async def get_email_preview(
 
         # Make API request
         async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    final_url,
-                    headers=headers,
-                    params=params,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 400:
-                    error_msg = e.response.text
-                    if "$search" in params and "ConsistencyLevel" not in headers:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Missing required header 'ConsistencyLevel: eventual' for search operation"
-                        )
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Bad request to Microsoft Graph API: {error_msg}"
-                    )
-                raise
+            response = await client.get(
+                final_url,
+                headers=headers,
+                params=params,
+                timeout=30.0
+            )
             
             # Log response details
             print("\n=== Graph API Response Details ===")
@@ -180,17 +171,22 @@ async def get_email_preview(
 
             data = response.json()
 
-            # Convert to EmailPreview objects and apply date filtering if needed
+            # Process emails and apply filters if needed
             all_emails = []
             for email in data.get("value", []):
                 try:
-                    received_date = datetime.fromisoformat(email["receivedDateTime"].replace('Z', '+00:00'))
-                    
-                    # Apply date filtering if we're using search
-                    if keywords and (start_date or end_date):
-                        if start_date and received_date < start_date:
+                    # Apply date and sender filters for search queries
+                    if has_search:
+                        email_date = datetime.fromisoformat(email["receivedDateTime"].replace('Z', '+00:00'))
+                        
+                        # Skip if outside date range
+                        if start_date and email_date < start_date:
                             continue
-                        if end_date and received_date > end_date:
+                        if end_date and email_date > end_date:
+                            continue
+                        
+                        # Skip if sender doesn't match
+                        if sender and email["sender"]["emailAddress"]["address"].lower() != sender.lower():
                             continue
 
                     preview = EmailPreview(
@@ -199,8 +195,8 @@ async def get_email_preview(
                         sender=email["sender"]["emailAddress"]["address"],
                         received_date=email["receivedDateTime"],
                         snippet=email.get("bodyPreview", ""),
-                        has_attachments=email.get("hasAttachments", False),
-                        importance=email.get("importance", "normal")
+                        importance=email.get("importance", "normal"),
+                        has_attachments=email.get("hasAttachments", False)
                     )
                     all_emails.append(preview)
                 except Exception as e:
@@ -209,7 +205,7 @@ async def get_email_preview(
                     continue
 
             # Handle pagination and sorting for search results
-            if keywords:
+            if has_search:
                 # Sort emails by received date in descending order
                 all_emails.sort(key=lambda x: x.received_date, reverse=True)
                 

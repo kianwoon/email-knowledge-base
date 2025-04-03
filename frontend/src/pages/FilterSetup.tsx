@@ -54,7 +54,7 @@ import {
 } from '@chakra-ui/react';
 import { 
   AddIcon, 
-  ChevronRightIcon, 
+  ChevronRightIcon,
   QuestionIcon,
   SearchIcon,
   MoonIcon,
@@ -169,7 +169,8 @@ const FilterSetup: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalEmails, setTotalEmails] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const pageSizeOptions = [10, 25, 50, 100];
   const [isEndDateDisabled, setIsEndDateDisabled] = useState(true);
   const [dateError, setDateError] = useState<string | null>(null);
   
@@ -190,64 +191,10 @@ const FilterSetup: React.FC = () => {
     { value: 'low', label: t('emailProcessing.filters.low') },
   ];
   
-  // Handle filter change
-  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    
-    if (name === 'start_date' || name === 'end_date') {
-      // Clear any existing date errors
-      setDateError(null);
-      
-      if (value) {
-        try {
-          // Create date object and format it correctly for Microsoft Graph API
-          const date = new Date(value);
-          let formattedDate: string;
-          
-          if (name === 'start_date') {
-            // Set to start of day (00:00:00) UTC
-            date.setUTCHours(0, 0, 0, 0);
-            formattedDate = date.toISOString().replace(/\.\d{3}Z$/, 'Z');
-          } else {
-            // Set to end of day (23:59:59) UTC
-            date.setUTCHours(23, 59, 59, 999);
-            formattedDate = date.toISOString().replace(/\.\d{3}Z$/, 'Z');
-          }
-          
-          // Validate date range if both dates are set
-          if (name === 'start_date' && filter.end_date) {
-            const endDate = new Date(filter.end_date);
-            if (date > endDate) {
-              setDateError('Start date cannot be after end date');
-              return;
-            }
-          } else if (name === 'end_date' && filter.start_date) {
-            const startDate = new Date(filter.start_date);
-            if (date < startDate) {
-              setDateError('End date cannot be before start date');
-              return;
-            }
-          }
-          
-          setFilter(prev => ({ ...prev, [name]: formattedDate }));
-        } catch (error) {
-          console.error('Error parsing date:', error);
-          setDateError('Invalid date format');
-        }
-      } else {
-        setFilter(prev => ({ ...prev, [name]: undefined }));
-      }
-      return;
-    }
-
-    setFilter(prev => ({ ...prev, [name]: value }));
-  }, [filter.end_date, filter.start_date]);
-
   // Load previews
   const loadPreviews = useCallback(async () => {
     if (isInitialLoad) {
       setIsInitialLoad(false);
-      return;
     }
 
     setIsLoadingPreviews(true);
@@ -266,8 +213,7 @@ const FilterSetup: React.FC = () => {
         start_date: formattedFilter.start_date,
         end_date: formattedFilter.end_date
       });
-
-      const previewData = await getEmailPreviews(formattedFilter);
+      console.log('previewData:', previewData);
 
       // Update state with response data
       setPreviews(previewData.items || []);
@@ -325,9 +271,17 @@ const FilterSetup: React.FC = () => {
 
   // Add pagination handlers
   const handlePageChange = useCallback((newPage: number) => {
-    setCurrentPage(newPage);
-    loadPreviews();
-  }, [loadPreviews]);
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  }, [totalPages]);
+
+  // Watch for page changes and reload previews
+  useEffect(() => {
+    if (!isInitialLoad) {
+      loadPreviews();
+    }
+  }, [currentPage, itemsPerPage, loadPreviews, isInitialLoad]);
 
   // Define handleSearch with useCallback
   const handleSearch = useCallback(async () => {
@@ -558,36 +512,93 @@ const FilterSetup: React.FC = () => {
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaCalendarAlt} color="primary.500" mr={2} />
                       {t('emailProcessing.filters.dateRange')}
+                      <Tooltip label={t('emailProcessing.tooltips.dateHelp')} placement="top">
+                        <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                      </Tooltip>
                     </FormLabel>
-                    <Grid templateColumns="repeat(2, 1fr)" gap={4}>
-                      <Input
-                        type="date"
-                        name="start_date"
-                        value={filter.start_date ? filter.start_date.split('T')[0] : ''}
-                        onChange={handleFilterChange}
-                        placeholder={t('emailProcessing.filters.startDate')}
-                        max={filter.end_date ? filter.end_date.split('T')[0] : undefined}
-                        focusBorderColor="primary.400"
-                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
-                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
-                      />
-                      <Input
-                        type="date"
-                        name="end_date"
-                        value={filter.end_date ? filter.end_date.split('T')[0] : ''}
-                        onChange={handleFilterChange}
-                        placeholder={t('emailProcessing.filters.endDate')}
-                        min={filter.start_date ? filter.start_date.split('T')[0] : undefined}
-                        focusBorderColor="primary.400"
-                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
-                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
-                      />
-                    </Grid>
-                    {dateError && (
-                      <Text color="red.500" fontSize="sm" mt={1}>
-                        {dateError}
-                      </Text>
-                    )}
+                    <VStack spacing={2} align="stretch">
+                      <ButtonGroup size="sm" isAttached variant="outline">
+                        <Button
+                          onClick={() => {
+                            const endDate = new Date();
+                            const startDate = new Date();
+                            startDate.setMonth(endDate.getMonth() - 1);
+                            // Ensure we're using the correct timezone
+                            const startDateStr = startDate.toISOString().split('T')[0];
+                            const endDateStr = endDate.toISOString().split('T')[0];
+                            setFilter(prev => ({
+                              ...prev,
+                              start_date: startDateStr,
+                              end_date: endDateStr
+                            }));
+                          }}
+                        >
+                          1 {t('emailProcessing.filters.month')}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            const endDate = new Date();
+                            const startDate = new Date();
+                            startDate.setMonth(endDate.getMonth() - 3);
+                            // Ensure we're using the correct timezone
+                            const startDateStr = startDate.toISOString().split('T')[0];
+                            const endDateStr = endDate.toISOString().split('T')[0];
+                            setFilter(prev => ({
+                              ...prev,
+                              start_date: startDateStr,
+                              end_date: endDateStr
+                            }));
+                          }}
+                        >
+                          3 {t('emailProcessing.filters.months')}
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            const endDate = new Date();
+                            const startDate = new Date();
+                            startDate.setMonth(endDate.getMonth() - 6);
+                            // Ensure we're using the correct timezone
+                            const startDateStr = startDate.toISOString().split('T')[0];
+                            const endDateStr = endDate.toISOString().split('T')[0];
+                            setFilter(prev => ({
+                              ...prev,
+                              start_date: startDateStr,
+                              end_date: endDateStr
+                            }));
+                          }}
+                        >
+                          6 {t('emailProcessing.filters.months')}
+                        </Button>
+                      </ButtonGroup>
+                      <Grid templateColumns="repeat(2, 1fr)" gap={4}>
+                        <Input
+                          type="date"
+                          name="start_date"
+                          value={filter.start_date || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.startDate')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                        />
+                        <Input
+                          type="date"
+                          name="end_date"
+                          value={filter.end_date || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.endDate')}
+                          min={filter.start_date || undefined}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                        />
+                      </Grid>
+                      {dateError && (
+                        <Text color="red.500" fontSize="sm" mt={1}>
+                          {dateError}
+                        </Text>
+                      )}
+                    </VStack>
                   </FormControl>
                 </GridItem>
                 
@@ -604,7 +615,7 @@ const FilterSetup: React.FC = () => {
                       <Input 
                         value={keywordInput} 
                         onChange={(e) => setKeywordInput(e.target.value)}
-                        placeholder={t('emailProcessing.filters.addKeyword')}
+                        placeholder={t('emailProcessing.filters.addKeywords')}
                         onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
                         focusBorderColor="primary.400"
                         bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
@@ -612,7 +623,7 @@ const FilterSetup: React.FC = () => {
                       />
                       <InputRightElement>
                         <IconButton
-                          aria-label={t('emailProcessing.filters.addKeyword')}
+                          aria-label={t('emailProcessing.filters.addKeywords')}
                           icon={<AddIcon />}
                           size="sm"
                           colorScheme="primary"
@@ -644,18 +655,21 @@ const FilterSetup: React.FC = () => {
                   </FormControl>
                 </GridItem>
                 
-                {/* Hide Advanced Filters Toggle */}
-                {/* <GridItem colSpan={{ base: 1, md: 3 }}>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                {/* Advanced Filters Toggle */}
+                <GridItem colSpan={{ base: 1, md: 3 }}>
+                  {/* Hide show advanced filters button */}
+                  {/* <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    leftIcon={showAdvancedFilters ? <ChevronRightIcon transform="rotate(90deg)" /> : <ChevronRightIcon />}
-                    color="primary.500"
+                    leftIcon={showAdvancedFilters ? <ChevronUpIcon /> : <ChevronDownIcon />}
                   >
-                    {showAdvancedFilters ? t('Hide Advanced Filters') : t('Show Advanced Filters')}
-                  </Button>
-                </GridItem> */}
+                    {showAdvancedFilters
+                      ? t('emailProcessing.filters.hideAdvanced')
+                      : t('emailProcessing.filters.showAdvanced')
+                    }
+                  </Button> */}
+                </GridItem>
                 
                 {/* Hide Advanced Filters Section */}
                 {/* {showAdvancedFilters && (
@@ -707,51 +721,73 @@ const FilterSetup: React.FC = () => {
           </Card>
           
           {/* Results Card */}
-          {(previews.length > 0 || isLoadingPreviews) && (
-            <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
-              <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} pb={0}>
-                <Flex justify="space-between" align="center">
-                  <Flex align="center">
-                    <Icon as={FaSearch} color="primary.500" mr={2} />
-                    <Heading size="md">{t('emailProcessing.results.title')}</Heading>
-                  </Flex>
-                  <Text color="gray.500">
-                    {t('emailProcessing.results.viewing')} {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, totalEmails)} {t('emailProcessing.results.of')} {totalEmails}
-                  </Text>
-                </Flex>
-              </CardHeader>
-              <CardBody>
-                <Box overflowX="auto">
-                  {isLoadingPreviews ? (
-                    <EmailTableSkeleton />
-                  ) : previews.length > 0 ? (
+          <Card variant="outline" mb={6}>
+            <CardHeader>
+              <Flex justify="space-between" align="center">
+                <Heading size="md" display="flex" alignItems="center">
+                  <Icon as={FaEnvelope} mr={2} />
+                  {t('emailProcessing.results.title')} 
+                  {totalEmails > 0 && (
+                    <Tag ml={2} colorScheme="primary" size="sm">
+                      {totalEmails} {t('emailProcessing.results.found')}
+                    </Tag>
+                  )}
+                </Heading>
+                {previews.length > 0 && (
+                  <ButtonGroup size="sm" isAttached variant="outline">
+                    <Button
+                      leftIcon={<Icon as={ChevronLeftIcon} />}
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      isDisabled={currentPage === 1}
+                    >
+                      {t('common.previous')}
+                    </Button>
+                    <Button
+                      rightIcon={<Icon as={ChevronRightIconSolid} />}
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      isDisabled={currentPage === totalPages}
+                    >
+                      {t('common.next')}
+                    </Button>
+                  </ButtonGroup>
+                )}
+              </Flex>
+            </CardHeader>
+            <CardBody>
+              <Box overflowX="auto">
+                {isLoadingPreviews ? (
+                  <EmailTableSkeleton />
+                ) : previews.length > 0 ? (
+                  <>
                     <Table variant="simple">
                       <Thead>
-                        <Tr height="48px">
-                          <Th width="40px">
+                        <Tr>
+                          {/* Hide checkbox column */}
+                          {/* <Th width="40px" px={2}>
                             <Checkbox
                               isChecked={selectedEmails.length === previews.length && previews.length > 0}
                               onChange={selectAllEmails}
                               colorScheme="primary"
                             />
-                          </Th>
-                          <Th width="200px">{t('emailProcessing.results.sender')}</Th>
-                          <Th width="300px">{t('emailProcessing.results.subject')}</Th>
+                          </Th> */}
+                          <Th>{t('emailProcessing.results.sender')}</Th>
+                          <Th>{t('emailProcessing.results.subject')}</Th>
                           <Th width="120px">{t('emailProcessing.results.date')}</Th>
-                          <Th width="120px">{t('emailProcessing.results.hasAttachments')}</Th>
-                          <Th width="120px">{t('emailProcessing.results.importance')}</Th>
+                          <Th width="100px" textAlign="center">{t('emailProcessing.results.hasAttachments')}</Th>
+                          <Th width="100px">{t('emailProcessing.results.importance')}</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
                         {previews.map(email => (
                           <Tr key={email.id} height="48px">
-                            <Td>
+                            {/* Hide checkbox column */}
+                            {/* <Td>
                               <Checkbox 
                                 isChecked={selectedEmails.includes(email.id)}
                                 onChange={() => toggleEmailSelection(email.id)}
                                 colorScheme="primary"
                               />
-                            </Td>
+                            </Td> */}
                             <Td>
                               <Text noOfLines={1} title={email.sender}>
                                 {email.sender}
@@ -781,65 +817,61 @@ const FilterSetup: React.FC = () => {
                         ))}
                       </Tbody>
                     </Table>
-                  ) : (
-                    <Text textAlign="center" py={4} color="gray.500">
+                    <Flex justify="center" mt={4}>
+                      <Text color="gray.500" fontSize="sm">
+                        {t('emailProcessing.results.showing', {
+                          start: (currentPage - 1) * itemsPerPage + 1,
+                          end: Math.min(currentPage * itemsPerPage, totalEmails),
+                          total: totalEmails
+                        })}
+                      </Text>
+                    </Flex>
+                  </>
+                ) : (
+                  <Flex 
+                    direction="column" 
+                    align="center" 
+                    justify="center" 
+                    py={8}
+                    color="gray.500"
+                  >
+                    <Icon as={FaSearch} boxSize={8} mb={4} />
+                    <Text fontSize="lg" mb={2}>
                       {t('emailProcessing.results.noEmails')}
                     </Text>
-                  )}
-                </Box>
-                
-                {/* Add pagination controls */}
-                <Flex justify="space-between" align="center" mt={4}>
-                  <Text fontSize="sm">
-                    {selectedEmails.length} {t('emailProcessing.results.selected')}
-                  </Text>
-                  <HStack spacing={2}>
-                    <ButtonGroup variant="outline" size="sm" isAttached>
-                      <Button
-                        onClick={() => handlePageChange(1)}
-                        isDisabled={currentPage === 1 || isLoadingPreviews}
-                      >
-                        <ChevronLeftIcon />
-                        <ChevronLeftIcon ml="-1.5" />
-                      </Button>
-                      <Button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        isDisabled={currentPage === 1 || isLoadingPreviews}
-                      >
-                        <ChevronLeftIcon />
-                      </Button>
-                      <Button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        isDisabled={currentPage === totalPages || isLoadingPreviews}
-                      >
-                        <ChevronRightIconSolid />
-                      </Button>
-                      <Button
-                        onClick={() => handlePageChange(totalPages)}
-                        isDisabled={currentPage === totalPages || isLoadingPreviews}
-                      >
-                        <ChevronRightIconSolid />
-                        <ChevronRightIconSolid ml="-1.5" />
-                      </Button>
-                    </ButtonGroup>
-                    <Text fontSize="sm" minW="100px" textAlign="center">
-                      {t('emailProcessing.results.page')} {currentPage} {t('emailProcessing.results.of')} {totalPages}
+                    <Text fontSize="sm">
+                      {t('emailProcessing.results.tryDifferentFilters')}
                     </Text>
-                  </HStack>
-                  <Button
-                    colorScheme="primary"
-                    leftIcon={<Icon as={FaExclamationCircle} />}
-                    onClick={handleAnalyzeEmails}
-                    isLoading={isSubmitting}
-                    loadingText={t('emailProcessing.actions.analyzing')}
-                    isDisabled={selectedEmails.length === 0}
-                  >
-                    {t('emailProcessing.actions.analyze')}
-                  </Button>
+                  </Flex>
+                )}
+              </Box>
+              
+              {/* Add pagination controls */}
+              {/* {previews.length > 0 && (
+                <Flex justify="space-between" align="center" mt={4}>
+                  <Text color="gray.500" fontSize="sm">
+                    {t('emailProcessing.results.showing', {
+                      start: (currentPage - 1) * itemsPerPage + 1,
+                      end: Math.min(currentPage * itemsPerPage, totalEmails),
+                      total: totalEmails
+                    })}
+                  </Text>
+                  <ButtonGroup size="sm">
+                    <Button
+                      variant="outline"
+                      colorScheme="primary"
+                      leftIcon={<Icon as={FaCode} />}
+                      onClick={() => handleAnalyzeEmails()}
+                      isDisabled={selectedEmails.length === 0}
+                      isLoading={isSubmitting}
+                    >
+                      {t('emailProcessing.actions.analyze')}
+                    </Button>
+                  </ButtonGroup>
                 </Flex>
-              </CardBody>
-            </Card>
-          )}
+              )} */}
+            </CardBody>
+          </Card>
         </VStack>
       </Container>
       
