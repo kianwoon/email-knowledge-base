@@ -47,12 +47,14 @@ def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
 async def login():
     """Generate Microsoft OAuth login URL"""
     # Enhanced logging for debugging
+    print(f"=== Login Endpoint Called ===")
     print(f"DEBUG - Environment variables:")
     print(f"DEBUG - BACKEND_URL: {settings.BACKEND_URL}")
     print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
     print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
     print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
     print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
+    print(f"DEBUG - IS_PRODUCTION: {settings.IS_PRODUCTION}")
     
     try:
         # Create state with next_url for callback

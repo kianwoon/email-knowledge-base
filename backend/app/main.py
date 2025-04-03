@@ -35,6 +35,8 @@ origins = [
     "http://localhost:5174",  # Alternative development port
     "http://localhost:5175",  # Alternative development port
     settings.FRONTEND_URL,    # Production frontend
+    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app",  # Production backend
+    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api",  # Production API
 ]
 logger.debug(f"Configuring CORS with allowed origins: {origins}")
 
