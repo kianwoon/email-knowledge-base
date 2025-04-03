@@ -783,6 +783,7 @@
       "enterSender": "Enter sender email",
       "startDate": "Start Date",
       "endDate": "End Date",
+      "dateRange": "Date Range",
       "keywords": "Keywords",
       "addKeyword": "Add keyword",
       "importance": "Importance",
@@ -807,7 +808,8 @@
       "excelSpreadsheet": "Excel Spreadsheet",
       "powerPoint": "PowerPoint",
       "image": "Image",
-      "archive": "Archive"
+      "archive": "Archive",
+      "saveTemplateTitle": "Save Filter Template"
     },
     "actions": {
       "search": "Search Emails",
@@ -821,7 +823,8 @@
     "results": {
       "title": "Search Results",
       "noResults": "No emails found matching your criteria",
-      "selected": "Selected",
+      "noEmails": "No emails found",
+      "selected": "emails selected",
       "sender": "Sender",
       "subject": "Subject",
       "date": "Date",
@@ -829,7 +832,8 @@
       "importance": "Importance",
       "page": "Page",
       "of": "of",
-      "showing": "Showing"
+      "showing": "Showing",
+      "viewing": "Viewing"
     },
     "tooltips": {
       "folderHelp": "Select the email folder to search in",
@@ -857,6 +861,10 @@
       "noEmailsSelected": {
         "title": "No Emails Selected",
         "description": "Please select at least one email for analysis"
+      },
+      "templateError": {
+        "title": "Template Error",
+        "description": "Please enter a template name"
       }
     }
   },
