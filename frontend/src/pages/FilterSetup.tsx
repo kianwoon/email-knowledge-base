@@ -490,7 +490,8 @@ const FilterSetup: React.FC = () => {
                   </FormControl>
                 </GridItem>
                 
-                <GridItem>
+                {/* Hide sender filter */}
+                {/* <GridItem>
                   <FormControl>
                     <FormLabel fontWeight="medium" display="flex" alignItems="center">
                       <Icon as={FaUserAlt} color="primary.500" mr={2} />
@@ -509,7 +510,7 @@ const FilterSetup: React.FC = () => {
                       borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                     />
                   </FormControl>
-                </GridItem>
+                </GridItem> */}
                 
                 <GridItem>
                   <FormControl isInvalid={!!dateError}>
@@ -661,15 +662,18 @@ const FilterSetup: React.FC = () => {
                 
                 {/* Advanced Filters Toggle */}
                 <GridItem colSpan={{ base: 1, md: 3 }}>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  {/* Hide show advanced filters button */}
+                  {/* <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    leftIcon={showAdvancedFilters ? <ChevronRightIcon transform="rotate(90deg)" /> : <ChevronRightIcon />}
-                    color="primary.500"
+                    leftIcon={showAdvancedFilters ? <ChevronUpIcon /> : <ChevronDownIcon />}
                   >
-                    {showAdvancedFilters ? t('Hide Advanced Filters') : t('Show Advanced Filters')}
-                  </Button>
+                    {showAdvancedFilters
+                      ? t('emailProcessing.filters.hideAdvanced')
+                      : t('emailProcessing.filters.showAdvanced')
+                    }
+                  </Button> */}
                 </GridItem>
                 
                 {/* Advanced Filters */}
@@ -856,41 +860,22 @@ const FilterSetup: React.FC = () => {
                   )}
                 </Heading>
                 {previews.length > 0 && (
-                  <HStack spacing={4}>
-                    <Select
-                      size="sm"
-                      width="120px"
-                      value={itemsPerPage}
-                      onChange={(e) => {
-                        const newSize = Number(e.target.value);
-                        setItemsPerPage(newSize);
-                        setCurrentPage(1); // Reset to first page when changing page size
-                        loadPreviews(); // Reload with new page size
-                      }}
+                  <ButtonGroup size="sm" isAttached variant="outline">
+                    <Button
+                      leftIcon={<Icon as={ChevronLeftIcon} />}
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      isDisabled={currentPage === 1}
                     >
-                      {pageSizeOptions.map(size => (
-                        <option key={size} value={size}>
-                          {size} / {t('emailProcessing.results.page')}
-                        </option>
-                      ))}
-                    </Select>
-                    <ButtonGroup size="sm" isAttached variant="outline">
-                      <Button
-                        leftIcon={<Icon as={ChevronLeftIcon} />}
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        isDisabled={currentPage === 1}
-                      >
-                        {t('common.previous')}
-                      </Button>
-                      <Button
-                        rightIcon={<Icon as={ChevronRightIconSolid} />}
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        isDisabled={currentPage === totalPages}
-                      >
-                        {t('common.next')}
-                      </Button>
-                    </ButtonGroup>
-                  </HStack>
+                      {t('common.previous')}
+                    </Button>
+                    <Button
+                      rightIcon={<Icon as={ChevronRightIconSolid} />}
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      isDisabled={currentPage === totalPages}
+                    >
+                      {t('common.next')}
+                    </Button>
+                  </ButtonGroup>
                 )}
               </Flex>
             </CardHeader>
@@ -899,62 +884,75 @@ const FilterSetup: React.FC = () => {
                 {isLoadingPreviews ? (
                   <EmailTableSkeleton />
                 ) : previews.length > 0 ? (
-                  <Table variant="simple">
-                    <Thead>
-                      <Tr>
-                        <Th width="40px" px={2}>
-                          <Checkbox
-                            isChecked={selectedEmails.length === previews.length && previews.length > 0}
-                            onChange={selectAllEmails}
-                            colorScheme="primary"
-                          />
-                        </Th>
-                        <Th>{t('emailProcessing.results.sender')}</Th>
-                        <Th>{t('emailProcessing.results.subject')}</Th>
-                        <Th width="120px">{t('emailProcessing.results.date')}</Th>
-                        <Th width="100px" textAlign="center">{t('emailProcessing.results.hasAttachments')}</Th>
-                        <Th width="100px">{t('emailProcessing.results.importance')}</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {previews.map(email => (
-                        <Tr key={email.id} height="48px">
-                          <Td>
-                            <Checkbox 
-                              isChecked={selectedEmails.includes(email.id)}
-                              onChange={() => toggleEmailSelection(email.id)}
+                  <>
+                    <Table variant="simple">
+                      <Thead>
+                        <Tr>
+                          {/* Hide checkbox column */}
+                          {/* <Th width="40px" px={2}>
+                            <Checkbox
+                              isChecked={selectedEmails.length === previews.length && previews.length > 0}
+                              onChange={selectAllEmails}
                               colorScheme="primary"
                             />
-                          </Td>
-                          <Td>
-                            <Text noOfLines={1} title={email.sender}>
-                              {email.sender}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Text noOfLines={1} title={email.subject}>
-                              {email.subject}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Text noOfLines={1}>
-                              {new Date(email.received_date).toLocaleDateString()}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Text noOfLines={1}>
-                              {email.has_attachments ? t('common.yes') : t('common.no')}
-                            </Text>
-                          </Td>
-                          <Td>
-                            <Text noOfLines={1}>
-                              {email.importance}
-                            </Text>
-                          </Td>
+                          </Th> */}
+                          <Th>{t('emailProcessing.results.sender')}</Th>
+                          <Th>{t('emailProcessing.results.subject')}</Th>
+                          <Th width="120px">{t('emailProcessing.results.date')}</Th>
+                          <Th width="100px" textAlign="center">{t('emailProcessing.results.hasAttachments')}</Th>
+                          <Th width="100px">{t('emailProcessing.results.importance')}</Th>
                         </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
+                      </Thead>
+                      <Tbody>
+                        {previews.map(email => (
+                          <Tr key={email.id} height="48px">
+                            {/* Hide checkbox column */}
+                            {/* <Td>
+                              <Checkbox 
+                                isChecked={selectedEmails.includes(email.id)}
+                                onChange={() => toggleEmailSelection(email.id)}
+                                colorScheme="primary"
+                              />
+                            </Td> */}
+                            <Td>
+                              <Text noOfLines={1} title={email.sender}>
+                                {email.sender}
+                              </Text>
+                            </Td>
+                            <Td>
+                              <Text noOfLines={1} title={email.subject}>
+                                {email.subject}
+                              </Text>
+                            </Td>
+                            <Td>
+                              <Text noOfLines={1}>
+                                {new Date(email.received_date).toLocaleDateString()}
+                              </Text>
+                            </Td>
+                            <Td>
+                              <Text noOfLines={1}>
+                                {email.has_attachments ? t('common.yes') : t('common.no')}
+                              </Text>
+                            </Td>
+                            <Td>
+                              <Text noOfLines={1}>
+                                {email.importance}
+                              </Text>
+                            </Td>
+                          </Tr>
+                        ))}
+                      </Tbody>
+                    </Table>
+                    <Flex justify="center" mt={4}>
+                      <Text color="gray.500" fontSize="sm">
+                        {t('emailProcessing.results.showing', {
+                          start: (currentPage - 1) * itemsPerPage + 1,
+                          end: Math.min(currentPage * itemsPerPage, totalEmails),
+                          total: totalEmails
+                        })}
+                      </Text>
+                    </Flex>
+                  </>
                 ) : (
                   <Flex 
                     direction="column" 
@@ -975,7 +973,7 @@ const FilterSetup: React.FC = () => {
               </Box>
               
               {/* Add pagination controls */}
-              {previews.length > 0 && (
+              {/* {previews.length > 0 && (
                 <Flex justify="space-between" align="center" mt={4}>
                   <Text color="gray.500" fontSize="sm">
                     {t('emailProcessing.results.showing', {
@@ -997,7 +995,7 @@ const FilterSetup: React.FC = () => {
                     </Button>
                   </ButtonGroup>
                 </Flex>
-              )}
+              )} */}
             </CardBody>
           </Card>
         </VStack>
