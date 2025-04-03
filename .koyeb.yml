@@ -29,7 +29,7 @@ services:
       - name: FRONTEND_URL
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: BACKEND_URL
-        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api"
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
       - name: MS_REDIRECT_URI
         value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback"
       - name: JWT_SECRET
@@ -48,7 +48,7 @@ services:
       max_retries: 10
     public: true
     routes:
-      - path: /api
+      - path: /api/*
         port: 8000
 
   - name: frontend-service
