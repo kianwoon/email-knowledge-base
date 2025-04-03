@@ -51,18 +51,18 @@ app.add_middleware(
 )
 
 # Mount routes
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(email.router, prefix="/api/emails", tags=["emails"])
-app.include_router(review.router, prefix="/api/review", tags=["Review Process"])
-app.include_router(vector.router, prefix="/api/vector", tags=["Vector Database"])
-app.include_router(test.router, prefix="/api/test", tags=["test"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(email.router, prefix="/emails", tags=["emails"])
+app.include_router(review.router, prefix="/review", tags=["Review Process"])
+app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix="/test", tags=["test"])
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 logger.debug(f"Mounting static directory: {static_dir}")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-@app.get("/health")
+@app.get("/")
 async def health_check():
     """Health check endpoint"""
     logger.debug("Health check endpoint called")

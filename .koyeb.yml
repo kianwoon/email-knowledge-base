@@ -38,7 +38,7 @@ services:
         value: "true"
     health_check:
       port: 8000
-      path: /health
+      path: /api/health
       initial_delay: 30s
       interval: 10s
       timeout: 5s
