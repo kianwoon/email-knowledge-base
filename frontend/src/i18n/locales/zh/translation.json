@@ -822,10 +822,13 @@
       "selectFolder": "选择文件夹",
       "sender": "发件人",
       "enterSender": "输入发件人邮箱",
+      "dateRange": "日期范围",
       "startDate": "开始日期",
       "endDate": "结束日期",
+      "month": "个月",
+      "months": "个月",
       "keywords": "关键词",
-      "addKeyword": "添加关键词",
+      "addKeywords": "添加关键词",
       "importance": "重要性",
       "selectImportance": "选择重要性",
       "high": "高",
@@ -848,7 +851,10 @@
       "excelSpreadsheet": "Excel表格",
       "powerPoint": "PowerPoint",
       "image": "图片",
-      "archive": "压缩包"
+      "archive": "压缩包",
+      "activeFilters": "已启用的筛选条件",
+      "clearAll": "清除全部",
+      "noFilters": "没有启用的筛选条件"
     },
     "actions": {
       "search": "搜索邮件",
@@ -870,7 +876,10 @@
       "importance": "重要性",
       "page": "页",
       "of": "共",
-      "showing": "显示"
+      "showing": "显示第 {{start}} - {{end}} 封，共 {{total}} 封",
+      "found": "封邮件",
+      "noEmails": "未找到邮件",
+      "tryDifferentFilters": "请尝试调整筛选条件或搜索条件"
     },
     "tooltips": {
       "folderHelp": "选择要搜索的邮件文件夹",
@@ -878,9 +887,10 @@
       "dateHelp": "按日期范围筛选邮件",
       "keywordsHelp": "按主题或正文中的关键词筛选",
       "importanceHelp": "按邮件重要性级别筛选",
-      "attachmentsHelp": "按附件存在与否筛选",
+      "attachmentsHelp": "按附件存在与否筛选邮件",
       "advancedQueryHelp": "使用高级查询语法进行复杂筛选",
-      "queryExample": "示例: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")"
+      "queryExample": "示例: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+      "quickFiltersHelp": "应用预定义的筛选组合"
     },
     "notifications": {
       "templateSaved": {
@@ -899,6 +909,13 @@
         "title": "未选择邮件",
         "description": "请至少选择一封邮件进行分析"
       }
+    },
+    "quickFilters": {
+      "title": "快速筛选",
+      "today": "今天的邮件",
+      "lastWeek": "最近7天",
+      "withAttachments": "带附件",
+      "highImportance": "高重要性"
     }
   },
   "common": {
@@ -917,7 +934,9 @@
     "sort": "排序",
     "select": "选择",
     "submit": "提交",
-    "reset": "重置"
+    "reset": "重置",
+    "previous": "上一页",
+    "next": "下一页"
   },
   "buttons": {
     "cancel": "取消",
