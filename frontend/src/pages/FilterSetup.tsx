@@ -199,19 +199,17 @@ const FilterSetup: React.FC = () => {
 
     setIsLoadingPreviews(true);
     try {
-      // Format the filter with proper date handling for Microsoft Graph API
+      // Format dates to ISO string if they exist
       const formattedFilter = {
         ...filter,
-        // Dates are already in the correct format from handleFilterChange
-        start_date: filter.start_date,
-        end_date: filter.end_date,
-        page: currentPage,
-        per_page: itemsPerPage
+        start_date: filter.start_date ? new Date(filter.start_date).toISOString() : undefined,
+        end_date: filter.end_date ? new Date(filter.end_date).toISOString() : undefined
       };
 
-      console.log('Sending filter with dates:', {
-        start_date: formattedFilter.start_date,
-        end_date: formattedFilter.end_date
+      const previewData = await getEmailPreviews({
+        ...formattedFilter,
+        page: currentPage,
+        per_page: itemsPerPage
       });
       console.log('previewData:', previewData);
 
@@ -221,16 +219,7 @@ const FilterSetup: React.FC = () => {
       setTotalPages(previewData.total_pages);
     } catch (error: any) {
       console.error('Error loading previews:', error);
-      // Extract error message properly
-      let errorMessage = 'Failed to load email previews';
-      if (error.response?.data?.detail) {
-        errorMessage = typeof error.response.data.detail === 'string' 
-          ? error.response.data.detail 
-          : 'Server error occurred';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to load email previews';
       toast({
         title: 'Error loading email previews',
         description: errorMessage,
@@ -268,6 +257,22 @@ const FilterSetup: React.FC = () => {
     
     loadFolders();
   }, [t, toast]);
+
+  // Handle filter change
+  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    if (name === 'start_date' || name === 'end_date') {
+      // Clear any existing date errors
+      setDateError(null);
+      
+      // Update the filter with the new date
+      setFilter(prev => ({ ...prev, [name]: value }));
+      return;
+    }
+
+    setFilter(prev => ({ ...prev, [name]: value }));
+  }, []);
 
   // Add pagination handlers
   const handlePageChange = useCallback((newPage: number) => {
@@ -671,8 +676,8 @@ const FilterSetup: React.FC = () => {
                   </Button> */}
                 </GridItem>
                 
-                {/* Hide Advanced Filters Section */}
-                {/* {showAdvancedFilters && (
+                {/* Advanced Filters */}
+                {showAdvancedFilters && (
                   <>
                     <GridItem>
                       <FormControl>
@@ -700,8 +705,129 @@ const FilterSetup: React.FC = () => {
                         </Select>
                       </FormControl>
                     </GridItem>
+                    
+                    <GridItem>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaPaperclip} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.hasAttachments')}
+                          <Tooltip label={t('emailProcessing.tooltips.attachmentsHelp')} placement="top">
+                            <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                          </Tooltip>
+                        </FormLabel>
+                        <RadioGroup 
+                          onChange={(value) => setFilter(prev => ({ ...prev, has_attachments: value === 'true' ? true : value === 'false' ? false : undefined }))}
+                          value={filter.has_attachments === undefined ? '' : String(filter.has_attachments)}
+                        >
+                          <Stack direction="row">
+                            <Radio value="true">{t('emailProcessing.filters.withAttachments')}</Radio>
+                            <Radio value="false">{t('emailProcessing.filters.withoutAttachments')}</Radio>
+                            <Radio value="">{t('emailProcessing.filters.any')}</Radio>
+                          </Stack>
+                        </RadioGroup>
+                      </FormControl>
+                    </GridItem>
+                    
+                    <GridItem>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaPaperclip} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.attachmentType')}
+                        </FormLabel>
+                        <Select
+                          name="attachment_type"
+                          value={filter.attachment_type || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.selectAttachmentType')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          isDisabled={filter.has_attachments === false}
+                        >
+                          {attachmentTypes.map(type => (
+                            <option key={type.value} value={type.value}>
+                              {type.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </GridItem>
+                    
+                    <GridItem colSpan={{ base: 1, md: 3 }}>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaCode} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.advancedQuery')}
+                          <Tooltip label={t('emailProcessing.tooltips.advancedQueryHelp')} placement="top">
+                            <QuestionIcon ml={1} boxSize={3} color="gray.500" />
+                          </Tooltip>
+                        </FormLabel>
+                        <Textarea
+                          name="advanced_query"
+                          value={filter.advanced_query || ''}
+                          onChange={handleFilterChange}
+                          placeholder={t('emailProcessing.filters.enterQuery')}
+                          focusBorderColor="primary.400"
+                          bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                          borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          size="sm"
+                          rows={3}
+                        />
+                        <Text fontSize="xs" color="gray.500" mt={1}>
+                          {t('emailProcessing.tooltips.queryExample')}
+                        </Text>
+                      </FormControl>
+                    </GridItem>
+                    
+                    {/* Filter Templates */}
+                    <GridItem colSpan={{ base: 1, md: 3 }}>
+                      <FormControl>
+                        <FormLabel fontWeight="medium" display="flex" alignItems="center">
+                          <Icon as={FaSave} color="primary.500" mr={2} />
+                          {t('emailProcessing.filters.templates')}
+                        </FormLabel>
+                        <Flex gap={2}>
+                          <Button
+                            leftIcon={<FaSave />}
+                            colorScheme="primary"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowSaveTemplateModal(true)}
+                          >
+                            {t('emailProcessing.filters.saveTemplate')}
+                          </Button>
+                          <Select
+                            placeholder={t('emailProcessing.filters.loadTemplate')}
+                            size="sm"
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const template = filterTemplates.find(t => t.id === e.target.value);
+                                if (template) {
+                                  setFilter(template.filter);
+                                  toast({
+                                    title: t('emailProcessing.notifications.templateLoaded.title'),
+                                    description: t('emailProcessing.notifications.templateLoaded.description'),
+                                    status: 'success',
+                                    duration: 3000,
+                                  });
+                                }
+                              }
+                            }}
+                            focusBorderColor="primary.400"
+                            bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                            borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
+                          >
+                            {filterTemplates.map(template => (
+                              <option key={template.id} value={template.id}>
+                                {template.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </Flex>
+                      </FormControl>
+                    </GridItem>
                   </>
-                )} */}
+                )}
               </Grid>
               
               <Flex justify="flex-end" mt={6}>

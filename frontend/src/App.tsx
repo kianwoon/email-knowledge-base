@@ -38,6 +38,15 @@ function App() {
   const toast = useToast();
   const navigate = useNavigate();
   
+  // Handle logout
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('expires');
+    localStorage.removeItem('refresh_token');
+    setIsAuthenticated(false);
+    navigate('/', { replace: true });
+  }, [navigate]);
+
   // Function to refresh token
   const handleTokenRefresh = useCallback(async () => {
     try {
@@ -96,17 +105,36 @@ function App() {
         // Check if token is expired
         const expiryDate = new Date(expires);
         if (expiryDate <= new Date()) {
-          handleLogout();
-          return;
+          // Try to refresh token first
+          const refreshed = await handleTokenRefresh();
+          if (!refreshed) {
+            handleLogout();
+            return;
+          }
         }
         
         // Verify token with backend
         try {
           await getCurrentUser();
           setIsAuthenticated(true);
+          console.log('Authentication successful');
         } catch (error: any) {
           console.error('Token verification failed:', error);
-          handleLogout();
+          // Try to refresh token on verification failure
+          const refreshed = await handleTokenRefresh();
+          if (!refreshed) {
+            handleLogout();
+          } else {
+            // Try verification again after refresh
+            try {
+              await getCurrentUser();
+              setIsAuthenticated(true);
+              console.log('Authentication successful after token refresh');
+            } catch (error) {
+              console.error('Token verification failed after refresh:', error);
+              handleLogout();
+            }
+          }
         }
       } catch (error: any) {
         console.error('Auth check error:', error);
@@ -119,16 +147,11 @@ function App() {
 
     // Check auth on mount
     checkAuth();
-  }, [navigate]);
-  
-  // Handle logout
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('expires');
-    localStorage.removeItem('refresh_token');
-    setIsAuthenticated(false);
-    navigate('/', { replace: true });
-  }, [navigate]);
+
+    // Set up interval to check token expiration
+    const interval = setInterval(checkAndRefreshToken, 4 * 60 * 1000); // Check every 4 minutes
+    return () => clearInterval(interval);
+  }, [navigate, handleTokenRefresh, checkAndRefreshToken, handleLogout]);
   
   // Show loading screen only during initial load
   if (isInitialLoad && isLoading) {
