@@ -190,6 +190,59 @@ const FilterSetup: React.FC = () => {
     { value: 'low', label: t('emailProcessing.filters.low') },
   ];
   
+  // Handle filter change
+  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    
+    if (name === 'start_date' || name === 'end_date') {
+      // Clear any existing date errors
+      setDateError(null);
+      
+      if (value) {
+        try {
+          // Create date object and format it correctly for Microsoft Graph API
+          const date = new Date(value);
+          let formattedDate: string;
+          
+          if (name === 'start_date') {
+            // Set to start of day (00:00:00) UTC
+            date.setUTCHours(0, 0, 0, 0);
+            formattedDate = date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+          } else {
+            // Set to end of day (23:59:59) UTC
+            date.setUTCHours(23, 59, 59, 999);
+            formattedDate = date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+          }
+          
+          // Validate date range if both dates are set
+          if (name === 'start_date' && filter.end_date) {
+            const endDate = new Date(filter.end_date);
+            if (date > endDate) {
+              setDateError('Start date cannot be after end date');
+              return;
+            }
+          } else if (name === 'end_date' && filter.start_date) {
+            const startDate = new Date(filter.start_date);
+            if (date < startDate) {
+              setDateError('End date cannot be before start date');
+              return;
+            }
+          }
+          
+          setFilter(prev => ({ ...prev, [name]: formattedDate }));
+        } catch (error) {
+          console.error('Error parsing date:', error);
+          setDateError('Invalid date format');
+        }
+      } else {
+        setFilter(prev => ({ ...prev, [name]: undefined }));
+      }
+      return;
+    }
+
+    setFilter(prev => ({ ...prev, [name]: value }));
+  }, [filter.end_date, filter.start_date]);
+
   // Load previews
   const loadPreviews = useCallback(async () => {
     if (isInitialLoad) {
@@ -199,18 +252,22 @@ const FilterSetup: React.FC = () => {
 
     setIsLoadingPreviews(true);
     try {
-      // Format dates to ISO string if they exist
+      // Format the filter with proper date handling for Microsoft Graph API
       const formattedFilter = {
         ...filter,
-        start_date: filter.start_date ? new Date(filter.start_date).toISOString() : undefined,
-        end_date: filter.end_date ? new Date(filter.end_date).toISOString() : undefined
-      };
-
-      const previewData = await getEmailPreviews({
-        ...formattedFilter,
+        // Dates are already in the correct format from handleFilterChange
+        start_date: filter.start_date,
+        end_date: filter.end_date,
         page: currentPage,
         per_page: itemsPerPage
+      };
+
+      console.log('Sending filter with dates:', {
+        start_date: formattedFilter.start_date,
+        end_date: formattedFilter.end_date
       });
+
+      const previewData = await getEmailPreviews(formattedFilter);
 
       // Update state with response data
       setPreviews(previewData.items || []);
@@ -218,7 +275,16 @@ const FilterSetup: React.FC = () => {
       setTotalPages(previewData.total_pages);
     } catch (error: any) {
       console.error('Error loading previews:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to load email previews';
+      // Extract error message properly
+      let errorMessage = 'Failed to load email previews';
+      if (error.response?.data?.detail) {
+        errorMessage = typeof error.response.data.detail === 'string' 
+          ? error.response.data.detail 
+          : 'Server error occurred';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Error loading email previews',
         description: errorMessage,
@@ -256,22 +322,6 @@ const FilterSetup: React.FC = () => {
     
     loadFolders();
   }, [t, toast]);
-
-  // Handle filter change
-  const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    
-    if (name === 'start_date' || name === 'end_date') {
-      // Clear any existing date errors
-      setDateError(null);
-      
-      // Update the filter with the new date
-      setFilter(prev => ({ ...prev, [name]: value }));
-      return;
-    }
-
-    setFilter(prev => ({ ...prev, [name]: value }));
-  }, []);
 
   // Add pagination handlers
   const handlePageChange = useCallback((newPage: number) => {
@@ -512,17 +562,24 @@ const FilterSetup: React.FC = () => {
                       <Input
                         type="date"
                         name="start_date"
-                        value={filter.start_date || ''}
+                        value={filter.start_date ? filter.start_date.split('T')[0] : ''}
                         onChange={handleFilterChange}
                         placeholder={t('emailProcessing.filters.startDate')}
+                        max={filter.end_date ? filter.end_date.split('T')[0] : undefined}
+                        focusBorderColor="primary.400"
+                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                       />
                       <Input
                         type="date"
                         name="end_date"
-                        value={filter.end_date || ''}
+                        value={filter.end_date ? filter.end_date.split('T')[0] : ''}
                         onChange={handleFilterChange}
                         placeholder={t('emailProcessing.filters.endDate')}
-                        min={filter.start_date || undefined}
+                        min={filter.start_date ? filter.start_date.split('T')[0] : undefined}
+                        focusBorderColor="primary.400"
+                        bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
+                        borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                       />
                     </Grid>
                     {dateError && (

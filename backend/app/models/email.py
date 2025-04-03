@@ -51,6 +51,8 @@ class EmailPreview(BaseModel):
     sender: str
     received_date: str
     snippet: str  # This field stores the preview/summary of the email body
+    has_attachments: bool = False
+    importance: str = "normal"
 
 
 class EmailFilter(BaseModel):
