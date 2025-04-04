@@ -10,7 +10,7 @@ from app.websocket import manager
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.post("/subject-analysis", status_code=202) # Use 202 Accepted 
+@router.post("/analysis", status_code=202) # Use 202 Accepted 
 async def receive_subject_analysis(
     request: Request, # Added Request object parameter
     payload: WebhookPayload = Body(...)
