@@ -19,7 +19,11 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 
 # Skip TypeScript type checking entirely
 RUN sed -i 's/tsc && vite build/vite build/g' package.json
-RUN npm run build
+
+# Print env var for debugging, then run build
+RUN echo "Build-time VITE_WEBSOCKET_URL: [$VITE_WEBSOCKET_URL]" && \
+    echo "Build-time VITE_API_BASE_URL: [$VITE_API_BASE_URL]" && \
+    npm run build
 
 # Production stage
 FROM nginx:alpine
