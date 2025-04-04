@@ -3,9 +3,14 @@ from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from typing import List
 from pydantic import validator
+import logging
+
+# Get logger instance
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
+logger.info(" --- config.py: load_dotenv() executed --- ")
 
 class Settings(BaseSettings):
     # Application settings
@@ -69,6 +74,18 @@ class Settings(BaseSettings):
     # Email processing settings
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS", "10"))
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
+    
+    # --- Debug log for external API key --- 
+    _external_api_key_debug = os.getenv("EXTERNAL_ANALYSIS_API_KEY")
+    logger.info(f" --- config.py: Value of os.getenv('EXTERNAL_ANALYSIS_API_KEY') = {_external_api_key_debug} --- ")
+    EXTERNAL_ANALYSIS_API_KEY: str = _external_api_key_debug or ""
+    # --- End Debug log ---
+    
+    @validator("EXTERNAL_ANALYSIS_API_KEY")
+    def validate_external_api_key(cls, v):
+        if not v:
+            raise ValueError("EXTERNAL_ANALYSIS_API_KEY must be set in .env file or environment")
+        return v
     
     model_config = {
         "env_file": ".env",

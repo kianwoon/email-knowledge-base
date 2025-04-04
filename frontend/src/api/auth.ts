@@ -61,7 +61,11 @@ api.interceptors.response.use(
       
       try {
         // Try to refresh the token
-        const response = await refreshToken();
+        const msRefreshToken = localStorage.getItem('refresh_token');
+        if (!msRefreshToken) {
+          throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
+        }
+        const response = await refreshToken(msRefreshToken);
         if (response.access_token) {
           // Update the authorization header
           originalRequest.headers.Authorization = `Bearer ${response.access_token}`;
@@ -114,29 +118,43 @@ export const getCurrentUser = async () => {
 /**
  * Refresh access token
  */
-export const refreshToken = async () => {
+export const refreshToken = async (msRefreshToken: string) => {
+  console.log('=== Refreshing Token ===');
   try {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
+    if (!msRefreshToken) {
+      throw new Error('No MS refresh token provided to refreshToken function');
     }
 
+    console.log('Sending MS refresh token to backend...');
+    // Send the MS refresh token in the request body
     const response = await api.post('/auth/refresh', {
-      refresh_token: refreshToken
+      refresh_token: msRefreshToken
     });
     
+    console.log('Refresh token response received:', response.data);
+    
     if (response.data.access_token) {
-      // Update token in localStorage
+      // Update internal JWT access token and expiry in localStorage
       localStorage.setItem('token', response.data.access_token);
-      localStorage.setItem('expires', response.data.expires_at);
-      if (response.data.refresh_token) {
-        localStorage.setItem('refresh_token', response.data.refresh_token);
-      }
+      localStorage.setItem('expires', response.data.expires_at); 
+      
+      // NOTE: The backend currently doesn't return the NEW MS refresh token.
+      // If the backend were updated to return it (e.g., in a field like `ms_refresh_token`),
+      // you would update it in localStorage here:
+      // if (response.data.ms_refresh_token) {
+      //   localStorage.setItem('refresh_token', response.data.ms_refresh_token);
+      // }
     }
     
-    return response.data;
+    return response.data; // Return the new internal token details
   } catch (error) {
     console.error('Error refreshing token:', error);
+    // Clear tokens on refresh failure to force re-login
+    localStorage.removeItem('token');
+    localStorage.removeItem('expires');
+    localStorage.removeItem('refresh_token');
+    // Consider redirecting to login or notifying user
+    // window.location.href = '/'; 
     throw error;
   }
 };

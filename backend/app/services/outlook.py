@@ -3,8 +3,9 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException, status
+import asyncio
 
-from app.models.email import EmailPreview, EmailContent, EmailAttachment
+from app.models.email import EmailPreview, EmailContent, EmailAttachment, EmailFilter
 from app.config import settings
 
 # Set up logger
@@ -249,47 +250,44 @@ class OutlookService:
             logger.debug(f"[RESPONSE] Data received: {data}")
             # --- End Make the API Request --- 
 
-            # --- Process Response --- 
+            # --- Manual Filtering (if search mode was used for initial request) --- 
             items_raw = data.get("value", [])
-            odata_count = data.get("@odata.count")
-            next_link_from_response = data.get("@odata.nextLink")
-
-            # --- Manual Filtering (if in initial search mode) ---
             filtered_items = []
             if initial_use_search_mode:
-                logger.info("[MANUAL-FILTER] Applying manual filtering to initial search results.")
-                # Use filters from the initial request
+                logger.info("[RESPONSE-FILTER] Applying manual filtering after $search.")
                 dt_start_obj, dt_end_obj = self._parse_dates_for_filtering(start_date, end_date)
                 for item in items_raw:
-                     if self._passes_manual_filter(item, folder_id, dt_start_obj, dt_end_obj):
-                         filtered_items.append(item)
-                logger.info(f"[MANUAL-FILTER] Filtered {len(items_raw)} items down to {len(filtered_items)}.")
+                    if self._passes_manual_filter(item, folder_id, dt_start_obj, dt_end_obj):
+                        filtered_items.append(item)
+                logger.info(f"[RESPONSE-FILTER] Filtered {len(items_raw)} items down to {len(filtered_items)}.")
             else:
-                filtered_items = items_raw
-            # --- End Manual Filtering --- 
+                filtered_items = items_raw # No manual filtering needed in $filter mode
+            # --- End Manual Filtering ---
 
-            # Determine Total Count based on initial mode
+            # --- Prepare Response --- 
+            next_link_from_response = data.get("@odata.nextLink")
+            odata_count = data.get("@odata.count") # Count from the API response
+
+            # Determine total count based on mode and API response
             total_count = 0
             if initial_use_search_mode and odata_count is None:
+                # Estimate total for search mode: -1 if more pages might exist, else current count
                 total_count = -1 if bool(next_link_from_response) else len(filtered_items)
-                logger.warning(f"[COUNT] Search mode & @odata.count missing. Setting total to {total_count} based on nextLink presence.")
+                logger.warning(f"[TOTAL-COUNT] $search mode: Total count estimated as {total_count} based on nextLink presence.")
             else:
+                # Use API count if available, otherwise fallback (less accurate)
                 total_count = odata_count if odata_count is not None else len(filtered_items)
-                logger.info(f"[COUNT] Using @odata.count ({odata_count}) or filtered item count ({len(filtered_items)}) for total: {total_count}")
-
-            logger.info(f"[RESPONSE] Status Code: {response.status_code}")
-            logger.info(f"[RESPONSE] Items returned (after filtering): {len(filtered_items)}")
-            logger.info(f"[RESPONSE] @odata.count reported by API: {odata_count}")
-            logger.info(f"[RESPONSE] Final Total Count determined: {total_count}")
-            logger.info(f"[RESPONSE] Next Link present: {bool(next_link_from_response)}")
+                logger.info(f"[TOTAL-COUNT] $filter mode or count available: Total count set to {total_count}.")
+            
+            logger.info(f"[RESPONSE-FINAL] Items: {len(filtered_items)}, Total: {total_count}, Has Next: {bool(next_link_from_response)}")
+            # --- End Prepare Response ---
 
             return {
-                "items": [self._format_email_preview(item) for item in filtered_items],
+                "items": [self._format_email_preview(email) for email in filtered_items],
                 "total": total_count,
                 "next_link": next_link_from_response
             }
 
-        # --- Error Handling (remains the same) --- 
         except httpx.RequestError as e:
              logger.error(f"HTTP request error to Graph API: {e}")
              raise HTTPException(status_code=503, detail=f"Error communicating with Microsoft Graph: {e}")
@@ -306,7 +304,6 @@ class OutlookService:
         except Exception as e:
             logger.error(f"[ERROR] Unexpected error during email preview processing: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal server error during email preview processing: {str(e)}")
-        # --- End Error Handling --- 
 
     # --- Helper methods --- 
     def _parse_dates_for_graph_filter(self, start_date: str, end_date: str) -> (Optional[str], Optional[str]):
@@ -441,3 +438,100 @@ class OutlookService:
                 size=attachment["size"],
                 content=attachment.get("contentBytes")  # Base64 encoded content
             )
+
+    # --- New Method to Fetch All Subjects --- 
+    async def get_all_subjects_for_filter(self, filter_criteria: EmailFilter) -> List[str]:
+        """
+        Fetches subjects of ALL emails matching the filter criteria using pagination.
+        Currently supports folder_id, start_date, end_date. Keywords are ignored.
+        """
+        logger.info(f"[ALL_SUBJECTS] Starting fetch for filter: {filter_criteria.model_dump_json()}")
+        
+        all_subjects: List[str] = []
+        max_emails_to_fetch = 10000 # Safety limit to prevent infinite loops/excessive requests
+        request_url = "/me/messages"
+        page_size = 100 # Request 100 emails per page
+
+        # Build initial filter string (excluding keywords)
+        filter_parts = []
+        if filter_criteria.folder_id:
+            safe_folder_id = filter_criteria.folder_id.replace("'", "''") 
+            filter_parts.append(f"parentFolderId eq '{safe_folder_id}'")
+        graph_api_start_date, graph_api_end_date = self._parse_dates_for_graph_filter(
+            filter_criteria.start_date, filter_criteria.end_date
+        )
+        if graph_api_start_date:
+            filter_parts.append(f"receivedDateTime ge {graph_api_start_date}")
+        if graph_api_end_date:
+            filter_parts.append(f"receivedDateTime le {graph_api_end_date}")
+        
+        final_filter_str = " and ".join(filter_parts) if filter_parts else None
+        
+        params = {
+            "$select": "subject", # Only fetch the subject
+            "$top": page_size
+        }
+        if final_filter_str:
+            params["$filter"] = final_filter_str
+            logger.info(f"[ALL_SUBJECTS] Using $filter: {final_filter_str}")
+        else:
+             logger.info("[ALL_SUBJECTS] No filter applied (fetching from all folders/dates).")
+             
+        headers = {
+            **self.headers,
+            "ConsistencyLevel": "eventual" # Required for $filter
+        }
+
+        page_count = 0
+        while request_url and len(all_subjects) < max_emails_to_fetch:
+            page_count += 1
+            logger.info(f"[ALL_SUBJECTS] Fetching page {page_count}. Current count: {len(all_subjects)}. URL: {request_url}")
+            
+            try:
+                # Use full URL if it's a nextLink, otherwise use base_url + path
+                if "@odata.nextLink" in request_url: 
+                    # Use a separate client for nextLink requests as base_url is different
+                     async with httpx.AsyncClient(timeout=30.0) as next_link_client:
+                        response = await next_link_client.get(request_url, headers=self.headers)
+                else:
+                    # Initial request uses the service client with base_url
+                    response = await self.client.get(request_url, params=params, headers=headers)
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                messages = data.get("value", [])
+                for message in messages:
+                    if message.get("subject"): # Ensure subject exists
+                        all_subjects.append(message["subject"])
+                    else:
+                        logger.debug(f"[ALL_SUBJECTS] Email found with no subject (ID: {message.get('id', 'N/A')}). Skipping.")
+                
+                # Get the next link for the next iteration
+                request_url = data.get("@odata.nextLink")
+                params = {} # Clear params as they are included in nextLink
+                headers = self.headers # Reset headers for nextLink client
+
+                logger.info(f"[ALL_SUBJECTS] Page {page_count} fetched {len(messages)} items. Total subjects now: {len(all_subjects)}. Next link exists: {bool(request_url)}")
+
+            except httpx.HTTPStatusError as e:
+                # Handle specific errors like rate limiting (429)
+                if e.response.status_code == 429:
+                    retry_after = int(e.response.headers.get("Retry-After", "10"))
+                    logger.warning(f"[ALL_SUBJECTS] Rate limit hit (429). Retrying after {retry_after} seconds.")
+                    await asyncio.sleep(retry_after)
+                    # Continue loop to retry the same request_url
+                else:
+                    logger.error(f"[ALL_SUBJECTS] Graph API HTTP error fetching page {page_count}: {e.response.status_code} - {e.response.text}", exc_info=True)
+                    # Decide whether to stop or continue (e.g., return partial results)
+                    break # Stop fetching on other errors
+            except Exception as e:
+                logger.error(f"[ALL_SUBJECTS] Unexpected error fetching page {page_count}: {e}", exc_info=True)
+                break # Stop fetching on unexpected errors
+
+        if len(all_subjects) >= max_emails_to_fetch:
+             logger.warning(f"[ALL_SUBJECTS] Reached safety limit ({max_emails_to_fetch}). Returning {len(all_subjects)} subjects.")
+             
+        logger.info(f"[ALL_SUBJECTS] Finished fetching. Total subjects collected: {len(all_subjects)}")
+        return all_subjects
+    # --- End New Method ---

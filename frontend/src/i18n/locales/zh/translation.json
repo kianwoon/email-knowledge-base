@@ -859,9 +859,9 @@
     },
     "actions": {
       "search": "搜索邮件",
-      "searching": "搜索中...",
-      "analyze": "分析所选",
-      "analyzing": "分析中...",
+      "searching": "正在搜索...",
+      "analyze": "分析数据",
+      "analyzing": "正在分析...",
       "save": "保存",
       "cancel": "取消",
       "refresh": "刷新结果"
@@ -924,6 +924,17 @@
       "lastWeek": "最近7天",
       "withAttachments": "带附件",
       "highImportance": "高重要性"
+    },
+    "analysis": {
+      "title": "主题分析",
+      "prompt": "点击'分析数据'以查看主题分析结果。",
+      "errorLoading": "加载分析时出错：{{error}}",
+      "submittedTitle": "分析已提交",
+      "submittedDescription": "任务提交成功。ID: {{jobId}}",
+      "errorTitle": "分析出错",
+      "errorDescription": "{{error}}",
+      "completeTitle": "分析完成",
+      "failedTitle": "分析失败"
     }
   },
   "common": {
@@ -997,7 +1008,16 @@
         "healthInformation": "健康信息",
         "credentials": "凭证"
       }
-    }
+    },
+    "title": "主题分析",
+    "prompt": "点击'分析数据'以查看主题分析结果。",
+    "errorLoading": "加载分析时出错：{{error}}",
+    "submittedTitle": "分析已提交",
+    "submittedDescription": "任务提交成功。ID: {{jobId}}",
+    "errorTitle": "分析出错",
+    "errorDescription": "{{error}}",
+    "completeTitle": "分析完成",
+    "failedTitle": "分析失败"
   },
   "language": {
     "english": "English",

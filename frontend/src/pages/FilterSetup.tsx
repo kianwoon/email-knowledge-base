@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -73,12 +73,14 @@ import {
   FaPaperclip,
   FaCode,
   FaSave,
+  FaChartPie,
 } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
+import SubjectSunburstChart from '../components/SubjectSunburstChart';
 
-import { getEmailFolders, getEmailPreviews, analyzeEmails } from '../api/email';
+import { getEmailFolders, getEmailPreviews, submitFilterForAnalysis } from '../api/email';
 import { EmailFilter, EmailPreview } from '../types/email';
 
 interface EmailFolder {
@@ -143,6 +145,10 @@ const EmailTableSkeleton = () => (
   </Table>
 );
 
+// Get backend URL from environment variables (using Vite's convention)
+// Ensure VITE_BACKEND_URL is defined in your .env file
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'; 
+
 const FilterSetup: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -174,6 +180,9 @@ const FilterSetup: React.FC = () => {
   const pageSizeOptions = [10, 25, 50, 100];
   const [isEndDateDisabled, setIsEndDateDisabled] = useState(true);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisData, setAnalysisData] = useState<any | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   
   // Attachment types
   const attachmentTypes = [
@@ -486,7 +495,166 @@ const FilterSetup: React.FC = () => {
     setShowSaveTemplateModal(false); 
     toast({ title: "Save Template (Not Implemented)", status: "info", duration: 2000 });
   };
+
+  // Handler for Analyze Data button click
+  const handleAnalyzeClick = useCallback(async () => {
+    if (!previews || previews.length === 0) {
+      toast({ title: "No data", description: "No email previews available to analyze.", status: "warning", duration: 3000 });
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAnalysisData(null); // Clear previous results
+    setAnalysisError(null); // Clear previous errors
+    try {
+      // Call the API function with the current filter state
+      console.log(`Submitting filter for analysis...`, filter);
+      const result = await submitFilterForAnalysis(filter); // Pass the filter state object
+
+      // Handle success - API returns job ID
+      toast({ 
+        title: t('emailProcessing.analysis.submittedTitle'), 
+        description: t('emailProcessing.analysis.submittedDescription', { jobId: result?.job_id || 'N/A' }), 
+        status: "success", 
+        duration: 5000 
+      });
+
+    } catch (error: any) {
+      console.error("Error submitting analysis:", error);
+      toast({ 
+        title: t('emailProcessing.analysis.errorTitle'), 
+        description: t('emailProcessing.analysis.errorDescription', { error: error.message || "Failed to submit subjects for analysis." }), 
+        status: "error", 
+        duration: 5000 
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [previews, toast, t, filter]);
+
+  // WebSocket connection effect
+  useEffect(() => {
+    // Use a dedicated environment variable for the WebSocket URL
+    const wsUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
+
+    if (!wsUrlFromEnv) {
+      console.error("[WebSocket] VITE_WEBSOCKET_URL is not defined in environment (.env file).");
+      setAnalysisError("WebSocket URL is not configured.");
+      return; // Prevent connection attempt
+    }
+
+    const wsUrl = wsUrlFromEnv;
+
+    // Log the final URL being used
+    console.log(`[WebSocket] Attempting to connect to: ${wsUrl}`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      // Log successful connection
+      console.log('[WebSocket] Connection opened successfully.');
+      setAnalysisError(null); // Clear previous errors on successful connect
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log('[WebSocket] Message received:', message);
+        
+        // Updated Condition: Check for job_id and results (plural)
+        // Removed status check as it wasn't in the sample payload
+        if (message && message.job_id && message.results && Array.isArray(message.results)) {
+          console.log(`[WebSocket] Received analysis results for job ${message.job_id}`);
+          setAnalysisData(message.results); // Use message.results
+          setAnalysisError(null);
+          toast({ title: t('emailProcessing.analysis.completeTitle'), status: "info", duration: 3000 });
+        } 
+        /* // Example: Add specific handling for failures if payload structure is known
+        else if (message && message.job_id && message.error) { 
+            console.error(`[WebSocket] Received failed analysis for job ${message.job_id}`, message.error);
+            setAnalysisData(null); 
+            setAnalysisError(message.error || "Analysis failed with unknown error.");
+            toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error", duration: 5000 });
+        } 
+        */
+        else {
+            // Log if the message format doesn't match expected success structure
+            console.warn('[WebSocket] Received unexpected message format or missing results:', message);
+            // Optionally set an error or leave state as is
+            // setAnalysisError("Received unexpected data format from server.");
+        }
+      } catch (error) {
+        console.error('[WebSocket] Error parsing message:', error);
+        setAnalysisError("Error processing message from server.");
+      }
+    };
+
+    ws.onerror = (event) => {
+      // Log WebSocket errors more explicitly
+      console.error('[WebSocket] Connection Error:', event);
+      setAnalysisError("WebSocket connection error. Analysis results may not update automatically.");
+    };
+
+    ws.onclose = (event) => {
+      // Log WebSocket closure details
+      console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}, Was Clean: ${event.wasClean}`);
+      // Optionally notify user or attempt reconnect depending on close code
+      if (!event.wasClean) {
+         setAnalysisError("WebSocket connection closed unexpectedly.");
+      }
+    };
+
+    // Cleanup function to close WebSocket when component unmounts
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        console.log('[WebSocket] Closing connection on component unmount.');
+        ws.close();
+      }
+    };
+  }, [toast, t]);
+
+  // Add the useMemo hook for data transformation here
+  const transformedChartData = useMemo(() => {
+    if (!analysisData || !Array.isArray(analysisData)) {
+      return null;
+    }
   
+    const root: { name: string, children: any[] } = { name: "Subjects", children: [] };
+    const tagMap = new Map<string, { name: string, children: any[] }>();
+  
+    analysisData.forEach((item: any) => { // Use explicit 'any' or a proper type
+      if (!item.tag || !item.cluster) return; // Skip items without tag or cluster
+  
+      // Get or create tag node
+      let tagNode = tagMap.get(item.tag);
+      if (!tagNode) {
+        tagNode = { name: item.tag, children: [] };
+        tagMap.set(item.tag, tagNode);
+        root.children.push(tagNode);
+      }
+  
+      // Find or create cluster node within the tag node
+      let clusterNode = tagNode.children.find(c => c.name === item.cluster);
+      if (!clusterNode) {
+        clusterNode = { name: item.cluster, value: 0 };
+        tagNode.children.push(clusterNode);
+      }
+  
+      // Increment cluster value
+      clusterNode.value += 1;
+    });
+  
+    // Filter out tags with no valid clusters if necessary
+    root.children = root.children.filter(tag => tag.children.length > 0);
+  
+    // Return null if no data to display
+    return root.children.length > 0 ? root : null;
+  
+  }, [analysisData]);
+
+  // Pre-translate analysis title
+  const analysisCardTitle = t('emailProcessing.analysis.title');
+  const analysisPrompt = t('emailProcessing.analysis.prompt');
+
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
       <Container maxW="1400px" py={8}>
@@ -894,6 +1062,7 @@ const FilterSetup: React.FC = () => {
                   size="md"
                   w="full"
                 >
+                  {/* Restore original key */}
                   {t('emailProcessing.actions.search')}
                 </Button>
               </Flex>
@@ -909,26 +1078,45 @@ const FilterSetup: React.FC = () => {
                   {t('emailProcessing.results.title')} 
                   {totalEmails > 0 && (
                     <Tag ml={2} colorScheme="primary" size="sm">
-                      {totalEmails} {t('emailProcessing.results.found')}
+                      {totalEmails === -1 ? `${(currentPage - 1) * itemsPerPage + previews.length}+` : totalEmails} {t('emailProcessing.results.found')}
                     </Tag>
                   )}
                 </Heading>
-                {previews.length > 0 && (
-                  <ButtonGroup size="sm" isAttached variant="outline">
-                    <IconButton
-                      aria-label={t('common.previousPage')}
-                      icon={<ChevronLeftIcon />}
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      isDisabled={currentPage === 1}
-                    />
-                    <IconButton
-                      aria-label={t('common.nextPage')}
-                      icon={<ChevronRightIconSolid />}
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      isDisabled={currentPage === totalPages || !previews.length || !nextLink}
-                    />
-                  </ButtonGroup>
-                )}
+                {/* Group for Analyze and Pagination */}
+                <Flex gap={2}>
+                   {/* Analyze Button (Only show if previews exist) */} 
+                   {previews.length > 0 && (
+                    <Button
+                      leftIcon={<FaChartPie />} // Example icon
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAnalyzeClick} // Attach the handler
+                      isLoading={isAnalyzing} // Use the loading state
+                      loadingText={t('emailProcessing.actions.analyzing')} // Use translation
+                      isDisabled={isLoadingPreviews || isAnalyzing} // Disable if loading emails OR analyzing
+                    >
+                      {t('emailProcessing.actions.analyze')} {/* Use translation */}
+                    </Button>
+                  )}
+                  {/* Pagination Controls (Only show if previews exist) */} 
+                  {previews.length > 0 && (
+                     <ButtonGroup size="sm" isAttached variant="outline">
+                        <IconButton
+                          aria-label={t('common.previousPage')}
+                          icon={<ChevronLeftIcon />}
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          isDisabled={currentPage === 1}
+                        />
+                        <IconButton
+                          aria-label={t('common.nextPage')}
+                          icon={<ChevronRightIconSolid />}
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          // Enable Next if nextLink is present OR if total is known and not on last page
+                          isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
+                        />
+                      </ButtonGroup>
+                  )}
+                </Flex>
               </Flex>
             </CardHeader>
             <CardBody>
@@ -1072,6 +1260,39 @@ const FilterSetup: React.FC = () => {
               )}
             </CardBody>
           </Card>
+
+          {/* Analysis Results Card (Sunburst Chart) */}
+          {/* Only render if analysis is in progress or data has been received */}
+          {(isAnalyzing || analysisData) && (
+            <Card variant="outline" mb={6}>
+              <CardHeader>
+                <Heading size="md" display="flex" alignItems="center">
+                  <Icon as={FaChartPie} mr={2} />
+                  {/* Use pre-translated variable */}
+                  {analysisCardTitle}
+                </Heading>
+              </CardHeader>
+              <CardBody>
+                {analysisError ? (
+                  <Text color="red.500">
+                    {t('emailProcessing.analysis.errorLoading', { error: analysisError })}
+                  </Text>
+                ) : isAnalyzing ? (
+                  <Flex justify="center" align="center" height="200px">
+                    <Spinner size="xl" color="primary.500" />
+                  </Flex>
+                ) : transformedChartData ? (
+                  <SubjectSunburstChart data={transformedChartData!} />
+                ) : (
+                  <Text>
+                    {/* Use pre-translated variable */}
+                    {analysisPrompt}
+                  </Text>
+                )}
+              </CardBody>
+            </Card>
+          )}
+
         </VStack>
       </Container>
       

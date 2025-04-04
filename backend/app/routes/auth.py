@@ -9,6 +9,7 @@ import requests
 import httpx
 from urllib.parse import urlencode
 import logging
+from pydantic import BaseModel
 
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
@@ -19,6 +20,11 @@ from app.dependencies.auth import get_current_user, users_db, msal_app
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# --- Add Request Model for Refresh Token --- 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+# --- End Request Model --- 
 
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token for internal auth"""
@@ -244,71 +250,79 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(request: Request):
-    """Refresh Microsoft access token using refresh token"""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+async def refresh_token(token_request: RefreshTokenRequest):
+    """Refresh Microsoft access token using the provided MS refresh token."""
+    logger.info("Attempting token refresh using provided MS refresh token.")
     
-    token = auth_header.split(" ")[1]
-    try:
-        payload = jwt.decode(
-            token, 
-            settings.JWT_SECRET, 
-            algorithms=[settings.JWT_ALGORITHM]
-        )
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user = users_db.get(user_id)
-    if user is None or not user.ms_token_data or not user.ms_token_data.refresh_token:
+    if not token_request.refresh_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No refresh token available"
+            detail="No refresh token provided in request body"
         )
-    
-    # Use refresh token to get new access token
-    result = msal_app.acquire_token_by_refresh_token(
-        refresh_token=user.ms_token_data.refresh_token,
-        scopes=settings.MS_SCOPE
-    )
-    
+        
+    # Use provided refresh token to get new access token from Microsoft
+    try:
+        result = msal_app.acquire_token_by_refresh_token(
+            refresh_token=token_request.refresh_token,
+            scopes=settings.MS_SCOPE
+        )
+    except Exception as msal_err:
+        # Catch potential errors during the MSAL call itself
+        logger.error(f"Error calling MSAL acquire_token_by_refresh_token: {msal_err}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"MSAL token acquisition failed: {msal_err}"
+        )
+
     if "error" in result:
+        logger.error(f"Microsoft token refresh failed: {result.get('error')}, Description: {result.get('error_description')}")
+        # If refresh fails (e.g., token revoked/expired), force re-login
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Token refresh failed: {result.get('error_description')}"
         )
     
-    # Update user's token data
-    user.ms_token_data = TokenData(
-        access_token=result.get("access_token"),
-        refresh_token=result.get("refresh_token", user.ms_token_data.refresh_token),
-        expires_at=datetime.utcnow() + timedelta(seconds=result.get("expires_in", 3600)),
-        scope=result.get("scope", [])
+    # --- Fetch User Info with NEW MS Token --- 
+    new_ms_access_token = result.get("access_token")
+    if not new_ms_access_token:
+         logger.error("MSAL refresh result missing new access token.")
+         raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Token refresh succeeded but did not return a new access token."
+        )
+        
+    try:
+        logger.info("Fetching user info with new MS access token.")
+        outlook_service = OutlookService(new_ms_access_token)
+        user_info = await outlook_service.get_user_info()
+        user_id = user_info.get("id")
+        user_email = user_info.get("mail")
+        if not user_id or not user_email:
+            logger.error("Could not retrieve user ID or email using new MS access token.")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve user details after token refresh."
+            )
+        logger.info(f"Successfully fetched info for user {user_email} (ID: {user_id}).")
+    except Exception as fetch_err:
+        logger.error(f"Error fetching user info after token refresh: {fetch_err}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve user details after token refresh: {fetch_err}"
+        )
+    # --- End Fetch User Info --- 
+        
+    # Create new internal JWT access token using the fetched user info
+    logger.info(f"Creating new internal JWT for user {user_email}.")
+    new_internal_access_token, new_expires_at = create_access_token(
+        data={"sub": user_id, "email": user_email}
     )
     
-    # Create new internal JWT token
-    access_token, expires_at = create_access_token(
-        data={"sub": user_id, "email": user.email}
-    )
-    
+    # Return the NEW internal access token
+    # Optionally: Could also return the new MS refresh token (result.get("refresh_token"))
+    # if the frontend needs to update it in localStorage.
     return Token(
-        access_token=access_token,
+        access_token=new_internal_access_token,
         token_type="bearer",
-        expires_at=expires_at
+        expires_at=new_expires_at
     )

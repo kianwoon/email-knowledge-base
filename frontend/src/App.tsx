@@ -49,27 +49,44 @@ function App() {
 
   // Function to refresh token
   const handleTokenRefresh = useCallback(async () => {
+    console.log('handleTokenRefresh called');
     try {
-      const refreshTokenValue = localStorage.getItem('refresh_token');
-      if (!refreshTokenValue) {
-        throw new Error('No refresh token available');
+      // Get the MS refresh token from localStorage
+      const msRefreshToken = localStorage.getItem('refresh_token');
+      if (!msRefreshToken) {
+        console.log('No MS refresh token available in localStorage');
+        throw new Error('No MS refresh token available');
       }
-
-      const response = await refreshToken();
+      
+      console.log('Calling refreshToken API with MS token...');
+      // Call the updated API function, passing the MS refresh token
+      const response = await refreshToken(msRefreshToken);
+      
+      // Check if the backend returned a new internal access token
       if (response.access_token) {
+        console.log('Token refresh successful, updating localStorage');
+        // Store the NEW internal JWT access token and its expiry
         localStorage.setItem('token', response.access_token);
         localStorage.setItem('expires', response.expires_at);
-        if (response.refresh_token) {
-          localStorage.setItem('refresh_token', response.refresh_token);
-        }
-        return true;
+        
+        // If the backend also returned a NEW MS refresh token, update it
+        // (Assuming backend might return it as 'ms_refresh_token')
+        // if (response.ms_refresh_token) {
+        //   localStorage.setItem('refresh_token', response.ms_refresh_token);
+        // }
+        
+        return true; // Indicate success
       }
+      // If backend didn't return access_token (shouldn't happen on success)
+      console.log('Token refresh API call succeeded but no access_token returned');
       return false;
     } catch (error) {
-      console.error('Token refresh failed:', error);
-      return false;
+      console.error('handleTokenRefresh failed:', error);
+      // Error handling (like clearing localStorage) might already be done in the API function
+      // handleLogout(); // Optionally call logout here if not handled in API
+      return false; // Indicate failure
     }
-  }, []);
+  }, []); // Removed refreshToken from dependencies as it's an import
 
   // Function to check token expiration and refresh if needed
   const checkAndRefreshToken = useCallback(async () => {

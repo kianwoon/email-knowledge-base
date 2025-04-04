@@ -2,7 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import App from './App';
-import './i18n/i18n'; // Import i18n configuration
+import i18n from './i18n/i18n'; // Import the configured i18n instance
+import { I18nextProvider } from 'react-i18next'; // Import the provider
 
 // Define gradient colors for reuse
 const gradientColors = {
@@ -196,8 +197,10 @@ const theme = extendTheme({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ChakraProvider theme={theme}>
-      <App />
-    </ChakraProvider>
+    <I18nextProvider i18n={i18n}>
+      <ChakraProvider theme={theme}>
+        <App />
+      </ChakraProvider>
+    </I18nextProvider>
   </React.StrictMode>,
 );

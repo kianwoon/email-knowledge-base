@@ -619,6 +619,8 @@
           "endDate": "End Date",
           "month": "Month",
           "months": "Months",
+          "keywords": "Keywords",
+          "addKeyword": "Add keyword",
           "importance": "Importance",
           "selectImportance": "Select importance",
           "high": "High",
@@ -642,10 +644,10 @@
           "powerPoint": "PowerPoint",
           "image": "Image",
           "archive": "Archive",
+          "saveTemplateTitle": "Save Filter Template",
           "activeFilters": "Active Filters",
           "clearAll": "Clear All",
           "noFilters": "No active filters",
-          "keywords": "Keywords",
           "addKeywords": "Add Keywords"
         },
         "quickFilters": {
@@ -659,6 +661,142 @@
           "title": "Search Results",
           "noResults": "No emails found matching your criteria",
           "selected": "Selected",
+          "sender": "Sender",
+          "subject": "Subject",
+          "date": "Date",
+          "hasAttachments": "Attachments",
+          "importance": "Importance",
+          "page": "Page {{currentPage}} of {{totalPages}}",
+          "of": "of",
+          "showing": "Showing {{start}} - {{end}} of {{total}} emails",
+          "showingSome": "Showing {{start}} - {{end}}",
+          "moreAvailable": "more available",
+          "found": "emails found",
+          "noEmails": "No emails found",
+          "tryDifferentFilters": "Try adjusting your filters or search criteria",
+          "showPerPage": "Show {{count}}"
+        },
+        "actions": {
+          "search": "Search Emails",
+          "searching": "Searching...",
+          "analyze": "Analyze Data",
+          "analyzing": "Analyzing..."
+        },
+        "analysis": {
+          "title": "Subject Analysis",
+          "prompt": "Click 'Analyze Data' to see subject analysis.",
+          "errorLoading": "Error loading analysis: {{error}}",
+          "submittedTitle": "Analysis Submitted",
+          "submittedDescription": "Job submitted successfully. ID: {{jobId}}",
+          "errorTitle": "Analysis Error",
+          "errorDescription": "{{error}}",
+          "completeTitle": "Analysis Complete",
+          "failedTitle": "Analysis Failed"
+        },
+        "tooltips": {
+          "folderHelp": "Select the email folder to search in",
+          "senderHelp": "Filter by sender email address",
+          "dateHelp": "Filter emails by date range",
+          "keywordsHelp": "Filter by keywords in subject or body",
+          "importanceHelp": "Filter by email importance level",
+          "attachmentsHelp": "Filter by presence of attachments",
+          "advancedQueryHelp": "Use advanced query syntax for complex filters",
+          "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+          "quickFiltersHelp": "Apply predefined filter combinations"
+        },
+        "notifications": {
+          "templateSaved": {
+            "title": "Template Saved",
+            "description": "Your filter template has been saved successfully"
+          },
+          "templateLoaded": {
+            "title": "Template Loaded",
+            "description": "Filter template has been applied"
+          },
+          "emailsSubmitted": {
+            "title": "Emails Submitted",
+            "description": "Selected emails have been submitted for analysis"
+          },
+          "noEmailsSelected": {
+            "title": "No Emails Selected",
+            "description": "Please select at least one email for analysis"
+          },
+          "templateError": {
+            "title": "Template Error",
+            "description": "Please enter a template name"
+          }
+        },
+        "title": "Email Filtering",
+        "folderLabel": "Folder",
+        "selectFolderPlaceholder": "Select Folder",
+        "keywordsLabel": "Keywords",
+        "addKeywordsPlaceholder": "Add Keywords",
+        "dateRangeLabel": "Date Range",
+        "searchResultsTitle": "Search Results",
+        "tableHeaderSender": "SENDER",
+        "tableHeaderSubject": "SUBJECT",
+        "tableHeaderDate": "DATE",
+        "tableHeaderAttachments": "ATTACHMENTS",
+        "tableHeaderImportance": "IMPORTANCE",
+        "noEmailsFound": "No emails found",
+        "adjustFilters": "Try adjusting your filters or search criteria",
+        "emailsPerPage": "Emails per page:",
+        "filters": {
+          "title": "Email Filtering",
+          "folder": "Folder",
+          "selectFolder": "Select Folder",
+          "sender": "Sender",
+          "enterSender": "Enter sender email",
+          "dateRange": "Date Range",
+          "startDate": "Start Date",
+          "endDate": "End Date",
+          "month": "Month",
+          "months": "Months",
+          "keywords": "Keywords",
+          "addKeyword": "Add keyword",
+          "importance": "Importance",
+          "selectImportance": "Select importance",
+          "high": "High",
+          "normal": "Normal",
+          "low": "Low",
+          "attachmentType": "Attachment Type",
+          "selectAttachmentType": "Select attachment type",
+          "hasAttachments": "Has Attachments",
+          "withAttachments": "With Attachments",
+          "withoutAttachments": "Without Attachments",
+          "any": "Any",
+          "advancedQuery": "Advanced Query",
+          "enterQuery": "Enter advanced query",
+          "templates": "Filter Templates",
+          "saveTemplate": "Save Template",
+          "loadTemplate": "Load Template",
+          "templateName": "Template Name",
+          "enterTemplateName": "Enter template name",
+          "wordDocument": "Word Document",
+          "excelSpreadsheet": "Excel Spreadsheet",
+          "powerPoint": "PowerPoint",
+          "image": "Image",
+          "archive": "Archive",
+          "saveTemplateTitle": "Save Filter Template",
+          "activeFilters": "Active Filters",
+          "clearAll": "Clear All",
+          "noFilters": "No active filters",
+          "addKeywords": "Add Keywords"
+        },
+        "actions": {
+          "search": "Search Emails",
+          "searching": "Searching...",
+          "analyze": "Analyze Data",
+          "analyzing": "Analyzing...",
+          "save": "Save",
+          "cancel": "Cancel",
+          "refresh": "Refresh Results"
+        },
+        "results": {
+          "title": "Search Results",
+          "noResults": "No emails found matching your criteria",
+          "noEmails": "No emails found",
+          "selected": "emails selected",
           "sender": "Sender",
           "subject": "Subject",
           "date": "Date",
@@ -705,6 +843,10 @@
           "templateError": {
             "title": "Template Error",
             "description": "Please enter a template name"
+          },
+          "noDataToAnalyze": {
+            "title": "No Data",
+            "description": "No email previews available to analyze."
           }
         }
       },
@@ -872,8 +1014,53 @@
     }
   },
   "emailProcessing": {
-    "title": "Select Emails to Analyze",
-    "subtitle": "Filter and select emails to process for your knowledge base",
+    "title": "Email Filtering",
+    "folderLabel": "Folder",
+    "selectFolderPlaceholder": "Select Folder",
+    "keywordsLabel": "Keywords",
+    "addKeywordsPlaceholder": "Add Keywords",
+    "dateRangeLabel": "Date Range",
+    "searchResultsTitle": "Search Results",
+    "emailsPerPage": "Emails per page:",
+    "noEmailsFound": "No emails found",
+    "adjustFilters": "Try adjusting your filters or search criteria",
+    "tooltips": {
+      "folderHelp": "Select the email folder to search in",
+      "senderHelp": "Filter by sender email address",
+      "dateHelp": "Filter emails by date range",
+      "keywordsHelp": "Filter by keywords in subject or body",
+      "importanceHelp": "Filter by email importance level",
+      "attachmentsHelp": "Filter by presence of attachments",
+      "advancedQueryHelp": "Use advanced query syntax for complex filters",
+      "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+      "quickFiltersHelp": "Apply predefined filter combinations"
+    },
+    "notifications": {
+      "templateSaved": {
+        "title": "Template Saved",
+        "description": "Your filter template has been saved successfully"
+      },
+      "templateLoaded": {
+        "title": "Template Loaded",
+        "description": "Filter template has been applied"
+      },
+      "emailsSubmitted": {
+        "title": "Emails Submitted",
+        "description": "Selected emails have been submitted for analysis"
+      },
+      "noEmailsSelected": {
+        "title": "No Emails Selected",
+        "description": "Please select at least one email for analysis"
+      },
+      "templateError": {
+        "title": "Template Error",
+        "description": "Please enter a template name"
+      },
+      "noDataToAnalyze": {
+        "title": "No Data",
+        "description": "No email previews available to analyze."
+      }
+    },
     "filters": {
       "title": "Email Filtering",
       "folder": "Folder",
@@ -919,7 +1106,7 @@
     "actions": {
       "search": "Search Emails",
       "searching": "Searching...",
-      "analyze": "Analyze Selected",
+      "analyze": "Analyze Data",
       "analyzing": "Analyzing...",
       "save": "Save",
       "cancel": "Cancel",
@@ -927,56 +1114,32 @@
     },
     "results": {
       "title": "Search Results",
+      "tableHeaderSender": "SENDER",
+      "tableHeaderSubject": "SUBJECT",
+      "tableHeaderDate": "DATE",
+      "tableHeaderAttachments": "ATTACHMENTS",
+      "tableHeaderImportance": "IMPORTANCE",
       "noResults": "No emails found matching your criteria",
-      "noEmails": "No emails found",
       "selected": "emails selected",
-      "sender": "Sender",
-      "subject": "Subject",
-      "date": "Date",
-      "hasAttachments": "Attachments",
-      "importance": "Importance",
       "page": "Page {{currentPage}} of {{totalPages}}",
       "of": "of",
       "showing": "Showing {{start}} - {{end}} of {{total}} emails",
       "showingSome": "Showing {{start}} - {{end}}",
       "moreAvailable": "more available",
       "found": "emails found",
-      "noEmails": "No emails found",
       "tryDifferentFilters": "Try adjusting your filters or search criteria",
       "showPerPage": "Show {{count}}"
     },
-    "tooltips": {
-      "folderHelp": "Select the email folder to search in",
-      "senderHelp": "Filter by sender email address",
-      "dateHelp": "Filter emails by date range",
-      "keywordsHelp": "Filter by keywords in subject or body",
-      "importanceHelp": "Filter by email importance level",
-      "attachmentsHelp": "Filter by presence of attachments",
-      "advancedQueryHelp": "Use advanced query syntax for complex filters",
-      "queryExample": "Example: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
-      "quickFiltersHelp": "Apply predefined filter combinations"
-    },
-    "notifications": {
-      "templateSaved": {
-        "title": "Template Saved",
-        "description": "Your filter template has been saved successfully"
-      },
-      "templateLoaded": {
-        "title": "Template Loaded",
-        "description": "Filter template has been applied"
-      },
-      "emailsSubmitted": {
-        "title": "Emails Submitted",
-        "description": "Selected emails have been submitted for analysis"
-      },
-      "noEmailsSelected": {
-        "title": "No Emails Selected",
-        "description": "Please select at least one email for analysis"
-      },
-      "templateError": {
-        "title": "Template Error",
-        "description": "Please enter a template name"
-      }
+    "analysis": {
+      "title": "Subject Analysis",
+      "prompt": "Click 'Analyze Data' to see subject analysis.",
+      "errorLoading": "Error loading analysis: {{error}}",
+      "submittedTitle": "Analysis Submitted",
+      "submittedDescription": "Job submitted successfully. ID: {{jobId}}",
+      "errorTitle": "Analysis Error",
+      "errorDescription": "{{error}}",
+      "completeTitle": "Analysis Complete",
+      "failedTitle": "Analysis Failed"
     }
   },
   "common": {

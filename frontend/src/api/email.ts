@@ -115,16 +115,33 @@ export const getEmailContent = async (emailId: string) => {
 };
 
 /**
- * Submit emails for LLM analysis
+ * Submit email filter criteria for analysis by calling the backend endpoint.
+ * The backend will then fetch all matching emails and trigger the external analysis.
  */
-export const analyzeEmails = async (emailIds: string[]) => {
+// Rename function and update parameter to expect EmailFilter object
+export const submitFilterForAnalysis = async (filter: EmailFilter) => {
+  console.log(`[api/email] Submitting filter for analysis to backend...`, filter);
+  
   try {
-    const response = await api.post('/api/emails/analyze', emailIds);
-    return response.data;
+    // Make a POST request to the backend's /emails/analyze endpoint
+    // Send the filter object as the payload
+    const response = await api.post<{ job_id: string }>('/emails/analyze', filter); 
+    
+    console.log('[api/email] Backend analysis submission successful:', response.data);
+    return response.data; // Return the response containing the job_id
+
   } catch (error) {
-    console.error('Error submitting emails for analysis:', error);
-    throw error;
+    console.error('[api/email] Error submitting filter for analysis to backend:', error);
+    // Re-throw the error so the calling component (FilterSetup) can handle it
+    throw error; 
   }
 };
+
+/* 
+// --- Old submitEmailIdsForAnalysis - REMOVED (or keep commented out) ---
+export const submitEmailIdsForAnalysis = async (emailIds: string[]) => {
+  // ... old implementation ...
+};
+*/
 
 export default api;

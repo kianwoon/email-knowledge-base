@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger("app")
 
 from app.config import settings
-from app.routes import auth, email, review, vector, test
+from app.routes import auth, email, review, vector, test, webhooks
 
 # Log environment variables for debugging
 logger.debug(f"Starting application with environment variables:")
@@ -27,7 +27,7 @@ logger.debug(f"MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
 logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
 logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
-app = FastAPI()
+app = FastAPI(title="Email Knowledge Base API")
 
 # Configure CORS - must be added before any routes
 origins = [
@@ -51,18 +51,23 @@ app.add_middleware(
 )
 
 # Mount routes
-app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["auth"])
-app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
-app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
-app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
-app.include_router(test.router, prefix=f"{settings.API_PREFIX}/test", tags=["test"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(email.router, prefix="/api/emails", tags=["emails"])
+app.include_router(review.router, prefix="/api/review", tags=["Review Process"])
+app.include_router(vector.router, prefix="/api/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix="/api/test", tags=["test"])
+app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 logger.debug(f"Mounting static directory: {static_dir}")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-@app.get(f"{settings.API_PREFIX}/health")
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the Email Knowledge Base API"}
+
+@app.get(f"/api/health")
 async def health_check():
     """Health check endpoint"""
     logger.debug("Health check endpoint called")
