@@ -4,6 +4,8 @@ import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import App from './App';
 import i18n from './i18n/i18n'; // Import the configured i18n instance
 import { I18nextProvider } from 'react-i18next'; // Import the provider
+import './index.css';
+import { setupResponseInterceptor } from './api/interceptors'; // Import the setup function
 
 // Define gradient colors for reuse
 const gradientColors = {
@@ -194,6 +196,9 @@ const theme = extendTheme({
     },
   },
 });
+
+// Setup the response interceptor
+setupResponseInterceptor();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

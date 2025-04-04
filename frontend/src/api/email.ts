@@ -1,35 +1,13 @@
-import axios from 'axios';
+import apiClient from './apiClient'; // Import the shared client
 import { EmailFilter, EmailPreview } from '../types/email';
-
-// Get the API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-
-// Create axios instance with default config
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add request interceptor to include auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
 
 /**
  * Get email folders from Outlook
  */
 export const getEmailFolders = async () => {
   try {
-    const response = await api.get('/emails/folders');
+    // Use apiClient directly
+    const response = await apiClient.get('/emails/folders');
     return response.data;
   } catch (error) {
     console.error('Error getting email folders:', error);
@@ -65,7 +43,8 @@ export const getEmailPreviews = async (filterParams: EmailFilter & { page?: numb
 
     console.log('[api/email] Sending email preview request params:', cleanParams);
 
-    const response = await api.post<{
+    // Use apiClient directly
+    const response = await apiClient.post<{
       items: EmailPreview[];
       total: number;
       next_link?: string;
@@ -90,7 +69,8 @@ export const getEmailPreviews = async (filterParams: EmailFilter & { page?: numb
  */
 export const getEmailContent = async (emailId: string) => {
   try {
-    const response = await api.get(`/api/emails/content/${emailId}`);
+    // Use apiClient directly
+    const response = await apiClient.get(`/emails/content/${emailId}`); 
     return response.data;
   } catch (error) {
     console.error('Error getting email content:', error);
@@ -115,24 +95,19 @@ export const getEmailContent = async (emailId: string) => {
 };
 
 /**
- * Submit email filter criteria for analysis by calling the backend endpoint.
- * The backend will then fetch all matching emails and trigger the external analysis.
+ * Submit email filter criteria for analysis
  */
-// Rename function and update parameter to expect EmailFilter object
 export const submitFilterForAnalysis = async (filter: EmailFilter) => {
   console.log(`[api/email] Submitting filter for analysis to backend...`, filter);
   
   try {
-    // Make a POST request to the backend's /emails/analyze endpoint
-    // Send the filter object as the payload
-    const response = await api.post<{ job_id: string }>('/emails/analyze', filter); 
+    // Use apiClient directly
+    const response = await apiClient.post<{ job_id: string }>('/emails/analyze', filter); // Use apiClient
     
     console.log('[api/email] Backend analysis submission successful:', response.data);
-    return response.data; // Return the response containing the job_id
-
+    return response.data;
   } catch (error) {
     console.error('[api/email] Error submitting filter for analysis to backend:', error);
-    // Re-throw the error so the calling component (FilterSetup) can handle it
     throw error; 
   }
 };
@@ -143,5 +118,3 @@ export const submitEmailIdsForAnalysis = async (emailIds: string[]) => {
   // ... old implementation ...
 };
 */
-
-export default api;

@@ -7,7 +7,7 @@ from typing import Dict, Optional
 import urllib.parse
 import requests
 import httpx
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 import logging
 from pydantic import BaseModel
 
@@ -70,13 +70,16 @@ async def login():
         state = json.dumps({"next_url": frontend_url})
         print(f"DEBUG - Generated state: {state}")
         
-        # Generate auth URL
-        auth_url = f"https://login.microsoftonline.com/{settings.MS_TENANT_ID}/oauth2/v2.0/authorize"
+        # Generate auth URL using settings
+        # Note: Endpoint paths are still hardcoded as per decision
+        auth_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        auth_url = f"{auth_url_base}/oauth2/v2.0/authorize"
+        
         auth_params = {
             "client_id": settings.MS_CLIENT_ID,
             "response_type": "code",
             "redirect_uri": settings.MS_REDIRECT_URI,
-            "scope": "User.Read Mail.Read offline_access",
+            "scope": settings.MS_SCOPE_STR, # Use scope from settings
             "state": state,
             "prompt": "select_account"
         }
@@ -126,15 +129,17 @@ async def auth_callback(request: Request):
     # Exchange code for tokens using direct HTTP request instead of MSAL
     print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
     try:
-        # Prepare token request
-        token_url = f"https://login.microsoftonline.com/{settings.MS_TENANT_ID}/oauth2/v2.0/token"
+        # Prepare token request using settings
+        # Note: Endpoint path is still hardcoded as per decision
+        token_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        token_url = f"{token_url_base}/oauth2/v2.0/token"
         token_data = {
             'client_id': settings.MS_CLIENT_ID,
             'client_secret': settings.MS_CLIENT_SECRET,
             'code': code,
             'redirect_uri': settings.MS_REDIRECT_URI,
             'grant_type': 'authorization_code',
-            'scope': 'User.Read Mail.Read offline_access'
+            'scope': settings.MS_SCOPE_STR # Use scope from settings
         }
         
         print(f"DEBUG - Token request data (excluding secret): {dict(token_data, client_secret='[REDACTED]')}")
@@ -206,7 +211,7 @@ async def auth_callback(request: Request):
         )
         
         # Redirect to frontend with token
-        next_url = settings.FRONTEND_URL
+        next_url = settings.FRONTEND_URL # Default redirect
         print(f"DEBUG - Default next_url from settings: {next_url}")
         
         if state:
@@ -214,20 +219,31 @@ async def auth_callback(request: Request):
                 print(f"DEBUG - State parameter received: {state}")
                 state_data = json.loads(state)
                 if "next_url" in state_data:
-                    next_url = state_data.get("next_url")
-                    print(f"DEBUG - next_url from state: {next_url}")
+                    potential_next_url = state_data.get("next_url")
+                    print(f"DEBUG - Potential next_url from state: {potential_next_url}")
                     
-                    # Ensure the next_url is valid and matches our expected domain
-                    if "email-knowledge-base-2-automationtesting-ba741710.koyeb.app" not in next_url and "localhost" not in next_url:
-                        print(f"DEBUG - next_url domain doesn't match expected domains, using default: {settings.FRONTEND_URL}")
-                        next_url = settings.FRONTEND_URL
+                    # Validate the next_url hostname against allowed domains
+                    try:
+                        parsed_url = urlparse(potential_next_url)
+                        # Check netloc (hostname + optional port)
+                        hostname = parsed_url.hostname # Use hostname attribute
+                        if hostname and hostname in settings.ALLOWED_REDIRECT_DOMAINS:
+                            next_url = potential_next_url
+                            print(f"DEBUG - Using next_url from state after validation: {next_url}")
+                        else:
+                            print(f"DEBUG - next_url hostname '{hostname}' not in allowed domains {settings.ALLOWED_REDIRECT_DOMAINS}, using default: {settings.FRONTEND_URL}")
+                            # Fallback to default if check fails
+                            next_url = settings.FRONTEND_URL
+                    except Exception as parse_err:
+                         print(f"DEBUG - Error parsing potential_next_url '{potential_next_url}': {parse_err}, using default.")
+                         next_url = settings.FRONTEND_URL
             except Exception as e:
-                print(f"DEBUG - Error parsing state parameter: {str(e)}")
+                print(f"DEBUG - Error processing state parameter: {str(e)}")
                 next_url = settings.FRONTEND_URL
         
-        # Ensure we have a valid frontend URL for the redirect
+        # Final safety check for the redirect URL format
         if not next_url or not next_url.startswith(('http://', 'https://')):
-            print(f"DEBUG - Invalid next_url, using default: {settings.FRONTEND_URL}")
+            print(f"DEBUG - Invalid final next_url '{next_url}', using default: {settings.FRONTEND_URL}")
             next_url = settings.FRONTEND_URL
         
         redirect_url = f"{next_url}?token={access_token}&expires={expires_at.timestamp()}"

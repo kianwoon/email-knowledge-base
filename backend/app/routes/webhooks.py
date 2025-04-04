@@ -65,7 +65,14 @@ async def get_analysis_result(job_id: str):
 # WebSocket Endpoint
 @router.websocket("/analysis")
 async def websocket_endpoint(websocket: WebSocket):
+    # --- ADD THIS LOGGING ---
+    client_host = websocket.client.host if websocket.client else "Unknown"
+    client_port = websocket.client.port if websocket.client else "Unknown"
+    logger.info(f"+++ WebSocket connection attempt RECEIVED from {client_host}:{client_port} for path /webhooks/analysis +++")
+    # --- END ADD LOGGING ---
+    
     await manager.connect(websocket)
+    logger.info(f"+++ WebSocket client {client_host}:{client_port} CONNECTED successfully +++") # Log success *after* connect
     try:
         while True:
             # Keep the connection alive, optionally handle messages from client

@@ -21,20 +21,16 @@ class OutlookService:
             "Prefer": "outlook.timezone=\"UTC\""
         }
         self.client = httpx.AsyncClient(
-            base_url="https://graph.microsoft.com/v1.0",
+            base_url=settings.MS_GRAPH_BASE_URL,
             headers=self.headers,
             timeout=30.0
         )
 
     async def get_user_info(self) -> Dict[str, Any]:
         """Get user information from Microsoft Graph API"""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://graph.microsoft.com/v1.0/me",
-                headers=self.headers
-            )
-            response.raise_for_status()
-            return response.json()
+        response = await self.client.get("/me")
+        response.raise_for_status()
+        return response.json()
 
     async def get_user_photo(self) -> Optional[str]:
         """Get user profile photo from Microsoft Graph API
@@ -42,77 +38,68 @@ class OutlookService:
         Returns:
             Optional[str]: Base64 encoded photo or None if no photo is available
         """
-        async with httpx.AsyncClient() as client:
-            try:
-                # Try to get the photo
-                response = await client.get(
-                    "https://graph.microsoft.com/v1.0/me/photo/$value",
-                    headers=self.headers
-                )
-                response.raise_for_status()
-                
-                # Convert photo to base64
-                import base64
-                photo_base64 = base64.b64encode(response.content).decode('utf-8')
-                return f"data:image/jpeg;base64,{photo_base64}"
-            except Exception as e:
-                print(f"Error getting user photo: {str(e)}")
+        try:
+            response = await self.client.get("/me/photo/$value")
+            response.raise_for_status()
+            
+            import base64
+            photo_base64 = base64.b64encode(response.content).decode('utf-8')
+            return f"data:image/jpeg;base64,{photo_base64}"
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.info(f"No profile photo found for user.")
                 return None
+            else:
+                logger.error(f"HTTP error getting user photo: {e.response.status_code} - {e.response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting user photo: {str(e)}")
+            return None
 
     async def get_email_folders(self) -> List[Dict[str, Any]]:
         """Get list of email folders from Outlook, including hierarchy."""
         logger.info("[FOLDERS] Fetching all folders to build hierarchy...")
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    "https://graph.microsoft.com/v1.0/me/mailFolders",
-                    params={
-                        # Remove filter to get all folders
-                        # "$filter": "parentFolderId eq null", 
-                        "$select": "id,displayName,parentFolderId", # Select fields needed for hierarchy
-                        "$top": 500, # Increase top limit further to fetch more folders if needed
-                        "$orderby": "displayName"
-                    },
-                    headers=self.headers
-                )
-                response.raise_for_status() # Raise HTTPStatusError for bad responses
-                data = response.json()
-                folders = data.get("value", [])
-                logger.info(f"[FOLDERS] Fetched {len(folders)} total folders.")
+            response = await self.client.get(
+                "/me/mailFolders",
+                params={
+                    "$select": "id,displayName,parentFolderId",
+                    "$top": 500,
+                    "$orderby": "displayName"
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            folders = data.get("value", [])
+            logger.info(f"[FOLDERS] Fetched {len(folders)} total folders.")
 
-                # --- Corrected Hierarchy Building Logic --- 
-                if not folders:
-                    return [] # Return early if no folders fetched
+            if not folders:
+                return []
+            
+            folder_map = {folder["id"]: folder for folder in folders}
+            
+            for folder_id, folder in folder_map.items():
+                folder["children"] = []
+                parent_id = folder.get("parentFolderId")
+                if parent_id and parent_id in folder_map:
+                    folder_map[parent_id]["children"].append(folder)
                     
-                folder_map = {folder["id"]: folder for folder in folders}
-                
-                # Initialize children and link parents that ARE in the map
-                for folder_id, folder in folder_map.items():
-                    folder["children"] = []
-                    parent_id = folder.get("parentFolderId")
-                    if parent_id and parent_id in folder_map:
-                        folder_map[parent_id]["children"].append(folder)
-                        
-                # Identify root folders (no parent OR parent not in the fetched map)
-                root_folders = []
-                for folder_id, folder in folder_map.items():
-                    parent_id = folder.get("parentFolderId")
-                    if not parent_id or parent_id not in folder_map:
-                        root_folders.append(folder)
-                # --- End Corrected Hierarchy Building Logic --- 
+            root_folders = []
+            for folder_id, folder in folder_map.items():
+                parent_id = folder.get("parentFolderId")
+                if not parent_id or parent_id not in folder_map:
+                    root_folders.append(folder)
+            
+            def sort_folders_recursively(folder_list):
+                folder_list.sort(key=lambda x: x.get("displayName", "").lower())
+                for f in folder_list:
+                    if f["children"]:
+                        sort_folders_recursively(f["children"])
+            
+            sort_folders_recursively(root_folders)
 
-                # Optional: Sort children recursively (can be removed if order doesn't matter)
-                def sort_folders_recursively(folder_list):
-                    folder_list.sort(key=lambda x: x.get("displayName", "").lower())
-                    for f in folder_list:
-                        if f["children"]:
-                            sort_folders_recursively(f["children"])
-                
-                sort_folders_recursively(root_folders)
-                # --- End Hierarchy Building Logic --- 
-
-                logger.info(f"[FOLDERS] Built hierarchy with {len(root_folders)} root folders.")
-                return root_folders # Return only the root folders, which contain their children
+            logger.info(f"[FOLDERS] Built hierarchy with {len(root_folders)} root folders.")
+            return root_folders
 
         except httpx.HTTPStatusError as e:
             logger.error(f"[FOLDERS] Graph API HTTP error fetching folders: {e.response.status_code} - {e.response.text}", exc_info=True)
@@ -140,23 +127,16 @@ class OutlookService:
         logger.info(f"[INPUT] Received raw input: folder_id={folder_id}, keywords={keywords}, next_link={next_link}, per_page={per_page}, start_date={start_date}, end_date={end_date}")
         
         try:
-            # --- Handle pagination using next_link --- 
             if next_link:
                 logger.info(f"[PAGINATION] Using next_link: {next_link}")
                 
-                # Determine if manual filtering needed based on *this pagination request's* keywords
                 pagination_use_search = bool(keywords and any(kw.strip() for kw in keywords))
                 logger.info(f"[PAGINATION] Mode check: pagination_use_search={pagination_use_search}")
 
-                async with httpx.AsyncClient(base_url="https://graph.microsoft.com", timeout=30.0) as client:
-                    response = await client.get(
+                async with httpx.AsyncClient(timeout=30.0) as temp_client:
+                    response = await temp_client.get(
                         next_link,
-                        headers={ 
-                            "Authorization": f"Bearer {self.access_token}",
-                            "Accept": "application/json",
-                            "ConsistencyLevel": "eventual",
-                            "Prefer": "outlook.timezone=\"UTC\""
-                        }
+                        headers=self.headers
                     )
                 response.raise_for_status()
                 data = response.json()
@@ -164,26 +144,20 @@ class OutlookService:
 
                 items_raw = data.get("value", [])
                 next_link_from_response = data.get("@odata.nextLink")
-                odata_count = data.get("@odata.count") # Get count if provided by API
+                odata_count = data.get("@odata.count")
 
-                # --- Manual Filtering for Pagination (if keywords provided in this request) ---
                 filtered_items = []
                 if pagination_use_search:
                     logger.info("[PAGINATION-FILTER] Applying manual filtering based on pagination request parameters.")
-                    # Use filters provided in *this* pagination request
                     dt_start_obj, dt_end_obj = self._parse_dates_for_filtering(start_date, end_date)
                     for item in items_raw:
                         if self._passes_manual_filter(item, folder_id, dt_start_obj, dt_end_obj):
                             filtered_items.append(item)
                     logger.info(f"[PAGINATION-FILTER] Filtered {len(items_raw)} items down to {len(filtered_items)}.")
                 else:
-                    # No manual filtering needed if no keywords in this pagination request
                     filtered_items = items_raw
-                # --- End Manual Filtering --- 
 
-                # Determine Total Count for Pagination Response
                 total_count_paginated = 0
-                # Base decision on pagination_use_search determined for this specific call
                 if pagination_use_search and odata_count is None:
                     total_count_paginated = -1 if bool(next_link_from_response) else len(filtered_items)
                 else:
@@ -195,26 +169,19 @@ class OutlookService:
                     "total": total_count_paginated,
                     "next_link": next_link_from_response
                 }
-            # --- End pagination handling ---
 
-            # --- Build and execute initial request (Search or Filter) ---
-            # Determine mode based on initial request's keywords
             initial_use_search_mode = bool(keywords and any(kw.strip() for kw in keywords))
             logger.info(f"[MODE-INITIAL] initial_use_search_mode={initial_use_search_mode}")
             
             select_fields = "id,subject,sender,receivedDateTime,hasAttachments,importance,bodyPreview,parentFolderId"
-            base_url = "/me/messages"
+            base_path = "/me/messages"
             params = {
                 "$select": select_fields,
                 "$count": "true",
                 "$top": per_page 
             }
-            headers = {
-                **self.headers, # Base headers
-                "ConsistencyLevel": "eventual" # Required for $filter/$orderby/$search
-            }
             
-            final_filter_str = None # Only used in non-search mode
+            final_filter_str = None
 
             if initial_use_search_mode:
                 logger.info("[QUERY-BUILD] Building $search query.")
@@ -240,17 +207,14 @@ class OutlookService:
                 params["$orderby"] = "receivedDateTime desc"
                 logger.info(f"[PARAM] Using $orderby: receivedDateTime desc")
 
-            # --- Make the API Request (remains the same) --- 
-            logger.info(f"[REQUEST] Making initial request to {base_url} (Mode: {'Search' if initial_use_search_mode else 'Filter'})")
+            logger.info(f"[REQUEST] Making initial request to {base_path} (Mode: {'Search' if initial_use_search_mode else 'Filter'})")
             logger.info(f"[REQUEST] Params: {params}")
-            response = await self.client.get(base_url, params=params, headers=headers)
+            response = await self.client.get(base_path, params=params)
             logger.info(f"[RESPONSE] URL Requested: {response.request.url}")
             response.raise_for_status()
             data = response.json()
             logger.debug(f"[RESPONSE] Data received: {data}")
-            # --- End Make the API Request --- 
 
-            # --- Manual Filtering (if search mode was used for initial request) --- 
             items_raw = data.get("value", [])
             filtered_items = []
             if initial_use_search_mode:
@@ -261,26 +225,20 @@ class OutlookService:
                         filtered_items.append(item)
                 logger.info(f"[RESPONSE-FILTER] Filtered {len(items_raw)} items down to {len(filtered_items)}.")
             else:
-                filtered_items = items_raw # No manual filtering needed in $filter mode
-            # --- End Manual Filtering ---
+                filtered_items = items_raw
 
-            # --- Prepare Response --- 
             next_link_from_response = data.get("@odata.nextLink")
-            odata_count = data.get("@odata.count") # Count from the API response
+            odata_count = data.get("@odata.count")
 
-            # Determine total count based on mode and API response
             total_count = 0
             if initial_use_search_mode and odata_count is None:
-                # Estimate total for search mode: -1 if more pages might exist, else current count
                 total_count = -1 if bool(next_link_from_response) else len(filtered_items)
                 logger.warning(f"[TOTAL-COUNT] $search mode: Total count estimated as {total_count} based on nextLink presence.")
             else:
-                # Use API count if available, otherwise fallback (less accurate)
                 total_count = odata_count if odata_count is not None else len(filtered_items)
                 logger.info(f"[TOTAL-COUNT] $filter mode or count available: Total count set to {total_count}.")
             
             logger.info(f"[RESPONSE-FINAL] Items: {len(filtered_items)}, Total: {total_count}, Has Next: {bool(next_link_from_response)}")
-            # --- End Prepare Response ---
 
             return {
                 "items": [self._format_email_preview(email) for email in filtered_items],
@@ -305,7 +263,6 @@ class OutlookService:
             logger.error(f"[ERROR] Unexpected error during email preview processing: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal server error during email preview processing: {str(e)}")
 
-    # --- Helper methods --- 
     def _parse_dates_for_graph_filter(self, start_date: str, end_date: str) -> (Optional[str], Optional[str]):
         """Parses dates into ISO format strings suitable for Graph API $filter."""
         graph_api_start_date = None
@@ -335,7 +292,6 @@ class OutlookService:
                 logger.error(f"[DATE-PARSE] Invalid start_date format: {start_date}. Cannot use for manual filter.")
         if end_date:
             try:
-                # Use end of day for inclusive filtering
                 dt_end_obj = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
             except ValueError:
                  logger.error(f"[DATE-PARSE] Invalid end_date format: {end_date}. Cannot use for manual filter.")
@@ -343,16 +299,12 @@ class OutlookService:
 
     def _passes_manual_filter(self, item: Dict, folder_id: Optional[str], dt_start: Optional[datetime], dt_end: Optional[datetime]) -> bool:
         """Checks if a single item passes manual folder and date filters."""
-        # Folder Check
         if folder_id and item.get("parentFolderId") != folder_id:
             return False
         
-        # Date Check
         received_date_str = item.get("receivedDateTime")
         if received_date_str:
             try:
-                # Graph API returns ISO 8601 format (e.g., "2024-01-15T10:30:00Z")
-                # We need to parse this and ensure it's timezone-aware (it should be UTC 'Z')
                 received_dt = datetime.fromisoformat(received_date_str.replace('Z', '+00:00'))
                 
                 if dt_start and received_dt < dt_start:
@@ -361,12 +313,12 @@ class OutlookService:
                     return False
             except Exception as e:
                 logger.warning(f"[MANUAL-FILTER-DATE] Could not parse receivedDateTime '{received_date_str}': {e}. Item ID: {item.get('id')}")
-                return False # Exclude if date cannot be parsed
-        elif dt_start or dt_end: # If date filtering is active but item has no date
+                return False
+        elif dt_start or dt_end:
              logger.warning(f"[MANUAL-FILTER-DATE] Item missing receivedDateTime cannot be filtered. Item ID: {item.get('id')}")
-             return False # Exclude if date filtering is needed but date is missing
+             return False
         
-        return True # Passed all checks
+        return True
 
     def _format_email_preview(self, email: Dict) -> Dict:
         """Format email data into preview format."""
@@ -386,60 +338,56 @@ class OutlookService:
 
     async def get_email_content(self, email_id: str) -> EmailContent:
         """Get full email content by ID"""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://graph.microsoft.com/v1.0/me/messages/{email_id}",
+        response = await self.client.get(
+            f"/me/messages/{email_id}",
+            headers=self.headers
+        )
+        response.raise_for_status()
+        email = response.json()
+        
+        attachments = []
+        if email.get("hasAttachments"):
+            attachments_response = await self.client.get(
+                f"/me/messages/{email_id}/attachments",
                 headers=self.headers
             )
-            response.raise_for_status()
-            email = response.json()
+            attachments_response.raise_for_status()
+            attachments_data = attachments_response.json()
             
-            # Get attachments if any
-            attachments = []
-            if email.get("hasAttachments"):
-                attachments_response = await client.get(
-                    f"https://graph.microsoft.com/v1.0/me/messages/{email_id}/attachments",
-                    headers=self.headers
-                )
-                attachments_response.raise_for_status()
-                attachments_data = attachments_response.json()
-                
-                for attachment in attachments_data.get("value", []):
-                    attachments.append(EmailAttachment(
-                        id=attachment["id"],
-                        name=attachment["name"],
-                        content_type=attachment["contentType"],
-                        size=attachment["size"]
-                    ))
-            
-            return EmailContent(
-                id=email["id"],
-                subject=email.get("subject", "(No subject)"),
-                sender=email["sender"]["emailAddress"]["address"],
-                received_date=email["receivedDateTime"],
-                body=email.get("body", {}).get("content", ""),
-                attachments=attachments
-            )
+            for attachment in attachments_data.get("value", []):
+                attachments.append(EmailAttachment(
+                    id=attachment["id"],
+                    name=attachment["name"],
+                    content_type=attachment["contentType"],
+                    size=attachment["size"]
+                ))
+        
+        return EmailContent(
+            id=email["id"],
+            subject=email.get("subject", "(No subject)"),
+            sender=email["sender"]["emailAddress"]["address"],
+            received_date=email["receivedDateTime"],
+            body=email.get("body", {}).get("content", ""),
+            attachments=attachments
+        )
 
     async def get_email_attachment(self, email_id: str, attachment_id: str) -> EmailAttachment:
         """Get email attachment by ID"""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://graph.microsoft.com/v1.0/me/messages/{email_id}/attachments/{attachment_id}",
-                headers=self.headers
-            )
-            response.raise_for_status()
-            attachment = response.json()
-            
-            return EmailAttachment(
-                id=attachment["id"],
-                name=attachment["name"],
-                content_type=attachment["contentType"],
-                size=attachment["size"],
-                content=attachment.get("contentBytes")  # Base64 encoded content
-            )
+        response = await self.client.get(
+            f"/me/messages/{email_id}/attachments/{attachment_id}",
+            headers=self.headers
+        )
+        response.raise_for_status()
+        attachment = response.json()
+        
+        return EmailAttachment(
+            id=attachment["id"],
+            name=attachment["name"],
+            content_type=attachment["contentType"],
+            size=attachment["size"],
+            content=attachment.get("contentBytes")
+        )
 
-    # --- New Method to Fetch All Subjects --- 
     async def get_all_subjects_for_filter(self, filter_criteria: EmailFilter) -> List[str]:
         """
         Fetches subjects of ALL emails matching the filter criteria using pagination.
@@ -448,11 +396,10 @@ class OutlookService:
         logger.info(f"[ALL_SUBJECTS] Starting fetch for filter: {filter_criteria.model_dump_json()}")
         
         all_subjects: List[str] = []
-        max_emails_to_fetch = 10000 # Safety limit to prevent infinite loops/excessive requests
+        max_emails_to_fetch = 10000
         request_url = "/me/messages"
-        page_size = 100 # Request 100 emails per page
+        page_size = 100
 
-        # Build initial filter string (excluding keywords)
         filter_parts = []
         if filter_criteria.folder_id:
             safe_folder_id = filter_criteria.folder_id.replace("'", "''") 
@@ -468,7 +415,7 @@ class OutlookService:
         final_filter_str = " and ".join(filter_parts) if filter_parts else None
         
         params = {
-            "$select": "subject", # Only fetch the subject
+            "$select": "subject",
             "$top": page_size
         }
         if final_filter_str:
@@ -477,61 +424,47 @@ class OutlookService:
         else:
              logger.info("[ALL_SUBJECTS] No filter applied (fetching from all folders/dates).")
              
-        headers = {
-            **self.headers,
-            "ConsistencyLevel": "eventual" # Required for $filter
-        }
-
         page_count = 0
         while request_url and len(all_subjects) < max_emails_to_fetch:
             page_count += 1
             logger.info(f"[ALL_SUBJECTS] Fetching page {page_count}. Current count: {len(all_subjects)}. URL: {request_url}")
             
             try:
-                # Use full URL if it's a nextLink, otherwise use base_url + path
                 if "@odata.nextLink" in request_url: 
-                    # Use a separate client for nextLink requests as base_url is different
                      async with httpx.AsyncClient(timeout=30.0) as next_link_client:
                         response = await next_link_client.get(request_url, headers=self.headers)
                 else:
-                    # Initial request uses the service client with base_url
-                    response = await self.client.get(request_url, params=params, headers=headers)
+                    response = await self.client.get(request_url, params=params)
                 
                 response.raise_for_status()
                 data = response.json()
                 
                 messages = data.get("value", [])
                 for message in messages:
-                    if message.get("subject"): # Ensure subject exists
+                    if message.get("subject"):
                         all_subjects.append(message["subject"])
                     else:
                         logger.debug(f"[ALL_SUBJECTS] Email found with no subject (ID: {message.get('id', 'N/A')}). Skipping.")
                 
-                # Get the next link for the next iteration
                 request_url = data.get("@odata.nextLink")
-                params = {} # Clear params as they are included in nextLink
-                headers = self.headers # Reset headers for nextLink client
+                params = {}
 
                 logger.info(f"[ALL_SUBJECTS] Page {page_count} fetched {len(messages)} items. Total subjects now: {len(all_subjects)}. Next link exists: {bool(request_url)}")
 
             except httpx.HTTPStatusError as e:
-                # Handle specific errors like rate limiting (429)
                 if e.response.status_code == 429:
                     retry_after = int(e.response.headers.get("Retry-After", "10"))
                     logger.warning(f"[ALL_SUBJECTS] Rate limit hit (429). Retrying after {retry_after} seconds.")
                     await asyncio.sleep(retry_after)
-                    # Continue loop to retry the same request_url
                 else:
                     logger.error(f"[ALL_SUBJECTS] Graph API HTTP error fetching page {page_count}: {e.response.status_code} - {e.response.text}", exc_info=True)
-                    # Decide whether to stop or continue (e.g., return partial results)
-                    break # Stop fetching on other errors
+                    break
             except Exception as e:
                 logger.error(f"[ALL_SUBJECTS] Unexpected error fetching page {page_count}: {e}", exc_info=True)
-                break # Stop fetching on unexpected errors
+                break
 
         if len(all_subjects) >= max_emails_to_fetch:
              logger.warning(f"[ALL_SUBJECTS] Reached safety limit ({max_emails_to_fetch}). Returning {len(all_subjects)} subjects.")
              
         logger.info(f"[ALL_SUBJECTS] Finished fetching. Total subjects collected: {len(all_subjects)}")
         return all_subjects
-    # --- End New Method ---

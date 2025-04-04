@@ -16,33 +16,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app")
 
-from app.config import settings
-from app.routes import auth, email, review, vector, test, webhooks
+try:
+    from app.config import settings
+except ValueError as e:
+    logger.error(f"CRITICAL ERROR loading configuration: {e}")
+    logger.error("Please ensure all required environment variables are set in your .env file or system environment.")
+    sys.exit(1) # Exit if configuration fails
 
-# Log environment variables for debugging
-logger.debug(f"Starting application with environment variables:")
+from app.routes import auth, email, review, vector, webhooks
+
+# Log critical environment variables for debugging
+logger.debug("--- Application Startup --- ")
+logger.debug(f"ENVIRONMENT: {settings.ENVIRONMENT}")
+logger.debug(f"DEBUG: {settings.DEBUG}")
 logger.debug(f"FRONTEND_URL: {settings.FRONTEND_URL}")
 logger.debug(f"BACKEND_URL: {settings.BACKEND_URL}")
-logger.debug(f"MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
-logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
-logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
+logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
+logger.debug(f"Webhook Prefix: {settings.WEBHOOK_PREFIX}")
+# Only log sensitive info like this in DEBUG mode or be very careful
+if settings.DEBUG:
+    logger.debug(f"MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
+    logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
+    logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
 app = FastAPI(title="Email Knowledge Base API")
 
-# Configure CORS - must be added before any routes
-origins = [
-    "http://localhost:5173",  # Development frontend
-    "http://localhost:5174",  # Alternative development port
-    "http://localhost:5175",  # Alternative development port
-    settings.FRONTEND_URL,    # Production frontend
-    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app",  # Production backend
-    "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api",  # Production API
-]
-logger.debug(f"Configuring CORS with allowed origins: {origins}")
-
+# Configure CORS using settings
+logger.info(f"Configuring CORS with allowed origins from settings: {settings.CORS_ALLOWED_ORIGINS}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS, # Use the list from settings
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -55,8 +58,7 @@ app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["aut
 app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
 app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
 app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
-app.include_router(test.router, prefix=f"{settings.API_PREFIX}/test", tags=["test"])
-app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["webhooks"]) # Use prefix from settings
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -87,5 +89,10 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.debug("Starting uvicorn server")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    logger.info(f"Starting uvicorn development server on {settings.DEV_SERVER_HOST}:{settings.DEV_SERVER_PORT} with reload={'enabled' if settings.DEV_SERVER_RELOAD else 'disabled'}")
+    uvicorn.run(
+        "app.main:app", 
+        host=settings.DEV_SERVER_HOST, 
+        port=settings.DEV_SERVER_PORT, 
+        reload=settings.DEV_SERVER_RELOAD
+    )

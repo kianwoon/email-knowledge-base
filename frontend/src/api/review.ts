@@ -1,35 +1,13 @@
-import axios from 'axios';
+import apiClient from './apiClient'; // Import the shared client
 import { EmailPreview, EmailApproval } from '../types/email';
-
-// Get the API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-
-// Create axios instance with default config
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add request interceptor to include auth token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
 
 /**
  * Get pending email reviews
  */
 export const getPendingReviews = async (params: { page?: number; per_page?: number } & Record<string, any> = {}) => {
   try {
-    const response = await api.get('/review/pending', { params });
+    // Use apiClient directly
+    const response = await apiClient.get('/review/pending', { params });
     return response.data;
   } catch (error) {
     console.error('Error getting pending reviews:', error);
@@ -42,7 +20,8 @@ export const getPendingReviews = async (params: { page?: number; per_page?: numb
  */
 export const submitReviewDecision = async (emailId: string, approval: EmailApproval) => {
   try {
-    const response = await api.post(`/review/decision/${emailId}`, approval);
+    // Use apiClient directly
+    const response = await apiClient.post(`/review/decision/${emailId}`, approval);
     return response.data;
   } catch (error) {
     console.error('Error submitting review decision:', error);
@@ -55,7 +34,8 @@ export const submitReviewDecision = async (emailId: string, approval: EmailAppro
  */
 export const submitBulkReviewDecision = async (emailIds: string[], approval: EmailApproval) => {
   try {
-    const response = await api.post('/review/bulk-decision', {
+    // Use apiClient directly
+    const response = await apiClient.post('/review/bulk-decision', {
       email_ids: emailIds,
       ...approval
     });
@@ -71,12 +51,11 @@ export const submitBulkReviewDecision = async (emailIds: string[], approval: Ema
  */
 export const getReviewHistory = async (filters: any = {}) => {
   try {
-    const response = await api.get('/review/history', { params: filters });
+    // Use apiClient directly
+    const response = await apiClient.get('/review/history', { params: filters });
     return response.data;
   } catch (error) {
     console.error('Error getting review history:', error);
     throw error;
   }
 };
-
-export default api;

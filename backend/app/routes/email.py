@@ -194,7 +194,9 @@ async def analyze_emails(
             detail="External analysis service URL is not configured."
         )
 
-    webhook_url = f"{settings.BACKEND_URL}/webhooks/subject-analysis" # Uses BACKEND_URL from env/settings
+    # Construct webhook URL using base backend URL, webhook prefix, and specific path
+    webhook_callback_path = "/analysis" # Path defined in webhooks.py @router.post
+    webhook_url = f"{settings.BACKEND_URL}{settings.WEBHOOK_PREFIX}{webhook_callback_path}" 
     job_id = str(uuid.uuid4())
 
     # --- Get API Key from settings --- 
