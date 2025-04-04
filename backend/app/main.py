@@ -50,41 +50,40 @@ app.add_middleware(
     max_age=86400,  # Cache preflight requests for 24 hours
 )
 
-# Mount routes - Temporarily commented out for testing
-# app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["auth"])
-# app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
-# app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
-# app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
-# app.include_router(test.router, prefix=f"{settings.API_PREFIX}/test", tags=["test"])
-# app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+# Mount routes
+app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["auth"])
+app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
+app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
+app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix=f"{settings.API_PREFIX}/test", tags=["test"])
+app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
-# Mount static files directory - Temporarily commented out for testing
-# static_dir = os.path.join(os.path.dirname(__file__), "static")
-# logger.debug(f"Mounting static directory: {static_dir}")
-# app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# Mount static files directory
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+logger.debug(f"Mounting static directory: {static_dir}")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the Email Knowledge Base API - Simplified Test"}
+    return {"message": "Welcome to the Email Knowledge Base API"}
 
-# Health check - Temporarily commented out for testing
-# @app.get(f"{settings.API_PREFIX}/health")
-# async def health_check():
-#     """Health check endpoint"""
-#     logger.debug("Health check endpoint called")
-#     return {
-#         "status": "online", 
-#         "message": "Email Knowledge Base API is running",
-#         "environment": {
-#             "FRONTEND_URL": settings.FRONTEND_URL,
-#             "MS_REDIRECT_URI": settings.MS_REDIRECT_URI,
-#             "API_PREFIX": settings.API_PREFIX,
-#             "IS_PRODUCTION": settings.IS_PRODUCTION,
-#             "static_dir": static_dir,
-#             "cwd": os.getcwd(),
-#             "listdir": os.listdir(".")
-#         }
-#     }
+@app.get(f"{settings.API_PREFIX}/health")
+async def health_check():
+    """Health check endpoint"""
+    logger.debug("Health check endpoint called")
+    return {
+        "status": "online", 
+        "message": "Email Knowledge Base API is running",
+        "environment": {
+            "FRONTEND_URL": settings.FRONTEND_URL,
+            "MS_REDIRECT_URI": settings.MS_REDIRECT_URI,
+            "API_PREFIX": settings.API_PREFIX,
+            "IS_PRODUCTION": settings.IS_PRODUCTION,
+            "static_dir": static_dir,
+            "cwd": os.getcwd(),
+            "listdir": os.listdir(".")
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn
