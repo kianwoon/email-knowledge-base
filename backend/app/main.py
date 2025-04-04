@@ -51,11 +51,11 @@ app.add_middleware(
 )
 
 # Mount routes
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
-app.include_router(email.router, prefix="/api/emails", tags=["emails"])
-app.include_router(review.router, prefix="/api/review", tags=["Review Process"])
-app.include_router(vector.router, prefix="/api/vector", tags=["Vector Database"])
-app.include_router(test.router, prefix="/api/test", tags=["test"])
+app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["auth"])
+app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
+app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
+app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
+app.include_router(test.router, prefix=f"{settings.API_PREFIX}/test", tags=["test"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
 # Mount static files directory
@@ -67,7 +67,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def read_root():
     return {"message": "Welcome to the Email Knowledge Base API"}
 
-@app.get(f"/api/health")
+@app.get(f"{settings.API_PREFIX}/health")
 async def health_check():
     """Health check endpoint"""
     logger.debug("Health check endpoint called")
