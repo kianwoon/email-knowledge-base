@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     IS_PRODUCTION: bool = os.getenv("ENVIRONMENT", "") == "production"
     
     # API prefix - ALWAYS /api
-    API_PREFIX: str = "/"
+    API_PREFIX: str = ""
     
     # URLs based on environment
     DEFAULT_PROD_URL: str = os.getenv("DEFAULT_PROD_URL", "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app")
