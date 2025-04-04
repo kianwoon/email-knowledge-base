@@ -1209,7 +1209,7 @@ const FilterSetup: React.FC = () => {
                   >
                     <Icon as={FaSearch} boxSize={8} mb={4} />
                     <Text fontSize="lg" mb={2}>
-                      {t('emailProcessing.results.noEmails')}
+                      {t('emailProcessing.results.noResults')}
                     </Text>
                     <Text fontSize="sm">
                       {t('emailProcessing.results.tryDifferentFilters')}
