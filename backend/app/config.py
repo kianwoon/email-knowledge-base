@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     IS_PRODUCTION: bool = os.getenv("ENVIRONMENT", "") == "production"
     
     # API prefix - ALWAYS /api
-    API_PREFIX: str = "/"
+    API_PREFIX: str = "/api"
     
     # URLs based on environment
     DEFAULT_PROD_URL: str = os.getenv("DEFAULT_PROD_URL", "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app")
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
     
     # External Analysis Service URL
-    EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL", "")
+    EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL", "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/mail")
     
     # --- Debug log for external API key ---
     _external_api_key_debug = os.getenv("EXTERNAL_ANALYSIS_API_KEY")
