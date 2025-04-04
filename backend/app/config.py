@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     # Determine if we're in production
     IS_PRODUCTION: bool = os.getenv("ENVIRONMENT", "") == "production"
     
-    # API prefix - empty in production since Koyeb adds it
-    API_PREFIX: str = os.getenv("API_PREFIX", "" if IS_PRODUCTION else "/api")
+    # API prefix - ALWAYS /api
+    API_PREFIX: str = "/api"
     
     # URLs based on environment
     DEFAULT_PROD_URL: str = os.getenv("DEFAULT_PROD_URL", "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app")
