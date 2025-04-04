@@ -186,7 +186,14 @@ async def analyze_emails(
     logger.info(f"Collected {len(subjects)} subjects for analysis.")
 
     # --- Call External Service (Logic remains similar) ---
-    external_analysis_url = "https://4d9b-2406-3003-2006-27ea-9808-17c0-f4f4-c485.ngrok-free.app/api/v1/analyze/subjects" # Hardcoded test URL with full path
+    external_analysis_url = settings.EXTERNAL_ANALYSIS_URL # Use URL from settings
+    if not external_analysis_url:
+        logger.error("External analysis service URL (EXTERNAL_ANALYSIS_URL) is not configured in settings/environment.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="External analysis service URL is not configured."
+        )
+
     webhook_url = f"{settings.BACKEND_URL}/webhooks/subject-analysis" # Uses BACKEND_URL from env/settings
     job_id = str(uuid.uuid4())
 

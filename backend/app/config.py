@@ -75,7 +75,10 @@ class Settings(BaseSettings):
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS", "10"))
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION", "1536"))
     
-    # --- Debug log for external API key --- 
+    # External Analysis Service URL
+    EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL", "")
+    
+    # --- Debug log for external API key ---
     _external_api_key_debug = os.getenv("EXTERNAL_ANALYSIS_API_KEY")
     logger.info(f" --- config.py: Value of os.getenv('EXTERNAL_ANALYSIS_API_KEY') = {_external_api_key_debug} --- ")
     EXTERNAL_ANALYSIS_API_KEY: str = _external_api_key_debug or ""
@@ -85,6 +88,12 @@ class Settings(BaseSettings):
     def validate_external_api_key(cls, v):
         if not v:
             raise ValueError("EXTERNAL_ANALYSIS_API_KEY must be set in .env file or environment")
+        return v
+    
+    @validator("EXTERNAL_ANALYSIS_URL")
+    def validate_external_analysis_url(cls, v):
+        if not v:
+            raise ValueError("EXTERNAL_ANALYSIS_URL must be set in .env file or environment")
         return v
     
     model_config = {
