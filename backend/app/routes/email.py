@@ -194,9 +194,10 @@ async def analyze_emails(
             detail="External analysis service URL is not configured."
         )
 
-    # Construct webhook URL using base backend URL, webhook prefix, and specific path
+    # Construct webhook URL using base backend URL, manually adding /api, then webhook prefix + path
+    # We add /api manually because internal API_PREFIX is now empty due to Koyeb routing
     webhook_callback_path = "/analysis" # Path defined in webhooks.py @router.post
-    webhook_url = f"{settings.BACKEND_URL}{settings.WEBHOOK_PREFIX}{webhook_callback_path}" 
+    webhook_url = f"{settings.BACKEND_URL}/api{settings.WEBHOOK_PREFIX}{webhook_callback_path}" 
     job_id = str(uuid.uuid4())
 
     # --- Get API Key from settings --- 
