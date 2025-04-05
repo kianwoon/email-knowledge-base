@@ -16,10 +16,7 @@ ENV CI=false
 # Skip TypeScript checks if needed
 RUN sed -i 's/tsc && vite build/vite build/g' package.json
 
-# Just echo for visibility — not needed but useful for debugging
-RUN echo "VITE_API_BASE_URL: $VITE_API_BASE_URL" && \
-    echo "VITE_WEBSOCKET_URL: $VITE_WEBSOCKET_URL" && \
-    npm run build
+RUN npm run build
 
 # Production stage
 FROM nginx:alpine
