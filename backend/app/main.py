@@ -23,7 +23,7 @@ except ValueError as e:
     logger.error("Please ensure all required environment variables are set in your .env file or system environment.")
     sys.exit(1) # Exit if configuration fails
 
-from app.routes import auth, email, review, vector, webhooks
+from app.routes import auth, email, review, vector, webhooks, websockets
 
 # Log critical environment variables for debugging
 logger.debug("--- Application Startup --- ")
@@ -59,6 +59,7 @@ app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["
 app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
 app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
 app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["webhooks"]) # Use prefix from settings
+app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}", tags=["websockets"]) # Added websockets router with /api prefix
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")

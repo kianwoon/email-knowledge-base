@@ -18,7 +18,7 @@ RUN sed -i 's/tsc && vite build/vite build/g' package.json
 
 # Force production URLs into the build environment
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api
-ENV VITE_WEBSOCKET_URL=wss://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/webhooks/analysis
+ENV VITE_WEBSOCKET_URL=wss://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/analysis
 # You might also need VITE_BACKEND_URL if your code uses it directly
 ENV VITE_BACKEND_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app
 
