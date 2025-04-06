@@ -68,31 +68,50 @@ async def handle_analysis_webhook(
             external_job_id_str = str(external_job_id) # Ensure string ID
             
             # --- Add temporary delay to test for indexing lag --- 
-            logger.info(f"[WEBHOOK] Adding 1 second delay before Qdrant search for {external_job_id_str}...")
-            await asyncio.sleep(1) 
-            logger.info(f"[WEBHOOK] Delay finished. Proceeding with Qdrant search for {external_job_id_str}.")
+            # logger.info(f"[WEBHOOK] Adding 1 second delay before Qdrant search for {external_job_id_str}...")
+            # await asyncio.sleep(1) 
+            # logger.info(f"[WEBHOOK] Delay finished. Proceeding with Qdrant search for {external_job_id_str}.")
             # --- End temporary delay ---
 
-            # --- Revert to using qdrant.search with payload filter --- 
-            search_filter=Filter(
-                must=[
-                    FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
-                    # Use MatchValue for external_job_id
-                    FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id_str))
-                ]
-            )
-            logger.info(f"[WEBHOOK] Searching Qdrant with filter: {search_filter.model_dump_json(indent=2)}")
+            # --- Revert to using qdrant.search with payload filter AND RETRY LOGIC --- 
+            MAX_RETRIES = 3
+            RETRY_DELAY = 0.5 # seconds
+            points = None
 
-            search_result = qdrant.search(
-                collection_name=settings.QDRANT_COLLECTION_NAME,
-                query_vector=[0.0] * settings.EMBEDDING_DIMENSION,
-                query_filter=search_filter,
-                limit=1
-            )
+            for attempt in range(MAX_RETRIES):
+                logger.info(f"[WEBHOOK] Attempt {attempt + 1}/{MAX_RETRIES} to find mapping for external ID: {external_job_id_str}")
+                search_filter=Filter(
+                    must=[
+                        FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
+                        FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id_str))
+                    ]
+                )
+                # Log the filter being used (optional, could be moved outside loop)
+                # logger.info(f"[WEBHOOK] Searching Qdrant with filter: {search_filter.model_dump_json(indent=2)}") 
 
-            # search returns a list of ScoredPoint
-            points = search_result
+                search_result = qdrant.search(
+                    collection_name=settings.QDRANT_COLLECTION_NAME,
+                    query_vector=[0.0] * settings.EMBEDDING_DIMENSION,
+                    query_filter=search_filter,
+                    limit=1
+                )
+                
+                points = search_result # search returns a list of ScoredPoint
 
+                if points and len(points) == 1:
+                    logger.info(f"[WEBHOOK] Found mapping on attempt {attempt + 1}.")
+                    break # Exit loop if found
+                else:
+                    logger.warning(f"[WEBHOOK] Mapping not found on attempt {attempt + 1}. Result count: {len(points) if points else 0}")
+                    if attempt < MAX_RETRIES - 1:
+                        sleep_duration = RETRY_DELAY * (attempt + 1)
+                        logger.info(f"[WEBHOOK] Waiting {sleep_duration}s before next attempt...")
+                        await asyncio.sleep(sleep_duration)
+                    else:
+                        logger.error(f"[WEBHOOK] Failed to find mapping after {MAX_RETRIES} attempts.")
+            # --- End Retry Logic ---
+
+            # Check if point was found after retries
             if points and len(points) == 1:
                 mapping_point = points[0] # Get the ScoredPoint
                 internal_job_id = mapping_point.payload.get("internal_job_id")
