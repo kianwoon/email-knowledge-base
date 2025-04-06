@@ -79,7 +79,7 @@ import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import SubjectSunburstChart from '../components/SubjectSunburstChart';
-import { saveJobToKnowledgeBase } from '../api/vector';
+import { saveFilteredEmailsToKnowledgeBase } from '../api/vector';
 
 import { getEmailFolders, getEmailPreviews, submitFilterForAnalysis } from '../api/email';
 import { EmailFilter, EmailPreview } from '../types/email';
@@ -186,6 +186,7 @@ const FilterSetup: React.FC = () => {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [isSavingToKB, setIsSavingToKB] = useState(false);
+  const [searchPerformedSuccessfully, setSearchPerformedSuccessfully] = useState(false);
   
   // Attachment types
   const attachmentTypes = [
@@ -215,6 +216,7 @@ const FilterSetup: React.FC = () => {
     }
 
     setIsLoadingPreviews(true);
+    setSearchPerformedSuccessfully(false);
     try {
       // If using next_link, use it directly (size doesn't apply to next_link requests)
       if (nextLink) {
@@ -230,7 +232,8 @@ const FilterSetup: React.FC = () => {
         // Use currentSize for page calculation when total is known
         const totalPagesFromNextLink = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
         setTotalPages(totalPagesFromNextLink); 
-        setNextLink(previewData.next_link);
+        setNextLink(previewData.next_link ?? undefined);
+        setSearchPerformedSuccessfully(true);
 
       } else {
         // Initial Load / Non-pagination request
@@ -261,14 +264,15 @@ const FilterSetup: React.FC = () => {
         // Use currentSize for page calculation when total is known
         const totalPagesFromInitial = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
         setTotalPages(totalPagesFromInitial);
-        setNextLink(previewData.next_link);
+        setNextLink(previewData.next_link ?? undefined);
+        setSearchPerformedSuccessfully(true);
 
         console.log('Updated state (non-pagination):', {
           items: previewData.items?.length,
           total: previewData.total,
           pages: totalPagesFromInitial,
-          nextLink: previewData.next_link,
-        });
+          nextLink: previewData.next_link ?? undefined,
+        } as any);
       }
     } catch (error: any) {
       console.error("Error loading email previews:", error);
@@ -373,7 +377,7 @@ const FilterSetup: React.FC = () => {
             console.log('handlePageChange: Calling setTotalPages:', newTotalPages);
             setTotalPages(newTotalPages);
             console.log('handlePageChange: Calling setNextLink:', previewData.next_link);
-            setNextLink(previewData.next_link);
+            setNextLink(previewData.next_link ?? undefined);
             console.log('handlePageChange: Calling setCurrentPage:', newPage);
             setCurrentPage(newPage);
         } else {
@@ -488,6 +492,7 @@ const FilterSetup: React.FC = () => {
   const handleSearchClick = () => {
     setCurrentPage(1);
     setNextLink(undefined);
+    setSearchPerformedSuccessfully(false);
     loadPreviews(); 
   };
   
@@ -499,218 +504,152 @@ const FilterSetup: React.FC = () => {
     toast({ title: "Save Template (Not Implemented)", status: "info", duration: 2000 });
   };
 
-  // Handler for Analyze Data button click
-  const handleAnalyzeClick = useCallback(async () => {
-    if (!previews || previews.length === 0) {
-      toast({ title: "No data", description: "No email previews available to analyze.", status: "warning", duration: 3000 });
-      return;
-    }
-
+  // Handler for Analyze Data button
+  const handleAnalyzeClick = async () => {
     setIsAnalyzing(true);
-    setAnalysisData(null); // Clear previous results
-    setAnalysisError(null); // Clear previous errors
-    setAnalysisJobId(null); // <--- Clear previous job ID
+    setAnalysisJobId(null); // Clear previous job ID
+    setAnalysisError(null);
     try {
-      // Call the API function with the current filter state
-      console.log(`[FilterSetup] Submitting filter for analysis...`, filter);
-      const result = await submitFilterForAnalysis(filter); // Pass the filter state object
-      console.log("[FilterSetup] Received response from /analyze:", result); // <-- Log the raw result
-
-      // Handle success - API returns job ID
-      if (result?.job_id) { // <--- Check if job_id exists
-        console.log(`[FilterSetup] Setting analysisJobId to: ${result.job_id}`); // <-- Log before setting state
-        setAnalysisJobId(result.job_id); // <--- Store the job ID
-        toast({ 
-          title: t('emailProcessing.analysis.submittedTitle'), 
-          description: t('emailProcessing.analysis.submittedDescription', { jobId: result.job_id }), 
-          status: "success", 
-          duration: 5000 
-        });
-      } else {
-        // Handle case where job_id might be missing in the response
-        console.error("[FilterSetup] Analysis submitted, but no Job ID received from backend.", result);
-        setAnalysisJobId(null); // Ensure null if no ID
-        throw new Error("Analysis submitted, but no Job ID received from backend.");
-      }
-
+      console.log('Submitting filter for analysis...', filter);
+      const response = await submitFilterForAnalysis(filter);
+      setAnalysisJobId(response.job_id);
+      toast({
+        title: t('emailProcessing.notifications.analysisSubmitted.title'),
+        description: `${t('emailProcessing.notifications.analysisSubmitted.description')} Job ID: ${response.job_id}`,
+        status: 'success',
+        duration: 5000,
+      });
+      console.log('Analysis submitted successfully, Job ID:', response.job_id);
     } catch (error: any) {
-      console.error("[FilterSetup] Error in handleAnalyzeClick:", error);
-      setAnalysisJobId(null); // Ensure job ID is null on error
+      console.error('Error submitting analysis:', error);
+      const errorMessage = error.response?.data?.detail || error.message || t('errors.unknownError');
+      setAnalysisError(errorMessage);
+      toast({
+        title: t('errors.errorSubmittingAnalysis'),
+        description: errorMessage,
+        status: 'error',
+        duration: 7000,
+      });
     } finally {
       setIsAnalyzing(false);
     }
-  }, [previews, toast, t, filter]);
+  };
 
-  // WebSocket connection effect
-  useEffect(() => {
-    // Use a dedicated environment variable for the WebSocket URL
-    const wsUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
-
-    if (!wsUrlFromEnv) {
-      console.error("[WebSocket] VITE_WEBSOCKET_URL is not defined in environment (.env file).");
-      setAnalysisError("WebSocket URL is not configured.");
-      return; // Prevent connection attempt
+  // Handler for the "Save to Knowledge Base" button (Now uses new endpoint)
+  const handleSaveToKnowledgeBase = async () => {
+    if (!searchPerformedSuccessfully || previews.length === 0) {
+      toast({ title: "No email previews to process.", status: "warning", duration: 3000 });
+      return;
     }
 
+    // No need to check for analysisJobId anymore
+    setIsSavingToKB(true); // Indicate the saving process
+    
+    try {
+      console.log(`Attempting to save emails using current filter...`, filter);
+      // Call the new API function with the current filter state
+      const result = await saveFilteredEmailsToKnowledgeBase(filter); 
+
+      toast({
+        title: t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title'), // Use appropriate translation key
+        description: result.message || t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.description'),
+        status: result.status === 'success' || result.status === 'partial_success' ? 'success' : 'warning', // Adjust status based on response
+        duration: 5000,
+      });
+      console.log('Save filtered emails to knowledge base result:', result);
+
+    } catch (error: any) {
+      console.error(`Error saving filtered emails to knowledge base:`, error);
+      const errorMessage = error.message || t('errors.unknownError'); // Error now comes from the API function
+      toast({
+        title: t('errors.errorSavingToKB'), // Use appropriate translation key
+        description: errorMessage,
+        status: 'error',
+        duration: 7000,
+      });
+    } finally {
+      setIsSavingToKB(false); // Saving finished (success or fail)
+      // Reset isAnalyzing state as well if it was potentially set by previous logic (cleanup)
+      setIsAnalyzing(false); 
+    }
+  };
+  
+  // --- Derived State and Tooltips --- 
+  const isProcessing = isAnalyzing || isSavingToKB; 
+  // Buttons enabled if search is done, previews exist, and not currently processing
+  const canClickButtons = searchPerformedSuccessfully && previews.length > 0 && !isProcessing;
+
+  const analyzeButtonTooltip = t('emailProcessing.tooltips.analyze');
+  // Tooltip for Proceed Now button reflects its direct action
+  const proceedButtonTooltip = t('emailProcessing.tooltips.proceedDirectSave'); 
+
+  // WebSocket connection effect (RESTORED)
+  useEffect(() => {
+    const wsUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
+    if (!wsUrlFromEnv) {
+      console.error("[WebSocket] VITE_WEBSOCKET_URL is not defined.");
+      setAnalysisError("WebSocket URL not configured.");
+      return;
+    }
     const wsUrl = wsUrlFromEnv;
-
-    // Log the final URL being used
-    console.log(`[WebSocket] Attempting to connect to: ${wsUrl}`);
+    console.log(`[WebSocket] Connecting to: ${wsUrl}`);
     const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      // Log successful connection
-      console.log('[WebSocket] Connection opened successfully.');
-      setAnalysisError(null); // Clear previous errors on successful connect
-    };
-
+    ws.onopen = () => console.log('[WebSocket] Connection opened.');
     ws.onmessage = (event) => {
-      console.log('[WebSocket] Raw message data received:', event.data); // <-- Log raw data
       try {
         const message = JSON.parse(event.data);
-        console.log('[WebSocket] Parsed message:', message); // <-- Log parsed message
-        
-        // Check if the message job_id matches the one we stored
-        const isMatch = message?.job_id && message.job_id === analysisJobId;
-        console.log(`[WebSocket] Comparing message job_id (${message?.job_id}) with state analysisJobId (${analysisJobId}). Match: ${isMatch}`); // <-- Log comparison
-
-        if (isMatch && message.results && Array.isArray(message.results)) {
-          console.log(`[WebSocket] Match successful! Calling setAnalysisData with:`, message.results); // <-- Log before state update
-          setAnalysisData(message.results); // Store results
-          setAnalysisError(null);
-          toast({ title: t('emailProcessing.analysis.completeTitle'), status: "info", duration: 3000 });
-        } else if (isMatch && message.error) {
-           console.error(`[WebSocket] Received failed analysis for job ${message.job_id}`, message.error);
-           setAnalysisData(null); 
-           setAnalysisError(message.error || "Analysis failed with unknown error.");
-           toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error", duration: 5000 });
-        } else if (message?.job_id && message.job_id !== analysisJobId) {
-          // Message for a different job_id, ignore it
-          console.log(`[WebSocket] Ignoring message for different job_id: ${message.job_id}`);
-        } else {
-            // Log if the message format doesn't match expected structure at all
-            console.warn('[WebSocket] Received unexpected message format or non-matching/missing job_id:', message);
+        console.log('[WebSocket] Message received:', message);
+        if (message?.job_id && message.job_id === analysisJobId) {
+          if (message.results) {
+            setAnalysisData(message.results);
+            setAnalysisError(null);
+            toast({ title: t('emailProcessing.analysis.completeTitle'), status: "info", duration: 3000 });
+          } else if (message.error) {
+            setAnalysisData(null);
+            setAnalysisError(message.error || "Analysis failed.");
+            toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error" });
+          }
         }
       } catch (error) {
         console.error('[WebSocket] Error parsing message:', error);
-        setAnalysisError("Error processing message from server.");
+        setAnalysisError("Error processing WebSocket message.");
       }
     };
-
     ws.onerror = (event) => {
-      // Log WebSocket errors more explicitly
-      console.error('[WebSocket] Connection Error:', event);
-      setAnalysisError("WebSocket connection error. Analysis results may not update automatically.");
+      console.error('[WebSocket] Error:', event);
+      setAnalysisError("WebSocket connection error.");
     };
-
-    ws.onclose = (event) => {
-      // Log WebSocket closure details
-      console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}, Was Clean: ${event.wasClean}`);
-      // Optionally notify user or attempt reconnect depending on close code
-      if (!event.wasClean) {
-         setAnalysisError("WebSocket connection closed unexpectedly.");
-      }
+    ws.onclose = (event) => console.log('[WebSocket] Closed:', event.code, event.reason);
+    return () => { // Cleanup
+      if (ws.readyState === WebSocket.OPEN) ws.close();
     };
+  }, [analysisJobId, toast, t]); // Dependency array includes analysisJobId
 
-    // Cleanup function to close WebSocket when component unmounts
-    return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        console.log('[WebSocket] Closing connection on component unmount.');
-        ws.close();
-      }
-    };
-  }, [analysisJobId, toast, t]);
-
-  // Add the useMemo hook for data transformation here
+  // Transform data for chart (RESTORED)
   const transformedChartData = useMemo(() => {
-    if (!analysisData || !Array.isArray(analysisData)) {
-      return null;
-    }
-  
+    if (!analysisData || !Array.isArray(analysisData)) return null;
     const root: { name: string, children: any[] } = { name: "Subjects", children: [] };
     const tagMap = new Map<string, { name: string, children: any[] }>();
-  
-    analysisData.forEach((item: any) => { // Use explicit 'any' or a proper type
-      if (!item.tag || !item.cluster) return; // Skip items without tag or cluster
-  
-      // Get or create tag node
+    analysisData.forEach((item: any) => {
+      if (!item.tag || !item.cluster) return;
       let tagNode = tagMap.get(item.tag);
       if (!tagNode) {
         tagNode = { name: item.tag, children: [] };
         tagMap.set(item.tag, tagNode);
         root.children.push(tagNode);
       }
-  
-      // Find or create cluster node within the tag node
       let clusterNode = tagNode.children.find(c => c.name === item.cluster);
       if (!clusterNode) {
         clusterNode = { name: item.cluster, value: 0 };
         tagNode.children.push(clusterNode);
       }
-  
-      // Increment cluster value
       clusterNode.value += 1;
     });
-  
-    // Filter out tags with no valid clusters if necessary
     root.children = root.children.filter(tag => tag.children.length > 0);
-  
-    // Return null if no data to display
     return root.children.length > 0 ? root : null;
-  
   }, [analysisData]);
 
-  // Pre-translate analysis title
-  const analysisCardTitle = t('emailProcessing.analysis.title');
-  const analysisPrompt = t('emailProcessing.analysis.prompt');
-
-  // Handler for the new "Save to Knowledge Base" button
-  const handleSaveToKnowledgeBase = useCallback(async () => {
-    if (!analysisJobId) {
-      toast({ title: "Error", description: "No analysis job ID found.", status: "error" });
-      return;
-    }
-    /* 
-    // Temporarily removing this check to allow saving without waiting for analysis results
-    if (!analysisData) {
-       toast({ title: "Warning", description: "Analysis results not yet available. Proceeding anyway.", status: "warning" });
-       // return; // <-- Do not return, proceed anyway
-    }
-    */
-
-    console.log(`Attempting to save job ${analysisJobId} to knowledge base...`);
-    setIsSavingToKB(true);
-    try {
-      // Call the actual API function
-      const result = await saveJobToKnowledgeBase(analysisJobId!); // Use non-null assertion as we check above
-
-      toast({ 
-        title: "Save Initiated", // TODO: Add translations
-        // Use the message from the backend response
-        description: result.message || `Job ${analysisJobId} submitted for saving.`, 
-        status: "success", 
-        duration: 5000 
-      });
-      // Optionally clear job ID and results after successful submission?
-      // setAnalysisJobId(null);
-      // setAnalysisData(null);
-    } catch (error: any) {
-      console.error(`Error saving job ${analysisJobId} to knowledge base:`, error);
-      toast({ 
-        title: "Save Failed", // TODO: Add translations
-        description: error.message || `Failed to save job ${analysisJobId} to the knowledge base.`, // TODO: Add translations
-        status: "error", 
-        duration: 5000 
-      });
-    } finally {
-      setIsSavingToKB(false);
-    }
-  }, [analysisJobId, analysisData, toast, t]);
-
-  // --- Add Log for state values during render ---
-  console.log('[FilterSetup Render] analysisJobId:', analysisJobId, 'analysisData:', analysisData);
-  // --- End Log ---
-
+  // Component Render
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
       <Container maxW="1400px" py={8}>
@@ -1126,217 +1065,212 @@ const FilterSetup: React.FC = () => {
           </Card>
           
           {/* Results Card */}
-          <Card variant="outline" mb={6}>
-            <CardHeader>
-              <Flex justify="space-between" align="center">
-                <Heading size="md" display="flex" alignItems="center">
-                  <Icon as={FaEnvelope} mr={2} />
-                  {t('emailProcessing.results.title')} 
-                  {totalEmails > 0 && (
-                    <Tag ml={2} colorScheme="primary" size="sm">
-                      {totalEmails === -1 ? `${(currentPage - 1) * itemsPerPage + previews.length}+` : totalEmails} {t('emailProcessing.results.found')}
-                    </Tag>
-                  )}
-                </Heading>
-                {/* Group for Analyze and Pagination */}
-                <Flex gap={2}>
-                   {/* Analyze Button */}
-                   {previews.length > 0 && (
-                    <Button
-                      leftIcon={<FaChartPie />}
-                      size="sm"
-                      variant="outline"
-                      onClick={handleAnalyzeClick}
-                      isLoading={isAnalyzing}
-                      loadingText={t('emailProcessing.actions.analyzing')}
-                      isDisabled={isLoadingPreviews || isAnalyzing || isSavingToKB}
-                    >
-                      {t('emailProcessing.actions.analyze')}
-                    </Button>
-                  )}
-
-                  {/* --- Add Save to Knowledge Base Button --- */}
-                  {/* Show button if previews are loaded, but disable if analysis hasn't run */}
-                  {previews.length > 0 ? (
-                    <Button
-                      leftIcon={<FaSave />} 
-                      size="sm"
-                      colorScheme="primary"
-                      onClick={handleSaveToKnowledgeBase}
-                      isLoading={isSavingToKB}
-                      loadingText="Generating..." 
-                      // Disable if analysis hasn't been submitted (no job ID), or if analyzing/saving is in progress.
-                      // The internal handler also checks for analysisData before proceeding.
-                      isDisabled={!analysisJobId || isAnalyzing || isSavingToKB}
-                      title={!analysisJobId ? "Please analyze data first" : "Generate knowledge base entries for analyzed emails"} // Add tooltip
-                    >
-                      Proceed now, Generate knowledge base 
-                    </Button>
-                  ) : null}
-                  {/* --- End Save Button --- */}
-
-                  {/* Pagination Controls */}
-                  {previews.length > 0 && (
-                     <ButtonGroup size="sm" isAttached variant="outline">
-                        <IconButton
-                          aria-label={t('common.previousPage')}
-                          icon={<ChevronLeftIcon />}
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          isDisabled={currentPage === 1}
-                        />
-                        <IconButton
-                          aria-label={t('common.nextPage')}
-                          icon={<ChevronRightIconSolid />}
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          // Enable Next if nextLink is present OR if total is known and not on last page
-                          isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
-                        />
-                      </ButtonGroup>
-                  )}
-                </Flex>
-              </Flex>
-            </CardHeader>
-            <CardBody>
-              <Box overflowX="auto">
-                {isLoadingPreviews ? (
-                  <EmailTableSkeleton />
-                ) : previews.length > 0 ? (
-                  <>
-                    <Table variant="simple">
-                      <Thead>
-                        <Tr>
-                          {/* Hide checkbox column */}
-                          {/* <Th width="40px" px={2}>
-                            <Checkbox
-                              isChecked={selectedEmails.length === previews.length && previews.length > 0}
-                              onChange={selectAllEmails}
-                              colorScheme="primary"
-                            />
-                          </Th> */}
-                          <Th>{t('emailProcessing.results.sender')}</Th>
-                          <Th>{t('emailProcessing.results.subject')}</Th>
-                          <Th width="120px">{t('emailProcessing.results.date')}</Th>
-                          <Th width="100px" textAlign="center">{t('emailProcessing.results.hasAttachments')}</Th>
-                          <Th width="100px">{t('emailProcessing.results.importance')}</Th>
-                        </Tr>
-                      </Thead>
-                      <Tbody>
-                        {previews.map(email => (
-                          <Tr key={email.id} height="48px">
-                            {/* Hide checkbox column */}
-                            {/* <Td>
-                              <Checkbox 
-                                isChecked={selectedEmails.includes(email.id)}
-                                onChange={() => toggleEmailSelection(email.id)}
-                                colorScheme="primary"
+          {(searchPerformedSuccessfully || isLoadingPreviews) && (
+             <Card variant="outline" mb={6}>
+               <CardHeader>
+                 <Flex justify="space-between" align="center">
+                   <Heading size="md" display="flex" alignItems="center">
+                     <Icon as={FaEnvelope} mr={2} />
+                     {t('emailProcessing.results.title')} 
+                     {totalEmails > 0 && (
+                       <Tag ml={2} colorScheme="primary" size="sm">
+                         {totalEmails === -1 ? `${(currentPage - 1) * itemsPerPage + previews.length}+` : totalEmails} {t('emailProcessing.results.found')}
+                       </Tag>
+                     )}
+                   </Heading>
+                   {/* Action Buttons & Pagination */}
+                   <Flex gap={2} align="center">
+                       {/* Analyze Button (Stays the same) */}
+                       {canClickButtons && (
+                          <Tooltip label={analyzeButtonTooltip} placement="top">
+                             <Button
+                                leftIcon={<FaChartPie />} size="sm" variant="outline"
+                                onClick={handleAnalyzeClick} isLoading={isAnalyzing}
+                                loadingText={t('emailProcessing.actions.analyzing')}
+                                isDisabled={isProcessing} 
+                              >
+                                {t('emailProcessing.actions.analyze')}
+                           </Button>
+                          </Tooltip>
+                       )}
+                       {/* Proceed Button (Uses new handler) */}
+                       {canClickButtons && (
+                          <Tooltip label={proceedButtonTooltip} placement="top">
+                             <Box as="span" display="inline-block"> 
+                              <Button
+                                  leftIcon={<FaSave />} size="sm" colorScheme="teal"
+                                  onClick={handleSaveToKnowledgeBase} // Calls the updated handler
+                                  isLoading={isSavingToKB} // Loading state specific to this action
+                                  loadingText={"Saving..."} // Or use translation
+                                  isDisabled={isProcessing} 
+                              >
+                                  Proceed now, Generate knowledge base
+                              </Button>
+                             </Box>
+                          </Tooltip>
+                       )}
+                       {/* Pagination (Stays the same, check isDisabled) */}
+                       {previews.length > 0 && !isLoadingPreviews && totalPages > 1 && (
+                           <ButtonGroup size="sm" isAttached variant="outline">
+                              <IconButton
+                                aria-label={t('common.previousPage')}
+                                icon={<ChevronLeftIcon />}
+                                onClick={() => handlePageChange(currentPage - 1)}
+                                isDisabled={currentPage === 1 || isProcessing} 
                               />
-                            </Td> */}
-                            <Td>
-                              <Text noOfLines={1} title={email.sender}>
-                                {email.sender}
-                              </Text>
-                            </Td>
-                            <Td>
-                              <Text noOfLines={1} title={email.subject}>
-                                {email.subject}
-                              </Text>
-                            </Td>
-                            <Td>
-                              <Text noOfLines={1}>
-                                {new Date(email.received_date).toLocaleDateString()}
-                              </Text>
-                            </Td>
-                            <Td>
-                              <Text noOfLines={1}>
-                                {email.has_attachments ? t('common.yes') : t('common.no')}
-                              </Text>
-                            </Td>
-                            <Td>
-                              <Text noOfLines={1}>
-                                {email.importance}
-                              </Text>
-                            </Td>
-                          </Tr>
-                        ))}
-                      </Tbody>
-                    </Table>
-                    <Flex justify="center" mt={4}>
-                      <Text color="gray.500" fontSize="sm">
-                        {totalEmails === -1 
-                          ? t('emailProcessing.results.showingSome', {
-                              start: (currentPage - 1) * itemsPerPage + 1,
-                              end: currentPage * itemsPerPage, // Show the end of the current page
-                            }) + (nextLink ? ` (${t('emailProcessing.results.moreAvailable')})` : '')
-                          : t('emailProcessing.results.showing', {
-                              start: firstEmailIndex, // Use calculated firstEmailIndex
-                              end: lastEmailIndex, // Use calculated lastEmailIndex
-                              total: totalEmails
-                            })
-                        }
-                      </Text>
-                    </Flex>
-                  </>
-                ) : (
-                  <Flex 
-                    direction="column" 
-                    align="center" 
-                    justify="center" 
-                    py={8}
-                    color="gray.500"
-                  >
-                    <Icon as={FaSearch} boxSize={8} mb={4} />
-                    <Text fontSize="lg" mb={2}>
-                      {t('emailProcessing.results.noResults')}
-                    </Text>
-                    <Text fontSize="sm">
-                      {t('emailProcessing.results.tryDifferentFilters')}
-                    </Text>
-                  </Flex>
-                )}
-              </Box>
-              
-              {/* Add pagination controls */}
-              {previews.length > 0 && (
-                <Flex justify="space-between" align="center" mt={4}>
-                  {/* <Select 
-                    width="120px" 
-                    size="sm" 
-                    value={itemsPerPage}
-                    onChange={(e) => handleItemsPerPageChange(e.target.value)}
-                  >
-                    {pageSizeOptions.map(size => (
-                      <option key={size} value={size}>
-                        {t('emailProcessing.results.showPerPage', { count: size })}
-                      </option>
-                    ))}
-                  </Select> */} 
-                  {/* Empty Box to push pagination to the right if Select is hidden */}
-                  <Box width="120px"></Box> 
-                  
-                  <ButtonGroup size="sm">
-                    <IconButton
-                      aria-label={t('common.previousPage')}
-                      icon={<ChevronLeftIcon />}
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      isDisabled={currentPage === 1}
-                      variant="outline"
-                    />
-                    <Button variant="outline" isDisabled>
-                      {t('emailProcessing.results.page', { currentPage: currentPage, totalPages: totalEmails === -1 ? '?' : totalPages })}
-                    </Button>
-                    <IconButton
-                      aria-label={t('common.nextPage')}
-                      icon={<ChevronRightIconSolid />}
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      // Enable Next if nextLink is present OR if total is known and not on last page
-                      isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
-                      variant="outline"
-                    />
-                  </ButtonGroup>
-                </Flex>
-              )}
-            </CardBody>
-          </Card>
+                              <IconButton
+                                aria-label={t('common.nextPage')}
+                                icon={<ChevronRightIconSolid />}
+                                onClick={() => handlePageChange(currentPage + 1)}
+                                isDisabled={currentPage >= totalPages || !nextLink || isProcessing} 
+                              />
+                            </ButtonGroup>
+                       )}
+                   </Flex>
+                 </Flex>
+               </CardHeader>
+               <CardBody>
+                 <Box overflowX="auto">
+                   {isLoadingPreviews ? (
+                     <EmailTableSkeleton />
+                   ) : previews.length > 0 ? (
+                     <>
+                       <Table variant="simple">
+                         <Thead>
+                           <Tr>
+                             {/* Hide checkbox column */}
+                             {/* <Th width="40px" px={2}>
+                               <Checkbox
+                                 isChecked={selectedEmails.length === previews.length && previews.length > 0}
+                                 onChange={selectAllEmails}
+                                 colorScheme="primary"
+                               />
+                             </Th> */}
+                             <Th>{t('emailProcessing.results.sender')}</Th>
+                             <Th>{t('emailProcessing.results.subject')}</Th>
+                             <Th width="120px">{t('emailProcessing.results.date')}</Th>
+                             <Th width="100px" textAlign="center">{t('emailProcessing.results.hasAttachments')}</Th>
+                             <Th width="100px">{t('emailProcessing.results.importance')}</Th>
+                           </Tr>
+                         </Thead>
+                         <Tbody>
+                           {previews.map(email => (
+                             <Tr key={email.id} height="48px">
+                               {/* Hide checkbox column */}
+                               {/* <Td>
+                                 <Checkbox 
+                                   isChecked={selectedEmails.includes(email.id)}
+                                   onChange={() => toggleEmailSelection(email.id)}
+                                   colorScheme="primary"
+                                 />
+                               </Td> */}
+                               <Td>
+                                 <Text noOfLines={1} title={email.sender}>
+                                   {email.sender}
+                                 </Text>
+                               </Td>
+                               <Td>
+                                 <Text noOfLines={1} title={email.subject}>
+                                   {email.subject}
+                                 </Text>
+                               </Td>
+                               <Td>
+                                 <Text noOfLines={1}>
+                                   {new Date(email.received_date).toLocaleDateString()}
+                                 </Text>
+                               </Td>
+                               <Td>
+                                 <Text noOfLines={1}>
+                                   {email.has_attachments ? t('common.yes') : t('common.no')}
+                                 </Text>
+                               </Td>
+                               <Td>
+                                 <Text noOfLines={1}>
+                                   {email.importance}
+                                 </Text>
+                               </Td>
+                             </Tr>
+                           ))}
+                         </Tbody>
+                       </Table>
+                       <Flex justify="center" mt={4}>
+                         <Text color="gray.500" fontSize="sm">
+                           {totalEmails === -1 
+                             ? t('emailProcessing.results.showingSome', {
+                                 start: (currentPage - 1) * itemsPerPage + 1,
+                                 end: currentPage * itemsPerPage, // Show the end of the current page
+                               }) + (nextLink ? ` (${t('emailProcessing.results.moreAvailable')})` : '')
+                             : t('emailProcessing.results.showing', {
+                                 start: firstEmailIndex, // Use calculated firstEmailIndex
+                                 end: lastEmailIndex, // Use calculated lastEmailIndex
+                                 total: totalEmails
+                               })
+                           }
+                         </Text>
+                       </Flex>
+                     </>
+                   ) : (
+                     <Flex 
+                       direction="column" 
+                       align="center" 
+                       justify="center" 
+                       py={8}
+                       color="gray.500"
+                     >
+                       <Icon as={FaSearch} boxSize={8} mb={4} />
+                       <Text fontSize="lg" mb={2}>
+                         {t('emailProcessing.results.noResults')}
+                       </Text>
+                       <Text fontSize="sm">
+                         {t('emailProcessing.results.tryDifferentFilters')}
+                       </Text>
+                     </Flex>
+                   )}
+                 </Box>
+                 
+                 {/* Add pagination controls */}
+                 {previews.length > 0 && (
+                   <Flex justify="space-between" align="center" mt={4}>
+                     {/* <Select 
+                       width="120px" 
+                       size="sm" 
+                       value={itemsPerPage}
+                       onChange={(e) => handleItemsPerPageChange(e.target.value)}
+                     >
+                       {pageSizeOptions.map(size => (
+                         <option key={size} value={size}>
+                           {t('emailProcessing.results.showPerPage', { count: size })}
+                         </option>
+                       ))}
+                     </Select> */} 
+                     {/* Empty Box to push pagination to the right if Select is hidden */}
+                     <Box width="120px"></Box> 
+                     
+                     <ButtonGroup size="sm">
+                       <IconButton
+                         aria-label={t('common.previousPage')}
+                         icon={<ChevronLeftIcon />}
+                         onClick={() => handlePageChange(currentPage - 1)}
+                         isDisabled={currentPage === 1}
+                         variant="outline"
+                       />
+                       <Button variant="outline" isDisabled>
+                         {t('emailProcessing.results.page', { currentPage: currentPage, totalPages: totalEmails === -1 ? '?' : totalPages })}
+                       </Button>
+                       <IconButton
+                         aria-label={t('common.nextPage')}
+                         icon={<ChevronRightIconSolid />}
+                         onClick={() => handlePageChange(currentPage + 1)}
+                         // Enable Next if nextLink is present OR if total is known and not on last page
+                         isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
+                         variant="outline"
+                       />
+                     </ButtonGroup>
+                   </Flex>
+                 )}
+               </CardBody>
+             </Card>
+          )}
 
           {/* Analysis Results Card (Sunburst Chart) */}
           {(isAnalyzing || analysisData || analysisError || analysisJobId) && (
@@ -1344,34 +1278,26 @@ const FilterSetup: React.FC = () => {
               <CardHeader>
                 <Heading size="md" display="flex" alignItems="center">
                   <Icon as={FaChartPie} mr={2} />
-                  {analysisCardTitle}
-                  {analysisJobId && !analysisData && !analysisError && (
-                    <Tag ml={2} colorScheme="blue">Job ID: {analysisJobId}</Tag>
-                  )}
+                  {t('emailProcessing.analysis.title')}
+                  <Tag ml={2} colorScheme={analysisError ? "red" : (analysisData ? "green" : "blue")}>
+                    Job ID: {analysisJobId} - {analysisError ? "Error" : (analysisData ? "Complete" : "Processing")}
+                  </Tag>
                 </Heading>
               </CardHeader>
               <CardBody>
                 {analysisError ? (
-                  <Text color="red.500">
-                    {t('emailProcessing.analysis.errorLoading', { error: analysisError })}
-                  </Text>
-                ) : isAnalyzing ? (
-                  <Flex justify="center" align="center" height="200px">
-                    <Spinner size="xl" color="primary.500" mr={4} />
-                    <Text>Analyzing subjects for Job ID: {analysisJobId || '...'}</Text>
-                  </Flex>
+                  <Text color="red.500">Error: {analysisError}</Text>
                 ) : analysisData ? (
-                    transformedChartData ? (
-                      <SubjectSunburstChart data={transformedChartData!} />
-                    ) : (
-                      <Text>Analysis complete, but no chart data could be generated.</Text> // Handle case where transformation yields null
-                    )
-                ) : analysisJobId ? (
-                    <Text>Analysis submitted (Job ID: {analysisJobId}). Waiting for results via WebSocket...</Text> // Show status when job submitted but no results/error yet
+                   transformedChartData ? (
+                      <SubjectSunburstChart data={transformedChartData} />
+                   ) : (
+                     <Text>Analysis complete, but no data suitable for charting.</Text>
+                   )
                 ) : (
-                  <Text>
-                    {analysisPrompt}
-                  </Text>
+                  <Flex align="center">
+                    <Spinner size="sm" mr={2} />
+                    <Text>{t('emailProcessing.analysis.processingPrompt')}</Text>
+                  </Flex>
                 )}
               </CardBody>
             </Card>
