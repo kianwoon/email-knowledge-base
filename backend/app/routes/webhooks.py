@@ -123,7 +123,7 @@ async def handle_analysis_webhook(
              # Continue with default owner, but log the error
 
 
-        # Store the analysis chart data (using internal_job_id and retrieved owner)
+        # --- RESTORED: Store the analysis chart data --- 
         logger.info(f"Storing chart data for internal job {internal_job_id} with owner='{owner}'")
         chart_point_id = str(uuid.uuid4()) # Unique ID for the chart data point
         chart_payload = {
@@ -132,14 +132,12 @@ async def handle_analysis_webhook(
             "owner": owner,
             "results": [item.model_dump() for item in webhook_data.results],
             "status": webhook_data.status or "completed" # Use provided status or default
-            # Add timestamp? e.g., "completed_at": datetime.utcnow().isoformat()
         }
         chart_point = PointStruct(
             id=chart_point_id,
             payload=chart_payload,
             vector=[0.0] * settings.EMBEDDING_DIMENSION # ADDED dummy vector
         )
-
         try:
             qdrant.upsert(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
@@ -151,16 +149,16 @@ async def handle_analysis_webhook(
             logger.error(f"Failed to store analysis chart data in Qdrant for internal job {internal_job_id}: {e}")
             # Decide if this error should prevent broadcasting
             # For now, log and continue to broadcast attempt
+        # --- END RESTORED --- 
 
 
-        # Broadcast the result via WebSocket (using internal_job_id)
+        # Broadcast the full payload via WebSocket
         websocket_message = {
             "type": "analysis_complete",
-            "job_id": internal_job_id, # Use the INTERNAL job ID
-            "payload": chart_payload # Send the chart data directly
+            "job_id": internal_job_id, 
+            "payload": chart_payload # Send the full chart data payload again
         }
-        logger.info(f"Attempting WebSocket broadcast for internal job_id: {internal_job_id}")
-        # Changed to use manager.broadcast and serialize message
+        logger.info(f"Attempting WebSocket broadcast for internal job_id: {internal_job_id} with payload")
         await manager.broadcast(
             message=json.dumps(websocket_message) 
         )

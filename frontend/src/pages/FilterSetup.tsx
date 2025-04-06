@@ -410,7 +410,7 @@ const FilterSetup: React.FC = () => {
   };
 
   // Handle search
-  const handleSearch = useCallback(async () => {
+  const handleSearchClick = useCallback(async () => {
     // Reset pagination state
     setCurrentPage(1);
     setNextLink(undefined);
@@ -488,14 +488,6 @@ const FilterSetup: React.FC = () => {
   const firstEmailIndex = totalEmails > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const lastEmailIndex = Math.min(currentPage * itemsPerPage, totalEmails);
 
-  // Handle search button click (explicit user action)
-  const handleSearchClick = () => {
-    setCurrentPage(1);
-    setNextLink(undefined);
-    setSearchPerformedSuccessfully(false);
-    loadPreviews(); 
-  };
-  
   // Placeholder for missing function to resolve linter error
   const handleSaveTemplate = () => {
     // Basic implementation: Just close the modal
@@ -504,34 +496,23 @@ const FilterSetup: React.FC = () => {
     toast({ title: "Save Template (Not Implemented)", status: "info", duration: 2000 });
   };
 
-  // Handler for Analyze Data button
+  // Handler for Analyze Data button (Reverted)
   const handleAnalyzeClick = async () => {
-    setIsAnalyzing(true);
-    setAnalysisJobId(null); // Clear previous job ID
-    setAnalysisError(null);
+    setIsAnalyzing(true); 
+    setAnalysisJobId(null); 
+    setAnalysisData(null); // Clear previous results
+    setAnalysisError(null); // Clear previous error
     try {
-      console.log('Submitting filter for analysis...', filter);
       const response = await submitFilterForAnalysis(filter);
       setAnalysisJobId(response.job_id);
-      toast({
-        title: t('emailProcessing.notifications.analysisSubmitted.title'),
-        description: `${t('emailProcessing.notifications.analysisSubmitted.description')} Job ID: ${response.job_id}`,
-        status: 'success',
-        duration: 5000,
-      });
+      toast({ title: t('emailProcessing.notifications.analysisSubmitted.title'), description: `${t('emailProcessing.notifications.analysisSubmitted.description')} Job ID: ${response.job_id}`, status: 'success', duration: 5000, });
       console.log('Analysis submitted successfully, Job ID:', response.job_id);
-    } catch (error: any) {
+    } catch (error: any) { 
       console.error('Error submitting analysis:', error);
       const errorMessage = error.response?.data?.detail || error.message || t('errors.unknownError');
-      setAnalysisError(errorMessage);
-      toast({
-        title: t('errors.errorSubmittingAnalysis'),
-        description: errorMessage,
-        status: 'error',
-        duration: 7000,
-      });
-    } finally {
-      setIsAnalyzing(false);
+      setAnalysisError(errorMessage); 
+      setIsAnalyzing(false); // Stop loading on submit error
+      toast({ title: t('errors.errorSubmittingAnalysis'), description: errorMessage, status: 'error', duration: 7000, });
     }
   };
 
@@ -574,25 +555,21 @@ const FilterSetup: React.FC = () => {
     }
   };
   
-  // --- Derived State and Tooltips --- 
+  // --- Derived State and Tooltips (Reverted) --- 
   const isProcessing = isAnalyzing || isSavingToKB; 
-  // Buttons enabled if search is done, previews exist, and not currently processing
   const canClickButtons = searchPerformedSuccessfully && previews.length > 0 && !isProcessing;
-
-  const analyzeButtonTooltip = t('emailProcessing.tooltips.analyze');
-  // Tooltip for Proceed Now button reflects its direct action
+  const analyzeButtonTooltip = t('emailProcessing.tooltips.analyze'); 
   const proceedButtonTooltip = t('emailProcessing.tooltips.proceedDirectSave'); 
 
-  // WebSocket connection effect (RESTORED)
+  // WebSocket connection effect (Reverted to use analysisData/Error)
   useEffect(() => {
     const wsUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
-    if (!wsUrlFromEnv) {
+    if (!wsUrlFromEnv) { 
       console.error("[WebSocket] VITE_WEBSOCKET_URL is not defined.");
       setAnalysisError("WebSocket URL not configured.");
-      return;
+      return; 
     }
     const wsUrl = wsUrlFromEnv;
-    console.log(`[WebSocket] Connecting to: ${wsUrl}`);
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log('[WebSocket] Connection opened.');
     ws.onmessage = (event) => {
@@ -600,32 +577,41 @@ const FilterSetup: React.FC = () => {
         const message = JSON.parse(event.data);
         console.log('[WebSocket] Message received:', message);
         if (message?.job_id && message.job_id === analysisJobId) {
-          if (message.results) {
-            setAnalysisData(message.results);
+          if (message.payload?.results) { 
+            setAnalysisData(message.payload.results);
             setAnalysisError(null);
-            toast({ title: t('emailProcessing.analysis.completeTitle'), status: "info", duration: 3000 });
-          } else if (message.error) {
+            setIsAnalyzing(false); // Analysis complete
+            toast({ title: t('emailProcessing.analysis.completeTitle'), status: "success", duration: 3000 });
+          } else if (message.payload?.error || message.error) {
             setAnalysisData(null);
-            setAnalysisError(message.error || "Analysis failed.");
-            toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error" });
+            const errorMsg = message.payload?.error || message.error || "Analysis failed.";
+            setAnalysisError(errorMsg);
+            setIsAnalyzing(false); // Analysis complete (with error)
+            toast({ title: t('emailProcessing.analysis.failedTitle'), description: errorMsg, status: "error" });
+          } else {
+             console.log('[WebSocket] Received unhandled message for job:', message);
           }
         }
       } catch (error) {
         console.error('[WebSocket] Error parsing message:', error);
         setAnalysisError("Error processing WebSocket message.");
+        setIsAnalyzing(false); 
       }
     };
-    ws.onerror = (event) => {
+    ws.onerror = (event) => { 
       console.error('[WebSocket] Error:', event);
       setAnalysisError("WebSocket connection error.");
+      setIsAnalyzing(false); 
     };
     ws.onclose = (event) => console.log('[WebSocket] Closed:', event.code, event.reason);
-    return () => { // Cleanup
-      if (ws.readyState === WebSocket.OPEN) ws.close();
+    return () => { 
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     };
-  }, [analysisJobId, toast, t]); // Dependency array includes analysisJobId
+  }, [analysisJobId, toast, t]); // Reverted dependencies
 
-  // Transform data for chart (RESTORED)
+  // Restore transformedChartData useMemo hook
   const transformedChartData = useMemo(() => {
     if (!analysisData || !Array.isArray(analysisData)) return null;
     const root: { name: string, children: any[] } = { name: "Subjects", children: [] };
@@ -643,7 +629,7 @@ const FilterSetup: React.FC = () => {
         clusterNode = { name: item.cluster, value: 0 };
         tagNode.children.push(clusterNode);
       }
-      clusterNode.value += 1;
+      clusterNode.value += 1; 
     });
     root.children = root.children.filter(tag => tag.children.length > 0);
     return root.children.length > 0 ? root : null;
@@ -1051,7 +1037,7 @@ const FilterSetup: React.FC = () => {
                 <Button
                   leftIcon={<SearchIcon />}
                   colorScheme="primary"
-                  onClick={handleSearch}
+                  onClick={handleSearchClick}
                   isLoading={isLoadingPreviews}
                   loadingText={t('emailProcessing.actions.searching')}
                   size="md"
@@ -1080,28 +1066,32 @@ const FilterSetup: React.FC = () => {
                    </Heading>
                    {/* Action Buttons & Pagination */}
                    <Flex gap={2} align="center">
-                       {/* Analyze Button (Stays the same) */}
+                       {/* Analyze Button (Reverted) */} 
                        {canClickButtons && (
                           <Tooltip label={analyzeButtonTooltip} placement="top">
                              <Button
-                                leftIcon={<FaChartPie />} size="sm" variant="outline"
-                                onClick={handleAnalyzeClick} isLoading={isAnalyzing}
+                                leftIcon={<FaChartPie />} // Icon restored
+                                size="sm" 
+                                variant="outline"
+                                onClick={handleAnalyzeClick} 
+                                isLoading={isAnalyzing} // Use isAnalyzing state
                                 loadingText={t('emailProcessing.actions.analyzing')}
-                                isDisabled={isProcessing} 
+                                isDisabled={isProcessing} // Use isProcessing derived state
                               >
-                                {t('emailProcessing.actions.analyze')}
+                                {t('emailProcessing.actions.analyze')} {/* Reverted text */}
                            </Button>
                           </Tooltip>
                        )}
-                       {/* Proceed Button (Uses new handler) */}
+                       
+                       {/* Proceed Button */} 
                        {canClickButtons && (
                           <Tooltip label={proceedButtonTooltip} placement="top">
                              <Box as="span" display="inline-block"> 
                               <Button
                                   leftIcon={<FaSave />} size="sm" colorScheme="teal"
-                                  onClick={handleSaveToKnowledgeBase} // Calls the updated handler
-                                  isLoading={isSavingToKB} // Loading state specific to this action
-                                  loadingText={"Saving..."} // Or use translation
+                                  onClick={handleSaveToKnowledgeBase}
+                                  isLoading={isSavingToKB}
+                                  loadingText={"Saving..."}
                                   isDisabled={isProcessing} 
                               >
                                   Proceed now, Generate knowledge base
@@ -1272,28 +1262,37 @@ const FilterSetup: React.FC = () => {
              </Card>
           )}
 
-          {/* Analysis Results Card (Sunburst Chart) */}
-          {(isAnalyzing || analysisData || analysisError || analysisJobId) && (
+          {/* --- RESTORED: Analysis Results Card --- */}
+          {/* Show this card if analysis was started (jobId exists) OR if it's currently in progress */} 
+          {(analysisJobId || isAnalyzing) && (
             <Card variant="outline" mb={6}>
               <CardHeader>
                 <Heading size="md" display="flex" alignItems="center">
                   <Icon as={FaChartPie} mr={2} />
                   {t('emailProcessing.analysis.title')}
-                  <Tag ml={2} colorScheme={analysisError ? "red" : (analysisData ? "green" : "blue")}>
-                    Job ID: {analysisJobId} - {analysisError ? "Error" : (analysisData ? "Complete" : "Processing")}
-                  </Tag>
+                  {/* Show Job ID and Status derived from state */} 
+                  {analysisJobId && (
+                    <Tag ml={2} colorScheme={analysisError ? "red" : (analysisData ? "green" : "blue")}>
+                      Job ID: {analysisJobId} - {analysisError ? "Error" : (analysisData ? "Complete" : "Processing")}
+                    </Tag>
+                  )}
                 </Heading>
               </CardHeader>
               <CardBody>
-                {analysisError ? (
+                {/* Display Error */} 
+                {analysisError && (
                   <Text color="red.500">Error: {analysisError}</Text>
-                ) : analysisData ? (
-                   transformedChartData ? (
-                      <SubjectSunburstChart data={transformedChartData} />
-                   ) : (
-                     <Text>Analysis complete, but no data suitable for charting.</Text>
-                   )
-                ) : (
+                )}
+                {/* Display Chart if data exists and no error */} 
+                {!analysisError && analysisData && transformedChartData && (
+                   <SubjectSunburstChart data={transformedChartData} />
+                )}
+                {/* Display message if analysis complete but no chart data */} 
+                {!analysisError && analysisData && !transformedChartData && (
+                  <Text>Analysis complete, but no data suitable for charting.</Text>
+                )}
+                {/* Display loading spinner if processing (isAnalyzing is true) and no error/data yet */} 
+                {isAnalyzing && !analysisData && !analysisError && (
                   <Flex align="center">
                     <Spinner size="sm" mr={2} />
                     <Text>{t('emailProcessing.analysis.processingPrompt')}</Text>
