@@ -79,6 +79,7 @@ import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import SubjectSunburstChart from '../components/SubjectSunburstChart';
+import { saveJobToKnowledgeBase } from '../api/vector';
 
 import { getEmailFolders, getEmailPreviews, submitFilterForAnalysis } from '../api/email';
 import { EmailFilter, EmailPreview } from '../types/email';
@@ -183,6 +184,8 @@ const FilterSetup: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [isSavingToKB, setIsSavingToKB] = useState(false);
   
   // Attachment types
   const attachmentTypes = [
@@ -506,27 +509,33 @@ const FilterSetup: React.FC = () => {
     setIsAnalyzing(true);
     setAnalysisData(null); // Clear previous results
     setAnalysisError(null); // Clear previous errors
+    setAnalysisJobId(null); // <--- Clear previous job ID
     try {
       // Call the API function with the current filter state
-      console.log(`Submitting filter for analysis...`, filter);
+      console.log(`[FilterSetup] Submitting filter for analysis...`, filter);
       const result = await submitFilterForAnalysis(filter); // Pass the filter state object
+      console.log("[FilterSetup] Received response from /analyze:", result); // <-- Log the raw result
 
       // Handle success - API returns job ID
-      toast({ 
-        title: t('emailProcessing.analysis.submittedTitle'), 
-        description: t('emailProcessing.analysis.submittedDescription', { jobId: result?.job_id || 'N/A' }), 
-        status: "success", 
-        duration: 5000 
-      });
+      if (result?.job_id) { // <--- Check if job_id exists
+        console.log(`[FilterSetup] Setting analysisJobId to: ${result.job_id}`); // <-- Log before setting state
+        setAnalysisJobId(result.job_id); // <--- Store the job ID
+        toast({ 
+          title: t('emailProcessing.analysis.submittedTitle'), 
+          description: t('emailProcessing.analysis.submittedDescription', { jobId: result.job_id }), 
+          status: "success", 
+          duration: 5000 
+        });
+      } else {
+        // Handle case where job_id might be missing in the response
+        console.error("[FilterSetup] Analysis submitted, but no Job ID received from backend.", result);
+        setAnalysisJobId(null); // Ensure null if no ID
+        throw new Error("Analysis submitted, but no Job ID received from backend.");
+      }
 
     } catch (error: any) {
-      console.error("Error submitting analysis:", error);
-      toast({ 
-        title: t('emailProcessing.analysis.errorTitle'), 
-        description: t('emailProcessing.analysis.errorDescription', { error: error.message || "Failed to submit subjects for analysis." }), 
-        status: "error", 
-        duration: 5000 
-      });
+      console.error("[FilterSetup] Error in handleAnalyzeClick:", error);
+      setAnalysisJobId(null); // Ensure job ID is null on error
     } finally {
       setIsAnalyzing(false);
     }
@@ -556,31 +565,31 @@ const FilterSetup: React.FC = () => {
     };
 
     ws.onmessage = (event) => {
+      console.log('[WebSocket] Raw message data received:', event.data); // <-- Log raw data
       try {
         const message = JSON.parse(event.data);
-        console.log('[WebSocket] Message received:', message);
+        console.log('[WebSocket] Parsed message:', message); // <-- Log parsed message
         
-        // Updated Condition: Check for job_id and results (plural)
-        // Removed status check as it wasn't in the sample payload
-        if (message && message.job_id && message.results && Array.isArray(message.results)) {
-          console.log(`[WebSocket] Received analysis results for job ${message.job_id}`);
-          setAnalysisData(message.results); // Use message.results
+        // Check if the message job_id matches the one we stored
+        const isMatch = message?.job_id && message.job_id === analysisJobId;
+        console.log(`[WebSocket] Comparing message job_id (${message?.job_id}) with state analysisJobId (${analysisJobId}). Match: ${isMatch}`); // <-- Log comparison
+
+        if (isMatch && message.results && Array.isArray(message.results)) {
+          console.log(`[WebSocket] Match successful! Calling setAnalysisData with:`, message.results); // <-- Log before state update
+          setAnalysisData(message.results); // Store results
           setAnalysisError(null);
           toast({ title: t('emailProcessing.analysis.completeTitle'), status: "info", duration: 3000 });
-        } 
-        /* // Example: Add specific handling for failures if payload structure is known
-        else if (message && message.job_id && message.error) { 
-            console.error(`[WebSocket] Received failed analysis for job ${message.job_id}`, message.error);
-            setAnalysisData(null); 
-            setAnalysisError(message.error || "Analysis failed with unknown error.");
-            toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error", duration: 5000 });
-        } 
-        */
-        else {
-            // Log if the message format doesn't match expected success structure
-            console.warn('[WebSocket] Received unexpected message format or missing results:', message);
-            // Optionally set an error or leave state as is
-            // setAnalysisError("Received unexpected data format from server.");
+        } else if (isMatch && message.error) {
+           console.error(`[WebSocket] Received failed analysis for job ${message.job_id}`, message.error);
+           setAnalysisData(null); 
+           setAnalysisError(message.error || "Analysis failed with unknown error.");
+           toast({ title: t('emailProcessing.analysis.failedTitle'), description: message.error || "Unknown error", status: "error", duration: 5000 });
+        } else if (message?.job_id && message.job_id !== analysisJobId) {
+          // Message for a different job_id, ignore it
+          console.log(`[WebSocket] Ignoring message for different job_id: ${message.job_id}`);
+        } else {
+            // Log if the message format doesn't match expected structure at all
+            console.warn('[WebSocket] Received unexpected message format or non-matching/missing job_id:', message);
         }
       } catch (error) {
         console.error('[WebSocket] Error parsing message:', error);
@@ -610,7 +619,7 @@ const FilterSetup: React.FC = () => {
         ws.close();
       }
     };
-  }, [toast, t]);
+  }, [analysisJobId, toast, t]);
 
   // Add the useMemo hook for data transformation here
   const transformedChartData = useMemo(() => {
@@ -654,6 +663,53 @@ const FilterSetup: React.FC = () => {
   // Pre-translate analysis title
   const analysisCardTitle = t('emailProcessing.analysis.title');
   const analysisPrompt = t('emailProcessing.analysis.prompt');
+
+  // Handler for the new "Save to Knowledge Base" button
+  const handleSaveToKnowledgeBase = useCallback(async () => {
+    if (!analysisJobId) {
+      toast({ title: "Error", description: "No analysis job ID found.", status: "error" });
+      return;
+    }
+    /* 
+    // Temporarily removing this check to allow saving without waiting for analysis results
+    if (!analysisData) {
+       toast({ title: "Warning", description: "Analysis results not yet available. Proceeding anyway.", status: "warning" });
+       // return; // <-- Do not return, proceed anyway
+    }
+    */
+
+    console.log(`Attempting to save job ${analysisJobId} to knowledge base...`);
+    setIsSavingToKB(true);
+    try {
+      // Call the actual API function
+      const result = await saveJobToKnowledgeBase(analysisJobId!); // Use non-null assertion as we check above
+
+      toast({ 
+        title: "Save Initiated", // TODO: Add translations
+        // Use the message from the backend response
+        description: result.message || `Job ${analysisJobId} submitted for saving.`, 
+        status: "success", 
+        duration: 5000 
+      });
+      // Optionally clear job ID and results after successful submission?
+      // setAnalysisJobId(null);
+      // setAnalysisData(null);
+    } catch (error: any) {
+      console.error(`Error saving job ${analysisJobId} to knowledge base:`, error);
+      toast({ 
+        title: "Save Failed", // TODO: Add translations
+        description: error.message || `Failed to save job ${analysisJobId} to the knowledge base.`, // TODO: Add translations
+        status: "error", 
+        duration: 5000 
+      });
+    } finally {
+      setIsSavingToKB(false);
+    }
+  }, [analysisJobId, analysisData, toast, t]);
+
+  // --- Add Log for state values during render ---
+  console.log('[FilterSetup Render] analysisJobId:', analysisJobId, 'analysisData:', analysisData);
+  // --- End Log ---
 
   return (
     <Box bg={colorMode === 'dark' ? 'dark.bg' : 'gray.50'} minH="calc(100vh - 64px)" py={8}>
@@ -1084,21 +1140,42 @@ const FilterSetup: React.FC = () => {
                 </Heading>
                 {/* Group for Analyze and Pagination */}
                 <Flex gap={2}>
-                   {/* Analyze Button (Only show if previews exist) */} 
+                   {/* Analyze Button */}
                    {previews.length > 0 && (
                     <Button
-                      leftIcon={<FaChartPie />} // Example icon
+                      leftIcon={<FaChartPie />}
                       size="sm"
                       variant="outline"
-                      onClick={handleAnalyzeClick} // Attach the handler
-                      isLoading={isAnalyzing} // Use the loading state
-                      loadingText={t('emailProcessing.actions.analyzing')} // Use translation
-                      isDisabled={isLoadingPreviews || isAnalyzing} // Disable if loading emails OR analyzing
+                      onClick={handleAnalyzeClick}
+                      isLoading={isAnalyzing}
+                      loadingText={t('emailProcessing.actions.analyzing')}
+                      isDisabled={isLoadingPreviews || isAnalyzing || isSavingToKB}
                     >
-                      {t('emailProcessing.actions.analyze')} {/* Use translation */}
+                      {t('emailProcessing.actions.analyze')}
                     </Button>
                   )}
-                  {/* Pagination Controls (Only show if previews exist) */} 
+
+                  {/* --- Add Save to Knowledge Base Button --- */}
+                  {/* Show button if previews are loaded, but disable if analysis hasn't run */}
+                  {previews.length > 0 ? (
+                    <Button
+                      leftIcon={<FaSave />} 
+                      size="sm"
+                      colorScheme="primary"
+                      onClick={handleSaveToKnowledgeBase}
+                      isLoading={isSavingToKB}
+                      loadingText="Generating..." 
+                      // Disable if analysis hasn't been submitted (no job ID), or if analyzing/saving is in progress.
+                      // The internal handler also checks for analysisData before proceeding.
+                      isDisabled={!analysisJobId || isAnalyzing || isSavingToKB}
+                      title={!analysisJobId ? "Please analyze data first" : "Generate knowledge base entries for analyzed emails"} // Add tooltip
+                    >
+                      Proceed now, Generate knowledge base 
+                    </Button>
+                  ) : null}
+                  {/* --- End Save Button --- */}
+
+                  {/* Pagination Controls */}
                   {previews.length > 0 && (
                      <ButtonGroup size="sm" isAttached variant="outline">
                         <IconButton
@@ -1262,14 +1339,15 @@ const FilterSetup: React.FC = () => {
           </Card>
 
           {/* Analysis Results Card (Sunburst Chart) */}
-          {/* Only render if analysis is in progress or data has been received */}
-          {(isAnalyzing || analysisData) && (
+          {(isAnalyzing || analysisData || analysisError || analysisJobId) && (
             <Card variant="outline" mb={6}>
               <CardHeader>
                 <Heading size="md" display="flex" alignItems="center">
                   <Icon as={FaChartPie} mr={2} />
-                  {/* Use pre-translated variable */}
                   {analysisCardTitle}
+                  {analysisJobId && !analysisData && !analysisError && (
+                    <Tag ml={2} colorScheme="blue">Job ID: {analysisJobId}</Tag>
+                  )}
                 </Heading>
               </CardHeader>
               <CardBody>
@@ -1279,13 +1357,19 @@ const FilterSetup: React.FC = () => {
                   </Text>
                 ) : isAnalyzing ? (
                   <Flex justify="center" align="center" height="200px">
-                    <Spinner size="xl" color="primary.500" />
+                    <Spinner size="xl" color="primary.500" mr={4} />
+                    <Text>Analyzing subjects for Job ID: {analysisJobId || '...'}</Text>
                   </Flex>
-                ) : transformedChartData ? (
-                  <SubjectSunburstChart data={transformedChartData!} />
+                ) : analysisData ? (
+                    transformedChartData ? (
+                      <SubjectSunburstChart data={transformedChartData!} />
+                    ) : (
+                      <Text>Analysis complete, but no chart data could be generated.</Text> // Handle case where transformation yields null
+                    )
+                ) : analysisJobId ? (
+                    <Text>Analysis submitted (Job ID: {analysisJobId}). Waiting for results via WebSocket...</Text> // Show status when job submitted but no results/error yet
                 ) : (
                   <Text>
-                    {/* Use pre-translated variable */}
                     {analysisPrompt}
                   </Text>
                 )}

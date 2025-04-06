@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     def IS_PRODUCTION(self) -> bool:
         return self.ENVIRONMENT == "production"
 
-    # API prefix - Set to empty string as Koyeb route handles /api path
-    API_PREFIX: str = ""
+    # API prefix - Intentionally constant
+    API_PREFIX: str = "/api"
 
     # URLs - Must be provided via environment
     BACKEND_URL: str = os.getenv("BACKEND_URL") # validated by check_required_env_vars

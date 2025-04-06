@@ -6,11 +6,16 @@ import uuid
 import httpx
 from pydantic import BaseModel
 
+# Qdrant imports
+from qdrant_client import QdrantClient, models
+from qdrant_client.http.models import PointStruct
+
 from app.models.email import EmailPreview, EmailFilter, EmailContent
 from app.services.outlook import OutlookService
 from app.routes.auth import get_current_user
 from app.models.user import User
 from app.config import settings
+from app.routes.vector import get_db
 
 router = APIRouter()
 
@@ -142,20 +147,57 @@ async def get_email_attachment(
 @router.post("/analyze", response_model=AnalysisJob)
 async def analyze_emails(
     filter_criteria: EmailFilter,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    qdrant_client: QdrantClient = Depends(get_db)
 ):
     """
-    Fetch subjects for ALL emails matching the filter criteria, 
-    trigger external analysis via POST request, and return a job ID.
+    Starts an analysis job: stores query criteria, triggers external analysis, 
+    and returns a job ID.
     """
     logger.info(f"Received request to analyze emails matching filter: {filter_criteria.model_dump_json(indent=2)}")
     
+    # --- Generate Job ID ---
+    job_id = str(uuid.uuid4())
+    logger.info(f"Generated Job ID: {job_id}")
+
+    # --- Store Query Criteria in Qdrant ---
+    try:
+        criteria_payload = {
+            "type": "query_criteria",
+            "owner": current_user.email,
+            "filter": filter_criteria.model_dump()
+        }
+        logger.info(f"Storing query criteria for job {job_id} with payload: {criteria_payload}")
+        qdrant_client.upsert(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            points=[
+                PointStruct(
+                    id=job_id, 
+                    vector=[0.0] * settings.EMBEDDING_DIMENSION,
+                    payload=criteria_payload
+                )
+            ],
+            wait=True
+        )
+        logger.info(f"Successfully stored query criteria for job {job_id}")
+    except Exception as e:
+        logger.error(f"Failed to store query criteria for job {job_id} in Qdrant: {str(e)}", exc_info=True)
+        # Decide if we should halt the process or just log the error
+        # For now, let's raise an error as storing criteria is important
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to store query criteria in knowledge base: {str(e)}"
+        )
+    # --- End Store Query Criteria ---
+
+    # --- Microsoft Token Check ---
     if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
         logger.warning("Analysis request failed: Microsoft access token not available.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Microsoft access token not available"
         )
+    # --- End Token Check ---
 
     outlook = OutlookService(current_user.ms_token_data.access_token)
     
@@ -164,11 +206,9 @@ async def analyze_emails(
     try:
         subjects = await outlook.get_all_subjects_for_filter(filter_criteria)
     except HTTPException as e:
-        # Re-raise HTTP exceptions from the service layer
         logger.error(f"HTTP error during subject fetching: {e.status_code} - {e.detail}")
         raise e 
     except Exception as e:
-        # Catch unexpected errors during fetching
         logger.error(f"Unexpected error fetching all subjects: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -186,7 +226,7 @@ async def analyze_emails(
     logger.info(f"Collected {len(subjects)} subjects for analysis.")
 
     # --- Call External Service (Logic remains similar) ---
-    external_analysis_url = settings.EXTERNAL_ANALYSIS_URL # Use URL from settings
+    external_analysis_url = settings.EXTERNAL_ANALYSIS_URL
     if not external_analysis_url:
         logger.error("External analysis service URL (EXTERNAL_ANALYSIS_URL) is not configured in settings/environment.")
         raise HTTPException(
@@ -194,47 +234,40 @@ async def analyze_emails(
             detail="External analysis service URL is not configured."
         )
 
-    # Construct webhook URL using base backend URL, manually adding /api, then webhook prefix + path
-    # We add /api manually because internal API_PREFIX is now empty due to Koyeb routing
-    webhook_callback_path = "/analysis" # Path defined in webhooks.py @router.post
-    webhook_url = f"{settings.BACKEND_URL}/api{settings.WEBHOOK_PREFIX}{webhook_callback_path}" 
-    job_id = str(uuid.uuid4())
+    # Construct webhook URL
+    webhook_callback_path = "/analysis" 
+    webhook_url = f"{settings.BACKEND_URL.rstrip('/')}{settings.WEBHOOK_PREFIX.rstrip('/')}{webhook_callback_path}" 
+    # Use the job_id generated earlier
 
-    # --- Get API Key from settings --- 
-    api_key = settings.EXTERNAL_ANALYSIS_API_KEY 
+    # Get API Key
+    api_key = settings.EXTERNAL_ANALYSIS_API_KEY
     if not api_key:
         logger.error("External analysis API key (EXTERNAL_ANALYSIS_API_KEY) is not configured in settings/environment.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="External analysis service API key is not configured."
         )
-    # --- End Get API Key --- 
 
-    payload = {
+    payload_to_external = {
         "job_id": job_id,
-        "subjects": subjects, # Send the list of all fetched subjects
+        "subjects": subjects,
         "webhook_url": webhook_url
     }
-    
-    # --- Prepare Headers --- 
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key 
     }
-    # --- End Prepare Headers --- 
 
     logger.info(f"Submitting job {job_id} with {len(subjects)} subjects to external analysis service at {external_analysis_url}")
     logger.info(f"Webhook URL for callback: {webhook_url}")
-    # Avoid logging full payload if subjects list is very large or sensitive
-    # logger.debug(f"Payload: {payload}") 
 
+    # --- Make POST Request to External Service --- 
     try:
         logger.info(f" --- Attempting POST request to external service: {external_analysis_url} --- ")
-        async with httpx.AsyncClient(timeout=60.0) as client: # Increased timeout slightly
-            # Include headers in the POST request
-            response = await client.post(external_analysis_url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(external_analysis_url, json=payload_to_external, headers=headers)
             logger.info(f" --- POST request completed. Status Code: {response.status_code} --- ")
-            response.raise_for_status() # Raise exception for 4xx/5xx responses
+            response.raise_for_status() 
             logger.info(f"Successfully submitted job {job_id} to external service. Status after raise_for_status: {response.status_code}")
     except httpx.RequestError as e:
         logger.error(f"Could not connect to external analysis service at {external_analysis_url}: {str(e)}")
@@ -254,6 +287,7 @@ async def analyze_emails(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred during analysis submission."
         )
+    # --- End POST Request --- 
 
     # Return the job ID to the frontend
     return AnalysisJob(job_id=job_id)

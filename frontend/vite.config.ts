@@ -36,7 +36,7 @@ export default defineConfig(({ command, mode }) => {
       port: 5173,
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL?.replace('/api', '') || 'http://localhost:8000',
+          target: 'http://localhost:8000',
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path

@@ -1,11 +1,19 @@
-from fastapi import APIRouter, Request, Body, HTTPException#, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, Body, HTTPException, Depends
 import logging
 import json # Import json for broadcasting
+import uuid
+
+# Qdrant imports
+from qdrant_client import QdrantClient, models
+from qdrant_client.http.models import PointStruct
 
 from app.models.analysis import WebhookPayload
 from app.store import analysis_results_store
 # Import the WebSocket manager
 from app.websocket import manager 
+# Import Qdrant client dependency
+from app.routes.vector import get_db 
+from app.config import settings # Need settings for collection name & embedding dim
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -13,9 +21,10 @@ router = APIRouter()
 @router.post("/analysis", status_code=202) # Use 202 Accepted 
 async def receive_subject_analysis(
     request: Request, # Added Request object parameter
-    payload: WebhookPayload = Body(...)
+    payload: WebhookPayload = Body(...),
+    qdrant_client: QdrantClient = Depends(get_db) # Inject Qdrant client
 ):
-    """Receives the analysis result from the external API via webhook."""
+    """Receives the analysis result, stores it in Qdrant, and broadcasts via WebSocket."""
     
     # --- Temporary Debugging: Log Raw Body --- 
     try:
@@ -34,11 +43,46 @@ async def receive_subject_analysis(
     if payload.job_id in analysis_results_store:
         logger.warning(f"[WEBHOOK] Job ID {payload.job_id} already exists in store. Overwriting.")
 
-    # Store the entire payload (or just the result part) in the in-memory store
-    analysis_results_store[payload.job_id] = payload.dict()
-    
-    logger.info(f"[WEBHOOK] Stored result for job_id: {payload.job_id}")
-    
+    # --- Store Analysis Chart Data in Qdrant --- 
+    try:
+        chart_point_id = f"chart_{payload.job_id}"
+        # Retrieve owner info - How? Need to fetch query_criteria entry first!
+        # Fetch the query criteria entry to get the owner
+        query_point_id = f"query_{payload.job_id}"
+        retrieved_points = qdrant_client.retrieve(collection_name=settings.QDRANT_COLLECTION_NAME, ids=[query_point_id], with_payload=True)
+        if not retrieved_points:
+             logger.error(f"Cannot store chart data: Query criteria entry for job_id {payload.job_id} not found in Qdrant.")
+             # Decide how to handle - maybe don't broadcast? Or return error?
+             # For now, log error and continue to broadcast.
+             owner_email = "unknown_owner" # Placeholder
+        else:
+             owner_email = retrieved_points[0].payload.get('owner', 'unknown_owner')
+             if owner_email == "unknown_owner":
+                  logger.warning(f"Query criteria entry for job_id {payload.job_id} found but missing 'owner' field.")
+        
+        chart_payload = {
+            "type": "analysis_chart",
+            "job_id": payload.job_id,
+            "owner": owner_email,
+            "status": payload.status or "unknown", # Use status from payload
+            "chart_data": payload.results.dict() if payload.results else [] # Store results list
+        }
+        # Note: No vector for analysis_chart type
+        chart_point = PointStruct(id=chart_point_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload) # Dummy vector
+        
+        logger.info(f"Storing analysis chart data with point ID {chart_point_id} for job {payload.job_id}")
+        qdrant_client.upsert(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            points=[chart_point],
+            wait=True
+        )
+        logger.info(f"Successfully stored analysis chart data for job {payload.job_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to store analysis chart data for job {payload.job_id} in Qdrant: {str(e)}", exc_info=True)
+        # Log error but continue - broadcasting result is primary function here
+    # --- End Store Analysis Chart Data ---
+
     # --- Broadcast via WebSocket --- 
     try:
         # Convert payload to JSON string for broadcasting
