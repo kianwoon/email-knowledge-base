@@ -41,7 +41,14 @@ if settings.DEBUG:
     logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
     logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
-app = FastAPI(title="Email Knowledge Base API")
+app = FastAPI(
+    title="Knowledge Base Builder API",
+    description="API for managing emails, analysis, and knowledge base vectors.",
+    version="0.1.0"
+)
+
+# Add the state dictionary here
+app.state.job_mapping_store = {}
 
 # --- Add Startup Event --- 
 @app.on_event("startup")
@@ -85,8 +92,8 @@ logger.debug(f"Mounting static directory: {static_dir}")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
-def read_root():
-    return {"message": "Welcome to the Email Knowledge Base API"}
+async def root():
+    return {"message": "Welcome to the Knowledge Base Builder API"}
 
 @app.get("/health") # No /api prefix internally
 async def health_check():

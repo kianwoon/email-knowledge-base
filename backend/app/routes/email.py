@@ -145,10 +145,11 @@ async def get_email_attachment(
         )
 
 
-@router.post("/analyze", status_code=status.HTTP_200_OK)
+@router.post("/analyze", status_code=202)
 async def analyze_emails(
     filter_criteria: EmailFilter,
     background_tasks: BackgroundTasks,
+    request: Request,
     current_user: User = Depends(get_current_user),
     qdrant: QdrantClient = Depends(get_qdrant_client)
 ):
@@ -295,26 +296,26 @@ async def analyze_emails(
     logger.info(f"Submitting job {job_id} for owner {owner} with {len(subjects)} subjects to external service at {settings.EXTERNAL_ANALYSIS_URL}")
     logger.info(f"Webhook URL for callback: {webhook_url}")
 
-    # Use background task to submit to external service and store mapping
+    # Use background task to submit to external service and store mapping in memory
     background_tasks.add_task(
         submit_and_map_analysis,
         url=settings.EXTERNAL_ANALYSIS_URL,
         payload=external_payload,
         headers=request_headers, # Pass the correct headers
-        qdrant=qdrant,
+        job_store=request.app.state.job_mapping_store, # Pass the dictionary from app state
         internal_job_id=job_id,
-        owner=owner
+        owner=owner # Keep owner if needed for logging/context, though not stored in simple dict map
     )
 
     # Return immediately to the user
     return {"message": "Analysis job submission initiated.", "job_id": job_id}
 
 
-async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant: QdrantClient, internal_job_id: str, owner: str):
+async def submit_and_map_analysis(url: str, payload: dict, headers: dict, job_store: dict, internal_job_id: str, owner: str):
     """
     Runs in the background to:
     1. Submit the analysis request to the external service using the provided headers.
-    2. Store the mapping between the external service's job ID and our internal job ID.
+    2. Store the mapping between the external service's job ID and our internal job ID in the provided dictionary.
     """
     # The 'headers' dict received already contains the correct 'X-API-Key'
     # No need to re-fetch or reconstruct headers here.
@@ -330,59 +331,28 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
             logger.info(f" [TASK: {internal_job_id}] HTTP Request: POST {url} \"HTTP/{response.http_version} {response.status_code} {response.reason_phrase}\"")
             response.raise_for_status()
 
-            # Store External Job ID Mapping
+            # Store External Job ID Mapping in the dictionary
             try:
                 response_data = response.json()
                 external_job_id = response_data.get("job_id")
 
+                logger.info(f" [TASK: {internal_job_id}] Raw external job ID received: {external_job_id} (Type: {type(external_job_id)})")
+
                 if external_job_id:
+                    # Convert external ID to string for consistent key type
                     external_job_id_str = str(external_job_id)
                     logger.info(f" [TASK: {internal_job_id}] External service returned its job_id: {external_job_id_str}")
-                    
-                    # Revert to using a UUID for the mapping point ID
-                    mapping_point_id = str(uuid.uuid4()) 
-                    
-                    mapping_payload = {
-                        "type": "external_job_mapping",
-                        "external_job_id": external_job_id_str, # Add field back to payload
-                        "internal_job_id": internal_job_id,
-                        "owner": owner
-                    }
-                    # Log the exact payload being stored
-                    logger.info(f" [TASK: {internal_job_id}] Storing mapping point payload: {mapping_payload} with Qdrant ID: {mapping_point_id}") 
 
-                    mapping_point = PointStruct(
-                        id=mapping_point_id, # Use generated UUID as Qdrant point ID
-                        payload=mapping_payload,
-                        vector=[0.0] * settings.EMBEDDING_DIMENSION
-                    )
+                    # Store in the dictionary: external_id -> internal_id
+                    job_store[external_job_id_str] = internal_job_id
+                    logger.info(f" [TASK: {internal_job_id}] Stored mapping in memory: '{external_job_id_str}' -> '{internal_job_id}'. Current store size: {len(job_store)}")
 
-                    # Upsert ONLY the mapping point in the background task
-                    logger.debug(f"Upserting mapping point ({mapping_point_id}) for job {internal_job_id}")
-                    qdrant.upsert(
-                        collection_name=settings.QDRANT_COLLECTION_NAME,
-                        points=[mapping_point], # Only upsert the mapping point here
-                        wait=True
-                    )
-                    logger.info(f"Successfully upserted mapping point ({mapping_point_id}) for job {internal_job_id}")
+                    # Simple check if the key exists immediately after adding (optional)
+                    if external_job_id_str in job_store:
+                         logger.info(f" [TASK: {internal_job_id}] Confirmed key '{external_job_id_str}' exists in job_store immediately after adding.")
+                    else:
+                         logger.error(f" [TASK: {internal_job_id}] *** CRITICAL: Key '{external_job_id_str}' NOT found in job_store immediately after adding! ***")
 
-                    # Immediate retrieval check for the mapping point (keep this one)
-                    try:
-                        retrieved_mapping = qdrant.retrieve(
-                            collection_name=settings.QDRANT_COLLECTION_NAME,
-                            ids=[mapping_point_id], 
-                            with_payload=True
-                        )
-                        if retrieved_mapping and retrieved_mapping[0].id == mapping_point_id:
-                            logger.info(f"[IMMEDIATE RETRIEVAL CONFIRMED] Mapping point {mapping_point_id} found immediately after upsert.")
-                        else:
-                            logger.error(f"[FAILED IMMEDIATE RETRIEVAL] Mapping point {mapping_point_id} NOT found immediately after upsert.")
-                    except Exception as retrieval_err:
-                        logger.error(f"[FAILED IMMEDIATE RETRIEVAL] Error retrieving mapping point {mapping_point_id}: {retrieval_err}", exc_info=True)
-
-                    # Remove immediate retrieval check for the query_criteria point from background task
-                    # It's now checked in the main analyze_emails function
-                            
                 else:
                     logger.warning(f" [TASK: {internal_job_id}] External analysis service response did not contain the expected 'job_id' field in its response.")
 

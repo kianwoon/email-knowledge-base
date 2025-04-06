@@ -61,99 +61,69 @@ async def handle_analysis_webhook(
         logger.debug(f"[WEBHOOK] Status received: {webhook_data.status}")
         logger.debug(f"[WEBHOOK] Payload results count: {len(webhook_data.results)}")
 
-        # --- Find Internal Job ID using External ID Mapping --- 
+        # --- Find Internal Job ID using In-Memory Dictionary --- 
         internal_job_id = None
-        owner = "unknown_owner" # Default owner if lookup fails
+        job_store = request.app.state.job_mapping_store
+
         try:
-            external_job_id_str = str(external_job_id) # Ensure string ID
+            external_job_id_str = external_job_id # Already ensured string above
             
-            # --- Add temporary delay to test for indexing lag --- 
-            # logger.info(f"[WEBHOOK] Adding 1 second delay before Qdrant search for {external_job_id_str}...")
-            # await asyncio.sleep(1) 
-            # logger.info(f"[WEBHOOK] Delay finished. Proceeding with Qdrant search for {external_job_id_str}.")
-            # --- End temporary delay ---
+            # Lookup in the dictionary
+            internal_job_id = job_store.get(external_job_id_str)
 
-            # --- Revert to using qdrant.search with payload filter AND RETRY LOGIC --- 
-            MAX_RETRIES = 3
-            RETRY_DELAY = 0.5 # seconds
-            points = None
-
-            for attempt in range(MAX_RETRIES):
-                logger.info(f"[WEBHOOK] Attempt {attempt + 1}/{MAX_RETRIES} to find mapping for external ID: {external_job_id_str}")
-                search_filter=Filter(
-                    must=[
-                        FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
-                        FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id_str))
-                    ]
-                )
-                # Log the filter being used (optional, could be moved outside loop)
-                # logger.info(f"[WEBHOOK] Searching Qdrant with filter: {search_filter.model_dump_json(indent=2)}") 
-
-                search_result = qdrant.search(
-                    collection_name=settings.QDRANT_COLLECTION_NAME,
-                    query_vector=[0.0] * settings.EMBEDDING_DIMENSION,
-                    query_filter=search_filter,
-                    limit=1
-                )
-                
-                points = search_result # search returns a list of ScoredPoint
-
-                if points and len(points) == 1:
-                    logger.info(f"[WEBHOOK] Found mapping on attempt {attempt + 1}.")
-                    break # Exit loop if found
-                else:
-                    logger.warning(f"[WEBHOOK] Mapping not found on attempt {attempt + 1}. Result count: {len(points) if points else 0}")
-                    if attempt < MAX_RETRIES - 1:
-                        sleep_duration = RETRY_DELAY * (attempt + 1)
-                        logger.info(f"[WEBHOOK] Waiting {sleep_duration}s before next attempt...")
-                        await asyncio.sleep(sleep_duration)
-                    else:
-                        logger.error(f"[WEBHOOK] Failed to find mapping after {MAX_RETRIES} attempts.")
-            # --- End Retry Logic ---
-
-            # Check if point was found after retries
-            if points and len(points) == 1:
-                mapping_point = points[0] # Get the ScoredPoint
-                internal_job_id = mapping_point.payload.get("internal_job_id")
-                owner = mapping_point.payload.get("owner", "unknown_owner")
-                if internal_job_id:
-                    logger.info(f"[WEBHOOK] Found internal job ID (via search): {internal_job_id} for external ID: {external_job_id_str}")
-                else:
-                     logger.error(f"[WEBHOOK] Mapping point found via search for external ID {external_job_id_str}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
+            if internal_job_id:
+                logger.info(f"[WEBHOOK] Found internal job ID (via memory store): {internal_job_id} for external ID: {external_job_id_str}")
+                # Optionally remove the mapping now that it's used?
+                # try:
+                #     del job_store[external_job_id_str]
+                #     logger.info(f"[WEBHOOK] Removed mapping for {external_job_id_str} from memory store. Size now: {len(job_store)}")
+                # except KeyError:
+                #     logger.warning(f"[WEBHOOK] Tried to remove mapping for {external_job_id_str}, but it was already gone.")
             else:
-                logger.warning(f"[WEBHOOK] No mapping found via search in Qdrant for external job ID: {external_job_id_str}. Cannot correlate callback. Result count: {len(points) if points else 0}")
+                logger.warning(f"[WEBHOOK] No mapping found in memory store for external job ID: {external_job_id_str}. Cannot correlate callback. Store size: {len(job_store)}")
 
         except Exception as e:
-            logger.error(f"[WEBHOOK] Error searching Qdrant for external job ID mapping ({external_job_id_str}): {e}")
-            # Set internal_job_id to None to trigger halting logic below
-            internal_job_id = None
+            logger.error(f"[WEBHOOK] Error looking up external job ID mapping ({external_job_id_str}) in memory store: {e}")
+            internal_job_id = None # Ensure it's None if lookup fails
 
         # If internal_job_id could not be found, we cannot proceed meaningfully
         if not internal_job_id:
              logger.error(f"[WEBHOOK] Halting processing for external job {external_job_id} as internal job ID could not be determined.")
-             # Return 202 Accepted anyway so the external service doesn't retry, but log the error.
-             # Alternatively, return a 4xx error if preferred.
-             # raise HTTPException(status_code=404, detail=f"Could not find original job mapping for external ID {external_job_id}")
              return {"message": "Webhook received but could not correlate to an internal job."}
 
         # --- Proceed using internal_job_id --- 
+        
+        # We need the owner. Since it's not in the simple dict mapping, 
+        # we MUST retrieve the original query criteria point from Qdrant using internal_job_id
+        owner = "unknown_owner" # Default
+        try:
+            # Find the query_criteria point using the internal_job_id
+            logger.info(f"[WEBHOOK] Retrieving original query criteria from Qdrant for internal job {internal_job_id}")
+            criteria_filter = Filter(
+                must=[
+                    FieldCondition(key="payload.type", match=MatchValue(value="query_criteria")),
+                    FieldCondition(key="payload.job_id", match=MatchValue(value=internal_job_id))
+                ]
+            )
+            criteria_search = qdrant.search(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                query_filter=criteria_filter,
+                query_vector=[0.0] * settings.EMBEDDING_DIMENSION, # Dummy vector
+                limit=1
+            )
 
-        # (Optional) Retrieve original query criteria using internal_job_id if needed
-        # This might be useful if you need criteria details here, but we stored owner in mapping
-        # try:
-        #     # Find the query_criteria point using the internal_job_id
-        #     criteria_scroll: ScrollResponse = qdrant.scroll(... filter by type="query_criteria" and job_id=internal_job_id ...)
-        #     if criteria_scroll and criteria_scroll.points:
-        #          original_criteria_payload = criteria_scroll.points[0].payload
-        #          owner = original_criteria_payload.get("owner", owner)
-        #          logger.info(f"[WEBHOOK] Retrieved original criteria for internal job {internal_job_id}")
-        #     else:
-        #          logger.warning(f"[WEBHOOK] Could not find original query_criteria point for internal job {internal_job_id}")
-        # except Exception as e:
-        #      logger.error(f"[WEBHOOK] Error retrieving original query criteria for internal job {internal_job_id}: {e}")
+            if criteria_search and len(criteria_search) == 1:
+                 original_criteria_payload = criteria_search[0].payload
+                 owner = original_criteria_payload.get("owner", owner) # Update owner
+                 logger.info(f"[WEBHOOK] Retrieved owner '{owner}' from original criteria for internal job {internal_job_id}")
+            else:
+                 logger.warning(f"[WEBHOOK] Could not find original query_criteria point in Qdrant for internal job {internal_job_id}. Using default owner.")
+        except Exception as e:
+             logger.error(f"[WEBHOOK] Error retrieving original query criteria from Qdrant for internal job {internal_job_id}: {e}")
+             # Continue with default owner, but log the error
 
 
-        # Store the analysis chart data (using internal_job_id)
+        # Store the analysis chart data (using internal_job_id and retrieved owner)
         logger.info(f"Storing chart data for internal job {internal_job_id} with owner='{owner}'")
         chart_point_id = str(uuid.uuid4()) # Unique ID for the chart data point
         chart_payload = {
