@@ -318,22 +318,26 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                 external_job_id = response_data.get("job_id")
 
                 if external_job_id:
-                    logger.info(f" [TASK: {internal_job_id}] External service returned its job_id: {external_job_id}")
-                    mapping_point_id = str(uuid.uuid4())
+                    external_job_id_str = str(external_job_id) # Ensure string
+                    logger.info(f" [TASK: {internal_job_id}] External service returned its job_id: {external_job_id_str}")
+                    
+                    # Use external_job_id as the Qdrant point ID for direct lookup
+                    mapping_point_id = external_job_id_str
+                    
                     mapping_payload = {
                         "type": "external_job_mapping",
-                        "external_job_id": str(external_job_id),
+                        # "external_job_id": external_job_id_str, # Removed, ID is now the point ID
                         "internal_job_id": internal_job_id,
                         "owner": owner
                     }
+                    # Log the exact payload being stored
+                    logger.info(f" [TASK: {internal_job_id}] Storing mapping point payload: {mapping_payload} with Qdrant ID: {mapping_point_id}") 
+
                     mapping_point = PointStruct(
-                        id=mapping_point_id,
+                        id=mapping_point_id, # Use external ID as Qdrant point ID
                         payload=mapping_payload,
                         vector=[0.0] * settings.EMBEDDING_DIMENSION
                     )
-
-                    # Log the exact payload being stored
-                    logger.info(f" [TASK: {internal_job_id}] Storing mapping point payload: {mapping_payload}") 
 
                     try:
                         qdrant.upsert(
@@ -341,7 +345,7 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                             points=[mapping_point],
                             wait=True
                         )
-                        logger.info(f" [TASK: {internal_job_id}] Successfully stored external->internal job mapping for external_id {external_job_id} -> internal_id {internal_job_id}")
+                        logger.info(f" [TASK: {internal_job_id}] Successfully stored external->internal job mapping using external ID {mapping_point_id} as Qdrant ID.")
                     except Exception as q_err:
                         logger.error(f" [TASK: {internal_job_id}] Failed to store external job ID mapping in Qdrant for external_id {external_job_id}: {q_err}")
                 else:
