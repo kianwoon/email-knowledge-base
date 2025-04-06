@@ -108,6 +108,7 @@ class Settings(BaseSettings):
 
     # Routing Settings
     WEBHOOK_PREFIX: str = os.getenv("WEBHOOK_PREFIX") # validated by check_required_env_vars
+    EXTERNAL_WEBHOOK_BASE_URL: str = os.getenv("EXTERNAL_WEBHOOK_BASE_URL") # validated by check_required_env_vars
 
     # Security Settings
     ALLOWED_REDIRECT_DOMAINS_STR: str = os.getenv("ALLOWED_REDIRECT_DOMAINS") # validated by check_required_env_vars

@@ -16,7 +16,7 @@ from app.routes.auth import get_current_user
 from app.models.user import User
 from app.config import settings
 from app.routes.vector import get_db
-from ..dependencies import get_outlook_service, get_qdrant_client
+from ..db.qdrant_client import get_qdrant_client
 
 router = APIRouter()
 
@@ -150,7 +150,6 @@ async def analyze_emails(
     filter_criteria: EmailFilter,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    outlook: OutlookService = Depends(get_outlook_service),
     qdrant: QdrantClient = Depends(get_qdrant_client)
 ):
     """
@@ -163,6 +162,26 @@ async def analyze_emails(
     owner = current_user.email
     logger.info(f"Received analysis request from owner: {owner}")
     logger.debug(f"Filter criteria: {filter_criteria}")
+
+    # --- Microsoft Token Check ---
+    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+        logger.warning(f"Analysis request failed for {owner}: Microsoft access token not available.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Microsoft access token not available"
+        )
+    # --- End Token Check ---
+
+    # --- Instantiate Outlook Service ---
+    try:
+        outlook = OutlookService(current_user.ms_token_data.access_token)
+    except Exception as e:
+        logger.error(f"Failed to instantiate OutlookService for {owner}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to initialize connection to email service."
+        )
+    # --- End Instantiate ---
 
     job_id = str(uuid.uuid4())
 

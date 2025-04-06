@@ -6,19 +6,19 @@ from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
 # Qdrant imports
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest, ScrollResponse
+# Import client and necessary models separately
+from qdrant_client import QdrantClient
+# Import models, removing ScrollResponse as it causes import errors 
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest
 
 from app.models.analysis import WebhookPayload
 from app.store import analysis_results_store
 # Import the WebSocket manager
 from app.websocket import manager
-# Import Qdrant client dependency
-from app.routes.vector import get_db
-from app.config import settings # Need settings for collection name & embedding dim
-from ..websocket import connection_manager
-from ..core.config import settings as app_settings
-from ..dependencies import get_qdrant_client # <-- Added get_qdrant_client
+# Import Qdrant client dependency function
+from ..db.qdrant_client import get_qdrant_client
+from app.config import settings # Correct import
+from ..websocket import manager # Correct import
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -151,10 +151,10 @@ async def handle_analysis_webhook(
             "job_id": internal_job_id, # Use the INTERNAL job ID
             "payload": chart_payload # Send the chart data directly
         }
-        logger.info(f"Attempting WebSocket broadcast for internal job_id: {internal_job_id} to owner: {owner}")
-        await connection_manager.broadcast_to_owner(
-            owner=owner,
-            message=websocket_message
+        logger.info(f"Attempting WebSocket broadcast for internal job_id: {internal_job_id}")
+        # Changed to use manager.broadcast and serialize message
+        await manager.broadcast(
+            message=json.dumps(websocket_message) 
         )
         logger.info(f"[WEBHOOK] Broadcast attempt finished for internal job_id: {internal_job_id}")
 
