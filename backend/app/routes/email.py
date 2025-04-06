@@ -250,77 +250,64 @@ async def analyze_emails(
     webhook_callback_path = "/analysis"
     webhook_url = f"{settings.EXTERNAL_WEBHOOK_BASE_URL.rstrip('/')}/{settings.WEBHOOK_PREFIX.strip('/')}/{webhook_callback_path.strip('/')}"
 
-    # Get API Key from payload (passed from main route)
-    api_key = headers.pop('Authorization', '').replace('Bearer ', '') # Extract key if passed via Auth header for task
-    if not api_key:
-         # Fallback: try reading directly from settings within the task?
-         # This assumes settings are accessible in the background task context.
-          api_key = settings.EXTERNAL_ANALYSIS_API_KEY
-    if not api_key:
-        logger.error(f" [TASK: {job_id}] Failed to retrieve API Key for external service.")
-        # Optionally update status
-        # update_qdrant_status(qdrant, job_id, "config_error")
-        return # Stop processing the task if key is missing
+    if not settings.EXTERNAL_ANALYSIS_URL:
+        logger.error(f"Analysis service URL is not configured.")
+        raise HTTPException(status_code=500, detail="Analysis service URL is not configured.")
 
-    # Prepare headers for the external service using X-API-Key
+    # --- Get API Key for External Service ---
+    api_key = settings.EXTERNAL_ANALYSIS_API_KEY
+    if not api_key:
+        logger.error(f"EXTERNAL_ANALYSIS_API_KEY is not set for job {job_id}.")
+        raise HTTPException(status_code=500, detail="Analysis service API key is not configured.")
+    # --- End Get API Key ---
+
+    # Prepare headers for the external service
     request_headers = {
-        "X-API-Key": api_key, # Use the required header name
+        "X-API-Key": api_key, # CORRECTED: Use the retrieved api_key
         "Content-Type": "application/json"
     }
 
+    # Payload for the external service
     external_payload = {
         "subjects": subjects,
         "webhook_url": webhook_url,
         "job_id": job_id
     }
 
-    logger.info(f" [TASK: {job_id}] Submitting job {job_id} for owner {owner} with {len(subjects)} subjects to external service at {settings.EXTERNAL_ANALYSIS_URL}")
-    logger.info(f" [TASK: {job_id}] Webhook URL for callback: {webhook_url}")
+    logger.info(f"Submitting job {job_id} for owner {owner} with {len(subjects)} subjects to external service at {settings.EXTERNAL_ANALYSIS_URL}")
+    logger.info(f"Webhook URL for callback: {webhook_url}")
 
+    # Use background task to submit to external service and store mapping
     background_tasks.add_task(
         submit_and_map_analysis,
         url=settings.EXTERNAL_ANALYSIS_URL,
         payload=external_payload,
-        headers=request_headers, # Use corrected headers
+        headers=request_headers, # Pass the correct headers
         qdrant=qdrant,
         internal_job_id=job_id,
         owner=owner
     )
 
+    # Return immediately to the user
     return {"message": "Analysis job submission initiated.", "job_id": job_id}
 
 
 async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant: QdrantClient, internal_job_id: str, owner: str):
     """
     Runs in the background to:
-    1. Submit the analysis request to the external service.
+    1. Submit the analysis request to the external service using the provided headers.
     2. Store the mapping between the external service's job ID and our internal job ID.
     """
-    # Get API Key from payload (passed from main route)
-    api_key = headers.pop('Authorization', '').replace('Bearer ', '') # Extract key if passed via Auth header for task
-    if not api_key:
-         # Fallback: try reading directly from settings within the task?
-         # This assumes settings are accessible in the background task context.
-          api_key = settings.EXTERNAL_ANALYSIS_API_KEY
-    if not api_key:
-        logger.error(f" [TASK: {internal_job_id}] Failed to retrieve API Key for external service.")
-        # Optionally update status
-        # update_qdrant_status(qdrant, internal_job_id, "config_error")
-        return # Stop processing the task if key is missing
+    # The 'headers' dict received already contains the correct 'X-API-Key'
+    # No need to re-fetch or reconstruct headers here.
 
-    # Prepare headers for the external service using X-API-Key
-    request_headers = {
-        "X-API-Key": api_key, # Use the required header name
-        "Content-Type": "application/json"
-    }
-
-    logger.info(f" [TASK: {internal_job_id}] Submitting analysis request...")
+    logger.info(f" [TASK: {internal_job_id}] Submitting analysis request with headers: {headers}")
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
             response = await client.post(
                 url,
                 json=payload,
-                headers=request_headers, # Use corrected headers
+                headers=headers, # Use the headers dictionary passed directly as argument
             )
             logger.info(f" [TASK: {internal_job_id}] HTTP Request: POST {url} \"HTTP/{response.http_version} {response.status_code} {response.reason_phrase}\"")
             response.raise_for_status()
