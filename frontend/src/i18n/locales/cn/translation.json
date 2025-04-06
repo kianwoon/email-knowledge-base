@@ -112,6 +112,10 @@
     "learnMore": "了解更多",
     "additionalResources": "其他资源",
     "sections": {
+      "authentication": {
+        "title": "安全认证",
+        "description": "了解我们基于OAuth2的认证系统如何与Microsoft 365无缝集成。"
+      },
       "filtering": {
         "title": "智能邮件处理",
         "description": "基于内容、优先级和知识价值自动筛选和分类邮件。",
@@ -319,6 +323,7 @@
       "knowledgeBase": {
         "title": "知识库",
         "subtitle": "了解如何组织、搜索和利用您的组织知识",
+        "description": "了解如何搜索、管理和导出您组织的知识库。",
         "fieldsTitle": "字段",
         "managementTitle": "知识管理",
         "managementDescription": "我们的知识库结构设计用于高效地组织和检索您的组织知识。了解如何最大化其价值。",
@@ -551,6 +556,10 @@
             "description": "通过我们的API将人工智能模型连接到自定义应用程序"
           }
         }
+      },
+      "emailProcessing": {
+        "title": "邮件筛选",
+        "subtitle": "高效筛选、选择和处理邮件以构建知识库"
       }
     },
     "resources": {
