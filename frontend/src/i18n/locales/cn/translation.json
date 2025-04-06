@@ -613,7 +613,44 @@
   },
   "emailProcessing": {
     "filters": {
-      "title": "筛选器"
+      "title": "筛选器",
+      "folder": "文件夹",
+      "selectFolder": "选择文件夹",
+      "sender": "发件人",
+      "enterSender": "输入发件人邮箱",
+      "dateRange": "日期范围",
+      "startDate": "开始日期",
+      "endDate": "结束日期",
+      "month": "月",
+      "months": "个月",
+      "keywords": "关键词",
+      "addKeywords": "添加关键词（按回车键）",
+      "importance": "重要性",
+      "selectImportance": "选择重要性",
+      "high": "高",
+      "normal": "普通",
+      "low": "低",
+      "hasAttachments": "附件",
+      "withAttachments": "有附件",
+      "withoutAttachments": "无附件",
+      "any": "任意",
+      "attachmentType": "附件类型",
+      "selectAttachmentType": "选择附件类型",
+      "wordDocument": "Word文档",
+      "excelSpreadsheet": "Excel表格",
+      "powerPoint": "PowerPoint",
+      "image": "图片",
+      "archive": "压缩文件",
+      "advancedQuery": "高级查询",
+      "enterQuery": "输入高级查询（OData格式）",
+      "templates": "模板",
+      "saveTemplate": "保存模板",
+      "loadTemplate": "加载模板",
+      "saveTemplateTitle": "保存筛选模板",
+      "templateName": "模板名称",
+      "enterTemplateName": "输入模板名称",
+      "hideAdvanced": "隐藏高级选项",
+      "showAdvanced": "显示高级选项"
     },
     "tooltips": {
       "folderHelp": "选择要在其中搜索的电子邮件文件夹。",
@@ -636,6 +673,42 @@
       "saveToKB": "立即继续，生成知识库",
       "saving": "正在保存...",
       "proceedGenerateKB": "立即处理，生成知识库"
+    },
+    "results": {
+      "title": "结果",
+      "sender": "发件人",
+      "subject": "主题",
+      "date": "日期",
+      "hasAttachments": "有附件",
+      "importance": "重要性",
+      "noResults": "未找到邮件",
+      "tryDifferentFilters": "请尝试调整筛选条件或选择其他文件夹。",
+      "showing": "显示 {{total}} 封邮件中的第 {{start}} - {{end}} 封",
+      "showingSome": "显示第 {{start}} - {{end}} 封邮件",
+      "moreAvailable": "更多可用",
+      "page": "第 {{currentPage}} 页，共 {{totalPages}} 页",
+      "found": "找到的邮件",
+      "showPerPage": "每页显示 {{count}} 封"
+    },
+    "analysis": {
+      "title": "分析结果",
+      "processingPrompt": "分析进行中，结果将在此显示...",
+      "completeTitle": "分析完成",
+      "failedTitle": "分析失败"
+    },
+    "notifications": {
+      "templateLoaded": {
+        "title": "模板已加载",
+        "description": "已从模板加载筛选设置。"
+      },
+      "analysisSubmitted": {
+        "title": "分析已提交",
+        "description": "邮件分析任务已提交。"
+      },
+      "knowledgeBaseSaveSubmitted": {
+        "title": "知识库更新已启动",
+        "description": "正在处理所选邮件以更新知识库。"
+      }
     }
   },
   "common": {

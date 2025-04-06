@@ -678,7 +678,8 @@
           "analyzing": "Analyzing...",
           "submitting": "Submitting...",
           "saveToKB": "Proceed Now, Generate Knowledge Base",
-          "saving": "Saving..."
+          "saving": "Saving...",
+          "proceedGenerateKB": "Proceed now, Generate knowledge base"
         },
         "analysis": {
           "title": "Analysis Results",
@@ -699,6 +700,18 @@
             "title": "Knowledge Base Update Initiated",
             "description": "Processing selected emails to update the knowledge base."
           }
+        },
+        "tooltips": {
+          "folderHelp": "Select the email folder to search within.",
+          "senderHelp": "Filter emails by the sender's email address.",
+          "dateHelp": "Filter emails by the date they were received. Select a start date to enable the end date.",
+          "keywordsHelp": "Enter keywords or phrases found in the email subject or body. Press Enter after each keyword.",
+          "importanceHelp": "Filter emails based on their importance level (High, Normal, Low).",
+          "attachmentsHelp": "Filter emails based on whether they contain attachments.",
+          "advancedQueryHelp": "Enter an advanced search query using OData filter syntax for more complex filtering.",
+          "queryExample": "Example: contains(subject,'report') and importance eq 'high'",
+          "analyze": "Analyze the subjects of the filtered emails to identify topics and clusters.",
+          "proceedDirectSave": "Process the filtered emails and add their content to the knowledge base directly."
         }
       },
       "secureAuthentication": {
@@ -1104,6 +1117,99 @@
     }
   },
   "emailProcessing": {
+    "filters": {
+      "title": "Filters",
+      "folder": "Folder",
+      "selectFolder": "Select Folder",
+      "sender": "Sender",
+      "enterSender": "Enter sender email",
+      "dateRange": "Date Range",
+      "startDate": "Start Date",
+      "endDate": "End Date",
+      "month": "Month",
+      "months": "Months",
+      "keywords": "Keywords",
+      "addKeywords": "Add keywords (press Enter)",
+      "importance": "Importance",
+      "selectImportance": "Select importance",
+      "high": "High",
+      "normal": "Normal",
+      "low": "Low",
+      "hasAttachments": "Attachments",
+      "withAttachments": "With attachments",
+      "withoutAttachments": "Without attachments",
+      "any": "Any",
+      "attachmentType": "Attachment Type",
+      "selectAttachmentType": "Select attachment type",
+      "wordDocument": "Word Document",
+      "excelSpreadsheet": "Excel Spreadsheet",
+      "powerPoint": "PowerPoint",
+      "image": "Image",
+      "archive": "Archive (Zip)",
+      "advancedQuery": "Advanced Query",
+      "enterQuery": "Enter advanced query (OData format)",
+      "templates": "Templates",
+      "saveTemplate": "Save Template",
+      "loadTemplate": "Load Template",
+      "saveTemplateTitle": "Save Filter Template",
+      "templateName": "Template Name",
+      "enterTemplateName": "Enter template name",
+      "hideAdvanced": "Hide Advanced",
+      "showAdvanced": "Show Advanced"
+    },
+    "quickFilters": {
+      "title": "Quick Filters",
+      "today": "Today's Emails",
+      "lastWeek": "Last 7 Days",
+      "withAttachments": "With Attachments",
+      "highImportance": "High Importance"
+    },
+    "results": {
+      "title": "Results",
+      "sender": "Sender",
+      "subject": "Subject",
+      "date": "Date",
+      "hasAttachments": "Has Attachments",
+      "importance": "Importance",
+      "noResults": "No Emails Found",
+      "tryDifferentFilters": "Try adjusting your filters or selecting a different folder.",
+      "showing": "Showing {{start}} - {{end}} of {{total}} emails",
+      "showingSome": "Showing emails {{start}} - {{end}}",
+      "moreAvailable": "more available",
+      "page": "Page {{currentPage}} of {{totalPages}}",
+      "found": "emails found",
+      "showPerPage": "Show {{count}}/page"
+    },
+    "actions": {
+      "search": "Search Emails",
+      "searching": "Searching...",
+      "analyze": "Analyze Data",
+      "analyzing": "Analyzing...",
+      "submitting": "Submitting...",
+      "saveToKB": "Proceed Now, Generate Knowledge Base",
+      "saving": "Saving...",
+      "proceedGenerateKB": "Proceed now, Generate knowledge base"
+    },
+    "analysis": {
+      "title": "Analysis Results",
+      "processingPrompt": "Analysis in progress, results will appear here...",
+      "completeTitle": "Analysis Complete",
+      "failedTitle": "Analysis Failed"
+    },
+    "notifications": {
+      "templateLoaded": {
+        "title": "Template Loaded",
+        "description": "Filter settings loaded from template."
+      },
+      "analysisSubmitted": {
+        "title": "Analysis Submitted",
+        "description": "Email analysis job has been submitted."
+      },
+      "knowledgeBaseSaveSubmitted": {
+        "title": "Knowledge Base Update Initiated",
+        "description": "Processing selected emails to update the knowledge base."
+      }
+    },
     "tooltips": {
       "folderHelp": "Select the email folder to search within.",
       "senderHelp": "Filter emails by the sender's email address.",
