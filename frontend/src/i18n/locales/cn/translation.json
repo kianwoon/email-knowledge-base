@@ -130,7 +130,7 @@
         "advancedQuerySyntax": "高级查询语法",
         "advancedQuerySyntaxDescription": "对于更复杂的搜索，您可以使用高级查询语法：",
         "advancedQuerySyntaxExample": "folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
-        "advancedQuerySyntaxNote": "此示例搜索收件箱文件夹中来自john@example.com或主题包含"important"的邮件。",
+        "advancedQuerySyntaxNote": "此示例搜索收件箱文件夹中来自john@example.com或主题包含\"important\"的邮件。",
         "bestPractices": "最佳实践",
         "bestPractice1": {
           "title": "从特定文件夹开始：",
