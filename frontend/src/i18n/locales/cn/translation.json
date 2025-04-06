@@ -787,5 +787,31 @@
       "bulkUpdateErrorTitle": "批量更新审阅时出错",
       "loadErrorTitle": "加载审阅时出错"
     }
+  },
+  "search": {
+    "title": "搜索知识库",
+    "description": "从您已批准的邮件中查找信息",
+    "queryLabel": "搜索查询",
+    "placeholder": "输入搜索词...",
+    "helperText": "从您批准的邮件中搜索提取的知识",
+    "searching": "搜索中...",
+    "results": "搜索结果 ({{count}} 条，共 {{total}} 条)",
+    "noResults": "未找到结果",
+    "tryAgain": "请尝试使用不同的搜索词",
+    "from": "发件人",
+    "date": "日期",
+    "match": "匹配度",
+    "matchPercentage": "{{percentage}}% 匹配",
+    "viewDetails": "查看详情",
+    "knowledgeItem": "知识项",
+    "source": "来源",
+    "sender": "发件人",
+    "extractedDate": "添加到知识库日期",
+    "content": "内容",
+    "toast": {
+      "emptyQuery": "搜索查询为空",
+      "searchError": "搜索知识库时出错",
+      "loadError": "加载内容时出错"
+    }
   }
 } 

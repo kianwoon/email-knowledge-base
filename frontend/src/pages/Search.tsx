@@ -35,6 +35,7 @@ import {
   useColorMode,
 } from '@chakra-ui/react';
 import { SearchIcon, ViewIcon } from '@chakra-ui/icons';
+import { useTranslation } from 'react-i18next';
 
 // Define types for search results
 interface SearchResult {
@@ -103,6 +104,7 @@ const Search: React.FC = () => {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode } = useColorMode();
+  const { t } = useTranslation();
   
   // State
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,7 +118,7 @@ const Search: React.FC = () => {
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       toast({
-        title: 'Search query is empty',
+        title: t('search.toast.emptyQuery'),
         status: 'warning',
         duration: 3000,
       });
@@ -133,7 +135,7 @@ const Search: React.FC = () => {
     } catch (error) {
       console.error('Error searching:', error);
       toast({
-        title: 'Error searching knowledge base',
+        title: t('search.toast.searchError'),
         status: 'error',
         duration: 3000,
       });
@@ -154,7 +156,7 @@ const Search: React.FC = () => {
     } catch (error) {
       console.error('Error loading content:', error);
       toast({
-        title: 'Error loading content',
+        title: t('search.toast.loadError'),
         status: 'error',
         duration: 3000,
       });
@@ -168,8 +170,8 @@ const Search: React.FC = () => {
       <Container maxW="container.xl">
         <VStack spacing={8} align="stretch">
           <Box>
-            <Heading size="lg" mb={2}>Search Knowledge Base</Heading>
-            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Find information from your approved emails</Text>
+            <Heading size="lg" mb={2}>{t('search.title')}</Heading>
+            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{t('search.description')}</Text>
           </Box>
           
           {/* Search Box */}
@@ -177,10 +179,10 @@ const Search: React.FC = () => {
             <CardBody>
               <VStack spacing={4}>
                 <FormControl>
-                  <FormLabel color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Search Query</FormLabel>
+                  <FormLabel color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('search.queryLabel')}</FormLabel>
                   <InputGroup size="lg">
                     <Input
-                      placeholder="Enter search terms..."
+                      placeholder={t('search.placeholder')}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
@@ -203,7 +205,7 @@ const Search: React.FC = () => {
                 </FormControl>
                 
                 <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
-                  Search for knowledge extracted from your approved emails
+                  {t('search.helperText')}
                 </Text>
               </VStack>
             </CardBody>
@@ -215,8 +217,8 @@ const Search: React.FC = () => {
               <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
                 <Heading size="md">
                   {isSearching 
-                    ? 'Searching...' 
-                    : `Search Results (${results.length} of ${totalResults})`}
+                    ? t('search.searching')
+                    : t('search.results', { count: results.length, total: totalResults })}
                 </Heading>
               </CardHeader>
               <CardBody>
@@ -240,7 +242,7 @@ const Search: React.FC = () => {
                             <Heading size="sm">{result.subject}</Heading>
                             <HStack>
                               <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
-                                From: {result.sender}
+                                {t('search.from')}: {result.sender}
                               </Text>
                               <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.500'}>
                                 • {new Date(result.date).toLocaleDateString()}
@@ -248,7 +250,7 @@ const Search: React.FC = () => {
                             </HStack>
                           </VStack>
                           <Badge colorScheme="green">
-                            {Math.round(result.score * 100)}% match
+                            {t('search.matchPercentage', { percentage: Math.round(result.score * 100) })}
                           </Badge>
                         </Flex>
                         
@@ -260,11 +262,11 @@ const Search: React.FC = () => {
                           <HStack>
                             {result.tags.map(tag => (
                               <Badge key={tag} colorScheme="blue" variant="outline">
-                                {tag}
+                                {t(`common.tags.${tag}`, { defaultValue: tag })}
                               </Badge>
                             ))}
                             <Badge colorScheme="purple" variant="outline">
-                              {result.department}
+                              {t(`common.departments.${result.department}`, { defaultValue: result.department })}
                             </Badge>
                           </HStack>
                           
@@ -275,7 +277,7 @@ const Search: React.FC = () => {
                             variant="ghost"
                             colorScheme="primary"
                           >
-                            View
+                            {t('search.viewDetails')}
                           </Button>
                         </Flex>
                       </Box>
@@ -292,7 +294,7 @@ const Search: React.FC = () => {
           <ModalOverlay />
           <ModalContent bg={colorMode === 'dark' ? 'dark.bg' : 'white'}>
             <ModalHeader borderBottomWidth="1px" borderBottomColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
-              Knowledge Item
+              {t('search.knowledgeItem')}
             </ModalHeader>
             <ModalCloseButton />
             <ModalBody pb={6}>
@@ -305,10 +307,12 @@ const Search: React.FC = () => {
                   <Heading size="md">{selectedItem.subject}</Heading>
                   
                   <HStack wrap="wrap">
-                    <Badge colorScheme="purple">{selectedItem.department}</Badge>
+                    <Badge colorScheme="purple">
+                      {t(`common.departments.${selectedItem.department}`, { defaultValue: selectedItem.department })}
+                    </Badge>
                     {selectedItem.tags.map((tag: string) => (
                       <Badge key={tag} colorScheme="blue" variant="outline">
-                        {tag}
+                        {t(`common.tags.${tag}`, { defaultValue: tag })}
                       </Badge>
                     ))}
                   </HStack>
@@ -316,16 +320,16 @@ const Search: React.FC = () => {
                   <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
                   
                   <Box>
-                    <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Source:</Text>
+                    <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('search.source')}:</Text>
                     <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{selectedItem.source}</Text>
                     
-                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>From:</Text>
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('search.sender')}:</Text>
                     <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{selectedItem.sender} ({selectedItem.sender_email})</Text>
                     
-                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Date:</Text>
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('search.date')}:</Text>
                     <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{new Date(selectedItem.date).toLocaleString()}</Text>
                     
-                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Added to Knowledge Base:</Text>
+                    <Text fontWeight="bold" mt={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('search.extractedDate')}:</Text>
                     <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{new Date(selectedItem.extracted_date).toLocaleString()}</Text>
                   </Box>
                   
@@ -336,7 +340,7 @@ const Search: React.FC = () => {
                       <h2>
                         <AccordionButton>
                           <Box flex="1" textAlign="left">
-                            Content
+                            {t('search.content')}
                           </Box>
                           <AccordionIcon />
                         </AccordionButton>
