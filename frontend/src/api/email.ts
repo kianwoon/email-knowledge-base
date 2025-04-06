@@ -1,5 +1,5 @@
 import apiClient from './apiClient'; // Import the shared client
-import { EmailFilter, EmailPreview, PaginatedEmailPreviewResponse } from '../types/email';
+import { EmailFilter, EmailPreview, EmailContent, PaginatedEmailPreviewResponse } from '../types/email';
 
 /**
  * Get email folders from Outlook
@@ -31,9 +31,11 @@ export const getEmailPreviews = async (
   per_page: number = 10,
   next_link?: string // Optional: Pass the next_link from the previous response
 ): Promise<PaginatedEmailPreviewResponse> => {
-  console.log(`[getEmailPreviews] Checking token. localStorage.getItem('accessToken') value:`, localStorage.getItem('accessToken'));
-  const token = localStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
+  
+  // REMOVE LOCALSTORAGE CHECK - Handled by cookie
+  // console.log(`[getEmailPreviews] Checking token. localStorage.getItem('accessToken') value:`, localStorage.getItem('accessToken'));
+  // const token = localStorage.getItem('accessToken');
+  // if (!token) throw new Error('No access token found');
   
   // Construct query parameters
   const params: any = { 
@@ -41,27 +43,24 @@ export const getEmailPreviews = async (
     per_page 
   };
 
-  // Use next_link directly if provided, ignoring other filter params as MS Graph handles it
+  // Use next_link directly if provided
   if (next_link) {
     params.next_link = next_link;
-    // Clear filter params if using next_link, as it contains all context
-    // Alternatively, the backend can prioritize next_link over filter params
   }
 
-  // Log the request details
   console.log('[API Call] getEmailPreviews - Request Params:', params, 'Body (Filter):', filter);
   
   try {
     const response = await apiClient.post(
-      `/emails/preview`, // <-- Corrected path with /emails prefix
+      `/emails/preview`, 
       filter, // Send filter criteria in the body
-      {
+      { 
         params: params, // Send pagination params in query string
-        headers: { Authorization: `Bearer ${token}` },
+        // REMOVE EXPLICIT HEADERS - Handled by cookie + apiClient
+        // headers: { Authorization: `Bearer ${token}` }, 
       }
     );
     console.log('[API Response] getEmailPreviews:', response.data);
-    // Ensure the response structure matches PaginatedEmailPreviewResponse
     return response.data;
   } catch (error: any) {
     console.error('Error fetching email previews:', error.response?.data || error.message);
@@ -72,30 +71,23 @@ export const getEmailPreviews = async (
 /**
  * Get full content of a specific email
  */
-export const getEmailContent = async (emailId: string) => {
+export const getEmailContent = async (emailId: string): Promise<EmailContent> => {
+  console.log(`[getEmailContent] Fetching content for email ID: ${emailId}`);
+  
   try {
-    // Use apiClient directly
-    const response = await apiClient.get(`/emails/content/${emailId}`); 
+    // Ensure the API endpoint matches backend routes
+    const response = await apiClient.get(`/emails/${emailId}/content`); 
+    console.log('[getEmailContent] Response received:', response.data);
+    // The backend should return data matching the EmailContent interface
     return response.data;
-  } catch (error) {
-    console.error('Error getting email content:', error);
-    // For demo purposes, return mock data
-    return {
-      id: emailId,
-      internet_message_id: `message_${emailId}`,
-      subject: 'Sample Email Content',
-      sender: 'John Doe',
-      sender_email: 'john.doe@example.com',
-      recipients: ['user@example.com'],
-      cc_recipients: [],
-      received_date: new Date().toISOString(),
-      body: 'This is the full content of the sample email. It contains more detailed information than the snippet.',
-      is_html: false,
-      folder_id: 'inbox',
-      folder_name: 'Inbox',
-      attachments: [],
-      importance: 'normal'
-    };
+  } catch (error: any) {
+    console.error(`[getEmailContent] Error fetching content for email ${emailId}:`, error);
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      throw new Error(error.response.data.detail || `Error loading content for email ${emailId}` );
+    } else {
+      throw new Error('Network error or unexpected issue loading email content');
+    }
   }
 };
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import RedirectResponse
 import json
 from datetime import datetime, timedelta
@@ -115,7 +115,7 @@ async def login():
 
 @router.get("/callback")
 async def auth_callback(request: Request):
-    """Handle OAuth callback from Microsoft"""
+    """Handle OAuth callback from Microsoft and set HttpOnly cookie."""
     print("Received callback request")
     print(f"DEBUG - Full request URL: {request.url}")
     print(f"DEBUG - Request headers: {dict(request.headers)}")
@@ -131,22 +131,21 @@ async def auth_callback(request: Request):
     error = request.query_params.get("error")
     error_description = request.query_params.get("error_description")
     
+    # Early exit on OAuth error
     if error:
-        print(f"Auth error: {error}, Description: {error_description}")
-        # Instead of raising an exception, redirect to frontend with error
-        error_url = f"{settings.FRONTEND_URL}?error={error}&error_description={error_description}"
+        error_url = f"{settings.FRONTEND_URL}?error={urllib.parse.quote(error)}&error_description={urllib.parse.quote(error_description or '')}"
+        print(f"DEBUG - OAuth error, redirecting to: {error_url}")
         return RedirectResponse(url=error_url)
     
     if not code:
-        print("No authorization code provided")
         error_url = f"{settings.FRONTEND_URL}?error=no_code&error_description=No authorization code provided"
+        print(f"DEBUG - No code, redirecting to: {error_url}")
         return RedirectResponse(url=error_url)
-    
-    # Exchange code for tokens using direct HTTP request instead of MSAL
-    print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
+
+    # --- Exchange code for tokens --- 
+    token_result = None # Initialize to None
     try:
-        # Prepare token request using settings
-        # Note: Endpoint path is still hardcoded as per decision
+        print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
         token_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
         token_url = f"{token_url_base}/oauth2/v2.0/token"
         token_data = {
@@ -155,54 +154,45 @@ async def auth_callback(request: Request):
             'code': code,
             'redirect_uri': settings.MS_REDIRECT_URI,
             'grant_type': 'authorization_code',
-            'scope': settings.MS_SCOPE_STR # Use scope from settings
+            'scope': settings.MS_SCOPE_STR
         }
-        
-        print(f"DEBUG - Token request data (excluding secret): {dict(token_data, client_secret='[REDACTED]')}")
-        
-        # Make the token request asynchronously using httpx
         async with httpx.AsyncClient() as client:
             token_response = await client.post(token_url, data=token_data)
-            # Check for HTTP errors immediately
-            if token_response.status_code != 200:
-                 try:
-                     # result = await token_response.json() # Await json even on error for details
-                     result = token_response.json() # <-- REMOVE AWAIT
-                     print(f"DEBUG - Token response error details: {result}")
-                     error_description = result.get('error_description', 'Token exchange failed')
-                 except Exception as json_err:
-                     print(f"DEBUG - Could not parse error response JSON: {json_err}")
-                     error_description = f"Token exchange failed with status {token_response.status_code}"
-                 error_url = f"{settings.FRONTEND_URL}?error=token_error&error_description={error_description}"
-                 return RedirectResponse(url=error_url)
+            token_result = token_response.json() # Get result regardless of status for logging
             
-            # If successful, call the JSON result synchronously
-            result = token_response.json()
+            if token_response.status_code != 200:
+                 print(f"DEBUG - Token response error details: {token_result}")
+                 error_description = token_result.get('error_description', 'Token exchange failed')
+                 error_url = f"{settings.FRONTEND_URL}?error={urllib.parse.quote(token_result.get('error', 'token_error'))}&error_description={urllib.parse.quote(error_description)}"
+                 return RedirectResponse(url=error_url)
         
-        print(f"DEBUG - Token response status: {token_response.status_code}")
+        print(f"DEBUG - Token exchange successful.")
         
-        print("Successfully acquired token")
+    except Exception as ex_token:
+        print(f"Error during token exchange HTTP request: {str(ex_token)}")
+        error_url = f"{settings.FRONTEND_URL}?error=token_exchange_exception&error_description={urllib.parse.quote(str(ex_token))}"
+        return RedirectResponse(url=error_url)
+
+    # --- Process user info, create JWT, set cookie --- 
+    try:
+        # Get user info from Microsoft Graph
+        ms_token = token_result.get("access_token")
+        if not ms_token:
+             raise ValueError("MS Access Token not found in token response.")
         
-        # Get user info from Microsoft Graph using OutlookService
-        ms_token = result.get("access_token")
         outlook_service = OutlookService(ms_token)
         user_info = await outlook_service.get_user_info()
+        if not user_info:
+            raise ValueError("Could not retrieve user info from MS Graph.")
+
+        photo_url = await outlook_service.get_user_photo() # Optional
         
-        # Try to get user's profile photo
-        photo_url = await outlook_service.get_user_photo()
-        
-        # Extract organization information if available
-        organization = None
-        if user_info.get("officeLocation"):
-            organization = user_info.get("officeLocation")
-        
-        # Create or update user
+        # Create or update user in our system
         user_id = user_info.get("id")
-        
-        # Convert scope string to list if needed
-        scope = result.get("scope", "")
+        organization = user_info.get("officeLocation")
+        scope = token_result.get("scope", "")
         scope_list = scope.split() if isinstance(scope, str) else scope
-        
+
         user = User(
             id=user_id,
             email=user_info.get("mail"),
@@ -211,67 +201,65 @@ async def auth_callback(request: Request):
             photo_url=photo_url,
             organization=organization,
             ms_token_data=TokenData(
-                access_token=result.get("access_token"),
-                refresh_token=result.get("refresh_token"),
-                expires_at=datetime.utcnow() + timedelta(seconds=result.get("expires_in", 3600)),
+                access_token=ms_token,
+                refresh_token=token_result.get("refresh_token"),
+                expires_at=datetime.utcnow() + timedelta(seconds=token_result.get("expires_in", 3600)),
                 scope=scope_list
             )
         )
-        
-        # Store user in memory (replace with database in production)
         users_db[user_id] = user
-        
+        print(f"DEBUG - User {user.email} stored/updated in users_db.")
+
         # Create internal JWT token
-        access_token, expires_at = create_access_token(
-            data={"sub": user_id, "email": user.email}
+        jwt_access_token, jwt_expires_at_dt = create_access_token(
+            data={"sub": user_id, "email": user.email},
+            expires_delta=timedelta(seconds=settings.JWT_EXPIRATION) 
         )
+        max_age_seconds = max(0, int((jwt_expires_at_dt - datetime.utcnow()).total_seconds())) # Ensure non-negative
         
-        # Redirect to frontend with token
-        next_url = settings.FRONTEND_URL # Default redirect
-        print(f"DEBUG - Default next_url from settings: {next_url}")
-        
+        # Determine cookie security based on environment
+        secure_cookie = settings.IS_PRODUCTION
+        print(f"DEBUG - Setting cookie attributes: HttpOnly=True, Secure={secure_cookie}, SameSite=Lax, Max-Age={max_age_seconds}")
+
+        # Determine final redirect URL (without token params)
+        next_url = settings.FRONTEND_URL
         if state:
-            try:
-                print(f"DEBUG - State parameter received: {state}")
-                state_data = json.loads(state)
-                if "next_url" in state_data:
-                    potential_next_url = state_data.get("next_url")
-                    print(f"DEBUG - Potential next_url from state: {potential_next_url}")
-                    
-                    # Validate the next_url hostname against allowed domains
-                    try:
-                        parsed_url = urlparse(potential_next_url)
-                        # Check netloc (hostname + optional port)
-                        hostname = parsed_url.hostname # Use hostname attribute
-                        if hostname and hostname in settings.ALLOWED_REDIRECT_DOMAINS:
-                            next_url = potential_next_url
-                            print(f"DEBUG - Using next_url from state after validation: {next_url}")
-                        else:
-                            print(f"DEBUG - next_url hostname '{hostname}' not in allowed domains {settings.ALLOWED_REDIRECT_DOMAINS}, using default: {settings.FRONTEND_URL}")
-                            # Fallback to default if check fails
-                            next_url = settings.FRONTEND_URL
-                    except Exception as parse_err:
-                         print(f"DEBUG - Error parsing potential_next_url '{potential_next_url}': {parse_err}, using default.")
-                         next_url = settings.FRONTEND_URL
-            except Exception as e:
-                print(f"DEBUG - Error processing state parameter: {str(e)}")
-                next_url = settings.FRONTEND_URL
-        
-        # Final safety check for the redirect URL format
+             try:
+                 state_data = json.loads(state)
+                 potential_next_url = state_data.get("next_url")
+                 if potential_next_url:
+                      parsed_url = urlparse(potential_next_url)
+                      hostname = parsed_url.hostname
+                      if hostname and hostname in settings.ALLOWED_REDIRECT_DOMAINS:
+                          next_url = potential_next_url
+                      else:
+                           print(f"DEBUG - State next_url hostname '{hostname}' not allowed, using default.")
+             except Exception as e:
+                 print(f"DEBUG - Error processing state: {e}, using default redirect.")
         if not next_url or not next_url.startswith(('http://', 'https://')):
-            print(f"DEBUG - Invalid final next_url '{next_url}', using default: {settings.FRONTEND_URL}")
             next_url = settings.FRONTEND_URL
         
-        redirect_url = f"{next_url}?token={access_token}&expires={expires_at.timestamp()}"
-        print(f"DEBUG - Final redirect URL: {redirect_url}")
+        print(f"DEBUG - Redirecting to frontend URL: {next_url}")
         
-        return RedirectResponse(url=redirect_url)
+        # Create RedirectResponse and set the HttpOnly cookie
+        response = RedirectResponse(url=next_url)
+        response.set_cookie(
+            key="access_token",
+            value=jwt_access_token,
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+            max_age=max_age_seconds,
+            path="/" 
+        )
+        print(f"DEBUG - Set access_token cookie (HttpOnly).")
+        return response
+
     except Exception as e:
-        print(f"Error during token exchange: {str(e)}")
-        # Add traceback logging
+        print(f"Error during user processing/token creation/redirect: {str(e)}")
         import traceback
         traceback.print_exc()
-        error_url = f"{settings.FRONTEND_URL}?error=token_exchange_error&error_description={str(e)}"
+        error_url = f"{settings.FRONTEND_URL}?error=callback_processing_error&error_description={urllib.parse.quote(str(e))}"
         return RedirectResponse(url=error_url)
 
 
@@ -358,3 +346,20 @@ async def refresh_token(token_request: RefreshTokenRequest):
         token_type="bearer",
         expires_at=new_expires_at
     )
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear the access token cookie to log the user out."""
+    logger.info("Logout request received, clearing access token cookie.")
+    
+    # Determine secure flag based on environment
+    secure_cookie = settings.IS_PRODUCTION
+    
+    response.delete_cookie(
+        key="access_token", 
+        path="/", 
+        httponly=True, 
+        secure=secure_cookie, 
+        samesite="lax"
+    )
+    return {"message": "Logout successful"}

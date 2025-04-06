@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Box, Flex, Spinner, Center, VStack, Text, useToast, Container } from '@chakra-ui/react';
-import { getCurrentUser, refreshToken } from './api/auth';
+import { getCurrentUser, logout as logoutApi } from './api/auth';
 
 // Pages
 import SignIn from './pages/SignIn';
@@ -32,184 +32,82 @@ const LoadingScreen = () => (
 );
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [auth, setAuth] = useState<{ isAuthenticated: boolean; user: any | null }>({ isAuthenticated: false, user: null });
   const [isLoading, setIsLoading] = useState(true);
   const toast = useToast();
   const navigate = useNavigate();
-  
-  // Handle logout
-  const handleLogout = useCallback(() => {
-    console.log("--- handleLogout CALLED! ---");
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('expires');
-    localStorage.removeItem('refresh_token');
-    setIsAuthenticated(false);
+  // const location = useLocation(); // No longer needed for useEffect dependency
+
+  // --- Modified handleLogout --- 
+  const handleLogout = useCallback(async () => {
+    console.log("[App] handleLogout CALLED! Attempting API logout...");
+    try {
+      await logoutApi(); // Call the backend endpoint to clear the cookie
+      console.log("[App] API logout successful.");
+    } catch (error) {
+      console.error("[App] API logout failed:", error);
+      // Proceed with frontend state clearing even if API fails
+    }
+    // No need to clear localStorage tokens anymore
+    setAuth({ isAuthenticated: false, user: null });
     navigate('/', { replace: true });
   }, [navigate]);
 
-  // Function to refresh token
-  const handleTokenRefresh = useCallback(async () => {
-    console.log('handleTokenRefresh called');
-    try {
-      // Get the MS refresh token from localStorage
-      const msRefreshToken = localStorage.getItem('refresh_token');
-      if (!msRefreshToken) {
-        console.log('No MS refresh token available in localStorage');
-        throw new Error('No MS refresh token available');
-      }
-      
-      console.log('Calling refreshToken API with MS token...');
-      // Call the updated API function, passing the MS refresh token
-      const response = await refreshToken(msRefreshToken);
-      
-      // Check if the backend returned a new internal access token
-      if (response.access_token) {
-        console.log('Token refresh successful, updating localStorage');
-        // Store the NEW internal JWT access token and its expiry using 'accessToken'
-        localStorage.setItem('accessToken', response.access_token);
-        localStorage.setItem('expires', response.expires_at);
-        
-        // If the backend also returned a NEW MS refresh token, update it
-        // (Assuming backend might return it as 'ms_refresh_token')
-        // if (response.ms_refresh_token) {
-        //   localStorage.setItem('refresh_token', response.ms_refresh_token);
-        // }
-        
-        return true; // Indicate success
-      }
-      // If backend didn't return access_token (shouldn't happen on success)
-      console.log('Token refresh API call succeeded but no access_token returned');
-      return false;
-    } catch (error) {
-      console.error('handleTokenRefresh failed:', error);
-      // Error handling (like clearing localStorage) might already be done in the API function
-      // handleLogout(); // Optionally call logout here if not handled in API
-      return false; // Indicate failure
-    }
-  }, []); // Removed refreshToken from dependencies as it's an import
-
-  // Function to check token expiration and refresh if needed
-  const checkAndRefreshToken = useCallback(async () => {
-    const expires = localStorage.getItem('expires');
-    if (!expires) return false;
-
-    const expiryDate = new Date(expires);
-    const now = new Date();
-    const timeUntilExpiry = expiryDate.getTime() - now.getTime();
-
-    // If token expires in less than 5 minutes, try to refresh it
-    if (timeUntilExpiry < 5 * 60 * 1000) {
-      return await handleTokenRefresh();
-    }
-    return true;
-  }, [handleTokenRefresh]);
-
-  // --- RESTORE checkAuth FUNCTION DEFINITION --- 
-  const checkAuth = useCallback(async () => {
-    console.log("--- checkAuth running ---");
-    try {
-      // Read using 'accessToken'
-      const token = localStorage.getItem('accessToken');
-      const expires = localStorage.getItem('expires');
-
-      if (!token || !expires) {
-        console.log("checkAuth: No token or expires found in localStorage.");
-        // handleLogout() will set isAuthenticated to false
-        setIsAuthenticated(false); 
-        return; // Exit early
-      }
-
-      // Check if token is expired
-      const expiryDate = new Date(expires);
-      let needsVerification = true; // Assume verification is needed
-
-      if (expiryDate <= new Date()) {
-        console.log("checkAuth: Token expired, attempting refresh...");
-        const refreshed = await handleTokenRefresh();
-        if (!refreshed) {
-          console.log("checkAuth: Token refresh failed.");
-          handleLogout(); // Logout if refresh fails
-          needsVerification = false; // No need to verify if logout happened
-        } else {
-          console.log("checkAuth: Token refresh successful.");
-          // Token is refreshed, proceed to verification
-          needsVerification = true; 
-        }
-      }
-
-      // Verify token with backend if needed
-      if (needsVerification) {
-         // Re-read token in case it was just refreshed
-         const currentToken = localStorage.getItem('accessToken');
-         if (!currentToken) { // Safety check
-             console.log("checkAuth: Token missing after potential refresh check.");
-             handleLogout();
-         } else {
-            try {
-              console.log("checkAuth: Verifying token with backend...");
-              await getCurrentUser(); // Assumes getCurrentUser uses the token via interceptor
-              setIsAuthenticated(true);
-              console.log('checkAuth: Authentication successful (token valid).');
-            } catch (verificationError: any) {
-              console.error('checkAuth: Token verification failed:', verificationError);              
-              // If verification fails even after potential refresh, logout
-              handleLogout(); 
-            }
-          }
-      }
-    } catch (error: any) {
-      console.error('checkAuth: Unexpected error:', error);
-      handleLogout(); // Logout on any unexpected error during auth check
-    } finally {
-       // Ensure loading is always set to false after checks complete
-       console.log("checkAuth: Setting isLoading to false.");
-       setIsLoading(false);
-    }
-  }, [handleLogout, handleTokenRefresh]); // Dependencies for checkAuth
-
-  // useEffect hook for initial auth processing
+  // --- Modified useEffect for Cookie-Based Auth Check --- 
   useEffect(() => {
-    const processAuth = async () => {
-      console.log("--- App useEffect running processAuth ---"); 
-      const urlParams = new URLSearchParams(window.location.search);
-      const tokenFromUrl = urlParams.get('token');
-      const expiresFromUrl = urlParams.get('expires');
+    const initializeAuth = async () => {
+      console.log("--- App useEffect running initializeAuth (Cookie Based) ---"); 
+      setIsLoading(true);
+      let userDetails = null;
+      let initialAuth = false;
 
-      console.log(`Token from URL: ${tokenFromUrl ? 'FOUND' : 'MISSING'}`);
-      console.log(`Expires from URL: ${expiresFromUrl ? 'FOUND' : 'MISSING'}`);
+      try {
+         console.log("Attempting to verify session with backend via /auth/me...");
+         // If the cookie exists and is valid, this call will succeed
+         userDetails = await getCurrentUser(); 
+         console.log("Session verified. User details fetched:", userDetails);
+         initialAuth = true;
+         // Optionally store MS refresh token in memory if needed for later
+         // NOTE: This needs careful consideration for security
+         if (userDetails?.ms_token_data?.refresh_token) {
+             console.log('[App] MS Refresh Token available from /me endpoint.');
+             // sessionStorage.setItem('ms_refresh_token', userDetails.ms_token_data.refresh_token);
+         } else {
+             console.warn('[App] MS Refresh Token not found in /me response.');
+         }
 
-      if (tokenFromUrl && expiresFromUrl) {
-        console.log("URL Params FOUND: Clearing old token/expires, storing new, setting auth=true."); 
-        // Explicitly remove old items first
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('expires');
-        
-        // Store new items
-        localStorage.setItem('accessToken', tokenFromUrl);
-        localStorage.setItem('expires', expiresFromUrl);
-        setIsAuthenticated(true);
-        // Decode user info here if needed from tokenFromUrl
-        // setUser(parseJwt(tokenFromUrl)); 
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setIsLoading(false); // Stop loading indicator since auth state is set
-      } else {
-        console.log("URL Params MISSING: Calling checkAuth to look in localStorage."); 
-        await checkAuth(); // Call the restored checkAuth function
+      } catch (error: any) {
+         // If getCurrentUser fails (e.g., 401), the cookie is invalid/missing/expired
+         console.log("Session verification failed (likely no valid cookie):", error?.response?.data || error.message);
+         initialAuth = false;
+         userDetails = null;
+         // Don't need to call logout explicitly, state is already unauthenticated
+      } finally {
+         console.log(`Setting final state: isAuthenticated=${initialAuth}, user=${!!userDetails}`);
+         setAuth({ isAuthenticated: initialAuth, user: userDetails });
+         setIsLoading(false); 
+         console.log("initializeAuth finished. Loading set to false.");
       }
     };
 
-    processAuth();
-  }, [checkAuth]); // Dependency array includes checkAuth
+    initializeAuth();
+    // Run only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array
 
-  // Render loading state or children
-  // Use isLoading directly for the loading screen check
+  // --- Keep LoadingScreen check --- 
   if (isLoading) {
     return <LoadingScreen />;
   }
 
+  // --- Update TopNavbar call to pass user --- 
   return (
     <Box minH="100vh">
-      <TopNavbar onLogout={handleLogout} isAuthenticated={isAuthenticated} />
+      <TopNavbar 
+        onLogout={handleLogout} 
+        isAuthenticated={auth.isAuthenticated} 
+        user={auth.user} // Pass user data down
+      />
       <Container maxW="1400px" py={4}>
         <Routes>
           {/* Documentation Routes */}
@@ -226,58 +124,40 @@ function App() {
           <Route path="/docs/ai-training" element={<AITraining />} />
           <Route path="/support" element={<Support />} />
           
-          {/* App Routes - with padding and authentication */}
+          {/* App Routes */}
           <Route path="/*" element={
             <Box flex="1">
               <Box p={4}>
                 <Routes>
-                  <Route 
-                    path="/" 
-                    element={
-                      <SignIn 
-                        onLogin={() => {
-                          setIsAuthenticated(true);
-                        }}
-                        isAuthenticated={isAuthenticated}
-                      />
-                    } 
+                   {/* Sign In Route - Render SignIn component regardless of auth for '/' */}
+                   <Route
+                      path="/"
+                      element={
+                          // Pass auth state to SignIn, let it decide what to display
+                          <SignIn
+                              onLogin={() => {
+                                  console.log('[App] SignIn onLogin called (prop requirement).');
+                                  setAuth({ isAuthenticated: true, user: null }); 
+                              }}
+                              isAuthenticated={auth.isAuthenticated} 
+                          />
+                      }
                   />
-                  <Route 
-                    path="/filter" 
-                    element={
-                      isLoading ? (
-                        <LoadingScreen />
-                      ) : isAuthenticated ? (
-                        <FilterSetup />
-                      ) : (
-                        <Navigate to="/" replace={true} />
-                      )
-                    } 
+                  {/* Protected Routes */} 
+                  {/* Pass user data to protected components if they need it */} 
+                  <Route
+                      path="/filter"
+                      element={ auth.isAuthenticated ? <FilterSetup /> : <Navigate to="/" replace /> }
                   />
-                  <Route 
-                    path="/review" 
-                    element={
-                      isLoading ? (
-                        <LoadingScreen />
-                      ) : isAuthenticated ? (
-                        <EmailReview />
-                      ) : (
-                        <Navigate to="/" replace={true} />
-                      )
-                    } 
+                   <Route
+                      path="/review"
+                      element={ auth.isAuthenticated ? <EmailReview /> : <Navigate to="/" replace /> }
                   />
-                  <Route 
-                    path="/search" 
-                    element={
-                      isLoading ? (
-                        <LoadingScreen />
-                      ) : isAuthenticated ? (
-                        <Search />
-                      ) : (
-                        <Navigate to="/" replace={true} />
-                      )
-                    } 
+                   <Route
+                      path="/search"
+                      element={ auth.isAuthenticated ? <Search /> : <Navigate to="/" replace /> }
                   />
+                  <Route path="*" element={<Navigate to={auth.isAuthenticated ? "/filter" : "/"} replace />} />
                 </Routes>
               </Box>
             </Box>

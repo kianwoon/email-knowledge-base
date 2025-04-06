@@ -32,7 +32,7 @@ import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
 import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
-import { getCurrentUser, getLoginUrl } from '../api/auth';
+import { getLoginUrl } from '../api/auth';
 
 // Define user interface
 interface UserInfo {
@@ -46,41 +46,16 @@ interface UserInfo {
 interface TopNavbarProps {
   onLogout?: () => void;
   isAuthenticated?: boolean;
+  user?: UserInfo | null;
 }
 
-const TopNavbar = ({ onLogout, isAuthenticated }: TopNavbarProps): JSX.Element => {
+const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Element => {
   const { colorMode, toggleColorMode } = useColorMode();
   const location = useLocation();
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { isOpen: isDrawerOpen, onOpen: onDrawerOpen, onClose: onDrawerClose } = useDisclosure();
   const { t, i18n } = useTranslation();
   const isMobile = useBreakpointValue({ base: true, md: false });
   const navigate = useNavigate();
-
-  // Fetch user information when component mounts
-  useEffect(() => {
-    const fetchUserInfo = async () => {
-      try {
-        if (!isAuthenticated) {
-          setUser(null);
-          setIsLoading(false);
-          return;
-        }
-
-        setIsLoading(true);
-        const userData = await getCurrentUser();
-        setUser(userData);
-      } catch (error) {
-        console.error('Error fetching user info:', error);
-        setUser(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserInfo();
-  }, [isAuthenticated]);
 
   // Define navigation items
   const navItems = [
@@ -96,45 +71,49 @@ const TopNavbar = ({ onLogout, isAuthenticated }: TopNavbarProps): JSX.Element =
   };
 
   // User menu component
-  const UserMenu = () => (
-    <Menu>
-      <MenuButton
-        as={Button}
-        variant="ghost"
-        _hover={{ bg: "bg.hover" }}
-        padding={2}
-      >
-        <HStack spacing={2}>
-          <Avatar
-            size="sm"
-            name={user?.display_name}
-            src={user?.photo_url}
-          />
-          <Text display={{ base: 'none', md: 'block' }}>
-            {user?.display_name}
-          </Text>
-          <ChevronDownIcon />
-        </HStack>
-      </MenuButton>
-      <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
-        <MenuItem
-          icon={<FaUsers />}
-          onClick={() => {}}
-          _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+  const UserMenu = () => {
+    if (!user) return <Spinner size="sm" />;
+
+    return (
+      <Menu>
+        <MenuButton
+          as={Button}
+          variant="ghost"
+          _hover={{ bg: "bg.hover" }}
+          padding={2}
         >
-          {t('userMenu.account')}
-        </MenuItem>
-        <MenuDivider />
-        <MenuItem
-          icon={<FaSignOutAlt />}
-          onClick={onLogout}
-          _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-        >
-          {t('userMenu.signOut')}
-        </MenuItem>
-      </MenuList>
-    </Menu>
-  );
+          <HStack spacing={2}>
+            <Avatar
+              size="sm"
+              name={user.display_name}
+              src={user.photo_url}
+            />
+            <Text display={{ base: 'none', md: 'block' }}>
+              {user.display_name}
+            </Text>
+            <ChevronDownIcon />
+          </HStack>
+        </MenuButton>
+        <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
+          <MenuItem
+            icon={<FaUsers />}
+            onClick={() => {}}
+            _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+          >
+            {t('userMenu.account')}
+          </MenuItem>
+          <MenuDivider />
+          <MenuItem
+            icon={<FaSignOutAlt />}
+            onClick={onLogout}
+            _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+          >
+            {t('userMenu.signOut')}
+          </MenuItem>
+        </MenuList>
+      </Menu>
+    );
+  };
 
   const handleSignIn = async () => {
     try {
@@ -247,44 +226,42 @@ const TopNavbar = ({ onLogout, isAuthenticated }: TopNavbarProps): JSX.Element =
             />
 
             {/* User Menu or Sign In Button */}
-            {isLoading ? (
-              <Spinner size="sm" />
-            ) : user ? (
+            {isAuthenticated ? (
               <UserMenu />
             ) : (
               <Button
                 leftIcon={<Icon as={FaMicrosoft} />}
                 onClick={handleSignIn}
-                variant="solid"
-                colorScheme="blue"
                 size="md"
+                colorScheme="cyan"
+                bg={useColorModeValue('cyan.400', 'cyan.500')}
+                color="white"
+                _hover={{
+                  bg: useColorModeValue('cyan.500', 'cyan.600'),
+                }}
               >
-                {t('auth.signInWithMicrosoft')}
+                {t('home.cta.signIn')}
               </Button>
             )}
 
             {/* Mobile Menu Button */}
             <IconButton
               display={{ base: 'flex', md: 'none' }}
-              onClick={onOpen}
-              variant="ghost"
-              aria-label={t('common.openMenu')}
+              onClick={onDrawerOpen}
               icon={<HamburgerIcon />}
-              _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-              color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+              aria-label={t('common.openMenu')}
+              variant="ghost"
             />
           </HStack>
         </Flex>
       </Container>
 
       {/* Mobile Drawer */}
-      <Drawer isOpen={isOpen} placement="right" onClose={onClose}>
+      <Drawer isOpen={isDrawerOpen} placement="right" onClose={onDrawerClose}>
         <DrawerOverlay />
-        <DrawerContent bg={useColorModeValue('white', 'gray.800')}>
+        <DrawerContent bg="bg.primary">
           <DrawerCloseButton />
-          <DrawerHeader borderBottomWidth="1px">
-            {t('app.name')}
-          </DrawerHeader>
+          <DrawerHeader borderBottomWidth="1px" borderColor="border.primary">{t('common.menu')}</DrawerHeader>
           <DrawerBody>
             <VStack spacing={4} align="stretch">
               {navItems.map((item) => (
@@ -293,13 +270,10 @@ const TopNavbar = ({ onLogout, isAuthenticated }: TopNavbarProps): JSX.Element =
                   as={RouterLink}
                   to={item.path}
                   variant="ghost"
-                  isActive={location.pathname === item.path}
-                  onClick={onClose}
-                  justifyContent="flex-start"
+                  w="full"
+                  justifyContent="start"
                   leftIcon={<Icon as={item.icon} />}
-                  _active={{ bg: "blue.500", color: "white" }}
-                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                  color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+                  onClick={onDrawerClose}
                 >
                   {item.label}
                 </Button>

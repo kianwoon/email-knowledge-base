@@ -70,3 +70,18 @@ export const refreshToken = async (msRefreshToken: string) => {
     throw error;
   }
 };
+
+// Function to call the backend logout endpoint
+export const logout = async () => {
+  try {
+    console.log('Calling backend /auth/logout...');
+    // No data needs to be sent, just make the POST request
+    const response = await apiClient.post('/auth/logout'); 
+    console.log('Logout API response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error calling logout API:', error);
+    // Re-throw the error so the caller can handle it if needed
+    throw error; 
+  }
+};

@@ -44,19 +44,13 @@ export const saveJobToKnowledgeBase = async (jobId: string): Promise<SaveJobResp
 // --- NEW API FUNCTION --- 
 
 export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Promise<{ operation_id: string; message: string; status: string }> => {
-  const token = localStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
-
   console.log('[API Call] Saving filtered emails to KB with filter:', filter);
   
   try {
     // Use the existing apiClient
     const response = await apiClient.post(
       `/vector/save_filtered_emails`, // Use the new endpoint
-      filter, // Send the filter object as the request body
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
+      filter // Send the filter object as the request body
     );
     console.log('[API Response] saveFilteredEmailsToKnowledgeBase:', response.data);
     // Example success response: { operation_id: "uuid", message: "...", status: "success" | "partial_success" }
@@ -67,3 +61,26 @@ export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Pr
     throw new Error(error.response?.data?.detail || 'Failed to save filtered emails to knowledge base');
   }
 }; 
+
+// Generic search function
+export const searchEmails = async (query: string, limit: number = 10): Promise<any[]> => {
+  console.log(`[searchEmails] Searching for: "${query}", limit: ${limit}`);
+  
+  try {
+    const response = await apiClient.post('/vector/search', 
+      { query, limit },
+    );
+    console.log('[searchEmails] Response received:', response.data);
+    return response.data.results || []; // Assuming results are in response.data.results
+  } catch (error: any) {
+    console.error('[searchEmails] Error searching emails:', error);
+    if (error.response) {
+        console.error('Error response data:', error.response.data);
+        throw new Error(error.response.data.detail || 'Error performing vector search');
+    } else {
+        throw new Error('Network error or unexpected issue during vector search');
+    }
+  }
+};
+
+// Add other vector-related API calls here if needed, ensuring they also don't use localStorage
