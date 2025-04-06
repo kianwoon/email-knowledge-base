@@ -50,74 +50,7 @@ import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailApproval, PIIType } from '../types/email';
 
-// Mock API functions (in a real app, these would be in the API directory)
-const getPendingReviews = async (params: { page?: number; per_page?: number } = {}) => {
-  // Get translation function
-  const { t } = useTranslation();
-  
-  // Mock data for demonstration
-  const itemsPerPage = params.per_page || 10;
-  const currentPage = params.page || 1;
-  const totalItems = 28; // Total number of items in the mock data
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
-  
-  // Calculate start and end indices for the current page
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
-  
-  // Generate mock data for the current page
-  const items = Array(endIndex - startIndex).fill(0).map((_, i) => {
-    const itemIndex = startIndex + i;
-    return {
-      email_id: `email_${itemIndex}`,
-      content: {
-        id: `email_${itemIndex}`,
-        internet_message_id: `message_${itemIndex}`,
-        subject: t('emailReview.sampleEmails.subject', { number: itemIndex + 1 }),
-        sender: 'John Doe',
-        sender_email: 'john.doe@example.com',
-        recipients: ['user@example.com'],
-        cc_recipients: [],
-        received_date: new Date().toISOString(),
-        body: t('emailReview.sampleEmails.body', { number: itemIndex + 1 }),
-        is_html: false,
-        folder_id: 'inbox',
-        folder_name: 'Inbox',
-        attachments: itemIndex % 3 === 0 ? [{
-          id: `attachment_${itemIndex}`,
-          name: 'document.pdf',
-          content_type: 'application/pdf',
-          size: 1024 * 1024,
-        }] : [],
-        importance: itemIndex % 4 === 0 ? 'high' : 'normal'
-      },
-      analysis: {
-        sensitivity: Object.values(SensitivityLevel)[itemIndex % 4],
-        department: Object.values(Department)[itemIndex % 9],
-        tags: [`tag${itemIndex}`, 'knowledge', itemIndex % 2 === 0 ? 'important' : 'routine'],
-        is_private: itemIndex % 3 === 0,
-        pii_detected: itemIndex % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
-        recommended_action: itemIndex % 3 === 0 ? 'exclude' : 'store',
-        summary: t('emailReview.sampleEmails.summary', { number: itemIndex + 1 }),
-        key_points: [
-          t('emailReview.sampleEmails.keyPoint1', { number: itemIndex + 1 }),
-          t('emailReview.sampleEmails.keyPoint2', { number: itemIndex + 1 }),
-          t('emailReview.sampleEmails.keyPoint3', { number: itemIndex + 1 })
-        ]
-      },
-      status: ReviewStatus.PENDING
-    };
-  });
-  
-  return {
-    items,
-    total: totalItems,
-    total_pages: totalPages,
-    current_page: currentPage,
-    per_page: itemsPerPage
-  };
-};
-
+// Mock API functions that don't depend on React hooks
 const approveReview = async (emailId: string, approval: EmailApproval) => {
   // Mock API call
   console.log(`Approving email ${emailId} with notes: ${approval.notes}`);
@@ -135,6 +68,71 @@ const EmailReview: React.FC = () => {
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode } = useColorMode();
+  
+  // Move getPendingReviews inside the component to access the t function
+  const getPendingReviews = async (params: { page?: number; per_page?: number } = {}) => {
+    // Mock data for demonstration
+    const itemsPerPage = params.per_page || 10;
+    const currentPage = params.page || 1;
+    const totalItems = 28; // Total number of items in the mock data
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    
+    // Calculate start and end indices for the current page
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+    
+    // Generate mock data for the current page
+    const items = Array(endIndex - startIndex).fill(0).map((_, i) => {
+      const itemIndex = startIndex + i;
+      return {
+        email_id: `email_${itemIndex}`,
+        content: {
+          id: `email_${itemIndex}`,
+          internet_message_id: `message_${itemIndex}`,
+          subject: t('emailReview.sampleEmails.subject', { number: itemIndex + 1 }),
+          sender: 'John Doe',
+          sender_email: 'john.doe@example.com',
+          recipients: ['user@example.com'],
+          cc_recipients: [],
+          received_date: new Date().toISOString(),
+          body: t('emailReview.sampleEmails.body', { number: itemIndex + 1 }),
+          is_html: false,
+          folder_id: 'inbox',
+          folder_name: 'Inbox',
+          attachments: itemIndex % 3 === 0 ? [{
+            id: `attachment_${itemIndex}`,
+            name: 'document.pdf',
+            content_type: 'application/pdf',
+            size: 1024 * 1024,
+          }] : [],
+          importance: itemIndex % 4 === 0 ? 'high' : 'normal'
+        },
+        analysis: {
+          sensitivity: Object.values(SensitivityLevel)[itemIndex % 4],
+          department: Object.values(Department)[itemIndex % 9],
+          tags: [`tag${itemIndex}`, 'knowledge', itemIndex % 2 === 0 ? 'important' : 'routine'],
+          is_private: itemIndex % 3 === 0,
+          pii_detected: itemIndex % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
+          recommended_action: itemIndex % 3 === 0 ? 'exclude' : 'store',
+          summary: t('emailReview.sampleEmails.summary', { number: itemIndex + 1 }),
+          key_points: [
+            t('emailReview.sampleEmails.keyPoint1', { number: itemIndex + 1 }),
+            t('emailReview.sampleEmails.keyPoint2', { number: itemIndex + 1 }),
+            t('emailReview.sampleEmails.keyPoint3', { number: itemIndex + 1 })
+          ]
+        },
+        status: ReviewStatus.PENDING
+      };
+    });
+    
+    return {
+      items,
+      total: totalItems,
+      total_pages: totalPages,
+      current_page: currentPage,
+      per_page: itemsPerPage
+    };
+  };
   
   // State
   const [reviews, setReviews] = useState<EmailReviewItem[]>([]);
