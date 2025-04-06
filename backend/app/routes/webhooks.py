@@ -58,7 +58,8 @@ async def receive_subject_analysis(
             "job_id": job_id_from_payload,
             "owner": owner_email, # Use owner derived from payload or default
             "status": payload.status or "unknown",
-            "chart_data": payload.results.dict() if payload.results else [] 
+            # Convert each item in the list to a dict using model_dump()
+            "chart_data": [item.model_dump() for item in payload.results] if payload.results else []
         }
         chart_point = PointStruct(id=chart_point_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload)
         
