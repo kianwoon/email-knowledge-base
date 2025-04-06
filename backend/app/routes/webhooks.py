@@ -20,6 +20,9 @@ from ..db.qdrant_client import get_qdrant_client
 from app.config import settings # Correct import
 from ..websocket import manager # Correct import
 
+# Add asyncio for sleep
+import asyncio
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -62,32 +65,49 @@ async def handle_analysis_webhook(
         internal_job_id = None
         owner = "unknown_owner" # Default owner if lookup fails
         try:
-            # --- Use qdrant.retrieve with external_job_id as the point ID --- 
             external_job_id_str = str(external_job_id) # Ensure string ID
-            logger.info(f"[WEBHOOK] Attempting to retrieve mapping point with ID: {external_job_id_str}")
-            retrieved_points = qdrant.retrieve(
+            
+            # --- Add temporary delay to test for indexing lag --- 
+            logger.info(f"[WEBHOOK] Adding 1 second delay before Qdrant search for {external_job_id_str}...")
+            await asyncio.sleep(1) 
+            logger.info(f"[WEBHOOK] Delay finished. Proceeding with Qdrant search for {external_job_id_str}.")
+            # --- End temporary delay ---
+
+            # --- Revert to using qdrant.search with payload filter --- 
+            search_filter=Filter(
+                must=[
+                    FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
+                    # Use MatchValue for external_job_id
+                    FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id_str))
+                ]
+            )
+            logger.info(f"[WEBHOOK] Searching Qdrant with filter: {search_filter.model_dump_json(indent=2)}")
+
+            search_result = qdrant.search(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
-                ids=[external_job_id_str],
-                with_payload=True # Ensure payload is included
+                query_vector=[0.0] * settings.EMBEDDING_DIMENSION,
+                query_filter=search_filter,
+                limit=1
             )
 
-            # retrieve returns a list of PointStruct
-            if retrieved_points and len(retrieved_points) == 1:
-                mapping_point = retrieved_points[0] # Get the PointStruct
+            # search returns a list of ScoredPoint
+            points = search_result
+
+            if points and len(points) == 1:
+                mapping_point = points[0] # Get the ScoredPoint
                 internal_job_id = mapping_point.payload.get("internal_job_id")
                 owner = mapping_point.payload.get("owner", "unknown_owner")
                 if internal_job_id:
-                    logger.info(f"[WEBHOOK] Found internal job ID (via retrieve): {internal_job_id} for external ID: {external_job_id_str}")
+                    logger.info(f"[WEBHOOK] Found internal job ID (via search): {internal_job_id} for external ID: {external_job_id_str}")
                 else:
-                     logger.error(f"[WEBHOOK] Mapping point retrieved for ID {external_job_id_str}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
-            # No elif for multiple points, retrieve by ID should be unique
+                     logger.error(f"[WEBHOOK] Mapping point found via search for external ID {external_job_id_str}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
             else:
-                logger.warning(f"[WEBHOOK] No mapping point found via retrieve in Qdrant for point ID: {external_job_id_str}. Cannot correlate callback. Result count: {len(retrieved_points) if retrieved_points else 0}")
+                logger.warning(f"[WEBHOOK] No mapping found via search in Qdrant for external job ID: {external_job_id_str}. Cannot correlate callback. Result count: {len(points) if points else 0}")
 
         except Exception as e:
-            logger.error(f"[WEBHOOK] Error retrieving Qdrant mapping point by ID ({external_job_id_str}): {e}")
+            logger.error(f"[WEBHOOK] Error searching Qdrant for external job ID mapping ({external_job_id_str}): {e}")
             # Set internal_job_id to None to trigger halting logic below
-            internal_job_id = None 
+            internal_job_id = None
 
         # If internal_job_id could not be found, we cannot proceed meaningfully
         if not internal_job_id:
