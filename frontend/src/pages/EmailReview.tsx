@@ -40,8 +40,11 @@ import {
   IconButton,
   useColorMode,
   ButtonGroup,
+  List,
+  ListItem,
+  ListIcon,
 } from '@chakra-ui/react';
-import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
+import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 
 import axios from 'axios';
@@ -385,7 +388,7 @@ const EmailReview: React.FC = () => {
                   >
                     {Object.values(Department).map(dept => (
                       <option key={dept} value={dept}>
-                        {t(`common.departments.${dept}`, dept.charAt(0).toUpperCase() + dept.slice(1))}
+                        {t(`common.departments.${dept.toLowerCase()}`, dept.charAt(0).toUpperCase() + dept.slice(1))}
                       </option>
                     ))}
                   </Select>
@@ -402,7 +405,7 @@ const EmailReview: React.FC = () => {
                   >
                     {Object.values(SensitivityLevel).map(level => (
                       <option key={level} value={level}>
-                        {t(`common.sensitivityLevels.${level}`, level.charAt(0).toUpperCase() + level.slice(1))}
+                        {t(`common.sensitivityLevels.${level.toLowerCase()}`, level.charAt(0).toUpperCase() + level.slice(1))}
                       </option>
                     ))}
                   </Select>
@@ -485,9 +488,15 @@ const EmailReview: React.FC = () => {
                 <>
                   <Box overflowX="auto">
                     <Table variant="simple">
-                      <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}>
+                      <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'gray.100'}>
                         <Tr>
-                          <Th width="50px"></Th>
+                          <Th width="50px">
+                            <Checkbox
+                              isChecked={selectedReviews.length === filteredReviews.length && filteredReviews.length > 0}
+                              onChange={selectAllReviews}
+                              isDisabled={filteredReviews.length === 0}
+                            />
+                          </Th>
                           <Th>{t('emailReview.table.subject')}</Th>
                           <Th>{t('emailReview.table.department')}</Th>
                           <Th>{t('emailReview.table.sensitivity')}</Th>
@@ -512,26 +521,21 @@ const EmailReview: React.FC = () => {
                             <Td fontWeight="medium">{review.content.subject}</Td>
                             <Td>
                               <Badge>
-                                {t(`common.departments.${review.analysis.department}`, review.analysis.department)}
+                                {t(`common.departments.${review.analysis.department.toLowerCase()}`, review.analysis.department)}
                               </Badge>
                             </Td>
                             <Td>
                               <Badge colorScheme={getSensitivityColor(review.analysis.sensitivity)}>
-                                {t(`common.sensitivityLevels.${review.analysis.sensitivity}`, review.analysis.sensitivity)}
+                                {t(`common.sensitivityLevels.${review.analysis.sensitivity.toLowerCase()}`, review.analysis.sensitivity)}
                               </Badge>
                             </Td>
                             <Td>
                               <HStack>
-                                {review.analysis.tags.slice(0, 2).map(tag => (
-                                  <Badge key={tag} colorScheme="blue" variant="outline">
-                                    {tag}
+                                {review.analysis.tags.map(tag => (
+                                  <Badge key={tag} colorScheme="blue" variant="outline" mx="1">
+                                    {t(`common.tags.${tag.toLowerCase()}`, tag)}
                                   </Badge>
                                 ))}
-                                {review.analysis.tags.length > 2 && (
-                                  <Badge colorScheme="blue" variant="outline">
-                                    +{review.analysis.tags.length - 2}
-                                  </Badge>
-                                )}
                               </HStack>
                             </Td>
                             <Td>
@@ -659,10 +663,10 @@ const EmailReview: React.FC = () => {
                   
                   <HStack wrap="wrap" mb={2}>
                     <Badge colorScheme={getSensitivityColor(currentReview.analysis.sensitivity)}>
-                      {t(`common.sensitivityLevels.${currentReview.analysis.sensitivity}`, currentReview.analysis.sensitivity)}
+                      {t(`common.sensitivityLevels.${currentReview.analysis.sensitivity.toLowerCase()}`, currentReview.analysis.sensitivity)}
                     </Badge>
                     <Badge>
-                      {t(`common.departments.${currentReview.analysis.department}`, currentReview.analysis.department)}
+                      {t(`common.departments.${currentReview.analysis.department.toLowerCase()}`, currentReview.analysis.department)}
                     </Badge>
                     {currentReview.analysis.is_private && (
                       <Badge colorScheme="red">{t('emailReview.privacy.private')}</Badge>
@@ -674,8 +678,8 @@ const EmailReview: React.FC = () => {
                   
                   <HStack wrap="wrap" mb={4}>
                     {currentReview.analysis.tags.map(tag => (
-                      <Badge key={tag} colorScheme="blue" variant="outline">
-                        {tag}
+                      <Badge key={tag} colorScheme="blue" variant="outline" mx="1">
+                        {t(`common.tags.${tag.toLowerCase()}`, tag)}
                       </Badge>
                     ))}
                   </HStack>
@@ -693,19 +697,20 @@ const EmailReview: React.FC = () => {
                   {currentReview.analysis.pii_detected.length > 0 && (
                     <>
                       <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.piiDetected')}</Text>
-                      <HStack mb={2}>
+                      <List spacing={1}>
                         {currentReview.analysis.pii_detected.map(pii => (
-                          <Badge key={pii} colorScheme="orange">
-                            {t(`common.piiTypes.${pii}`, pii)}
-                          </Badge>
+                          <ListItem key={pii}>
+                            <ListIcon as={InfoIcon} color="yellow.500" />
+                            {t(`common.piiTypes.${pii.toLowerCase()}`, pii)}
+                          </ListItem>
                         ))}
-                      </HStack>
+                      </List>
                     </>
                   )}
                   
                   <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.recommendedAction')}</Text>
                   <Badge colorScheme={currentReview.analysis.recommended_action === 'store' ? 'green' : 'red'}>
-                    {t(`common.recommendedActions.${currentReview.analysis.recommended_action}`, currentReview.analysis.recommended_action)}
+                    {t(`common.recommendedActions.${currentReview.analysis.recommended_action.toLowerCase()}`, currentReview.analysis.recommended_action)}
                   </Badge>
                 </Box>
                 

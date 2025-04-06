@@ -166,16 +166,19 @@
     "previousPage": "上一页",
     "nextPage": "下一页",
     "departments": {
-      "HR": "人力资源",
-      "Finance": "财务",
-      "IT": "信息技术",
-      "Sales": "销售",
-      "Marketing": "市场营销",
-      "Operations": "运营",
-      "Legal": "法务",
-      "Executive": "行政",
-      "Support": "支持",
-      "Engineering": "工程"
+      "hr": "人力资源",
+      "finance": "财务",
+      "it": "信息技术",
+      "sales": "销售",
+      "marketing": "市场营销",
+      "operations": "运营",
+      "legal": "法务",
+      "executive": "行政",
+      "support": "支持",
+      "engineering": "工程",
+      "general": "通用",
+      "product": "产品",
+      "other": "其他"
     },
     "sensitivityLevels": {
       "low": "低",
@@ -196,6 +199,22 @@
     "recommendedActions": {
       "store": "存储",
       "exclude": "排除"
+    },
+    "tags": {
+      "knowledge": "知识",
+      "+1": "+1",
+      "tag0": "标签 0",
+      "tag1": "标签 1",
+      "tag2": "标签 2",
+      "tag3": "标签 3",
+      "tag4": "标签 4",
+      "tag5": "标签 5",
+      "tag6": "标签 6",
+      "tag7": "标签 7",
+      "tag8": "标签 8",
+      "tag9": "标签 9",
+      "important": "重要",
+      "routine": "常规"
     }
   },
   "analysis": {
