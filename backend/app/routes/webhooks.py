@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 # Import client and necessary models separately
 from qdrant_client import QdrantClient
 # Import models, removing ScrollResponse as it causes import errors 
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest, MatchKeyword
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest, MatchKeyword, Distance, VectorParams
 
 from app.models.analysis import WebhookPayload
 from app.store import analysis_results_store
@@ -62,10 +62,12 @@ async def handle_analysis_webhook(
         internal_job_id = None
         owner = "unknown_owner" # Default owner if lookup fails
         try:
-            # Qdrant scroll returns a tuple: (points, next_page_offset)
-            scroll_result_tuple = qdrant.scroll(
+            # --- Use qdrant.search instead of scroll --- 
+            search_result = qdrant.search(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
-                scroll_filter=Filter(
+                # Provide dummy vector for filter-only search
+                query_vector=[0.0] * settings.EMBEDDING_DIMENSION, 
+                query_filter=Filter(
                     must=[
                         FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
                         FieldCondition(key="payload.external_job_id", match=MatchKeyword(keyword=external_job_id))
@@ -74,21 +76,21 @@ async def handle_analysis_webhook(
                 limit=1 # We expect only one match
             )
 
-            # Unpack the tuple and check the points list
-            points = scroll_result_tuple[0] if scroll_result_tuple else []
+            # search returns a list of ScoredPoint
+            points = search_result # Directly use the result list
 
             if points and len(points) == 1:
-                mapping_point = points[0]
+                mapping_point = points[0] # Get the first ScoredPoint
+                # Access payload from the ScoredPoint object
                 internal_job_id = mapping_point.payload.get("internal_job_id")
                 owner = mapping_point.payload.get("owner", "unknown_owner")
                 if internal_job_id:
-                    logger.info(f"[WEBHOOK] Found internal job ID: {internal_job_id} for external ID: {external_job_id}")
+                    logger.info(f"[WEBHOOK] Found internal job ID (via search): {internal_job_id} for external ID: {external_job_id}")
                 else:
-                     logger.error(f"[WEBHOOK] Mapping point found for external ID {external_job_id}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
-            elif points:
-                 logger.error(f"[WEBHOOK] Found multiple ({len(points)}) mapping points for external ID {external_job_id}. Cannot reliably determine internal ID.")
+                     logger.error(f"[WEBHOOK] Mapping point found via search for external ID {external_job_id}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
+            # No elif for multiple points, as search with limit=1 should only return 0 or 1
             else:
-                logger.warning(f"[WEBHOOK] No mapping found in Qdrant for external job ID: {external_job_id}. Cannot correlate callback.")
+                logger.warning(f"[WEBHOOK] No mapping found via search in Qdrant for external job ID: {external_job_id}. Cannot correlate callback.")
 
         except Exception as e:
             logger.error(f"[WEBHOOK] Error searching Qdrant for external job ID mapping ({external_job_id}): {e}")
