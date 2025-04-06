@@ -358,7 +358,7 @@ const FilterSetup: React.FC = () => {
             end_date: filter.end_date || undefined,
             keywords: filter.keywords && filter.keywords.length > 0 ? filter.keywords : undefined,
             per_page: itemsPerPage // Pass itemsPerPage too
-        });
+        } as any);
         console.log('handlePageChange: Received previewData:', previewData);
         
         if (previewData && previewData.items) {
