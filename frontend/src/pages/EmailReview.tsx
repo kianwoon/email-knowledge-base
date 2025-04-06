@@ -52,6 +52,9 @@ import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailAppro
 
 // Mock API functions (in a real app, these would be in the API directory)
 const getPendingReviews = async (params: { page?: number; per_page?: number } = {}) => {
+  // Get translation function
+  const { t } = useTranslation();
+  
   // Mock data for demonstration
   const itemsPerPage = params.per_page || 10;
   const currentPage = params.page || 1;
@@ -70,13 +73,13 @@ const getPendingReviews = async (params: { page?: number; per_page?: number } = 
       content: {
         id: `email_${itemIndex}`,
         internet_message_id: `message_${itemIndex}`,
-        subject: `Sample Email ${itemIndex + 1} for Review`,
+        subject: t('emailReview.sampleEmails.subject', { number: itemIndex + 1 }),
         sender: 'John Doe',
         sender_email: 'john.doe@example.com',
         recipients: ['user@example.com'],
         cc_recipients: [],
         received_date: new Date().toISOString(),
-        body: `This is the full content of sample email ${itemIndex + 1}. It contains information that needs to be reviewed before adding to the knowledge base.`,
+        body: t('emailReview.sampleEmails.body', { number: itemIndex + 1 }),
         is_html: false,
         folder_id: 'inbox',
         folder_name: 'Inbox',
@@ -95,11 +98,11 @@ const getPendingReviews = async (params: { page?: number; per_page?: number } = 
         is_private: itemIndex % 3 === 0,
         pii_detected: itemIndex % 3 === 0 ? [PIIType.EMAIL, PIIType.NAME] : [],
         recommended_action: itemIndex % 3 === 0 ? 'exclude' : 'store',
-        summary: `This is a summary of email ${itemIndex + 1} that was analyzed by the AI.`,
+        summary: t('emailReview.sampleEmails.summary', { number: itemIndex + 1 }),
         key_points: [
-          `Key point 1 from email ${itemIndex + 1}`,
-          `Key point 2 from email ${itemIndex + 1}`,
-          `Key point 3 from email ${itemIndex + 1}`
+          t('emailReview.sampleEmails.keyPoint1', { number: itemIndex + 1 }),
+          t('emailReview.sampleEmails.keyPoint2', { number: itemIndex + 1 }),
+          t('emailReview.sampleEmails.keyPoint3', { number: itemIndex + 1 })
         ]
       },
       status: ReviewStatus.PENDING

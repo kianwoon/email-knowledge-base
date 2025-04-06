@@ -263,6 +263,14 @@
       "private": "私密",
       "actions": "操作"
     },
+    "sampleEmails": {
+      "subject": "待审阅的示例邮件 {{number}}",
+      "body": "这是示例邮件 {{number}} 的完整内容。它包含了需要在添加到知识库之前进行审阅的信息。",
+      "summary": "这是由人工智能分析的邮件 {{number}} 的摘要。",
+      "keyPoint1": "邮件 {{number}} 的关键点 1",
+      "keyPoint2": "邮件 {{number}} 的关键点 2",
+      "keyPoint3": "邮件 {{number}} 的关键点 3"
+    },
     "pagination": {
       "showingRangeOfTotal": "显示 {{total}} 条中的 {{start}}-{{end}} 条",
       "selectedCount": "已选择 {{count}} 条",

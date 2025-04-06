@@ -1256,6 +1256,14 @@
       "private": "Private",
       "actions": "Actions"
     },
+    "sampleEmails": {
+      "subject": "Sample Email {{number}} for Review",
+      "body": "This is the full content of sample email {{number}}. It contains information that needs to be reviewed before adding to the knowledge base.",
+      "summary": "This is a summary of email {{number}} that was analyzed by the AI.",
+      "keyPoint1": "Key point 1 from email {{number}}",
+      "keyPoint2": "Key point 2 from email {{number}}",
+      "keyPoint3": "Key point 3 from email {{number}}"
+    },
     "pagination": {
       "showingRangeOfTotal": "Showing {{start}}-{{end}} of {{total}}",
       "selectedCount": "{{count}} selected",
