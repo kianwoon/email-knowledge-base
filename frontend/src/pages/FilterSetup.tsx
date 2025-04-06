@@ -1091,10 +1091,10 @@ const FilterSetup: React.FC = () => {
                                   leftIcon={<FaSave />} size="sm" colorScheme="teal"
                                   onClick={handleSaveToKnowledgeBase}
                                   isLoading={isSavingToKB}
-                                  loadingText={"Saving..."}
+                                  loadingText={t('emailProcessing.actions.saving')}
                                   isDisabled={isProcessing} 
                               >
-                                  Proceed now, Generate knowledge base
+                                  {t('emailProcessing.actions.proceedGenerateKB')}
                               </Button>
                              </Box>
                           </Tooltip>
