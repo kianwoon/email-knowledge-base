@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 # Import client and necessary models separately
 from qdrant_client import QdrantClient
 # Import models, removing ScrollResponse as it causes import errors 
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest
+from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest, MatchKeyword
 
 from app.models.analysis import WebhookPayload
 from app.store import analysis_results_store
@@ -68,7 +68,7 @@ async def handle_analysis_webhook(
                 scroll_filter=Filter(
                     must=[
                         FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
-                        FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id))
+                        FieldCondition(key="payload.external_job_id", match=MatchKeyword(keyword=external_job_id))
                     ]
                 ),
                 limit=1 # We expect only one match
