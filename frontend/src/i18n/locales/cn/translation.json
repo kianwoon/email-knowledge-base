@@ -614,6 +614,18 @@
   "emailProcessing": {
     "filters": {
       "title": "筛选器"
+    },
+    "tooltips": {
+      "folderHelp": "选择要搜索的电子邮件文件夹。",
+      "senderHelp": "按发件人电子邮件地址筛选邮件。",
+      "dateHelp": "按接收日期筛选邮件。选择开始日期以启用结束日期。",
+      "keywordsHelp": "输入邮件主题或正文中找到的关键字或短语。在每个关键字后按 Enter。",
+      "importanceHelp": "根据邮件的重要性级别（高、普通、低）筛选邮件。",
+      "attachmentsHelp": "根据邮件是否包含附件筛选邮件。",
+      "advancedQueryHelp": "使用 OData 筛选器语法输入高级搜索查询以进行更复杂的筛选。",
+      "queryExample": "示例：contains(subject,'报告') and importance eq 'high'",
+      "analyze": "分析已筛选邮件的主题以识别主题和群集。",
+      "proceedDirectSave": "处理已筛选的邮件并将其内容直接添加到知识库。"
     }
   },
   "common": {
