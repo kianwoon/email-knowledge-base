@@ -616,16 +616,26 @@
       "title": "筛选器"
     },
     "tooltips": {
-      "folderHelp": "选择要搜索的电子邮件文件夹。",
-      "senderHelp": "按发件人电子邮件地址筛选邮件。",
-      "dateHelp": "按接收日期筛选邮件。选择开始日期以启用结束日期。",
-      "keywordsHelp": "输入邮件主题或正文中找到的关键字或短语。在每个关键字后按 Enter。",
-      "importanceHelp": "根据邮件的重要性级别（高、普通、低）筛选邮件。",
-      "attachmentsHelp": "根据邮件是否包含附件筛选邮件。",
-      "advancedQueryHelp": "使用 OData 筛选器语法输入高级搜索查询以进行更复杂的筛选。",
-      "queryExample": "示例：contains(subject,'报告') and importance eq 'high'",
-      "analyze": "分析已筛选邮件的主题以识别主题和群集。",
-      "proceedDirectSave": "处理已筛选的邮件并将其内容直接添加到知识库。"
+      "folderHelp": "选择要在其中搜索的电子邮件文件夹。",
+      "senderHelp": "按发件人的电子邮件地址筛选电子邮件。",
+      "dateHelp": "按接收日期筛选电子邮件。选择开始日期以启用结束日期。",
+      "keywordsHelp": "输入电子邮件主题或正文中的关键词或短语。每个关键词后按Enter键。",
+      "importanceHelp": "根据重要性级别（高、正常、低）筛选电子邮件。",
+      "attachmentsHelp": "根据电子邮件是否包含附件进行筛选。",
+      "advancedQueryHelp": "使用OData筛选器语法输入高级搜索查询，以进行更复杂的筛选。",
+      "queryExample": "示例：contains(subject,'report') and importance eq 'high'",
+      "analyze": "分析经过筛选的电子邮件主题，以识别主题和群组。",
+      "proceedDirectSave": "处理筛选后的电子邮件并将其内容直接添加到知识库中。"
+    },
+    "actions": {
+      "search": "搜索邮件",
+      "searching": "正在搜索...",
+      "analyze": "分析数据",
+      "analyzing": "正在分析...",
+      "submitting": "正在提交...",
+      "saveToKB": "立即继续，生成知识库",
+      "saving": "正在保存...",
+      "proceedGenerateKB": "立即处理，生成知识库"
     }
   },
   "common": {
