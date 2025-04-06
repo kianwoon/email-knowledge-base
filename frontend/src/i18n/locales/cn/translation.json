@@ -107,7 +107,124 @@
   },
   "documentation": {
     "title": "文档",
-    "description": "欢迎查阅邮件知识库文档..."
+    "description": "欢迎查阅邮件知识库文档...",
+    "sections": {
+      "analysis": {
+        "title": "人工智能分析",
+        "description": "了解我们的人工智能如何分析和提取您通信中的知识。",
+        "header": "人工智能分析",
+        "capabilities": {
+          "title": "人工智能功能",
+          "classification": {
+            "title": "智能分类",
+            "description": "自动按部门、主题和重要性对电子邮件进行分类"
+          },
+          "pii": {
+            "title": "个人信息检测",
+            "description": "识别并标记需要审查的个人身份信息"
+          },
+          "summarization": {
+            "title": "内容摘要",
+            "description": "创建电子邮件线程和对话的简明摘要"
+          },
+          "sensitivity": {
+            "title": "敏感性分析",
+            "description": "评估内容的机密性和合规性问题"
+          },
+          "extraction": {
+            "title": "知识提取",
+            "description": "识别关键事实、决策和可操作的见解"
+          }
+        },
+        "info": "我们的人工智能模型专为商业通信而优化，可以根据您组织的特定术语和需求进行定制。",
+        "model": {
+          "title": "人工智能模型规格",
+          "base": "基础模型",
+          "fineTuning": "微调",
+          "context": "上下文窗口",
+          "speed": "处理速度"
+        },
+        "process": {
+          "title": "分析过程",
+          "step1": {
+            "title": "初始内容扫描",
+            "description": "处理电子邮件以提取文本、元数据和附件信息"
+          },
+          "step2": {
+            "title": "个人信息与敏感数据检测",
+            "description": "人工智能识别个人信息、机密数据和合规性问题"
+          },
+          "step3": {
+            "title": "分类与标记",
+            "description": "按部门、主题、优先级和知识价值对内容进行分类"
+          },
+          "step4": {
+            "title": "知识提取",
+            "description": "识别并构建关键事实、决策和见解"
+          },
+          "step5": {
+            "title": "人工审核准备",
+            "description": "格式化结果以便高效的人工审核和批准"
+          }
+        },
+        "warning": "人工智能分析旨在辅助人工审核者，而非取代他们。所有人工智能生成的标签和分类都可以在审核过程中修改。",
+        "classification": {
+          "title": "分类类别",
+          "department": {
+            "title": "部门",
+            "description": "确定内容与哪个业务单元相关"
+          },
+          "type": {
+            "title": "内容类型",
+            "description": "对信息的性质进行分类"
+          },
+          "sensitivity": {
+            "title": "敏感性",
+            "description": "标记需要特殊处理的内容"
+          },
+          "tags": {
+            "executive": "行政",
+            "sales": "销售",
+            "marketing": "市场营销",
+            "finance": "财务",
+            "legal": "法务",
+            "hr": "人力资源",
+            "it": "信息技术",
+            "operations": "运营",
+            "customerSupport": "客户支持",
+            "policy": "政策",
+            "procedure": "流程",
+            "decision": "决策",
+            "report": "报告",
+            "analysis": "分析",
+            "discussion": "讨论",
+            "approval": "审批",
+            "request": "请求",
+            "notification": "通知",
+            "public": "公开",
+            "internal": "内部",
+            "confidential": "机密",
+            "restricted": "受限",
+            "pii": "个人信息",
+            "financial": "财务",
+            "strategic": "战略"
+          }
+        },
+        "pii": {
+          "title": "个人信息与敏感数据检测",
+          "description": "我们的人工智能系统自动识别并标记个人身份信息和敏感数据，以确保遵守隐私法规和公司政策。",
+          "names": "姓名",
+          "emails": "电子邮件地址",
+          "phoneNumbers": "电话号码",
+          "addresses": "地址",
+          "ssn": "社会安全号码/身份证号",
+          "financialData": "财务数据",
+          "healthInformation": "健康信息",
+          "credentials": "凭证",
+          "success": "所有标记的个人信息在处理前都会提交人工审核。您可以选择编辑、匿名化或批准每个实例。"
+        }
+      }
+    }
   },
   "settings": {
     "language": "语言",
