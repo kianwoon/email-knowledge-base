@@ -2,90 +2,174 @@ from fastapi import APIRouter, Request, Body, HTTPException, Depends
 import logging
 import json # Import json for broadcasting
 import uuid
+from typing import List, Dict, Any
+from pydantic import BaseModel, Field
 
 # Qdrant imports
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct
+from qdrant_client.http.models import PointStruct, Filter, FieldCondition, MatchValue, ScrollRequest, ScrollResponse
 
 from app.models.analysis import WebhookPayload
 from app.store import analysis_results_store
 # Import the WebSocket manager
-from app.websocket import manager 
+from app.websocket import manager
 # Import Qdrant client dependency
-from app.routes.vector import get_db 
+from app.routes.vector import get_db
 from app.config import settings # Need settings for collection name & embedding dim
+from ..websocket import connection_manager
+from ..core.config import settings as app_settings
+from ..dependencies import get_qdrant_client # <-- Added get_qdrant_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Define the expected structure of the incoming webhook data
+class AnalysisResultItem(BaseModel):
+    tag: str
+    cluster: str
+    subject: str
+
+class WebhookPayload(BaseModel):
+    results: List[AnalysisResultItem]
+    job_id: str | int # Accept int or str, will convert to str
+    status: str | None = None # Optional status field
+
 @router.post("/analysis", status_code=202) # Use 202 Accepted 
-async def receive_subject_analysis(
-    request: Request, # Added Request object parameter
-    payload: WebhookPayload = Body(...),
-    qdrant_client: QdrantClient = Depends(get_db) # Inject Qdrant client
+async def handle_analysis_webhook(
+    webhook_data: WebhookPayload,
+    request: Request,
+    qdrant: QdrantClient = Depends(get_qdrant_client) # <-- Add Qdrant dependency
 ):
-    """Receives the analysis result, stores it in Qdrant, and broadcasts via WebSocket."""
-    
-    # --- Temporary Debugging: Log Raw Body --- 
+    """
+    Handles incoming webhook callbacks from the external analysis service.
+    1. Receives analysis results and the external job ID.
+    2. Looks up the internal job ID using the external job ID mapping in Qdrant.
+    3. Retrieves the original owner and query criteria using the internal job ID.
+    4. Stores the analysis chart data in Qdrant, associated with the internal job ID.
+    5. Broadcasts the results via WebSocket to the relevant frontend client.
+    """
     try:
-        raw_body = await request.body()
-        logger.info(f"[WEBHOOK-DEBUG] Raw body received: {raw_body.decode()}")
-    except Exception as e:
-        logger.error(f"[WEBHOOK-DEBUG] Error reading raw body: {e}")
-    # --- End Temporary Debugging ---
-    
-    # The following code will likely still fail with 422 if job_id is missing,
-    # but the raw body log above will help us see what *was* sent.
-    
-    logger.info(f"[WEBHOOK] Received subject analysis for job_id: {payload.job_id}")
-    logger.info(f"[WEBHOOK] Status: {payload.status}")
+        # Log raw body for debugging (optional, consider removing in production)
+        # raw_body = await request.body()
+        # logger.info(f"[WEBHOOK-DEBUG] Raw body received: {raw_body.decode()}")
 
-    if payload.job_id in analysis_results_store:
-        logger.warning(f"[WEBHOOK] Job ID {payload.job_id} already exists in store. Overwriting.")
+        external_job_id = str(webhook_data.job_id) # Ensure it's a string
+        logger.info(f"[WEBHOOK] Received analysis results for EXTERNAL job_id: {external_job_id}")
+        logger.debug(f"[WEBHOOK] Status received: {webhook_data.status}")
+        logger.debug(f"[WEBHOOK] Payload results count: {len(webhook_data.results)}")
 
-    # --- Store Analysis Chart Data in Qdrant --- 
-    try:
-        job_id_from_payload = str(payload.job_id) 
-        owner_email = payload.owner if payload.owner else "unknown_owner"
-        logger.info(f"Storing chart data for job {job_id_from_payload} with owner='{owner_email}'")
-        
-        # Generate a unique UUID for the Qdrant point ID for this chart data
-        chart_point_qdrant_id = str(uuid.uuid4()) 
-        
+        # --- Find Internal Job ID using External ID Mapping --- 
+        internal_job_id = None
+        owner = "unknown_owner" # Default owner if lookup fails
+        try:
+            scroll_result: ScrollResponse = qdrant.scroll(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
+                        FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id))
+                    ]
+                ),
+                limit=1 # We expect only one match
+            )
+
+            if scroll_result and scroll_result.points and len(scroll_result.points) == 1:
+                mapping_point = scroll_result.points[0]
+                internal_job_id = mapping_point.payload.get("internal_job_id")
+                owner = mapping_point.payload.get("owner", "unknown_owner") # Get owner from mapping if available
+                if internal_job_id:
+                    logger.info(f"[WEBHOOK] Found internal job ID: {internal_job_id} for external ID: {external_job_id}")
+                else:
+                     logger.error(f"[WEBHOOK] Mapping point found for external ID {external_job_id}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
+            elif scroll_result and scroll_result.points:
+                 logger.error(f"[WEBHOOK] Found multiple ({len(scroll_result.points)}) mapping points for external ID {external_job_id}. Cannot reliably determine internal ID.")
+            else:
+                logger.warning(f"[WEBHOOK] No mapping found in Qdrant for external job ID: {external_job_id}. Cannot correlate callback.")
+
+        except Exception as e:
+            logger.error(f"[WEBHOOK] Error searching Qdrant for external job ID mapping ({external_job_id}): {e}")
+            # Continue without internal_job_id, logging will show owner as unknown
+
+        # If internal_job_id could not be found, we cannot proceed meaningfully
+        if not internal_job_id:
+             logger.error(f"[WEBHOOK] Halting processing for external job {external_job_id} as internal job ID could not be determined.")
+             # Return 202 Accepted anyway so the external service doesn't retry, but log the error.
+             # Alternatively, return a 4xx error if preferred.
+             # raise HTTPException(status_code=404, detail=f"Could not find original job mapping for external ID {external_job_id}")
+             return {"message": "Webhook received but could not correlate to an internal job."}
+
+        # --- Proceed using internal_job_id --- 
+
+        # (Optional) Retrieve original query criteria using internal_job_id if needed
+        # This might be useful if you need criteria details here, but we stored owner in mapping
+        # try:
+        #     # Find the query_criteria point using the internal_job_id
+        #     criteria_scroll: ScrollResponse = qdrant.scroll(... filter by type="query_criteria" and job_id=internal_job_id ...)
+        #     if criteria_scroll and criteria_scroll.points:
+        #          original_criteria_payload = criteria_scroll.points[0].payload
+        #          owner = original_criteria_payload.get("owner", owner)
+        #          logger.info(f"[WEBHOOK] Retrieved original criteria for internal job {internal_job_id}")
+        #     else:
+        #          logger.warning(f"[WEBHOOK] Could not find original query_criteria point for internal job {internal_job_id}")
+        # except Exception as e:
+        #      logger.error(f"[WEBHOOK] Error retrieving original query criteria for internal job {internal_job_id}: {e}")
+
+
+        # Store the analysis chart data (using internal_job_id)
+        logger.info(f"Storing chart data for internal job {internal_job_id} with owner='{owner}'")
+        chart_point_id = str(uuid.uuid4()) # Unique ID for the chart data point
         chart_payload = {
             "type": "analysis_chart",
-            "job_id": job_id_from_payload, # Keep the original job_id in the payload
-            "owner": owner_email, 
-            "status": payload.status or "unknown",
-            "chart_data": [item.model_dump() for item in payload.results] if payload.results else []
+            "job_id": internal_job_id, # Store the INTERNAL job ID
+            "owner": owner,
+            "results": [item.model_dump() for item in webhook_data.results],
+            "status": webhook_data.status or "completed" # Use provided status or default
+            # Add timestamp? e.g., "completed_at": datetime.utcnow().isoformat()
         }
-        # Use the new UUID as the point ID
-        chart_point = PointStruct(id=chart_point_qdrant_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload)
-        
-        logger.info(f"Storing analysis chart data with Qdrant point ID {chart_point_qdrant_id} for original job {job_id_from_payload}")
-        qdrant_client.upsert(
-            collection_name=settings.QDRANT_COLLECTION_NAME,
-            points=[chart_point],
-            wait=True
+        chart_point = PointStruct(
+            id=chart_point_id,
+            payload=chart_payload
+            # No vector for chart data points
         )
-        logger.info(f"Successfully stored analysis chart data for original job {job_id_from_payload}")
 
+        try:
+            qdrant.upsert(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                points=[chart_point],
+                wait=True
+            )
+            logger.info(f"Successfully stored analysis chart data for internal job {internal_job_id}")
+        except Exception as e:
+            logger.error(f"Failed to store analysis chart data in Qdrant for internal job {internal_job_id}: {e}")
+            # Decide if this error should prevent broadcasting
+            # For now, log and continue to broadcast attempt
+
+
+        # Broadcast the result via WebSocket (using internal_job_id)
+        websocket_message = {
+            "type": "analysis_complete",
+            "job_id": internal_job_id, # Use the INTERNAL job ID
+            "payload": chart_payload # Send the chart data directly
+        }
+        logger.info(f"Attempting WebSocket broadcast for internal job_id: {internal_job_id} to owner: {owner}")
+        await connection_manager.broadcast_to_owner(
+            owner=owner,
+            message=websocket_message
+        )
+        logger.info(f"[WEBHOOK] Broadcast attempt finished for internal job_id: {internal_job_id}")
+
+        return {"message": "Webhook processed successfully"}
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions to return proper status codes if raised during processing
+         logger.error(f"[WEBHOOK] HTTPException during processing: {http_exc.status_code} - {http_exc.detail}")
+         raise http_exc
     except Exception as e:
-        logger.error(f"Failed to store analysis chart data for job {job_id_from_payload} in Qdrant: {str(e)}", exc_info=True)
-        # Log error but continue - broadcasting result is primary function here
-    # --- End Store Analysis Chart Data ---
-
-    # --- Broadcast via WebSocket --- 
-    try:
-        # Convert payload to JSON string for broadcasting
-        message_to_broadcast = payload.json()
-        await manager.broadcast(message_to_broadcast) 
-        logger.info(f"[WEBHOOK] Broadcasted result for job_id: {payload.job_id} via WebSocket.")
-    except Exception as ws_err:
-        logger.error(f"[WEBHOOK] Failed to broadcast via WebSocket: {ws_err}")
-    # --- End Broadcast ---
-
-    return {"message": "Webhook received"}
+        external_job_id_for_log = webhook_data.job_id if 'webhook_data' in locals() else 'unknown'
+        logger.error(f"[WEBHOOK] Unexpected error processing webhook for external job ID '{external_job_id_for_log}': {str(e)}", exc_info=True)
+        # Return 202 anyway? Or a 500?
+        # Let's return 500 for unexpected errors
+        raise HTTPException(status_code=500, detail="Internal server error processing webhook.")
 
 # Simple endpoint to retrieve stored results (for debugging/polling fallback)
 @router.get("/results/{job_id}")

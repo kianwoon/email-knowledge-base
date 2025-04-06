@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, BackgroundTasks
 from typing import List, Optional
 from datetime import datetime
 import uuid
@@ -16,6 +16,7 @@ from app.routes.auth import get_current_user
 from app.models.user import User
 from app.config import settings
 from app.routes.vector import get_db
+from ..dependencies import get_outlook_service, get_qdrant_client
 
 router = APIRouter()
 
@@ -144,152 +145,181 @@ async def get_email_attachment(
         )
 
 
-@router.post("/analyze", response_model=AnalysisJob)
+@router.post("/analyze", status_code=status.HTTP_200_OK)
 async def analyze_emails(
     filter_criteria: EmailFilter,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    qdrant_client: QdrantClient = Depends(get_db)
+    outlook: OutlookService = Depends(get_outlook_service),
+    qdrant: QdrantClient = Depends(get_qdrant_client)
 ):
     """
-    Starts an analysis job: stores query criteria, triggers external analysis, 
-    and returns a job ID.
+    Initiates the email analysis process:
+    1. Fetches email subjects based on filter criteria.
+    2. Stores the criteria and owner in Qdrant with a unique job ID.
+    3. Submits the subjects to an external analysis service with a webhook URL.
+    4. Stores a mapping between the external service's job ID and our internal job ID.
     """
-    logger.info(f"Received request to analyze emails matching filter: {filter_criteria.model_dump_json(indent=2)}")
-    
-    # --- Generate Job ID ---
-    job_id = str(uuid.uuid4())
-    logger.info(f"Generated Job ID: {job_id}")
+    owner = current_user.email
+    logger.info(f"Received analysis request from owner: {owner}")
+    logger.debug(f"Filter criteria: {filter_criteria}")
 
-    # --- Store Query Criteria in Qdrant ---
+    job_id = str(uuid.uuid4())
+
+    # Convert Pydantic model to dict for Qdrant payload
+    filter_criteria_obj = filter_criteria.model_dump(mode='json')
+
+    # Store the original query criteria in Qdrant associated with the job_id and owner
+    query_point_id = str(uuid.uuid4())
+    query_payload = {
+        "type": "query_criteria",
+        "job_id": job_id,
+        "owner": owner,
+        "criteria": filter_criteria_obj,
+        "status": "submitted"
+    }
+    query_point = PointStruct(
+        id=query_point_id,
+        payload=query_payload
+    )
+
     try:
-        criteria_payload = {
-            "type": "query_criteria",
-            "owner": current_user.email,
-            "filter": filter_criteria.model_dump()
-        }
-        logger.info(f"Storing query criteria for job {job_id} with payload: {criteria_payload}")
-        qdrant_client.upsert(
+        qdrant.upsert(
             collection_name=settings.QDRANT_COLLECTION_NAME,
-            points=[
-                PointStruct(
-                    id=job_id, 
-                    vector=[0.0] * settings.EMBEDDING_DIMENSION,
-                    payload=criteria_payload
-                )
-            ],
+            points=[query_point],
             wait=True
         )
-        logger.info(f"Successfully stored query criteria for job {job_id}")
+        logger.info(f"Stored query criteria for job_id {job_id} with owner {owner}")
     except Exception as e:
-        logger.error(f"Failed to store query criteria for job {job_id} in Qdrant: {str(e)}", exc_info=True)
-        # Decide if we should halt the process or just log the error
-        # For now, let's raise an error as storing criteria is important
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to store query criteria in knowledge base: {str(e)}"
-        )
-    # --- End Store Query Criteria ---
+        logger.error(f"Failed to store query criteria in Qdrant for job_id {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize analysis job storage.")
 
-    # --- Microsoft Token Check ---
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
-        logger.warning("Analysis request failed: Microsoft access token not available.")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Microsoft access token not available"
-        )
-    # --- End Token Check ---
-
-    outlook = OutlookService(current_user.ms_token_data.access_token)
-    
-    # --- Fetch ALL Subjects using the new service method ---
-    logger.info("Fetching ALL subjects based on filter...")
+    # Fetch email subjects (using pagination if necessary)
+    subjects = []
+    next_link = None
+    max_subjects = 200
     try:
-        subjects = await outlook.get_all_subjects_for_filter(filter_criteria)
-    except HTTPException as e:
-        logger.error(f"HTTP error during subject fetching: {e.status_code} - {e.detail}")
-        raise e 
+        while len(subjects) < max_subjects:
+            logger.debug(f"Fetching email previews. Current count: {len(subjects)}. Max: {max_subjects}")
+            preview_result = await outlook.get_email_preview(
+                folder_id=filter_criteria.folder_id,
+                keywords=filter_criteria.keywords,
+                start_date=filter_criteria.start_date,
+                end_date=filter_criteria.end_date,
+                per_page=50,
+                next_link=next_link
+            )
+            batch_subjects = [item['subject'] for item in preview_result.get('items', []) if item.get('subject')]
+            subjects.extend(batch_subjects)
+            next_link = preview_result.get('next_link')
+            logger.debug(f"Fetched {len(batch_subjects)} subjects. Total now: {len(subjects)}. Next link: {'Yes' if next_link else 'No'}")
+            if not next_link or not batch_subjects:
+                break
+        subjects = subjects[:max_subjects]
+        logger.info(f"Collected {len(subjects)} subjects for analysis for job {job_id}.")
+
     except Exception as e:
-        logger.error(f"Unexpected error fetching all subjects: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred while fetching subjects: {str(e)}"
-        )
-    # --- End Fetch ALL Subjects ---
+        logger.error(f"Failed to fetch email subjects for analysis for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve email subjects for analysis.")
 
     if not subjects:
-        logger.error("Analysis request failed: No subjects could be fetched for the given filter.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not fetch subjects for the provided filter criteria."
-        )
-    
-    logger.info(f"Collected {len(subjects)} subjects for analysis.")
+         logger.warning(f"No subjects found matching criteria for job {job_id}. Aborting analysis submission.")
+         return {"message": "No emails found matching the criteria. Analysis not submitted.", "job_id": job_id}
 
-    # --- Call External Service (Logic remains similar) ---
-    external_analysis_url = settings.EXTERNAL_ANALYSIS_URL
-    if not external_analysis_url:
-        logger.error("External analysis service URL (EXTERNAL_ANALYSIS_URL) is not configured in settings/environment.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="External analysis service URL is not configured."
-        )
+    # Construct webhook URL - Use the environment-specific base URL
+    webhook_callback_path = "/analysis"
+    webhook_url = f"{settings.EXTERNAL_WEBHOOK_BASE_URL.rstrip('/')}/{settings.WEBHOOK_PREFIX.strip('/')}/{webhook_callback_path.strip('/')}"
 
-    # Construct webhook URL - Explicitly add /api prefix for external access
-    # Assumes WEBHOOK_PREFIX defines the path *after* /api (e.g., /webhooks)
-    # Assumes BACKEND_URL is the base domain (no /api suffix)
-    webhook_callback_path = "/analysis" 
-    webhook_url = f"{settings.BACKEND_URL.rstrip('/')}{settings.API_PREFIX}{settings.WEBHOOK_PREFIX.rstrip('/')}{webhook_callback_path}" 
-    
     # Get API Key
     api_key = settings.EXTERNAL_ANALYSIS_API_KEY
     if not api_key:
-        logger.error("External analysis API key (EXTERNAL_ANALYSIS_API_KEY) is not configured in settings/environment.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="External analysis service API key is not configured."
-        )
+        logger.error("EXTERNAL_ANALYSIS_API_KEY is not set.")
+        raise HTTPException(status_code=500, detail="Analysis service API key is not configured.")
+    if not settings.EXTERNAL_ANALYSIS_URL:
+         logger.error("EXTERNAL_ANALYSIS_URL is not set.")
+         raise HTTPException(status_code=500, detail="Analysis service URL is not configured.")
 
-    payload_to_external = {
-        "job_id": job_id,
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    external_payload = {
         "subjects": subjects,
         "webhook_url": webhook_url,
-        "owner": current_user.email
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": api_key 
+        "job_id": job_id
     }
 
-    logger.info(f"Submitting job {job_id} for owner {current_user.email} with {len(subjects)} subjects to external service at {external_analysis_url}")
+    logger.info(f"Submitting job {job_id} for owner {owner} with {len(subjects)} subjects to external service at {settings.EXTERNAL_ANALYSIS_URL}")
     logger.info(f"Webhook URL for callback: {webhook_url}")
 
-    # --- Make POST Request to External Service --- 
-    try:
-        logger.info(f" --- Attempting POST request to external service: {external_analysis_url} --- ")
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(external_analysis_url, json=payload_to_external, headers=headers)
-            logger.info(f" --- POST request completed. Status Code: {response.status_code} --- ")
-            response.raise_for_status() 
-            logger.info(f"Successfully submitted job {job_id} to external service. Status after raise_for_status: {response.status_code}")
-    except httpx.RequestError as e:
-        logger.error(f"Could not connect to external analysis service at {external_analysis_url}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Could not connect to the external analysis service: {str(e)}"
-        )
-    except httpx.HTTPStatusError as e:
-        logger.error(f"External analysis service returned error status {e.response.status_code}: {e.response.text}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"External analysis service returned an error: {e.response.status_code}"
-        )
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while submitting to external service: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred during analysis submission."
-        )
-    # --- End POST Request --- 
+    background_tasks.add_task(
+        submit_and_map_analysis,
+        url=settings.EXTERNAL_ANALYSIS_URL,
+        payload=external_payload,
+        headers=headers,
+        qdrant=qdrant,
+        internal_job_id=job_id,
+        owner=owner
+    )
 
-    # Return the job ID to the frontend
-    return AnalysisJob(job_id=job_id)
+    return {"message": "Analysis job submission initiated.", "job_id": job_id}
+
+
+async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant: QdrantClient, internal_job_id: str, owner: str):
+    """
+    Runs in the background to:
+    1. Submit the analysis request to the external service.
+    2. Store the mapping between the external service's job ID and our internal job ID.
+    """
+    logger.info(f" [TASK: {internal_job_id}] Submitting analysis request...")
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers,
+            )
+            logger.info(f" [TASK: {internal_job_id}] HTTP Request: POST {url} \"HTTP/{response.http_version} {response.status_code} {response.reason_phrase}\"")
+            response.raise_for_status()
+
+            # Store External Job ID Mapping
+            try:
+                response_data = response.json()
+                external_job_id = response_data.get("job_id")
+
+                if external_job_id:
+                    logger.info(f" [TASK: {internal_job_id}] External service returned its job_id: {external_job_id}")
+                    mapping_point_id = str(uuid.uuid4())
+                    mapping_payload = {
+                        "type": "external_job_mapping",
+                        "external_job_id": str(external_job_id),
+                        "internal_job_id": internal_job_id,
+                        "owner": owner
+                    }
+                    mapping_point = PointStruct(
+                        id=mapping_point_id,
+                        payload=mapping_payload
+                    )
+
+                    try:
+                        qdrant.upsert(
+                            collection_name=settings.QDRANT_COLLECTION_NAME,
+                            points=[mapping_point],
+                            wait=True
+                        )
+                        logger.info(f" [TASK: {internal_job_id}] Successfully stored external->internal job mapping for external_id {external_job_id} -> internal_id {internal_job_id}")
+                    except Exception as q_err:
+                        logger.error(f" [TASK: {internal_job_id}] Failed to store external job ID mapping in Qdrant for external_id {external_job_id}: {q_err}")
+                else:
+                    logger.warning(f" [TASK: {internal_job_id}] External analysis service response did not contain the expected 'job_id' field in its response.")
+
+            except Exception as json_err:
+                logger.error(f" [TASK: {internal_job_id}] Failed to parse JSON response or get external job_id from external service: {json_err}. Response text: {response.text}")
+
+            logger.info(f" [TASK: {internal_job_id}] POST request completed. Status Code: {response.status_code}")
+
+        except httpx.RequestError as exc:
+            logger.error(f" [TASK: {internal_job_id}] Error submitting job to external service: {exc}")
+        except httpx.HTTPStatusError as exc:
+             logger.error(f" [TASK: {internal_job_id}] External service returned error: Status {exc.response.status_code} - {exc.response.text}")
