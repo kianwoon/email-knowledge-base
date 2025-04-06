@@ -346,6 +346,23 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                             wait=True
                         )
                         logger.info(f" [TASK: {internal_job_id}] Successfully stored external->internal job mapping for external_id {external_job_id_str} with Qdrant ID {mapping_point_id}.")
+                        
+                        # --- Add immediate retrieve check --- 
+                        try:
+                            logger.info(f" [TASK: {internal_job_id}] Attempting immediate retrieval of mapping point ID: {mapping_point_id}")
+                            retrieved = qdrant.retrieve(
+                                collection_name=settings.QDRANT_COLLECTION_NAME,
+                                ids=[mapping_point_id],
+                                with_payload=True
+                            )
+                            if retrieved and len(retrieved) == 1:
+                                logger.info(f" [TASK: {internal_job_id}] IMMEDIATE RETRIEVAL CONFIRMED for mapping point ID: {mapping_point_id}")
+                            else:
+                                logger.warning(f" [TASK: {internal_job_id}] IMMEDIATE RETRIEVAL FAILED for mapping point ID: {mapping_point_id}. Count: {len(retrieved) if retrieved else 0}")
+                        except Exception as r_err:
+                            logger.error(f" [TASK: {internal_job_id}] Error during immediate retrieval check for mapping point ID {mapping_point_id}: {r_err}")
+                        # --- End immediate retrieve check --- 
+                            
                     except Exception as q_err:
                         logger.error(f" [TASK: {internal_job_id}] Failed to store external job ID mapping in Qdrant for external_id {external_job_id}: {q_err}")
                 else:
