@@ -332,6 +332,9 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                         vector=[0.0] * settings.EMBEDDING_DIMENSION
                     )
 
+                    # Log the exact payload being stored
+                    logger.info(f" [TASK: {internal_job_id}] Storing mapping point payload: {mapping_payload}") 
+
                     try:
                         qdrant.upsert(
                             collection_name=settings.QDRANT_COLLECTION_NAME,

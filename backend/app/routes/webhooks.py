@@ -63,15 +63,19 @@ async def handle_analysis_webhook(
         owner = "unknown_owner" # Default owner if lookup fails
         try:
             # --- Use qdrant.search instead of scroll --- 
+            search_filter=Filter(
+                must=[
+                    FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
+                    FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id))
+                ]
+            )
+            # Log the exact filter being used
+            logger.info(f"[WEBHOOK] Searching Qdrant with filter: {search_filter.model_dump_json(indent=2)}") 
+
             search_result = qdrant.search(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 query_vector=[0.0] * settings.EMBEDDING_DIMENSION,
-                query_filter=Filter(
-                    must=[
-                        FieldCondition(key="payload.type", match=MatchValue(value="external_job_mapping")),
-                        FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id))
-                    ]
-                ),
+                query_filter=search_filter,
                 limit=1
             )
 
