@@ -234,11 +234,12 @@ async def analyze_emails(
             detail="External analysis service URL is not configured."
         )
 
-    # Construct webhook URL
+    # Construct webhook URL - Explicitly add /api prefix for external access
+    # Assumes WEBHOOK_PREFIX defines the path *after* /api (e.g., /webhooks)
+    # Assumes BACKEND_URL is the base domain (no /api suffix)
     webhook_callback_path = "/analysis" 
-    webhook_url = f"{settings.BACKEND_URL.rstrip('/')}{settings.WEBHOOK_PREFIX.rstrip('/')}{webhook_callback_path}" 
-    # Use the job_id generated earlier
-
+    webhook_url = f"{settings.BACKEND_URL.rstrip('/')}{settings.API_PREFIX}{settings.WEBHOOK_PREFIX.rstrip('/')}{webhook_callback_path}" 
+    
     # Get API Key
     api_key = settings.EXTERNAL_ANALYSIS_API_KEY
     if not api_key:
