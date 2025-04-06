@@ -23,6 +23,8 @@ except ValueError as e:
     logger.error("Please ensure all required environment variables are set in your .env file or system environment.")
     sys.exit(1) # Exit if configuration fails
 
+# Import DB functions for startup event
+from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
 from app.routes import auth, email, review, vector, webhooks, websockets
 
 # Log critical environment variables for debugging
@@ -40,6 +42,20 @@ if settings.DEBUG:
     logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
 
 app = FastAPI(title="Email Knowledge Base API")
+
+# --- Add Startup Event --- 
+@app.on_event("startup")
+async def startup_db_check():
+    logger.info("Running startup event: Ensuring Qdrant collection exists...")
+    try:
+        qdrant_client = get_qdrant_client() # Get client instance
+        ensure_collection_exists(qdrant_client) # Run the check/creation logic
+        logger.info("Startup event: Qdrant collection check complete.")
+    except Exception as e:
+        logger.error(f"Startup event FAILED: Could not ensure Qdrant collection. Error: {e}", exc_info=True)
+        # Depending on policy, you might want to exit if DB connection fails on startup
+        # sys.exit(1)
+# --- End Startup Event ---
 
 # Configure CORS using settings
 logger.info(f"Configuring CORS with allowed origins from settings: {settings.CORS_ALLOWED_ORIGINS}")

@@ -38,7 +38,7 @@ export const setupResponseInterceptor = () => {
         } catch (refreshError) {
           console.error('[Interceptor] Token refresh failed:', refreshError);
           // Clear tokens and redirect to login
-          localStorage.removeItem('token');
+          localStorage.removeItem('accessToken');
           localStorage.removeItem('expires');
           localStorage.removeItem('refresh_token');
           // Redirect to root, which should handle login redirect if needed

@@ -111,3 +111,13 @@ export interface EmailApproval {
   approved: boolean;
   notes?: string;
 }
+
+// --- Add Missing Paginated Response Type ---
+export interface PaginatedEmailPreviewResponse {
+  items: EmailPreview[];
+  total: number;
+  next_link?: string | null; // Allow null as well as undefined
+  current_page: number;
+  total_pages: number;
+  per_page: number; // Include per_page as returned by backend
+}

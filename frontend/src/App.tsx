@@ -34,13 +34,13 @@ const LoadingScreen = () => (
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const toast = useToast();
   const navigate = useNavigate();
   
   // Handle logout
   const handleLogout = useCallback(() => {
-    localStorage.removeItem('token');
+    console.log("--- handleLogout CALLED! ---");
+    localStorage.removeItem('accessToken');
     localStorage.removeItem('expires');
     localStorage.removeItem('refresh_token');
     setIsAuthenticated(false);
@@ -65,8 +65,8 @@ function App() {
       // Check if the backend returned a new internal access token
       if (response.access_token) {
         console.log('Token refresh successful, updating localStorage');
-        // Store the NEW internal JWT access token and its expiry
-        localStorage.setItem('token', response.access_token);
+        // Store the NEW internal JWT access token and its expiry using 'accessToken'
+        localStorage.setItem('accessToken', response.access_token);
         localStorage.setItem('expires', response.expires_at);
         
         // If the backend also returned a NEW MS refresh token, update it
@@ -104,74 +104,101 @@ function App() {
     return true;
   }, [handleTokenRefresh]);
 
-  // Check for token on load and set up refresh interval
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        setIsLoading(true);
-        const token = localStorage.getItem('token');
-        const expires = localStorage.getItem('expires');
-        
-        if (!token || !expires) {
-          setIsAuthenticated(false);
-          setIsLoading(false);
-          setIsInitialLoad(false);
-          return;
-        }
+  // --- RESTORE checkAuth FUNCTION DEFINITION --- 
+  const checkAuth = useCallback(async () => {
+    console.log("--- checkAuth running ---");
+    try {
+      // Read using 'accessToken'
+      const token = localStorage.getItem('accessToken');
+      const expires = localStorage.getItem('expires');
 
-        // Check if token is expired
-        const expiryDate = new Date(expires);
-        if (expiryDate <= new Date()) {
-          // Try to refresh token first
-          const refreshed = await handleTokenRefresh();
-          if (!refreshed) {
-            handleLogout();
-            return;
-          }
+      if (!token || !expires) {
+        console.log("checkAuth: No token or expires found in localStorage.");
+        // handleLogout() will set isAuthenticated to false
+        setIsAuthenticated(false); 
+        return; // Exit early
+      }
+
+      // Check if token is expired
+      const expiryDate = new Date(expires);
+      let needsVerification = true; // Assume verification is needed
+
+      if (expiryDate <= new Date()) {
+        console.log("checkAuth: Token expired, attempting refresh...");
+        const refreshed = await handleTokenRefresh();
+        if (!refreshed) {
+          console.log("checkAuth: Token refresh failed.");
+          handleLogout(); // Logout if refresh fails
+          needsVerification = false; // No need to verify if logout happened
+        } else {
+          console.log("checkAuth: Token refresh successful.");
+          // Token is refreshed, proceed to verification
+          needsVerification = true; 
         }
-        
-        // Verify token with backend
-        try {
-          await getCurrentUser();
-          setIsAuthenticated(true);
-          console.log('Authentication successful');
-        } catch (error: any) {
-          console.error('Token verification failed:', error);
-          // Try to refresh token on verification failure
-          const refreshed = await handleTokenRefresh();
-          if (!refreshed) {
-            handleLogout();
-          } else {
-            // Try verification again after refresh
+      }
+
+      // Verify token with backend if needed
+      if (needsVerification) {
+         // Re-read token in case it was just refreshed
+         const currentToken = localStorage.getItem('accessToken');
+         if (!currentToken) { // Safety check
+             console.log("checkAuth: Token missing after potential refresh check.");
+             handleLogout();
+         } else {
             try {
-              await getCurrentUser();
+              console.log("checkAuth: Verifying token with backend...");
+              await getCurrentUser(); // Assumes getCurrentUser uses the token via interceptor
               setIsAuthenticated(true);
-              console.log('Authentication successful after token refresh');
-            } catch (error) {
-              console.error('Token verification failed after refresh:', error);
-              handleLogout();
+              console.log('checkAuth: Authentication successful (token valid).');
+            } catch (verificationError: any) {
+              console.error('checkAuth: Token verification failed:', verificationError);              
+              // If verification fails even after potential refresh, logout
+              handleLogout(); 
             }
           }
-        }
-      } catch (error: any) {
-        console.error('Auth check error:', error);
-        handleLogout();
-      } finally {
-        setIsLoading(false);
-        setIsInitialLoad(false);
+      }
+    } catch (error: any) {
+      console.error('checkAuth: Unexpected error:', error);
+      handleLogout(); // Logout on any unexpected error during auth check
+    } finally {
+       // Ensure loading is always set to false after checks complete
+       console.log("checkAuth: Setting isLoading to false.");
+       setIsLoading(false);
+    }
+  }, [handleLogout, handleTokenRefresh]); // Dependencies for checkAuth
+
+  // useEffect hook for initial auth processing
+  useEffect(() => {
+    const processAuth = async () => {
+      console.log("--- App useEffect running processAuth ---"); 
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenFromUrl = urlParams.get('token');
+      const expiresFromUrl = urlParams.get('expires');
+
+      console.log(`Token from URL: ${tokenFromUrl ? 'FOUND' : 'MISSING'}`);
+      console.log(`Expires from URL: ${expiresFromUrl ? 'FOUND' : 'MISSING'}`);
+
+      if (tokenFromUrl && expiresFromUrl) {
+        console.log("URL Params FOUND: Storing token/expires, setting auth=true, skipping checkAuth."); 
+        localStorage.setItem('accessToken', tokenFromUrl);
+        localStorage.setItem('expires', expiresFromUrl);
+        setIsAuthenticated(true);
+        // Decode user info here if needed from tokenFromUrl
+        // setUser(parseJwt(tokenFromUrl)); 
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setIsLoading(false); // Stop loading indicator since auth state is set
+      } else {
+        console.log("URL Params MISSING: Calling checkAuth to look in localStorage."); 
+        await checkAuth(); // Call the restored checkAuth function
       }
     };
 
-    // Check auth on mount
-    checkAuth();
+    processAuth();
+  }, [checkAuth]); // Dependency array includes checkAuth
 
-    // Set up interval to check token expiration
-    const interval = setInterval(checkAndRefreshToken, 4 * 60 * 1000); // Check every 4 minutes
-    return () => clearInterval(interval);
-  }, [navigate, handleTokenRefresh, checkAndRefreshToken, handleLogout]);
-  
-  // Show loading screen only during initial load
-  if (isInitialLoad && isLoading) {
+  // Render loading state or children
+  // Use isLoading directly for the loading screen check
+  if (isLoading) {
     return <LoadingScreen />;
   }
 

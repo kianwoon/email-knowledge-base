@@ -338,38 +338,111 @@ class OutlookService:
 
     async def get_email_content(self, email_id: str) -> EmailContent:
         """Get full email content by ID"""
-        response = await self.client.get(
-            f"/me/messages/{email_id}",
-            headers=self.headers
-        )
-        response.raise_for_status()
-        email = response.json()
-        
-        attachments = []
-        if email.get("hasAttachments"):
-            attachments_response = await self.client.get(
-                f"/me/messages/{email_id}/attachments",
-                headers=self.headers
+        logger.info(f"Fetching content for email ID: {email_id}")
+        try:
+            # Step 1: Get message metadata and basic attachment info (IDs, names, etc.)
+            response = await self.client.get(
+                f"/me/messages/{email_id}",
+                params={
+                    "$select": "id,internetMessageId,subject,sender,toRecipients,ccRecipients,receivedDateTime,body,isRead,importance,parentFolderId",
+                    # Only expand to get metadata, not contentBytes directly here
+                    "$expand": "attachments($select=id,name,contentType,size,isInline)" 
+                }
             )
-            attachments_response.raise_for_status()
-            attachments_data = attachments_response.json()
+            response.raise_for_status()
+            data = response.json()
+
+            # --- Extract common fields --- 
+            sender_data = data.get("sender", {}).get("emailAddress", {})
+            sender_email = sender_data.get("address", "unknown@sender.com")
+            sender_name = sender_data.get("name", sender_email)
+            to_recipients = [rcp.get("emailAddress", {}).get("address") for rcp in data.get("toRecipients", []) if rcp.get("emailAddress", {}).get("address")]
+            cc_recipients = [rcp.get("emailAddress", {}).get("address") for rcp in data.get("ccRecipients", []) if rcp.get("emailAddress", {}).get("address")]
+            folder_id = data.get("parentFolderId", "unknown_folder_id")
+            folder_name = "Unknown Folder" # Placeholder
+            body_content = data.get("body", {}).get("content", "")
+            is_html = data.get("body", {}).get("contentType", "").lower() == "html"
+            # --- End common fields --- 
+
+            # Step 2: Fetch contentBytes for each attachment individually
+            attachments_list = []
+            if "attachments" in data:
+                attachment_metadata_list = data["attachments"]
+                logger.debug(f"Found {len(attachment_metadata_list)} attachments for email {email_id}. Fetching content individually...")
+                for att_meta in attachment_metadata_list:
+                    attachment_id = att_meta.get("id")
+                    content_bytes = None # Default to None
+                    content_type = att_meta.get("contentType", "").lower() # Get content type
+
+                    # --- Check if attachment is an image before fetching content --- 
+                    if attachment_id and not content_type.startswith("image/"):
+                        # Only fetch content if it's not an image
+                        try:
+                            logger.debug(f"Fetching details for non-image attachment ID: {attachment_id}, Type: {content_type}")
+                            # Make separate call for this attachment's details, explicitly selecting contentBytes
+                            att_response = await self.client.get(
+                                f"/me/messages/{email_id}/attachments/{attachment_id}",
+                                params={"\$select": "id,name,contentType,size,isInline,contentBytes"} # Explicitly select
+                            )
+                            att_response.raise_for_status() # Raise exception for 4xx/5xx errors
+                            attachment_details = att_response.json()
+                            content_bytes = attachment_details.get("contentBytes") # Get contentBytes if available
+                            if content_bytes:
+                                logger.debug(f"Successfully fetched contentBytes for attachment {attachment_id}")
+                            else:
+                                # This might happen for non-file attachments even if not image
+                                logger.warning(f"Attachment {attachment_id} (Name: {att_meta.get('name')}) has no contentBytes.")
+                        except httpx.HTTPStatusError as attach_err:
+                            logger.error(f"Failed to fetch details for attachment {attachment_id} (Name: {att_meta.get('name')}): {attach_err.response.status_code} - {attach_err.response.text}")
+                        except Exception as attach_err_other:
+                            logger.error(f"Unexpected error fetching details for attachment {attachment_id}: {attach_err_other}", exc_info=True)
+                    elif attachment_id and content_type.startswith("image/"):
+                        # Log skipping image attachment content fetch
+                        logger.info(f"Skipping content fetch for image attachment ID: {attachment_id}, Name: {att_meta.get('name')}, Type: {content_type}")
+                    # --- End image check --- 
+                    
+                    # Create the EmailAttachment model using metadata and fetched content (will be None for images)
+                    attachments_list.append(EmailAttachment(
+                        id=att_meta.get("id"),
+                        name=att_meta.get("name"),
+                        content_type=att_meta.get("contentType"), # Store original contentType
+                        size=att_meta.get("size"),
+                        content=content_bytes 
+                    ))
+            else:
+                 logger.debug(f"No attachments found in initial metadata for email {email_id}.")
             
-            for attachment in attachments_data.get("value", []):
-                attachments.append(EmailAttachment(
-                    id=attachment["id"],
-                    name=attachment["name"],
-                    content_type=attachment["contentType"],
-                    size=attachment["size"]
-                ))
-        
-        return EmailContent(
-            id=email["id"],
-            subject=email.get("subject", "(No subject)"),
-            sender=email["sender"]["emailAddress"]["address"],
-            received_date=email["receivedDateTime"],
-            body=email.get("body", {}).get("content", ""),
-            attachments=attachments
-        )
+            # Step 3: Construct final EmailContent object
+            return EmailContent(
+                id=data.get("id"),
+                internet_message_id=data.get("internetMessageId"),
+                subject=data.get("subject", ""),
+                sender=sender_name, 
+                sender_email=sender_email,
+                recipients=to_recipients,
+                cc_recipients=cc_recipients,
+                received_date=data.get("receivedDateTime", ""), 
+                body=body_content,
+                is_html=is_html,
+                folder_id=folder_id,
+                folder_name=folder_name,
+                attachments=attachments_list, # Use the list populated with individual fetches
+                importance=data.get("importance", "normal")
+            )
+
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(f"Graph API HTTP error: {e.response.status_code} - Response: {error_body}")
+            detail_message = f"Error fetching email content: Status {e.response.status_code}"
+            try:
+                 error_data = e.response.json()
+                 detail_message = error_data.get('error', {}).get('message', detail_message)
+            except Exception:
+                 pass 
+            raise HTTPException(status_code=e.response.status_code, detail=detail_message)
+        except Exception as e:
+            logger.error(f"[ERROR] Unexpected error during email content processing: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Internal server error during email content processing: {str(e)}")
 
     async def get_email_attachment(self, email_id: str, attachment_id: str) -> EmailAttachment:
         """Get email attachment by ID"""

@@ -21,14 +21,10 @@ from app.services.outlook import OutlookService # Ensure this is imported
 router = APIRouter()
 logger = logging.getLogger("app")
 
-# Dependency to get Qdrant client and ensure collection exists
+# Dependency to get Qdrant client 
+# The collection check is now handled by the startup event in main.py
 async def get_db() -> QdrantClient:
     client = get_qdrant_client()
-    # Ensure collection exists on first request (or use FastAPI startup event)
-    # Using a simple flag here, consider a more robust approach for production
-    if not getattr(get_db, "collection_checked", False):
-        ensure_collection_exists(client)
-        setattr(get_db, "collection_checked", True) 
     return client
 
 @router.post("/embed", response_model=Dict[str, Any]) # Return a simple status dict
@@ -238,42 +234,50 @@ async def save_job_to_knowledge_base(
 
     try:
         logger.info(f"Retrieving job metadata for job_id: {job_id}")
-        retrieved_points = qdrant_client.retrieve(
+        # Search for the query_criteria point based on payload.job_id
+        search_filter=Filter(
+            must=[
+                FieldCondition(key="payload.type", match=MatchValue(value="query_criteria")),
+                FieldCondition(key="payload.job_id", match=MatchValue(value=job_id))
+            ]
+        )
+        logger.info(f"[SAVE_JOB] Searching Qdrant for query_criteria with filter: {search_filter.model_dump_json(indent=2)}")
+        
+        search_result = qdrant_client.search(
             collection_name=settings.QDRANT_COLLECTION_NAME,
-            # Retrieve using the plain job_id (UUID)
-            ids=[job_id], 
+            query_vector=[0.0] * settings.EMBEDDING_DIMENSION, # Dummy vector
+            query_filter=search_filter,
+            limit=1,
             with_payload=True
         )
-
-        if not retrieved_points:
-            logger.error(f"Job metadata point not found in Qdrant for job_id: {job_id}")
+        
+        # search returns a list of ScoredPoint
+        if not search_result:
+            logger.error(f"Job metadata point (query_criteria) not found in Qdrant for job_id: {job_id}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job metadata point not found.")
         
-        # Since we retrieved by the specific job_id, there should be only one point
-        if len(retrieved_points) > 1:
-             logger.warning(f"Expected 1 point for job_id {job_id}, but found {len(retrieved_points)}. Using the first one.")
-
-        point = retrieved_points[0] # Get the single retrieved point
+        # Since limit=1, we expect only one point
+        point = search_result[0] # Get the first ScoredPoint
         payload = point.payload
         
-        # Check the type directly from the payload
-        if payload.get("type") == "query_criteria":
-            if payload.get("owner") != current_user.email:
-                 logger.error(f"User {current_user.email} attempted to save job {job_id} owned by {payload.get('owner')}")
-                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot save job belonging to another user.")
-            
-            # Attempt to parse the filter criteria
-            filter_data = payload.get("filter") # Renamed from query_criteria in payload
-            if not filter_data or not isinstance(filter_data, dict):
-                 logger.error(f"'filter' key missing or not a dictionary in query_criteria payload for job {job_id}")
-                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid query criteria payload found.")
-            
-            try:
-                 filter_criteria_obj = EmailFilter(**filter_data)
-                 logger.info(f"Retrieved and parsed query criteria for job {job_id}")
-            except Exception as parse_error:
-                 logger.error(f"Failed to parse 'filter' data into EmailFilter model for job {job_id}: {parse_error}", exc_info=True)
-                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to parse stored query criteria.")
+        # Check owner (already verified type via filter)
+        if payload.get("owner") != current_user.email:
+             logger.error(f"User {current_user.email} attempted to save job {job_id} owned by {payload.get('owner')}")
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot save job belonging to another user.")
+        
+        # Attempt to parse the filter criteria
+        # Renamed key check from 'filter' to 'criteria' to match email.py storage
+        criteria_data = payload.get("criteria") 
+        if not criteria_data or not isinstance(criteria_data, dict):
+             logger.error(f"'criteria' key missing or not a dictionary in query_criteria payload for job {job_id}")
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid query criteria payload found.")
+        
+        try:
+             filter_criteria_obj = EmailFilter(**criteria_data)
+             logger.info(f"Retrieved and parsed query criteria for job {job_id}")
+        except Exception as parse_error:
+             logger.error(f"Failed to parse 'criteria' data into EmailFilter model for job {job_id}: {parse_error}", exc_info=True)
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to parse stored query criteria.")
         else:
             # If the retrieved point is not type 'query_criteria'
             logger.error(f"Retrieved point for job_id {job_id} has unexpected type: {payload.get('type')}")
@@ -450,5 +454,149 @@ async def save_job_to_knowledge_base(
     return {
         "job_id": job_id,
         "message": f"Job save completed. Emails Processed: {processed_email_count}, Fetch/Process Errors: {failed_email_count}",
+        "status": "success" if failed_email_count == 0 else "partial_success"
+    }
+
+# --- New Endpoint for Saving Filtered Emails --- 
+
+@router.post("/save_filtered_emails", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+async def save_filtered_emails_to_knowledge_base(
+    filter_input: EmailFilter, # Accept filter directly in request body
+    current_user: User = Depends(get_current_user),
+    qdrant_client: QdrantClient = Depends(get_db) 
+):
+    """Fetches emails based on provided filter criteria and stores them in Qdrant."""
+    operation_id = str(uuid.uuid4()) # Generate an ID for this specific operation
+    logger.info(f"[Op:{operation_id}] Received request to save emails to knowledge base by owner: {current_user.email} using filter: {filter_input.model_dump_json()}")
+
+    filter_criteria_obj = filter_input # Use the filter from the request body
+
+    # --- Fetch Full Email Details using Outlook Service --- 
+    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Microsoft access token not available")
+
+    outlook = OutlookService(current_user.ms_token_data.access_token)
+    points_to_upsert: List[PointStruct] = []
+    processed_email_count = 0
+    failed_email_count = 0
+    all_email_ids = []
+    PAGE_SIZE = 100
+
+    try:
+        logger.info(f"[Op:{operation_id}] Fetching all email IDs via pagination using criteria: {filter_criteria_obj.model_dump_json()}")
+        current_next_link = None
+        page_num = 1
+        
+        while True:
+            logger.info(f"[Op:{operation_id}] Fetching page {page_num} of email previews (size: {PAGE_SIZE})...")
+            params = filter_criteria_obj.model_dump(exclude_none=True)
+            params['per_page'] = PAGE_SIZE
+            if current_next_link:
+                params['next_link'] = current_next_link
+            
+            paged_result_dict = await outlook.get_email_preview(**params)
+            
+            items_on_page_raw = paged_result_dict.get("items", [])
+            current_next_link = paged_result_dict.get("next_link")
+
+            if items_on_page_raw:
+                 ids_on_page = [item['id'] for item in items_on_page_raw if item.get('id')]
+                 all_email_ids.extend(ids_on_page)
+                 logger.info(f"[Op:{operation_id}] Fetched {len(ids_on_page)} IDs from page {page_num}. Total IDs so far: {len(all_email_ids)}.")
+            else:
+                logger.info(f"[Op:{operation_id}] No items found on page {page_num}.")
+
+            if not current_next_link:
+                logger.info(f"[Op:{operation_id}] No more pages found. Finished fetching IDs.")
+                break 
+            
+            page_num += 1
+
+        logger.info(f"[Op:{operation_id}] Found {len(all_email_ids)} total email IDs matching criteria. Fetching content...")
+
+        for email_id in all_email_ids:
+            try:
+                logger.debug(f"[Op:{operation_id}] Fetching content for email_id: {email_id}")
+                email_content = await outlook.get_email_content(email_id)
+                logger.debug(f"[Op:{operation_id}] Processing email subject: {email_content.subject}")
+                
+                # --- Prepare Metadata and Vector (No analysis tags here) --- 
+                attachments_payload = []
+                if email_content.attachments:
+                    for att in email_content.attachments:
+                        content_base64 = att.content if hasattr(att, 'content') and att.content is not None else None 
+                        if content_base64 is None:
+                            logger.warning(f"[Op:{operation_id}] Attachment {att.name} for email {email_id} is missing base64 content.")
+                        attachments_payload.append({
+                            "filename": att.name, "mimetype": att.content_type, 
+                            "size": att.size, "content_base64": content_base64
+                        })
+                has_attachments_bool = len(email_content.attachments) > 0 if email_content.attachments else False
+
+                email_metadata = {
+                    "type": "email",
+                    # "job_id": operation_id, # Use operation ID if needed for grouping?
+                    "owner": current_user.email,
+                    "sender": email_content.sender if email_content.sender else "unknown@sender.com", 
+                    "subject": email_content.subject or "",
+                    "date": email_content.received_date or "", 
+                    "has_attachments": has_attachments_bool,
+                    "folder": filter_criteria_obj.folder_id, 
+                    "tags": [], # No analysis tags in this flow
+                    "analysis_status": "pending", # <-- Corrected default
+                    "status": "pending_review", # <-- Corrected default
+                    "source": "email",
+                    "raw_text": email_content.body or "",
+                    "attachments": attachments_payload,
+                    "attachment_count": len(attachments_payload),
+                    "query_criteria": filter_criteria_obj.model_dump()
+                }
+
+                email_body = email_metadata["raw_text"] or email_metadata["subject"]
+                embedding = await create_embedding(email_body)
+
+                qdrant_point_uuid = str(uuid.uuid4()) 
+                email_metadata['original_email_id'] = email_id 
+
+                point = PointStruct(
+                    id=qdrant_point_uuid, 
+                    vector=embedding,
+                    payload=email_metadata
+                )
+                points_to_upsert.append(point)
+                processed_email_count += 1
+                logger.debug(f"[Op:{operation_id}] Prepared point {qdrant_point_uuid} (email: {email_id}).")
+
+            except Exception as fetch_err:
+                failed_email_count += 1
+                logger.error(f"[Op:{operation_id}] Failed to fetch/process email_id {email_id}: {str(fetch_err)}", exc_info=True)
+
+    except Exception as outer_err:
+         logger.error(f"[Op:{operation_id}] Error during email fetching: {str(outer_err)}", exc_info=True)
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error occurred fetching email details.")
+
+    # --- Batch Upsert --- 
+    if points_to_upsert:
+        try:
+            logger.info(f"[Op:{operation_id}] Upserting {len(points_to_upsert)} email points to Qdrant...")
+            qdrant_client.upsert(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                points=points_to_upsert,
+                wait=True
+            )
+            logger.info(f"[Op:{operation_id}] Successfully upserted {len(points_to_upsert)} points.")
+        except Exception as e:
+            logger.error(f"[Op:{operation_id}] Failed batch upsert: {str(e)}", exc_info=True)
+            return {
+                "operation_id": operation_id,
+                "message": f"Attempted to save. Processed: {processed_email_count}, Failed: {failed_email_count}, Qdrant Errors: {len(points_to_upsert)}",
+                "status": "partial_failure"
+            }
+    else:
+        logger.warning(f"[Op:{operation_id}] No points prepared for upsert (errors: {failed_email_count})")
+
+    return {
+        "operation_id": operation_id,
+        "message": f"Save completed. Emails Processed: {processed_email_count}, Errors: {failed_email_count}",
         "status": "success" if failed_email_count == 0 else "partial_success"
     }

@@ -1,5 +1,5 @@
 import apiClient from './apiClient'; // Import the shared client
-import { EmailFilter, EmailPreview } from '../types/email';
+import { EmailFilter, EmailPreview, PaginatedEmailPreviewResponse } from '../types/email';
 
 /**
  * Get email folders from Outlook
@@ -25,42 +25,47 @@ export const getEmailFolders = async () => {
 /**
  * Get email previews based on filter criteria
  */
-export const getEmailPreviews = async (filterParams: EmailFilter & { page?: number; per_page?: number; next_link?: string }) => {
+export const getEmailPreviews = async (
+  filter: EmailFilter, 
+  page: number = 1, 
+  per_page: number = 10,
+  next_link?: string // Optional: Pass the next_link from the previous response
+): Promise<PaginatedEmailPreviewResponse> => {
+  console.log(`[getEmailPreviews] Checking token. localStorage.getItem('accessToken') value:`, localStorage.getItem('accessToken'));
+  const token = localStorage.getItem('accessToken');
+  if (!token) throw new Error('No access token found');
+  
+  // Construct query parameters
+  const params: any = { 
+    page,
+    per_page 
+  };
+
+  // Use next_link directly if provided, ignoring other filter params as MS Graph handles it
+  if (next_link) {
+    params.next_link = next_link;
+    // Clear filter params if using next_link, as it contains all context
+    // Alternatively, the backend can prioritize next_link over filter params
+  }
+
+  // Log the request details
+  console.log('[API Call] getEmailPreviews - Request Params:', params, 'Body (Filter):', filter);
+  
   try {
-    // Directly clean the incoming parameters
-    const cleanParams = Object.fromEntries(
-      Object.entries(filterParams).filter(([_, value]) => 
-        value !== undefined && 
-        value !== null && 
-        (Array.isArray(value) ? value.length > 0 : true) &&
-        value !== '' // Also remove empty strings
-      )
+    const response = await apiClient.post(
+      `/emails/preview`, // <-- Corrected path with /emails prefix
+      filter, // Send filter criteria in the body
+      {
+        params: params, // Send pagination params in query string
+        headers: { Authorization: `Bearer ${token}` },
+      }
     );
-
-    // --- ADD LOGGING --- 
-    console.log('[api/email] Final parameters being sent to /emails/preview:', JSON.stringify(cleanParams));
-    // --- END LOGGING ---
-
-    console.log('[api/email] Sending email preview request params:', cleanParams);
-
-    // Use apiClient directly
-    const response = await apiClient.post<{
-      items: EmailPreview[];
-      total: number;
-      next_link?: string;
-      total_pages: number;
-      current_page: number;
-    }>(
-      '/emails/preview',
-      cleanParams
-    );
-
-    console.log('Email preview response:', response.data);
-
+    console.log('[API Response] getEmailPreviews:', response.data);
+    // Ensure the response structure matches PaginatedEmailPreviewResponse
     return response.data;
-  } catch (error) {
-    console.error('Error getting email previews:', error);
-    throw error;
+  } catch (error: any) {
+    console.error('Error fetching email previews:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.detail || 'Failed to fetch email previews');
   }
 };
 

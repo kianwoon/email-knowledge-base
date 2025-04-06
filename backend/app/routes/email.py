@@ -209,7 +209,25 @@ async def analyze_emails(
             points=[query_point],
             wait=True
         )
-        logger.info(f"Stored query criteria for job_id {job_id} with owner {owner}")
+        logger.info(f"Stored query criteria for job_id {job_id} with owner {owner} (Qdrant Point ID: {query_point_id})")
+
+        # Immediate retrieval check for the query_criteria point RIGHT AFTER initial upsert
+        try:
+            retrieved_query = qdrant.retrieve(
+                collection_name=settings.QDRANT_COLLECTION_NAME,
+                ids=[query_point_id],
+                with_payload=True
+            )
+            if retrieved_query and retrieved_query[0].id == query_point_id:
+                logger.info(f"[IMMEDIATE QUERY CRITERIA RETRIEVAL CONFIRMED IN MAIN] Query criteria point {query_point_id} found immediately after initial upsert.")
+            else:
+                 logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Query criteria point {query_point_id} NOT found immediately after initial upsert.")
+                 # Optionally raise an error here if this is critical
+                 raise HTTPException(status_code=500, detail="Failed critical step: Could not verify query criteria storage.")
+        except Exception as query_retrieval_err:
+            logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Error retrieving query criteria point {query_point_id}: {query_retrieval_err}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed critical step: Error verifying query criteria storage.")
+
     except Exception as e:
         logger.error(f"Failed to store query criteria in Qdrant for job_id {job_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize analysis job storage.")
@@ -339,32 +357,32 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                         vector=[0.0] * settings.EMBEDDING_DIMENSION
                     )
 
+                    # Upsert ONLY the mapping point in the background task
+                    logger.debug(f"Upserting mapping point ({mapping_point_id}) for job {internal_job_id}")
+                    qdrant.upsert(
+                        collection_name=settings.QDRANT_COLLECTION_NAME,
+                        points=[mapping_point], # Only upsert the mapping point here
+                        wait=True
+                    )
+                    logger.info(f"Successfully upserted mapping point ({mapping_point_id}) for job {internal_job_id}")
+
+                    # Immediate retrieval check for the mapping point (keep this one)
                     try:
-                        qdrant.upsert(
+                        retrieved_mapping = qdrant.retrieve(
                             collection_name=settings.QDRANT_COLLECTION_NAME,
-                            points=[mapping_point],
-                            wait=True
+                            ids=[mapping_point_id], 
+                            with_payload=True
                         )
-                        logger.info(f" [TASK: {internal_job_id}] Successfully stored external->internal job mapping for external_id {external_job_id_str} with Qdrant ID {mapping_point_id}.")
-                        
-                        # --- Add immediate retrieve check --- 
-                        try:
-                            logger.info(f" [TASK: {internal_job_id}] Attempting immediate retrieval of mapping point ID: {mapping_point_id}")
-                            retrieved = qdrant.retrieve(
-                                collection_name=settings.QDRANT_COLLECTION_NAME,
-                                ids=[mapping_point_id],
-                                with_payload=True
-                            )
-                            if retrieved and len(retrieved) == 1:
-                                logger.info(f" [TASK: {internal_job_id}] IMMEDIATE RETRIEVAL CONFIRMED for mapping point ID: {mapping_point_id}")
-                            else:
-                                logger.warning(f" [TASK: {internal_job_id}] IMMEDIATE RETRIEVAL FAILED for mapping point ID: {mapping_point_id}. Count: {len(retrieved) if retrieved else 0}")
-                        except Exception as r_err:
-                            logger.error(f" [TASK: {internal_job_id}] Error during immediate retrieval check for mapping point ID {mapping_point_id}: {r_err}")
-                        # --- End immediate retrieve check --- 
+                        if retrieved_mapping and retrieved_mapping[0].id == mapping_point_id:
+                            logger.info(f"[IMMEDIATE RETRIEVAL CONFIRMED] Mapping point {mapping_point_id} found immediately after upsert.")
+                        else:
+                            logger.error(f"[FAILED IMMEDIATE RETRIEVAL] Mapping point {mapping_point_id} NOT found immediately after upsert.")
+                    except Exception as retrieval_err:
+                        logger.error(f"[FAILED IMMEDIATE RETRIEVAL] Error retrieving mapping point {mapping_point_id}: {retrieval_err}", exc_info=True)
+
+                    # Remove immediate retrieval check for the query_criteria point from background task
+                    # It's now checked in the main analyze_emails function
                             
-                    except Exception as q_err:
-                        logger.error(f" [TASK: {internal_job_id}] Failed to store external job ID mapping in Qdrant for external_id {external_job_id}: {q_err}")
                 else:
                     logger.warning(f" [TASK: {internal_job_id}] External analysis service response did not contain the expected 'job_id' field in its response.")
 

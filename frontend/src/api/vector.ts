@@ -1,4 +1,7 @@
 import apiClient from './apiClient';
+// Remove unused import if axiosInstance is not defined/used elsewhere
+// import axiosInstance from './axiosInstance'; 
+import { EmailFilter } from '../types/email'; // <-- Import EmailFilter type
 
 // Define the expected response type (adjust if needed based on backend)
 interface SaveJobResponse {
@@ -35,5 +38,32 @@ export const saveJobToKnowledgeBase = async (jobId: string): Promise<SaveJobResp
     // You might want to parse the error response for a more specific message if available
     const errorMessage = error.response?.data?.detail || error.message || 'Failed to initiate save operation.';
     throw new Error(errorMessage);
+  }
+}; 
+
+// --- NEW API FUNCTION --- 
+
+export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Promise<{ operation_id: string; message: string; status: string }> => {
+  const token = localStorage.getItem('accessToken');
+  if (!token) throw new Error('No access token found');
+
+  console.log('[API Call] Saving filtered emails to KB with filter:', filter);
+  
+  try {
+    // Use the existing apiClient
+    const response = await apiClient.post(
+      `/vector/save_filtered_emails`, // Use the new endpoint
+      filter, // Send the filter object as the request body
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    console.log('[API Response] saveFilteredEmailsToKnowledgeBase:', response.data);
+    // Example success response: { operation_id: "uuid", message: "...", status: "success" | "partial_success" }
+    return response.data; 
+  } catch (error: any) {
+    console.error('Error saving filtered emails to knowledge base:', error.response?.data || error.message);
+    // Re-throw a more specific error message if available from backend
+    throw new Error(error.response?.data?.detail || 'Failed to save filtered emails to knowledge base');
   }
 }; 
