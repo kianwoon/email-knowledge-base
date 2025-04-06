@@ -45,31 +45,30 @@ async def receive_subject_analysis(
 
     # --- Store Analysis Chart Data in Qdrant --- 
     try:
-        job_id_from_payload = str(payload.job_id) # Ensure it's a string
-        # Use owner from payload if provided by external service, else default
+        job_id_from_payload = str(payload.job_id) 
         owner_email = payload.owner if payload.owner else "unknown_owner"
         logger.info(f"Storing chart data for job {job_id_from_payload} with owner='{owner_email}'")
         
-        # Use chart_{job_id} for the *chart* point ID 
-        chart_point_id = f"chart_{job_id_from_payload}" 
+        # Generate a unique UUID for the Qdrant point ID for this chart data
+        chart_point_qdrant_id = str(uuid.uuid4()) 
         
         chart_payload = {
             "type": "analysis_chart",
-            "job_id": job_id_from_payload,
-            "owner": owner_email, # Use owner derived from payload or default
+            "job_id": job_id_from_payload, # Keep the original job_id in the payload
+            "owner": owner_email, 
             "status": payload.status or "unknown",
-            # Convert each item in the list to a dict using model_dump()
             "chart_data": [item.model_dump() for item in payload.results] if payload.results else []
         }
-        chart_point = PointStruct(id=chart_point_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload)
+        # Use the new UUID as the point ID
+        chart_point = PointStruct(id=chart_point_qdrant_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload)
         
-        logger.info(f"Storing analysis chart data with point ID {chart_point_id} for job {job_id_from_payload}")
+        logger.info(f"Storing analysis chart data with Qdrant point ID {chart_point_qdrant_id} for original job {job_id_from_payload}")
         qdrant_client.upsert(
             collection_name=settings.QDRANT_COLLECTION_NAME,
             points=[chart_point],
             wait=True
         )
-        logger.info(f"Successfully stored analysis chart data for job {job_id_from_payload}")
+        logger.info(f"Successfully stored analysis chart data for original job {job_id_from_payload}")
 
     except Exception as e:
         logger.error(f"Failed to store analysis chart data for job {job_id_from_payload} in Qdrant: {str(e)}", exc_info=True)
