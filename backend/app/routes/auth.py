@@ -10,6 +10,7 @@ import httpx
 from urllib.parse import urlencode, urlparse
 import logging
 from pydantic import BaseModel
+import calendar # Import calendar module
 
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
@@ -29,12 +30,27 @@ class RefreshTokenRequest(BaseModel):
 def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
     """Create JWT access token for internal auth"""
     to_encode = data.copy()
+    
+    # --- Restore original logic ---
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
+        # Log the expiration setting being used
+        logger.debug(f"Creating token with expiration from settings: {settings.JWT_EXPIRATION} seconds")
         expire = datetime.utcnow() + timedelta(seconds=settings.JWT_EXPIRATION)
+    # --- End original logic ---
+
+    # Convert expire datetime to integer UTC timestamp
+    expire_timestamp = calendar.timegm(expire.utctimetuple())
+    logger.debug(f"Converted expiration to UTC timestamp: {expire_timestamp}")
+
+    to_encode.update({"exp": expire_timestamp}) # Use the integer timestamp
+    # Log the calculated expiration timestamp
+    logger.debug(f"Calculated token expiration timestamp (UTC): {expire}") 
     
-    to_encode.update({"exp": expire})
+    # Log the exact payload dictionary before encoding
+    logger.debug(f"Payload passed to jwt.encode: {to_encode}")
+
     encoded_jwt = jwt.encode(
         to_encode, 
         settings.JWT_SECRET, 

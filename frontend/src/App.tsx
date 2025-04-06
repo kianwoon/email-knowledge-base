@@ -179,7 +179,12 @@ function App() {
       console.log(`Expires from URL: ${expiresFromUrl ? 'FOUND' : 'MISSING'}`);
 
       if (tokenFromUrl && expiresFromUrl) {
-        console.log("URL Params FOUND: Storing token/expires, setting auth=true, skipping checkAuth."); 
+        console.log("URL Params FOUND: Clearing old token/expires, storing new, setting auth=true."); 
+        // Explicitly remove old items first
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('expires');
+        
+        // Store new items
         localStorage.setItem('accessToken', tokenFromUrl);
         localStorage.setItem('expires', expiresFromUrl);
         setIsAuthenticated(true);

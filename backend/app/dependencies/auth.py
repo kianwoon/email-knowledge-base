@@ -50,6 +50,11 @@ async def get_current_user(request: Request) -> User:
     )
     
     try:
+        # Log current time just before decoding
+        validation_time_utc = datetime.utcnow()
+        logger.debug(f"Validating token at (UTC): {validation_time_utc}") 
+        
+        # Log parameters used for decoding
         logger.debug(f"Decoding token using algorithm: {settings.JWT_ALGORITHM}")
         logger.debug(f"Using JWT secret ending with: ...{settings.JWT_SECRET[-6:] if settings.JWT_SECRET else 'SECRET_NOT_SET'}")
         
@@ -69,7 +74,20 @@ async def get_current_user(request: Request) -> User:
             
     except jwt.ExpiredSignatureError:
         logger.warning("Token validation failed: ExpiredSignatureError")
-        raise credentials_exception
+        try:
+            # Decode without verification JUST FOR DEBUGGING
+            unverified_payload = jwt.decode(
+                token, 
+                settings.JWT_SECRET, 
+                algorithms=[settings.JWT_ALGORITHM], 
+                options={"verify_signature": False, "verify_exp": False}
+            )
+            exp_timestamp = unverified_payload.get('exp')
+            exp_datetime = datetime.utcfromtimestamp(exp_timestamp) if exp_timestamp else 'N/A'
+            logger.error(f"[DEBUG] ExpiredSignatureError caught! Validation time: {validation_time_utc}. Unverified payload 'exp' claim: {exp_timestamp} ({exp_datetime})")
+        except Exception as e:
+            logger.error(f"[DEBUG] Could not decode unverified payload after ExpiredSignatureError: {e}")
+        raise credentials_exception # Re-raise the original exception
     except jwt.JWTClaimsError as e:
         logger.error(f"Token validation failed: JWTClaimsError - {e}")
         raise credentials_exception
