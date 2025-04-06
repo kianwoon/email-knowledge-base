@@ -199,7 +199,8 @@ async def analyze_emails(
     }
     query_point = PointStruct(
         id=query_point_id,
-        payload=query_payload
+        payload=query_payload,
+        vector=[0.0] * settings.EMBEDDING_DIMENSION
     )
 
     try:
@@ -318,7 +319,8 @@ async def submit_and_map_analysis(url: str, payload: dict, headers: dict, qdrant
                     }
                     mapping_point = PointStruct(
                         id=mapping_point_id,
-                        payload=mapping_payload
+                        payload=mapping_payload,
+                        vector=[0.0] * settings.EMBEDDING_DIMENSION
                     )
 
                     try:

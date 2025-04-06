@@ -128,8 +128,8 @@ async def handle_analysis_webhook(
         }
         chart_point = PointStruct(
             id=chart_point_id,
-            payload=chart_payload
-            # No vector for chart data points
+            payload=chart_payload,
+            vector=[0.0] * settings.EMBEDDING_DIMENSION # ADDED dummy vector
         )
 
         try:
