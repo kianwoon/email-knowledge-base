@@ -108,6 +108,9 @@
   "documentation": {
     "title": "文档",
     "description": "欢迎查阅邮件知识库文档...",
+    "exploreText": "探索我们平台的全面文档，涵盖从身份验证到知识导出的所有方面。",
+    "learnMore": "了解更多",
+    "additionalResources": "其他资源",
     "sections": {
       "filtering": {
         "title": "智能邮件处理",
@@ -549,6 +552,25 @@
           }
         }
       }
+    },
+    "resources": {
+      "api": {
+        "title": "API文档",
+        "description": "为开发者提供与我们平台集成的完整API参考。"
+      },
+      "videos": {
+        "title": "视频教程",
+        "description": "常见工作流程和功能的分步视频指南。"
+      },
+      "bestPractices": {
+        "title": "最佳实践",
+        "description": "优化知识管理流程的建议。"
+      }
+    },
+    "support": {
+      "title": "需要额外帮助？",
+      "description": "我们的支持团队随时为您解答任何问题。",
+      "contactButton": "联系支持"
     }
   },
   "settings": {
