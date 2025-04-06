@@ -45,38 +45,45 @@ async def receive_subject_analysis(
 
     # --- Store Analysis Chart Data in Qdrant --- 
     try:
-        chart_point_id = f"chart_{payload.job_id}"
-        # Retrieve owner info - How? Need to fetch query_criteria entry first!
-        # Fetch the query criteria entry to get the owner
-        query_point_id = f"query_{payload.job_id}"
-        retrieved_points = qdrant_client.retrieve(collection_name=settings.QDRANT_COLLECTION_NAME, ids=[query_point_id], with_payload=True)
+        # Use the plain job_id (as received) for looking up the query_criteria
+        # Assuming the original query_criteria point ID *is* the plain job ID (UUID)
+        job_id_from_payload = str(payload.job_id) # Ensure it's a string
+        logger.info(f"Attempting to retrieve query criteria using ID: {job_id_from_payload}")
+
+        # Retrieve the query_criteria point using the job_id from the payload
+        retrieved_points = qdrant_client.retrieve(
+            collection_name=settings.QDRANT_COLLECTION_NAME,
+            ids=[job_id_from_payload], # Use the job ID directly
+            with_payload=True
+        )
+
         if not retrieved_points:
-             logger.error(f"Cannot store chart data: Query criteria entry for job_id {payload.job_id} not found in Qdrant.")
-             # Decide how to handle - maybe don't broadcast? Or return error?
-             # For now, log error and continue to broadcast.
+             logger.error(f"Cannot store chart data: Query criteria entry for job_id {job_id_from_payload} not found in Qdrant.")
              owner_email = "unknown_owner" # Placeholder
         else:
              owner_email = retrieved_points[0].payload.get('owner', 'unknown_owner')
              if owner_email == "unknown_owner":
-                  logger.warning(f"Query criteria entry for job_id {payload.job_id} found but missing 'owner' field.")
+                  logger.warning(f"Query criteria entry for job_id {job_id_from_payload} found but missing 'owner' field.")
+        
+        # Still use chart_{job_id} for the *chart* point ID to avoid collision
+        chart_point_id = f"chart_{job_id_from_payload}" 
         
         chart_payload = {
             "type": "analysis_chart",
-            "job_id": payload.job_id,
+            "job_id": job_id_from_payload, # Store the job_id from payload
             "owner": owner_email,
-            "status": payload.status or "unknown", # Use status from payload
-            "chart_data": payload.results.dict() if payload.results else [] # Store results list
+            "status": payload.status or "unknown",
+            "chart_data": payload.results.dict() if payload.results else [] 
         }
-        # Note: No vector for analysis_chart type
-        chart_point = PointStruct(id=chart_point_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload) # Dummy vector
+        chart_point = PointStruct(id=chart_point_id, vector=[0.0] * settings.EMBEDDING_DIMENSION, payload=chart_payload)
         
-        logger.info(f"Storing analysis chart data with point ID {chart_point_id} for job {payload.job_id}")
+        logger.info(f"Storing analysis chart data with point ID {chart_point_id} for job {job_id_from_payload}")
         qdrant_client.upsert(
             collection_name=settings.QDRANT_COLLECTION_NAME,
             points=[chart_point],
             wait=True
         )
-        logger.info(f"Successfully stored analysis chart data for job {payload.job_id}")
+        logger.info(f"Successfully stored analysis chart data for job {job_id_from_payload}")
 
     except Exception as e:
         logger.error(f"Failed to store analysis chart data for job {payload.job_id} in Qdrant: {str(e)}", exc_info=True)
