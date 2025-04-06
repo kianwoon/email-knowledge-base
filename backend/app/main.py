@@ -53,13 +53,14 @@ app.add_middleware(
     max_age=86400,  # Cache preflight requests for 24 hours
 )
 
-# Mount routes
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(email.router, prefix="/emails", tags=["emails"])
-app.include_router(review.router, prefix="/review", tags=["Review Process"])
-app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
+# Mount routes - Ensure all use /api prefix internally
+app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["auth"])
+app.include_router(email.router, prefix=f"{settings.API_PREFIX}/emails", tags=["emails"])
+app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review Process"])
+app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
+# Assuming WEBHOOK_PREFIX is set to /api in production environment for consistency
 app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["webhooks"])
-app.include_router(websockets.router, prefix="", tags=["websockets"])
+app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}", tags=["websockets"])
 
 # Mount static files directory
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -70,7 +71,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def read_root():
     return {"message": "Welcome to the Email Knowledge Base API"}
 
-@app.get("/health")
+@app.get(f"{settings.API_PREFIX}/health") # Add /api prefix back
 async def health_check():
     """Health check endpoint"""
     logger.debug("Health check endpoint called")
@@ -80,6 +81,7 @@ async def health_check():
         "environment": {
             "FRONTEND_URL": settings.FRONTEND_URL,
             "MS_REDIRECT_URI": settings.MS_REDIRECT_URI,
+            "API_PREFIX": settings.API_PREFIX, # Add API_PREFIX back for info
             "IS_PRODUCTION": settings.IS_PRODUCTION,
             "static_dir": static_dir,
             "cwd": os.getcwd(),
