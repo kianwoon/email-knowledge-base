@@ -70,6 +70,9 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
     i18n.changeLanguage(lng);
   };
 
+  // Check if language is Chinese (either zh or cn)
+  const isChinese = i18n.language === 'zh' || i18n.language === 'cn';
+
   // User menu component
   const UserMenu = () => {
     if (!user) return <Spinner size="sm" />;
@@ -197,7 +200,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                 px={2}
                 color={useColorModeValue('gray.800', 'whiteAlpha.900')}
               >
-                {i18n.language === 'zh' ? t('language.chinese') : t('language.english')}
+                {isChinese ? t('language.chinese') : t('language.english')}
               </MenuButton>
               <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
                 <MenuItem
@@ -207,7 +210,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                   {t('language.english')}
                 </MenuItem>
                 <MenuItem
-                  onClick={() => changeLanguage('zh')}
+                  onClick={() => changeLanguage('cn')}
                   _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
                 >
                   {t('language.chinese')}

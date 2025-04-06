@@ -5,6 +5,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 // Import translation files
 import enTranslation from './locales/en/translation.json';
 import zhTranslation from './locales/zh/translation.json';
+import cnTranslation from './locales/cn/translation.json';
 
 // Initialize i18next
 i18n
@@ -25,6 +26,9 @@ i18n
       },
       zh: {
         translation: zhTranslation
+      },
+      cn: {
+        translation: cnTranslation
       }
     },
     // Detect and cache language on
