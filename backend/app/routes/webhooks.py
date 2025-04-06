@@ -62,7 +62,7 @@ async def handle_analysis_webhook(
         internal_job_id = None
         owner = "unknown_owner" # Default owner if lookup fails
         try:
-            scroll_result: ScrollResponse = qdrant.scroll(
+            scroll_result = qdrant.scroll(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 scroll_filter=Filter(
                     must=[
