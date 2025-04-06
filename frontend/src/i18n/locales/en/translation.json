@@ -681,6 +681,12 @@
           "saving": "Saving...",
           "proceedGenerateKB": "Proceed now, Generate knowledge base"
         },
+        "buttons": {
+          "proceed": "Proceed now, Generate knowledge base",
+          "proceedNow": "Proceed now, Generate knowledge base",
+          "proceedGenerate": "Proceed now, Generate knowledge base",
+          "generateKB": "Generate knowledge base"
+        },
         "analysis": {
           "title": "Analysis Results",
           "processingPrompt": "Analysis in progress, results will appear here...",

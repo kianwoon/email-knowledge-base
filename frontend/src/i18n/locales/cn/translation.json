@@ -670,9 +670,15 @@
       "analyze": "分析数据",
       "analyzing": "正在分析...",
       "submitting": "正在提交...",
-      "saveToKB": "立即继续，生成知识库",
+      "saveToKB": "立即处理，生成知识库",
       "saving": "正在保存...",
       "proceedGenerateKB": "立即处理，生成知识库"
+    },
+    "buttons": {
+      "proceed": "立即处理，生成知识库",
+      "proceedNow": "立即处理，生成知识库",
+      "proceedGenerate": "立即处理，生成知识库",
+      "generateKB": "生成知识库"
     },
     "results": {
       "title": "结果",
