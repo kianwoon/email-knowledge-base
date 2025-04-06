@@ -45,32 +45,16 @@ async def receive_subject_analysis(
 
     # --- Store Analysis Chart Data in Qdrant --- 
     try:
-        # Use the plain job_id (as received) for looking up the query_criteria
-        # Assuming the original query_criteria point ID *is* the plain job ID (UUID)
         job_id_from_payload = str(payload.job_id) # Ensure it's a string
-        logger.info(f"Attempting to retrieve query criteria using ID: {job_id_from_payload}")
-
-        # Retrieve the query_criteria point using the job_id from the payload
-        retrieved_points = qdrant_client.retrieve(
-            collection_name=settings.QDRANT_COLLECTION_NAME,
-            ids=[job_id_from_payload], # Use the job ID directly
-            with_payload=True
-        )
-
-        if not retrieved_points:
-             logger.error(f"Cannot store chart data: Query criteria entry for job_id {job_id_from_payload} not found in Qdrant.")
-             owner_email = "unknown_owner" # Placeholder
-        else:
-             owner_email = retrieved_points[0].payload.get('owner', 'unknown_owner')
-             if owner_email == "unknown_owner":
-                  logger.warning(f"Query criteria entry for job_id {job_id_from_payload} found but missing 'owner' field.")
+        owner_email = "unknown_owner" # Hardcode owner as lookup is not reliable
+        logger.info(f"Storing chart data for job {job_id_from_payload} with owner='{owner_email}'")
         
-        # Still use chart_{job_id} for the *chart* point ID to avoid collision
+        # Use chart_{job_id} for the *chart* point ID 
         chart_point_id = f"chart_{job_id_from_payload}" 
         
         chart_payload = {
             "type": "analysis_chart",
-            "job_id": job_id_from_payload, # Store the job_id from payload
+            "job_id": job_id_from_payload,
             "owner": owner_email,
             "status": payload.status or "unknown",
             "chart_data": payload.results.dict() if payload.results else [] 
@@ -86,7 +70,7 @@ async def receive_subject_analysis(
         logger.info(f"Successfully stored analysis chart data for job {job_id_from_payload}")
 
     except Exception as e:
-        logger.error(f"Failed to store analysis chart data for job {payload.job_id} in Qdrant: {str(e)}", exc_info=True)
+        logger.error(f"Failed to store analysis chart data for job {job_id_from_payload} in Qdrant: {str(e)}", exc_info=True)
         # Log error but continue - broadcasting result is primary function here
     # --- End Store Analysis Chart Data ---
 
