@@ -62,7 +62,8 @@ async def handle_analysis_webhook(
         internal_job_id = None
         owner = "unknown_owner" # Default owner if lookup fails
         try:
-            scroll_result = qdrant.scroll(
+            # Qdrant scroll returns a tuple: (points, next_page_offset)
+            scroll_result_tuple = qdrant.scroll(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 scroll_filter=Filter(
                     must=[
@@ -73,16 +74,19 @@ async def handle_analysis_webhook(
                 limit=1 # We expect only one match
             )
 
-            if scroll_result and scroll_result.points and len(scroll_result.points) == 1:
-                mapping_point = scroll_result.points[0]
+            # Unpack the tuple and check the points list
+            points = scroll_result_tuple[0] if scroll_result_tuple else []
+
+            if points and len(points) == 1:
+                mapping_point = points[0]
                 internal_job_id = mapping_point.payload.get("internal_job_id")
-                owner = mapping_point.payload.get("owner", "unknown_owner") # Get owner from mapping if available
+                owner = mapping_point.payload.get("owner", "unknown_owner")
                 if internal_job_id:
                     logger.info(f"[WEBHOOK] Found internal job ID: {internal_job_id} for external ID: {external_job_id}")
                 else:
                      logger.error(f"[WEBHOOK] Mapping point found for external ID {external_job_id}, but 'internal_job_id' field is missing in payload: {mapping_point.payload}")
-            elif scroll_result and scroll_result.points:
-                 logger.error(f"[WEBHOOK] Found multiple ({len(scroll_result.points)}) mapping points for external ID {external_job_id}. Cannot reliably determine internal ID.")
+            elif points:
+                 logger.error(f"[WEBHOOK] Found multiple ({len(points)}) mapping points for external ID {external_job_id}. Cannot reliably determine internal ID.")
             else:
                 logger.warning(f"[WEBHOOK] No mapping found in Qdrant for external job ID: {external_job_id}. Cannot correlate callback.")
 
