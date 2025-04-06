@@ -424,6 +424,130 @@
         "faq3Description": "我们请求的权限是知识提取所必需的最小范围，包括读取邮件内容、基本用户信息和令牌刷新功能。",
         "faq4Title": "如何撤销应用的访问权限？",
         "faq4Description": "您可以随时访问Microsoft账户的\"隐私与服务\"部分，在\"应用与服务\"下撤销对本应用的访问权限。"
+      },
+      "aiTraining": {
+        "header": "人工智能培训文档",
+        "subtitle": "了解如何使用您的邮件知识库有效地训练人工智能模型",
+        "overview": "概述",
+        "overviewDescription": "我们的人工智能培训系统允许您创建自定义人工智能模型，了解您组织的沟通模式和知识库。",
+        "capabilities": {
+          "title": "主要功能",
+          "capability1": {
+            "title": "知识集成",
+            "description": "将提取的邮件知识无缝集成到人工智能训练数据集中"
+          },
+          "capability2": {
+            "title": "自定义培训",
+            "description": "使用您组织特定的沟通风格和领域知识训练人工智能模型"
+          },
+          "capability3": {
+            "title": "多语言支持",
+            "description": "训练人工智能模型有效处理多种语言的通信"
+          },
+          "capability4": {
+            "title": "性能分析",
+            "description": "通过详细分析监控和优化人工智能模型性能"
+          }
+        },
+        "trainingProcess": {
+          "title": "培训流程",
+          "step1": {
+            "title": "数据准备",
+            "description": "选择并准备相关邮件数据进行培训"
+          },
+          "step2": {
+            "title": "模型配置",
+            "description": "配置人工智能模型参数和培训目标"
+          },
+          "step3": {
+            "title": "执行培训",
+            "description": "使用选定的数据集执行培训过程"
+          },
+          "step4": {
+            "title": "性能评估",
+            "description": "评估模型性能并进行必要的调整"
+          },
+          "step5": {
+            "title": "部署",
+            "description": "部署训练好的模型处理实时通信"
+          }
+        },
+        "useCases": {
+          "title": "使用场景",
+          "useCase1": {
+            "title": "客户支持",
+            "description": "训练人工智能处理常见的客户查询和支持请求"
+          },
+          "useCase2": {
+            "title": "内部沟通",
+            "description": "自动化常规内部沟通和知识共享"
+          },
+          "useCase3": {
+            "title": "文档处理",
+            "description": "处理并分类接收的文档和附件"
+          },
+          "useCase4": {
+            "title": "知识分发",
+            "description": "将相关知识分发给适当的团队成员"
+          }
+        },
+        "bestPractices": {
+          "title": "最佳实践",
+          "practice1": {
+            "title": "数据质量",
+            "description": "确保训练数据干净、相关且具有代表性"
+          },
+          "practice2": {
+            "title": "定期更新",
+            "description": "不断用新知识和模式更新模型"
+          },
+          "practice3": {
+            "title": "性能监控",
+            "description": "定期监控和评估模型性能"
+          },
+          "practice4": {
+            "title": "反馈整合",
+            "description": "将用户反馈纳入模型改进中"
+          }
+        },
+        "performance": {
+          "title": "性能指标",
+          "metric1": {
+            "title": "响应准确性",
+            "description": "人工智能模型正确解决的查询百分比"
+          },
+          "metric2": {
+            "title": "解决率",
+            "description": "无需人工干预即可解决的查询百分比"
+          },
+          "metric3": {
+            "title": "平均响应时间",
+            "description": "生成和传递响应所需的时间"
+          },
+          "metric4": {
+            "title": "用户满意度",
+            "description": "人工智能互动的用户反馈评级"
+          }
+        },
+        "integration": {
+          "title": "集成选项",
+          "option1": {
+            "title": "邮件集成",
+            "description": "将人工智能模型连接到电子邮件系统以处理传入消息"
+          },
+          "option2": {
+            "title": "聊天平台",
+            "description": "在内部或面向客户的聊天界面上部署人工智能模型"
+          },
+          "option3": {
+            "title": "知识库前端",
+            "description": "直接在知识库界面中嵌入人工智能功能"
+          },
+          "option4": {
+            "title": "API访问",
+            "description": "通过我们的API将人工智能模型连接到自定义应用程序"
+          }
+        }
       }
     }
   },
