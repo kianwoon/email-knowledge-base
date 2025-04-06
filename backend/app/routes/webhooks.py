@@ -46,7 +46,8 @@ async def receive_subject_analysis(
     # --- Store Analysis Chart Data in Qdrant --- 
     try:
         job_id_from_payload = str(payload.job_id) # Ensure it's a string
-        owner_email = "unknown_owner" # Hardcode owner as lookup is not reliable
+        # Use owner from payload if provided by external service, else default
+        owner_email = payload.owner if payload.owner else "unknown_owner"
         logger.info(f"Storing chart data for job {job_id_from_payload} with owner='{owner_email}'")
         
         # Use chart_{job_id} for the *chart* point ID 
@@ -55,7 +56,7 @@ async def receive_subject_analysis(
         chart_payload = {
             "type": "analysis_chart",
             "job_id": job_id_from_payload,
-            "owner": owner_email,
+            "owner": owner_email, # Use owner derived from payload or default
             "status": payload.status or "unknown",
             "chart_data": payload.results.dict() if payload.results else [] 
         }

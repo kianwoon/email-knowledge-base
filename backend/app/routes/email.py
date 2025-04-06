@@ -251,14 +251,15 @@ async def analyze_emails(
     payload_to_external = {
         "job_id": job_id,
         "subjects": subjects,
-        "webhook_url": webhook_url
+        "webhook_url": webhook_url,
+        "owner": current_user.email
     }
     headers = {
         "Content-Type": "application/json",
         "X-API-Key": api_key 
     }
 
-    logger.info(f"Submitting job {job_id} with {len(subjects)} subjects to external analysis service at {external_analysis_url}")
+    logger.info(f"Submitting job {job_id} for owner {current_user.email} with {len(subjects)} subjects to external service at {external_analysis_url}")
     logger.info(f"Webhook URL for callback: {webhook_url}")
 
     # --- Make POST Request to External Service --- 

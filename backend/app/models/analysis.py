@@ -16,5 +16,7 @@ class WebhookPayload(BaseModel):
     status: Optional[str] = None 
     # Rename field to match sample payload ('results')
     results: Optional[List[SubjectAnalysisResultItem]] = None 
+    # Add owner field (optional, in case external service doesn't return it)
+    owner: Optional[str] = None 
     # Add error details if the API sends them on failure
     # error: Optional[str] = None 
