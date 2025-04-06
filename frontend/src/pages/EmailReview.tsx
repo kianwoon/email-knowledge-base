@@ -42,6 +42,7 @@ import {
   ButtonGroup,
 } from '@chakra-ui/react';
 import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
+import { useTranslation } from 'react-i18next';
 
 import axios from 'axios';
 import { ReviewStatus, SensitivityLevel, Department, EmailReviewItem, EmailApproval, PIIType } from '../types/email';
@@ -124,6 +125,7 @@ const bulkApprove = async (emailIds: string[], approval: EmailApproval) => {
 };
 
 const EmailReview: React.FC = () => {
+  const { t } = useTranslation();
   const toast = useToast();
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { colorMode } = useColorMode();
@@ -166,7 +168,7 @@ const EmailReview: React.FC = () => {
       } catch (error) {
         console.error('Error loading reviews:', error);
         toast({
-          title: 'Error loading reviews',
+          title: t('emailReview.toast.loadErrorTitle'),
           status: 'error',
           duration: 3000,
         });
@@ -176,7 +178,7 @@ const EmailReview: React.FC = () => {
     };
     
     loadReviews();
-  }, [toast, currentPage]);
+  }, [toast, currentPage, t]);
   
   // Apply filters
   useEffect(() => {
@@ -255,7 +257,7 @@ const EmailReview: React.FC = () => {
       );
       
       toast({
-        title: `Email ${approved ? 'approved' : 'rejected'}`,
+        title: approved ? t('emailReview.toast.approvedSuccess') : t('emailReview.toast.rejectedSuccess'),
         status: approved ? 'success' : 'info',
         duration: 3000,
       });
@@ -272,7 +274,7 @@ const EmailReview: React.FC = () => {
     } catch (error) {
       console.error('Error updating review:', error);
       toast({
-        title: 'Error updating review',
+        title: t('emailReview.toast.updateErrorTitle'),
         status: 'error',
         duration: 3000,
       });
@@ -285,8 +287,8 @@ const EmailReview: React.FC = () => {
   const handleBulkDecision = async (approved: boolean) => {
     if (selectedReviews.length === 0) {
       toast({
-        title: 'No emails selected',
-        description: 'Please select at least one email',
+        title: t('emailReview.toast.noSelectionTitle'),
+        description: t('emailReview.toast.noSelectionDescription'),
         status: 'warning',
         duration: 3000,
       });
@@ -312,7 +314,9 @@ const EmailReview: React.FC = () => {
       );
       
       toast({
-        title: `${selectedReviews.length} emails ${approved ? 'approved' : 'rejected'}`,
+        title: approved
+                 ? t('emailReview.toast.bulkApprovedSuccess', { count: selectedReviews.length })
+                 : t('emailReview.toast.bulkRejectedSuccess', { count: selectedReviews.length }),
         status: approved ? 'success' : 'info',
         duration: 3000,
       });
@@ -323,7 +327,7 @@ const EmailReview: React.FC = () => {
     } catch (error) {
       console.error('Error updating reviews:', error);
       toast({
-        title: 'Error updating reviews',
+        title: t('emailReview.toast.bulkUpdateErrorTitle'),
         status: 'error',
         duration: 3000,
       });
@@ -359,14 +363,14 @@ const EmailReview: React.FC = () => {
       <Container maxW="container.xl">
         <VStack spacing={8} align="stretch">
           <Box>
-            <Heading size="lg" mb={2}>Review Analyzed Emails</Heading>
-            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>Review and approve emails for your knowledge base</Text>
+            <Heading size="lg" mb={2}>{t('emailReview.pageTitle')}</Heading>
+            <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{t('emailReview.pageDescription')}</Text>
           </Box>
           
           {/* Filters */}
           <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
             <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
-              <Heading size="md">Filters</Heading>
+              <Heading size="md">{t('emailReview.filters.title')}</Heading>
             </CardHeader>
             <CardBody>
               <Flex gap={4} wrap="wrap">
@@ -375,13 +379,13 @@ const EmailReview: React.FC = () => {
                     name="department"
                     value={filters.department}
                     onChange={handleFilterChange}
-                    placeholder="All Departments"
+                    placeholder={t('emailReview.filters.allDepartments')}
                     bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                     borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                   >
                     {Object.values(Department).map(dept => (
                       <option key={dept} value={dept}>
-                        {dept.charAt(0).toUpperCase() + dept.slice(1)}
+                        {t(`common.departments.${dept}`, dept.charAt(0).toUpperCase() + dept.slice(1))}
                       </option>
                     ))}
                   </Select>
@@ -392,13 +396,13 @@ const EmailReview: React.FC = () => {
                     name="sensitivity"
                     value={filters.sensitivity}
                     onChange={handleFilterChange}
-                    placeholder="All Sensitivity Levels"
+                    placeholder={t('emailReview.filters.allSensitivityLevels')}
                     bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                     borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                   >
                     {Object.values(SensitivityLevel).map(level => (
                       <option key={level} value={level}>
-                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                        {t(`common.sensitivityLevels.${level}`, level.charAt(0).toUpperCase() + level.slice(1))}
                       </option>
                     ))}
                   </Select>
@@ -409,12 +413,12 @@ const EmailReview: React.FC = () => {
                     name="isPrivate"
                     value={filters.isPrivate}
                     onChange={handleFilterChange}
-                    placeholder="All Privacy Levels"
+                    placeholder={t('emailReview.filters.allPrivacyLevels')}
                     bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                     borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
                   >
-                    <option value="true">Private</option>
-                    <option value="false">Not Private</option>
+                    <option value="true">{t('emailReview.privacy.private')}</option>
+                    <option value="false">{t('emailReview.privacy.notPrivate')}</option>
                   </Select>
                 </Box>
               </Flex>
@@ -425,11 +429,15 @@ const EmailReview: React.FC = () => {
           <Card borderRadius="xl" boxShadow="md" bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'} overflow="hidden">
             <CardHeader bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'white'}>
               <Flex justify="space-between" align="center">
-                <Heading size="md">Pending Reviews ({totalItems})</Heading>
+                <Heading size="md">{t('emailReview.table.title')} ({totalItems})</Heading>
                 
                 <HStack>
                   <Text fontSize="sm">
-                    Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
+                    {t('emailReview.pagination.showingRangeOfTotal', {
+                        start: ((currentPage - 1) * itemsPerPage) + 1,
+                        end: Math.min(currentPage * itemsPerPage, totalItems),
+                        total: totalItems
+                    })}
                   </Text>
                   <Button 
                     size="sm" 
@@ -437,7 +445,7 @@ const EmailReview: React.FC = () => {
                     variant="outline"
                     colorScheme="primary"
                   >
-                    {selectedReviews.length === filteredReviews.length ? 'Deselect All' : 'Select All'}
+                    {selectedReviews.length === filteredReviews.length ? t('emailReview.actions.deselectAll') : t('emailReview.actions.selectAll')}
                   </Button>
                   
                   {selectedReviews.length > 0 && (
@@ -449,7 +457,7 @@ const EmailReview: React.FC = () => {
                         onClick={() => handleBulkDecision(true)}
                         isLoading={isSubmitting}
                       >
-                        Approve Selected
+                        {t('emailReview.actions.approveSelected')}
                       </Button>
                       
                       <Button 
@@ -459,7 +467,7 @@ const EmailReview: React.FC = () => {
                         onClick={() => handleBulkDecision(false)}
                         isLoading={isSubmitting}
                       >
-                        Reject Selected
+                        {t('emailReview.actions.rejectSelected')}
                       </Button>
                     </>
                   )}
@@ -472,7 +480,7 @@ const EmailReview: React.FC = () => {
                   <Spinner size="xl" color="primary.500" />
                 </Flex>
               ) : filteredReviews.length === 0 ? (
-                <Text textAlign="center" py={8} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>No pending reviews match your filters</Text>
+                <Text textAlign="center" py={8} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{t('emailReview.table.noResults')}</Text>
               ) : (
                 <>
                   <Box overflowX="auto">
@@ -480,12 +488,12 @@ const EmailReview: React.FC = () => {
                       <Thead bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'gray.50'}>
                         <Tr>
                           <Th width="50px"></Th>
-                          <Th>Subject</Th>
-                          <Th>Department</Th>
-                          <Th>Sensitivity</Th>
-                          <Th>Tags</Th>
-                          <Th>Private</Th>
-                          <Th>Actions</Th>
+                          <Th>{t('emailReview.table.subject')}</Th>
+                          <Th>{t('emailReview.table.department')}</Th>
+                          <Th>{t('emailReview.table.sensitivity')}</Th>
+                          <Th>{t('emailReview.table.tags')}</Th>
+                          <Th>{t('emailReview.table.private')}</Th>
+                          <Th>{t('emailReview.table.actions')}</Th>
                         </Tr>
                       </Thead>
                       <Tbody>
@@ -504,12 +512,12 @@ const EmailReview: React.FC = () => {
                             <Td fontWeight="medium">{review.content.subject}</Td>
                             <Td>
                               <Badge>
-                                {review.analysis.department}
+                                {t(`common.departments.${review.analysis.department}`, review.analysis.department)}
                               </Badge>
                             </Td>
                             <Td>
                               <Badge colorScheme={getSensitivityColor(review.analysis.sensitivity)}>
-                                {review.analysis.sensitivity}
+                                {t(`common.sensitivityLevels.${review.analysis.sensitivity}`, review.analysis.sensitivity)}
                               </Badge>
                             </Td>
                             <Td>
@@ -528,19 +536,19 @@ const EmailReview: React.FC = () => {
                             </Td>
                             <Td>
                               <Badge colorScheme={review.analysis.is_private ? 'red' : 'green'}>
-                                {review.analysis.is_private ? 'Yes' : 'No'}
+                                {review.analysis.is_private ? t('common.yes') : t('common.no')}
                               </Badge>
                             </Td>
                             <Td>
                               <HStack>
                                 <IconButton
-                                  aria-label="View details"
+                                  aria-label={t('emailReview.actions.viewDetails')}
                                   icon={<ViewIcon />}
                                   size="sm"
                                   onClick={() => openReviewDetails(review)}
                                 />
                                 <IconButton
-                                  aria-label="Approve"
+                                  aria-label={t('emailReview.actions.approve')}
                                   icon={<CheckIcon />}
                                   colorScheme="green"
                                   size="sm"
@@ -548,7 +556,7 @@ const EmailReview: React.FC = () => {
                                   isLoading={isSubmitting}
                                 />
                                 <IconButton
-                                  aria-label="Reject"
+                                  aria-label={t('emailReview.actions.reject')}
                                   icon={<CloseIcon />}
                                   colorScheme="red"
                                   size="sm"
@@ -564,12 +572,12 @@ const EmailReview: React.FC = () => {
                   </Box>
                   
                   <Box mt={4}>
-                    <FormLabel htmlFor="approval-notes" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Notes for selected emails:</FormLabel>
+                    <FormLabel htmlFor="approval-notes" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.notes.label')}</FormLabel>
                     <Textarea
                       id="approval-notes"
                       value={approvalNotes}
                       onChange={(e) => setApprovalNotes(e.target.value)}
-                      placeholder="Add optional notes about your decision..."
+                      placeholder={t('emailReview.notes.placeholder')}
                       size="sm"
                       bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                       borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
@@ -579,7 +587,7 @@ const EmailReview: React.FC = () => {
                   {/* Pagination Controls */}
                   <Flex justify="space-between" align="center" mt={4}>
                     <Text fontSize="sm">
-                      {selectedReviews.length} selected
+                      {t('emailReview.pagination.selectedCount', { count: selectedReviews.length })}
                     </Text>
                     <HStack spacing={2}>
                       <ButtonGroup variant="outline" size="sm" isAttached>
@@ -611,7 +619,7 @@ const EmailReview: React.FC = () => {
                         </Button>
                       </ButtonGroup>
                       <Text fontSize="sm" minW="100px" textAlign="center">
-                        Page {currentPage} of {totalPages}
+                        {t('emailReview.pagination.pageInfo', { currentPage: currentPage, totalPages: totalPages })}
                       </Text>
                     </HStack>
                   </Flex>
@@ -628,7 +636,7 @@ const EmailReview: React.FC = () => {
         <DrawerContent bg={colorMode === 'dark' ? 'dark.bg' : 'white'}>
           <DrawerCloseButton />
           <DrawerHeader borderBottomWidth="1px" borderBottomColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
-            Email Details
+            {t('emailReview.drawer.title')}
           </DrawerHeader>
           
           <DrawerBody>
@@ -637,28 +645,30 @@ const EmailReview: React.FC = () => {
                 <Box>
                   <Heading size="md">{currentReview.content.subject}</Heading>
                   <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                    From: {currentReview.content.sender} ({currentReview.content.sender_email})
+                    {t('emailReview.drawer.from', { sender: currentReview.content.sender, email: currentReview.content.sender_email })}
                   </Text>
                   <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                    Date: {new Date(currentReview.content.received_date).toLocaleString()}
+                    {t('emailReview.drawer.date', { date: new Date(currentReview.content.received_date).toLocaleString() })}
                   </Text>
                 </Box>
                 
                 <Divider borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'} />
                 
                 <Box>
-                  <Heading size="sm" mb={2}>AI Analysis</Heading>
+                  <Heading size="sm" mb={2}>{t('emailReview.drawer.analysisTitle')}</Heading>
                   
                   <HStack wrap="wrap" mb={2}>
                     <Badge colorScheme={getSensitivityColor(currentReview.analysis.sensitivity)}>
-                      {currentReview.analysis.sensitivity}
+                      {t(`common.sensitivityLevels.${currentReview.analysis.sensitivity}`, currentReview.analysis.sensitivity)}
                     </Badge>
-                    <Badge>{currentReview.analysis.department}</Badge>
+                    <Badge>
+                      {t(`common.departments.${currentReview.analysis.department}`, currentReview.analysis.department)}
+                    </Badge>
                     {currentReview.analysis.is_private && (
-                      <Badge colorScheme="red">Private</Badge>
+                      <Badge colorScheme="red">{t('emailReview.privacy.private')}</Badge>
                     )}
                     {currentReview.analysis.pii_detected.length > 0 && (
-                      <Badge colorScheme="orange">Contains PII</Badge>
+                      <Badge colorScheme="orange">{t('emailReview.drawer.containsPII')}</Badge>
                     )}
                   </HStack>
                   
@@ -670,10 +680,10 @@ const EmailReview: React.FC = () => {
                     ))}
                   </HStack>
                   
-                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Summary:</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.summary')}</Text>
                   <Text mb={2} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>{currentReview.analysis.summary}</Text>
                   
-                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Key Points:</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.keyPoints')}</Text>
                   <VStack align="start" mb={2}>
                     {currentReview.analysis.key_points.map((point, i) => (
                       <Text key={i} color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>• {point}</Text>
@@ -682,20 +692,20 @@ const EmailReview: React.FC = () => {
                   
                   {currentReview.analysis.pii_detected.length > 0 && (
                     <>
-                      <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>PII Detected:</Text>
+                      <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.piiDetected')}</Text>
                       <HStack mb={2}>
                         {currentReview.analysis.pii_detected.map(pii => (
                           <Badge key={pii} colorScheme="orange">
-                            {pii}
+                            {t(`common.piiTypes.${pii}`, pii)}
                           </Badge>
                         ))}
                       </HStack>
                     </>
                   )}
                   
-                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>Recommended Action:</Text>
+                  <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{t('emailReview.drawer.recommendedAction')}</Text>
                   <Badge colorScheme={currentReview.analysis.recommended_action === 'store' ? 'green' : 'red'}>
-                    {currentReview.analysis.recommended_action}
+                    {t(`common.recommendedActions.${currentReview.analysis.recommended_action}`, currentReview.analysis.recommended_action)}
                   </Badge>
                 </Box>
                 
@@ -705,9 +715,7 @@ const EmailReview: React.FC = () => {
                   <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
                     <h2>
                       <AccordionButton>
-                        <Box flex="1" textAlign="left">
-                          Email Content
-                        </Box>
+                        <Box flex="1" textAlign="left">{t('emailReview.drawer.emailContent')}</Box>
                         <AccordionIcon />
                       </AccordionButton>
                     </h2>
@@ -730,9 +738,7 @@ const EmailReview: React.FC = () => {
                     <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
                       <h2>
                         <AccordionButton>
-                          <Box flex="1" textAlign="left">
-                            Attachments ({currentReview.content.attachments.length})
-                          </Box>
+                          <Box flex="1" textAlign="left">{t('emailReview.drawer.attachmentsCount', { count: currentReview.content.attachments.length })}</Box>
                           <AccordionIcon />
                         </AccordionButton>
                       </h2>
@@ -749,10 +755,10 @@ const EmailReview: React.FC = () => {
                             >
                               <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{attachment.name}</Text>
                               <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
-                                Type: {attachment.content_type}
+                                {t('emailReview.drawer.attachmentType', { type: attachment.content_type })}
                               </Text>
                               <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
-                                Size: {Math.round(attachment.size / 1024)} KB
+                                {t('emailReview.drawer.attachmentSize', { size: Math.round(attachment.size / 1024) })} KB
                               </Text>
                             </Box>
                           ))}
@@ -768,7 +774,7 @@ const EmailReview: React.FC = () => {
                   <Textarea
                     value={approvalNotes}
                     onChange={(e) => setApprovalNotes(e.target.value)}
-                    placeholder="Add notes about your decision..."
+                    placeholder={t('emailReview.notes.placeholder')}
                     mb={4}
                     bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
                     borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
@@ -783,7 +789,7 @@ const EmailReview: React.FC = () => {
                       isLoading={isSubmitting}
                       flex="1"
                     >
-                      Approve
+                      {t('emailReview.actions.approve')}
                     </Button>
                     
                     <Button
@@ -793,7 +799,7 @@ const EmailReview: React.FC = () => {
                       isLoading={isSubmitting}
                       flex="1"
                     >
-                      Reject
+                      {t('emailReview.actions.reject')}
                     </Button>
                   </HStack>
                 </Box>

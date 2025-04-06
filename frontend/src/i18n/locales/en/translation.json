@@ -1117,7 +1117,39 @@
     "next": "Next",
     "add": "Add",
     "previousPage": "Previous Page",
-    "nextPage": "Next Page"
+    "nextPage": "Next Page",
+    "departments": {
+      "HR": "HR",
+      "Finance": "Finance",
+      "IT": "IT",
+      "Sales": "Sales",
+      "Marketing": "Marketing",
+      "Operations": "Operations",
+      "Legal": "Legal",
+      "Executive": "Executive",
+      "Support": "Support",
+      "Engineering": "Engineering"
+    },
+    "sensitivityLevels": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "piiTypes": {
+      "name": "Name",
+      "email": "Email",
+      "phone": "Phone",
+      "address": "Address",
+      "ssn": "SSN/ID",
+      "financial": "Financial",
+      "health": "Health",
+      "credentials": "Credentials"
+    },
+    "recommendedActions": {
+      "store": "Store",
+      "exclude": "Exclude"
+    }
   },
   "analysis": {
     "classification": {
@@ -1179,5 +1211,73 @@
     "errorSubmittingAnalysis": "Error Submitting Analysis",
     "errorSavingToKB": "Error Saving to Knowledge Base",
     "unknownError": "An unknown error occurred. Please try again."
+  },
+  "emailReview": {
+    "pageTitle": "Review Analyzed Emails",
+    "pageDescription": "Review and approve emails for your knowledge base",
+    "filters": {
+      "title": "Filters",
+      "allDepartments": "All Departments",
+      "allSensitivityLevels": "All Sensitivity Levels",
+      "allPrivacyLevels": "All Privacy Levels"
+    },
+    "privacy": {
+      "private": "Private",
+      "notPrivate": "Not Private"
+    },
+    "table": {
+      "title": "Pending Reviews",
+      "noResults": "No pending reviews match your filters",
+      "subject": "Subject",
+      "department": "Department",
+      "sensitivity": "Sensitivity",
+      "tags": "Tags",
+      "private": "Private",
+      "actions": "Actions"
+    },
+    "pagination": {
+      "showingRangeOfTotal": "Showing {{start}}-{{end}} of {{total}}",
+      "selectedCount": "{{count}} selected",
+      "pageInfo": "Page {{currentPage}} of {{totalPages}}"
+    },
+    "actions": {
+      "selectAll": "Select All",
+      "deselectAll": "Deselect All",
+      "approveSelected": "Approve Selected",
+      "rejectSelected": "Reject Selected",
+      "approve": "Approve",
+      "reject": "Reject",
+      "viewDetails": "View details"
+    },
+    "notes": {
+      "label": "Notes for selected emails:",
+      "placeholder": "Add optional notes about your decision..."
+    },
+    "drawer": {
+      "title": "Email Details",
+      "from": "From: {{sender}} ({{email}})",
+      "date": "Date: {{date}}",
+      "analysisTitle": "AI Analysis",
+      "containsPII": "Contains PII",
+      "summary": "Summary:",
+      "keyPoints": "Key Points:",
+      "piiDetected": "PII Detected:",
+      "recommendedAction": "Recommended Action:",
+      "emailContent": "Email Content",
+      "attachmentsCount": "Attachments ({{count}})",
+      "attachmentType": "Type: {{type}}",
+      "attachmentSize": "Size: {{size}} KB"
+    },
+    "toast": {
+      "approvedSuccess": "Email approved",
+      "rejectedSuccess": "Email rejected",
+      "updateErrorTitle": "Error updating review",
+      "noSelectionTitle": "No emails selected",
+      "noSelectionDescription": "Please select at least one email",
+      "bulkApprovedSuccess": "{{count}} emails approved",
+      "bulkRejectedSuccess": "{{count}} emails rejected",
+      "bulkUpdateErrorTitle": "Error updating reviews",
+      "loadErrorTitle": "Error loading reviews"
+    }
   }
 }

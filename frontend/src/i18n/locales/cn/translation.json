@@ -1,0 +1,292 @@
+{
+  "app": {
+    "name": "邮件知识库",
+    "tagline": "人工智能驱动的邮件知识库"
+  },
+  "home": {
+    "hero": {
+      "title": "从日常邮件任务中解放您的时间",
+      "description": "办公室工作人员将超过 50% 的时间用于重复性的邮件沟通。我们的平台从您的邮件中提取有价值的知识，使人工智能能够以个性化的语气和清晰度处理日常任务。"
+    },
+    "cta": {
+      "signIn": "使用 Microsoft 登录",
+      "learnMore": "了解更多",
+      "getStartedNow": "立即开始"
+    }
+  },
+  "navigation": {
+    "home": "首页",
+    "filterEmails": "筛选邮件",
+    "review": "审阅",
+    "search": "搜索",
+    "documentation": "文档",
+    "support": "支持",
+    "menu": "菜单",
+    "toggleTheme": "切换主题"
+  },
+  "features": {
+    "title": "解锁隐藏的知识",
+    "subtitle": "将邮件转化为知识",
+    "learnMore": "了解更多",
+    "smartEmailProcessing": {
+      "title": "智能邮件处理",
+      "description": "根据内容、发件人和重要性智能地筛选和处理邮件。"
+    },
+    "aiPoweredKnowledgeExtraction": {
+      "title": "人工智能驱动的知识提取",
+      "description": "使用先进的人工智能算法从您的通信中提取有价值的见解和模式。"
+    },
+    "centralizedKnowledgeBase": {
+      "title": "集中式知识库",
+      "description": "将所有提取的知识存储在可搜索、有组织的数据库中，以便轻松访问。"
+    },
+    "enterpriseGradeSecurity": {
+      "title": "企业级安全",
+      "description": "通过先进的安全措施和合规协议保护敏感信息。"
+    },
+    "aiAssistantTraining": {
+      "title": "人工智能助手培训",
+      "description": "使用您的知识库培训人工智能助手，以有效地处理日常通信。"
+    },
+    "powerfulSearchCapabilities": {
+      "title": "强大的搜索功能",
+      "description": "通过先进的语义搜索和筛选选项准确找到您需要的内容。"
+    },
+    "unlockHiddenKnowledge": "解锁隐藏的知识"
+  },
+  "useCases": {
+    "transformingWorkAcrossDepartments": "跨部门工作转型",
+    "seeHowTeamsBenefit": "了解团队如何受益",
+    "hrDepartments": "人力资源部门",
+    "administrativeTeams": "行政团队",
+    "financeDepartments": "财务部门",
+    "salesTeams": "销售团队",
+    "consultingAgencies": "咨询机构",
+    "financialServices": "金融服务",
+    "streamlinedEmployeeSupport": {
+      "title": "简化的员工支持",
+      "description": "自动回复常见的人力资源查询，并与员工保持一致的沟通。"
+    },
+    "efficientOfficeManagement": {
+      "title": "高效的办公室管理",
+      "description": "组织行政通信并自动化日常办公室管理任务。"
+    },
+    "consistentFinancialCommunication": {
+      "title": "一致的财务沟通",
+      "description": "确保在所有部门和利益相关者之间传递准确一致的财务信息。"
+    },
+    "enhancedClientCommunication": {
+      "title": "增强的客户沟通",
+      "description": "通过个性化和及时的回复查询来改善客户关系。"
+    },
+    "clientKnowledgePreservation": {
+      "title": "客户知识保存",
+      "description": "即使团队成员更换角色，也要保存有关客户的机构知识。"
+    },
+    "structuredDealRecords": {
+      "title": "结构化的交易记录",
+      "description": "维护金融交易和客户互动的全面记录。"
+    }
+  },
+  "cta": {
+    "readyToFreeYourTeam": "准备好解放您的团队了吗？",
+    "takeTheFirstStep": "迈出第一步",
+    "getStartedNow": "立即开始"
+  },
+  "footer": {
+    "copyright": "邮件知识库。保留所有权利。",
+    "documentation": "文档",
+    "support": "支持",
+    "privacyPolicy": "隐私政策",
+    "termsOfService": "服务条款"
+  },
+  "stats": {
+    "officeTimeSpent": "办公室邮件处理时间占比",
+    "productivityIncrease": "生产力提升",
+    "returnOnInvestment": "投资回报率"
+  },
+  "documentation": {
+    "title": "文档",
+    "description": "欢迎查阅邮件知识库文档..."
+  },
+  "settings": {
+    "language": "语言",
+    "english": "英语",
+    "chinese": "中文"
+  },
+  "signIn": {
+    "title": "登录邮件知识库",
+    "description": "输入您的电子邮件地址和密码以访问您的帐户",
+    "email": "电子邮件",
+    "password": "密码",
+    "forgotPassword": "忘记密码？",
+    "signIn": "登录",
+    "or": "或",
+    "signUp": "注册"
+  },
+  "toast": {
+    "loginSuccess": {
+      "title": "登录成功",
+      "description": "您已成功登录。"
+    },
+    "loginError": {
+      "title": "登录失败",
+      "description": "登录时出错。请重试。"
+    }
+  },
+  "support": {
+    "title": "支持与联系",
+    "subtitle": "我们的支持团队随时准备提供帮助..."
+  },
+  "emailProcessing": {
+    "filters": {
+      "title": "筛选器"
+    }
+  },
+  "common": {
+    "yes": "是",
+    "no": "否",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "view": "查看",
+    "search": "搜索",
+    "filter": "筛选",
+    "sort": "排序",
+    "select": "选择",
+    "submit": "提交",
+    "reset": "重置",
+    "previous": "上一个",
+    "next": "下一个",
+    "add": "添加",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "departments": {
+      "HR": "人力资源",
+      "Finance": "财务",
+      "IT": "信息技术",
+      "Sales": "销售",
+      "Marketing": "市场营销",
+      "Operations": "运营",
+      "Legal": "法务",
+      "Executive": "行政",
+      "Support": "支持",
+      "Engineering": "工程"
+    },
+    "sensitivityLevels": {
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "critical": "紧急"
+    },
+    "piiTypes": {
+      "name": "姓名",
+      "email": "电子邮件",
+      "phone": "电话",
+      "address": "地址",
+      "ssn": "社保/身份证号",
+      "financial": "财务信息",
+      "health": "健康信息",
+      "credentials": "凭证"
+    },
+    "recommendedActions": {
+      "store": "存储",
+      "exclude": "排除"
+    }
+  },
+  "analysis": {
+    "classification": {},
+    "pii": {}
+  },
+  "language": {
+    "english": "英语",
+    "chinese": "中文"
+  },
+  "userMenu": {
+    "account": "帐户",
+    "signOut": "登出"
+  },
+  "auth": {
+    "signInWithMicrosoft": "使用 Microsoft 登录"
+  },
+  "errors": {
+    "errorLoadingPreviews": "加载预览时出错",
+    "errorLoadingFolders": "加载文件夹时出错",
+    "errorSubmittingAnalysis": "提交分析时出错",
+    "errorSavingToKB": "保存到知识库时出错",
+    "unknownError": "发生未知错误。请重试。"
+  },
+  "knowledgeBase": {},
+  "emailReview": {
+    "pageTitle": "审阅已分析邮件",
+    "pageDescription": "审阅并批准邮件以纳入您的知识库",
+    "filters": {
+      "title": "筛选器",
+      "allDepartments": "所有部门",
+      "allSensitivityLevels": "所有敏感度级别",
+      "allPrivacyLevels": "所有隐私级别"
+    },
+    "privacy": {
+      "private": "私密",
+      "notPrivate": "非私密"
+    },
+    "table": {
+      "title": "待审阅",
+      "noResults": "没有符合筛选条件的待审阅邮件",
+      "subject": "主题",
+      "department": "部门",
+      "sensitivity": "敏感度",
+      "tags": "标签",
+      "private": "私密",
+      "actions": "操作"
+    },
+    "pagination": {
+      "showingRangeOfTotal": "显示 {{total}} 条中的 {{start}}-{{end}} 条",
+      "selectedCount": "已选择 {{count}} 条",
+      "pageInfo": "第 {{currentPage}} 页 / 共 {{totalPages}} 页"
+    },
+    "actions": {
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "approveSelected": "批准所选",
+      "rejectSelected": "拒绝所选",
+      "approve": "批准",
+      "reject": "拒绝",
+      "viewDetails": "查看详情"
+    },
+    "notes": {
+      "label": "所选邮件备注：",
+      "placeholder": "添加关于您决定的可选备注..."
+    },
+    "drawer": {
+      "title": "邮件详情",
+      "from": "发件人：{{sender}} ({{email}})",
+      "date": "日期：{{date}}",
+      "analysisTitle": "人工智能分析",
+      "containsPII": "包含 PII",
+      "summary": "摘要：",
+      "keyPoints": "关键点：",
+      "piiDetected": "检测到的 PII：",
+      "recommendedAction": "建议操作：",
+      "emailContent": "邮件内容",
+      "attachmentsCount": "附件 ({{count}})",
+      "attachmentType": "类型：{{type}}",
+      "attachmentSize": "大小：{{size}} KB"
+    },
+    "toast": {
+      "approvedSuccess": "邮件已批准",
+      "rejectedSuccess": "邮件已拒绝",
+      "updateErrorTitle": "更新审阅时出错",
+      "noSelectionTitle": "未选择邮件",
+      "noSelectionDescription": "请至少选择一封邮件",
+      "bulkApprovedSuccess": "{{count}} 封邮件已批准",
+      "bulkRejectedSuccess": "{{count}} 封邮件已拒绝",
+      "bulkUpdateErrorTitle": "批量更新审阅时出错",
+      "loadErrorTitle": "加载审阅时出错"
+    }
+  }
+} 
