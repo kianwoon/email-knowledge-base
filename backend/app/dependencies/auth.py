@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, status, Request
 from jose import jwt
 from datetime import datetime, timedelta
 import msal
+import logging
 
 from app.config import settings
 from app.models.user import User, TokenData
@@ -16,46 +17,80 @@ msal_app = msal.ConfidentialClientApplication(
 # In-memory user storage (replace with database in production)
 users_db = {}
 
+# Get logger instance
+logger = logging.getLogger(__name__)
+
 async def get_current_user(request: Request) -> User:
     """Dependency to get current authenticated user"""
+    logger.info("Attempting to get current user...")
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
+    
+    if not auth_header:
+        logger.warning("Authorization header missing")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Authorization header missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not auth_header.startswith("Bearer "):
+        logger.warning(f"Invalid Authorization header format: {auth_header}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials format",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
     token = auth_header.split(" ")[1]
+    logger.debug(f"Extracted token: {token[:10]}...{token[-5:]}")
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
     try:
+        logger.debug(f"Decoding token using algorithm: {settings.JWT_ALGORITHM}")
+        logger.debug(f"Using JWT secret ending with: ...{settings.JWT_SECRET[-6:] if settings.JWT_SECRET else 'SECRET_NOT_SET'}")
+        
         payload = jwt.decode(
             token, 
             settings.JWT_SECRET, 
             algorithms=[settings.JWT_ALGORITHM]
         )
         user_id = payload.get("sub")
+        email = payload.get("email")
+        logger.info(f"Token decoded successfully. Payload sub: {user_id}, email: {email}")
+        
         if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+            logger.error("User ID ('sub') not found in token payload.")
+            raise credentials_exception
+            
+    except jwt.ExpiredSignatureError:
+        logger.warning("Token validation failed: ExpiredSignatureError")
+        raise credentials_exception
+    except jwt.JWTClaimsError as e:
+        logger.error(f"Token validation failed: JWTClaimsError - {e}")
+        raise credentials_exception
+    except jwt.JWTError as e:
+        logger.error(f"Token validation failed: JWTError - {e}", exc_info=True)
+        raise credentials_exception
+    except Exception as e:
+        logger.error(f"Unexpected error during token decoding: {e}", exc_info=True)
+        raise credentials_exception
+        
     user = users_db.get(user_id)
     if user is None:
+        logger.error(f"User with ID '{user_id}' not found in users_db.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
     
+    logger.info(f"User '{user_id}' found in db. Checking MS token expiry.")
     # Check if Microsoft token is expired and needs refresh
     if user.ms_token_data and user.ms_token_data.expires_at <= datetime.utcnow():
+        logger.info(f"MS token for user '{user_id}' expired or expires soon. Attempting refresh.")
         try:
             # Use refresh token to get new access token
             result = msal_app.acquire_token_by_refresh_token(
