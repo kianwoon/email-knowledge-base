@@ -23,7 +23,22 @@
     "support": "Support",
     "menu": "Menu",
     "toggleTheme": "Toggle theme",
-    "knowledgeManagement": "Knowledge"
+    "knowledgeManagement": "Knowledge Management",
+    "settings": "Settings",
+    "help": "Help",
+    "contactSupport": "Contact Support",
+    "releaseNotes": "Release Notes",
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
+    "userMenu": "User Menu",
+    "dataSource": "Data Source",
+    "sharepoint": "SharePoint (Coming Soon)",
+    "confluence": "Confluence (Coming Soon)",
+    "elasticsearch": "Elasticsearch (Coming Soon)",
+    "googleDrive": "Google Drive (Coming Soon)",
+    "awsS3": "AWS S3 (Coming Soon)",
+    "aiDataManagement": "AI Data Management",
+    "tokenManagement": "Token Management"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -958,7 +973,15 @@
       "tag9": "Tag 9",
       "important": "Important",
       "routine": "Routine"
-    }
+    },
+    "save": "Save",
+    "close": "Close",
+    "previousSlide": "Previous slide",
+    "nextSlide": "Next slide",
+    "login": "Login",
+    "logout": "Logout",
+    "refresh": "Refresh Data",
+    "notAvailable": "N/A"
   },
   "analysis": {
     "classification": {
@@ -1012,7 +1035,11 @@
     "signOut": "Sign Out"
   },
   "auth": {
-    "signInWithMicrosoft": "Sign in with Microsoft"
+    "signInWithMicrosoft": "Sign in with Microsoft",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "sessionExpiredTitle": "Session Expired",
+    "sessionExpiredMessage": "Your session has expired. Please log in again to continue."
   },
   "errors": {
     "errorLoadingPreviews": "Error Loading Previews",
@@ -1249,5 +1276,123 @@
     "title": "Session Expired",
     "message": "Your session has expired. Please log in again to continue.",
     "loginButton": "Login"
+  },
+  "sidebar": {
+    "dashboard": "Dashboard",
+    "emailAnalysis": "Email Analysis",
+    "knowledgeManagement": "Knowledge Management",
+    "apiTokenManagement": "API Token Management",
+    "reviewQueue": "Review Queue",
+    "settings": "Settings"
+  },
+  "tokenManagement": {
+    "title": "API Token Management",
+    "createTokenButton": "Create New Token",
+    "noTokens": "No API tokens found.",
+    "deleteConfirmTitle": "Confirm Deletion",
+    "deleteConfirmMessage": "Are you sure you want to delete the token \"{{tokenName}}\"? This action cannot be undone.",
+    "deleteSuccessTitle": "Token Deleted",
+    "deleteSuccessMessage": "Token \"{{tokenName}}\" has been deleted.",
+    "deleteErrorTitle": "Deletion Failed",
+    "errors": {
+      "loadTokensFailed": "Failed to load tokens. Please try again later.",
+      "deleteFailed": "Failed to delete the token. Please try again."
+    }
+  },
+  "tokenModal": {
+    "createTitle": "Create New API Token",
+    "editTitle": "Edit API Token",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g., My Analysis Script",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Optional: Describe what this token is used for",
+    "sensitivityLabel": "Sensitivity Level",
+    "sensitivityLevels": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "critical": "Critical"
+    },
+    "expiryLabel": "Expiry Date (Optional)",
+    "editableLabel": "Allow Editing Rules Later",
+    "tokenValueLabel": "Token Value",
+    "tokenValueNote": "This value is only shown once upon creation.",
+    "inactiveNote": "Token is currently inactive due to expiry.",
+    "createButton": "Create Token",
+    "updateButton": "Update Token",
+    "createSuccessTitle": "Token Created",
+    "createSuccessDesc": "Token \"{{name}}\" was successfully created.",
+    "updateSuccessTitle": "Token Updated",
+    "updateSuccessDesc": "Token \"{{name}}\" was successfully updated.",
+    "validations": {
+      "nameRequired": "Token name is required."
+    },
+    "errors": {
+      "createFailed": "Failed to create token. Please try again.",
+      "updateFailed": "Failed to update token. Please try again.",
+      "fetchFailed": "Failed to load token details."
+    },
+    "rules": {
+        "title": "Access Rules",
+        "fieldLabel": "Rule Field",
+        "valuesLabel": "Values (press Enter to add)",
+        "valuePlaceholder": "Enter a value",
+        "addAllow": "Add Allow Rule",
+        "addDeny": "Add Deny Rule",
+        "allowTitle": "Allow Rules",
+        "denyTitle": "Deny Rules",
+        "removeRuleTooltip": "Remove this rule",
+        "removeRuleAriaLabel": "Remove rule",
+        "errorTitle": "Incomplete Rule",
+        "errorDescription": "Please select a field and add at least one value.",
+        "duplicateFieldTitle": "Duplicate Field",
+        "duplicateFieldDescAllow": "An allow rule for the field '{{field}}' already exists. Remove the existing rule first to change values.",
+        "duplicateFieldDescDeny": "A deny rule for the field '{{field}}' already exists. Remove the existing rule first to change values.",
+        "allowPrefix": "ALLOW",
+        "denyPrefix": "DENY"
+    }
+  },
+  "knowledgeManagement": {
+    "title": "Knowledge Base Management",
+    "summaryTitle": "Data Summary",
+    "summary": {
+      "rawDataLabel": "Raw Data Items",
+      "rawDataHelp": "Source: {email}_email_knowledge",
+      "vectorDataLabel": "Vector Data Items",
+      "vectorDataHelp": "Source: {email}_email_knowledge_base",
+      "tokenLabel": "API Access Tokens",
+      "tokenHelp": "{{count}} active",
+      "lastUpdated": "Last updated: {{time}}"
+    },
+    "actionsTitle": "Management Actions",
+    "actionsPlaceholder": "Further actions related to knowledge base management can be added here.",
+    "errors": {
+        "loadFailed": "Failed to load summary data. Please try again."
+    }
+  },
+  "tokenManagementPage": {
+    "subtitle": "Create and manage access tokens for sharing knowledge",
+    "createTokenButton": "Create Token",
+    "existingTokensTitle": "Existing Tokens",
+    "noTokens": "No tokens found. Click Create Token to get started.",
+    "table": {
+      "name": "Name",
+      "sensitivity": "Sensitivity",
+      "expiry": "Expiry",
+      "actions": "Actions"
+    },
+    "actions": {
+      "edit": "Edit Token",
+      "delete": "Delete Token"
+    },
+    "deleteDialog": {
+      "title": "Delete Token",
+      "message": "Are you sure you want to delete this token? This action cannot be undone."
+    },
+    "toast": {
+      "deleteSuccessTitle": "Token Deleted",
+      "deleteErrorTitle": "Deletion Failed",
+      "deleteErrorDescription": "Could not delete token."
+    }
   }
 }

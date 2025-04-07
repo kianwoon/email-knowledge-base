@@ -4,6 +4,7 @@ import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import App from './App';
 import i18n from './i18n/i18n'; // Import the configured i18n instance
 import { I18nextProvider } from 'react-i18next'; // Import the provider
+import { BrowserRouter as Router } from 'react-router-dom'; // Import Router
 import './index.css';
 import { setupInterceptors } from 'src/api/apiClient'; // Corrected import path assuming apiClient.ts is in ./api/
 
@@ -199,10 +200,12 @@ const theme = extendTheme({
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ChakraProvider>
-      <I18nextProvider i18n={i18n}>
-        <App />
-      </I18nextProvider>
-    </ChakraProvider>
+    <Router>
+      <ChakraProvider theme={theme}>
+        <I18nextProvider i18n={i18n}>
+          <App />
+        </I18nextProvider>
+      </ChakraProvider>
+    </Router>
   </React.StrictMode>,
 );

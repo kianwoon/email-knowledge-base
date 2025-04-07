@@ -10,9 +10,9 @@ from pydantic import BaseModel
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct
 
-from app.models.email import EmailPreview, EmailFilter, EmailContent
+from app.models.email import EmailPreview, EmailFilter, EmailContent, PaginatedEmailPreviewResponse
 from app.services.outlook import OutlookService
-from app.routes.auth import get_current_user
+from app.dependencies.auth import get_current_active_user
 from app.models.user import User
 from app.config import settings
 from app.routes.vector import get_db
@@ -27,91 +27,108 @@ class AnalysisJob(BaseModel):
 
 
 @router.get("/folders", response_model=List[dict])
-async def list_folders(current_user: User = Depends(get_current_user)):
+async def list_folders(current_user: User = Depends(get_current_active_user)):
     """Get list of email folders from Outlook"""
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+    if not current_user.ms_access_token:
+        logger.error(f"User {current_user.email} has no ms_access_token attached. Cannot call MS Graph.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Microsoft access token not available"
+            detail="Microsoft access token not available or expired in session"
         )
     
     try:
-        outlook = OutlookService(current_user.ms_token_data.access_token)
+        outlook = OutlookService(current_user.ms_access_token)
         folders = await outlook.get_email_folders()
         return folders
     except Exception as e:
+        logger.error(f"Error fetching folders for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch folders: {str(e)}"
         )
 
 
-@router.post("/preview", response_model=dict)
+@router.post("/preview", response_model=PaginatedEmailPreviewResponse)
 async def preview_emails(
     filter_params: EmailFilter,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=10, ge=1, le=50),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get preview of emails based on filter criteria"""
     try:
-        if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+        if not current_user.ms_access_token:
             raise HTTPException(
                 status_code=401,
                 detail="Microsoft access token not available"
             )
 
-        # Get email previews
-        outlook = OutlookService(current_user.ms_token_data.access_token)
-        result = await outlook.get_email_preview(
+        outlook = OutlookService(current_user.ms_access_token)
+        
+        next_link = filter_params.next_link 
+        # Directly use filter_params.keywords if provided
+        keywords_from_filter = filter_params.keywords or []
+        keywords_list = [kw for kw in keywords_from_filter if kw and kw.strip()]
+        
+        logger.debug(f"Fetching email previews with filter: {filter_params.dict(exclude={'next_link'})}, Page: {page}, Per Page: {per_page}, Next Link: {next_link}, Processed Keywords: {keywords_list}")
+
+        # Call the correct method with adjusted parameters
+        preview_data = await outlook.get_email_preview(
             folder_id=filter_params.folder_id,
+            keywords=keywords_list if keywords_list else None, # Use the processed list
             start_date=filter_params.start_date,
             end_date=filter_params.end_date,
-            keywords=filter_params.keywords,
+            next_link=next_link, 
+            per_page=per_page, 
+            # Use sender directly from filter_params
             sender=filter_params.sender,
-            page=page,
-            per_page=per_page,
-            next_link=filter_params.next_link
+            # Pass other params that get_email_preview might expect via kwargs, 
+            # if they were part of the old EmailFilter or are needed.
+            # has_attachments=filter_params.has_attachments, # Example if needed
+            # from_address=filter_params.from_address, # Example if needed
+            # to_address=filter_params.to_address, # Example if needed
+        )
+        
+        # +++ ADD LOG IMMEDIATELY AFTER SERVICE CALL +++
+        service_next_link = preview_data.get('next_link')
+        logger.info(f"[SERVICE RETURN CHECK] Service returned preview_data with next_link: {service_next_link}")
+        # --- END LOG ---
+
+        logger.debug(f"Received preview data structure: keys={preview_data.keys()}")
+        
+        response_data = PaginatedEmailPreviewResponse(
+            items=preview_data.get('items', []),
+            total=preview_data.get('total'),
+            next_link=service_next_link # Use the variable we just logged
         )
 
-        # Calculate current page based on total and per_page
-        current_page = page
-        if filter_params.next_link:
-            # If next_link was used, increment the page
-            current_page = page + 1
+        logger.info(f"[RETURN CHECK] Returning response_data with next_link: {response_data.next_link}")
 
-        # Format response to match frontend expectations
-        return {
-            "items": result.get("items", []),
-            "total": result.get("total", 0),
-            "next_link": result.get("next_link"),
-            "current_page": current_page,
-            "total_pages": (result.get("total", 0) + per_page - 1) // per_page,
-            "per_page": per_page
-        }
+        return response_data
 
+    except AttributeError as ae:
+        # This specific error should be resolved now, but keep the handler
+        logger.error(f"AttributeError calling OutlookService or processing filters: {ae}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error processing email request (AttributeError).")
     except Exception as e:
-        logger.error(f"Error getting email previews: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting email previews: {str(e)}"
-        )
+        logger.error(f"Error fetching email previews: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/{email_id}", response_model=EmailContent)
 async def get_email(
     email_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get full content of a specific email"""
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+    if not current_user.ms_access_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Microsoft access token not available"
         )
     
     try:
-        outlook = OutlookService(current_user.ms_token_data.access_token)
+        outlook = OutlookService(current_user.ms_access_token)
         content = await outlook.get_email_content(email_id)
         return content
     except Exception as e:
@@ -125,17 +142,17 @@ async def get_email(
 async def get_email_attachment(
     email_id: str,
     attachment_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Get email attachment by ID"""
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+    if not current_user.ms_access_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Microsoft access token not available"
         )
     
     try:
-        outlook = OutlookService(current_user.ms_token_data.access_token)
+        outlook = OutlookService(current_user.ms_access_token)
         attachment = await outlook.get_email_attachment(email_id, attachment_id)
         return attachment
     except Exception as e:
@@ -150,7 +167,7 @@ async def analyze_emails(
     filter_criteria: EmailFilter,
     background_tasks: BackgroundTasks,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     qdrant: QdrantClient = Depends(get_qdrant_client)
 ):
     """
@@ -165,7 +182,7 @@ async def analyze_emails(
     logger.debug(f"Filter criteria: {filter_criteria}")
 
     # --- Microsoft Token Check ---
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
+    if not current_user.ms_access_token:
         logger.warning(f"Analysis request failed for {owner}: Microsoft access token not available.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -175,7 +192,7 @@ async def analyze_emails(
 
     # --- Instantiate Outlook Service ---
     try:
-        outlook = OutlookService(current_user.ms_token_data.access_token)
+        outlook = OutlookService(current_user.ms_access_token)
     except Exception as e:
         logger.error(f"Failed to instantiate OutlookService for {owner}: {e}")
         raise HTTPException(
@@ -233,32 +250,40 @@ async def analyze_emails(
         logger.error(f"Failed to store query criteria in Qdrant for job_id {job_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize analysis job storage.")
 
-    # Fetch email subjects (using pagination if necessary)
+    # Fetch email subjects using the CORRECT preview method and keywords
     subjects = []
-    next_link = None
-    max_subjects = 200
+    next_link_page = None # Use a different var name to avoid confusion
+    max_subjects = 200 
     try:
+        # --- Prepare keywords --- 
+        keywords_from_filter = filter_criteria.keywords or []
+        analysis_keywords = [kw for kw in keywords_from_filter if kw and kw.strip()]
+        # --- End Keywords --- 
+
         while len(subjects) < max_subjects:
-            logger.debug(f"Fetching email previews. Current count: {len(subjects)}. Max: {max_subjects}")
-            preview_result = await outlook.get_email_preview(
+            logger.debug(f"Analysis: Fetching email previews. Current count: {len(subjects)}. Max: {max_subjects}")
+            preview_result = await outlook.get_email_preview( # Use get_email_preview
                 folder_id=filter_criteria.folder_id,
-                keywords=filter_criteria.keywords,
+                keywords=analysis_keywords if analysis_keywords else None, # Pass keywords
                 start_date=filter_criteria.start_date,
                 end_date=filter_criteria.end_date,
-                per_page=50,
-                next_link=next_link
+                sender=filter_criteria.sender, # Pass sender
+                per_page=50, # Fetch larger batches for analysis
+                next_link=next_link_page # Pass the pagination link
+                # Add other filters if needed (has_attachments etc.)
             )
-            batch_subjects = [item['subject'] for item in preview_result.get('items', []) if item.get('subject')]
+            batch_items = preview_result.get('items', [])
+            batch_subjects = [item['subject'] for item in batch_items if item.get('subject')]
             subjects.extend(batch_subjects)
-            next_link = preview_result.get('next_link')
-            logger.debug(f"Fetched {len(batch_subjects)} subjects. Total now: {len(subjects)}. Next link: {'Yes' if next_link else 'No'}")
-            if not next_link or not batch_subjects:
+            next_link_page = preview_result.get('next_link') # Update pagination link
+            logger.debug(f"Analysis: Fetched {len(batch_subjects)} subjects. Total now: {len(subjects)}. Next link: {'Yes' if next_link_page else 'No'}")
+            if not next_link_page or not batch_items: # Stop if no next link OR no items were returned in batch
                 break
         subjects = subjects[:max_subjects]
         logger.info(f"Collected {len(subjects)} subjects for analysis for job {job_id}.")
 
     except Exception as e:
-        logger.error(f"Failed to fetch email subjects for analysis for job {job_id}: {e}")
+        logger.error(f"Failed to fetch email subjects for analysis for job {job_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve email subjects for analysis.")
 
     if not subjects:
@@ -266,102 +291,65 @@ async def analyze_emails(
          return {"message": "No emails found matching the criteria. Analysis not submitted.", "job_id": job_id}
 
     # Construct webhook URL - Use the environment-specific base URL
-    webhook_callback_path = "/analysis"
-    webhook_url = f"{settings.EXTERNAL_WEBHOOK_BASE_URL.rstrip('/')}/{settings.WEBHOOK_PREFIX.strip('/')}/{webhook_callback_path.strip('/')}"
-
-    if not settings.EXTERNAL_ANALYSIS_URL:
-        logger.error(f"Analysis service URL is not configured.")
-        raise HTTPException(status_code=500, detail="Analysis service URL is not configured.")
-
-    # --- Get API Key for External Service ---
-    api_key = settings.EXTERNAL_ANALYSIS_API_KEY
-    if not api_key:
-        logger.error(f"EXTERNAL_ANALYSIS_API_KEY is not set for job {job_id}.")
-        raise HTTPException(status_code=500, detail="Analysis service API key is not configured.")
-    # --- End Get API Key ---
-
-    # Prepare headers for the external service
-    request_headers = {
-        "X-API-Key": api_key, # CORRECTED: Use the retrieved api_key
-        "Content-Type": "application/json"
-    }
-
-    # Payload for the external service
-    external_payload = {
-        "subjects": subjects,
-        "webhook_url": webhook_url,
-        "job_id": job_id
-    }
-
-    logger.info(f"Submitting job {job_id} for owner {owner} with {len(subjects)} subjects to external service at {settings.EXTERNAL_ANALYSIS_URL}")
+    webhook_base = settings.EXTERNAL_WEBHOOK_BASE_URL.rstrip('/')
+    webhook_path = settings.WEBHOOK_PREFIX.strip('/') # From .env
+    webhook_url = f"{webhook_base}/{webhook_path}/analysis?job_id={job_id}"
     logger.info(f"Webhook URL for callback: {webhook_url}")
 
-    # Use background task to submit to external service and store mapping in memory
-    background_tasks.add_task(
-        submit_and_map_analysis,
-        url=settings.EXTERNAL_ANALYSIS_URL,
-        payload=external_payload,
-        headers=request_headers, # Pass the correct headers
-        job_store=request.app.state.job_mapping_store, # Pass the dictionary from app state
-        internal_job_id=job_id,
-        owner=owner # Keep owner if needed for logging/context, though not stored in simple dict map
-    )
+    # --- Adjust Payload and Headers for External API --- 
+    analysis_payload = {
+        "subjects": subjects, # Use "subjects" key
+        "callback_url": webhook_url
+    }
+    headers = {
+        "X-API-Key": settings.EXTERNAL_ANALYSIS_API_KEY, # Use "X-API-Key" header
+        "Content-Type": "application/json"
+    }
+    # --- End Adjustment --- 
 
-    # Return immediately to the user
-    return {"message": "Analysis job submission initiated.", "job_id": job_id}
-
-
-async def submit_and_map_analysis(url: str, payload: dict, headers: dict, job_store: dict, internal_job_id: str, owner: str):
-    """
-    Runs in the background to:
-    1. Submit the analysis request to the external service using the provided headers.
-    2. Store the mapping between the external service's job ID and our internal job ID in the provided dictionary.
-    """
-    # The 'headers' dict received already contains the correct 'X-API-Key'
-    # No need to re-fetch or reconstruct headers here.
-
-    logger.info(f" [TASK: {internal_job_id}] Submitting analysis request with headers: {headers}")
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
+    external_job_id = None
+    try:
+        logger.info(f"Submitting {len(subjects)} subjects to external analysis service: {settings.EXTERNAL_ANALYSIS_URL}")
+        async with httpx.AsyncClient() as client:
             response = await client.post(
-                url,
-                json=payload,
-                headers=headers, # Use the headers dictionary passed directly as argument
+                settings.EXTERNAL_ANALYSIS_URL,
+                json=analysis_payload, # Send corrected payload
+                headers=headers, # Send corrected headers
+                timeout=60.0
             )
-            logger.info(f" [TASK: {internal_job_id}] HTTP Request: POST {url} \"HTTP/{response.http_version} {response.status_code} {response.reason_phrase}\"")
-            response.raise_for_status()
+            response.raise_for_status() # Raise exception for non-2xx responses
+            response_data = response.json()
+            
+            # --- Use the correct field name from the API response --- 
+            external_job_id = response_data.get("job_id") # Changed from "request_id"
+            # --- End Correction ---
 
-            # Store External Job ID Mapping in the dictionary
-            try:
-                response_data = response.json()
-                external_job_id = response_data.get("job_id")
+            if not external_job_id:
+                 # Update error message to reflect the field we looked for
+                 logger.error(f"External analysis API response missing 'job_id' (or expected ID field). Response: {response_data}") 
+                 raise HTTPException(status_code=500, detail="Failed to get job ID from external analysis service.")
+            
+            logger.info(f"External analysis service accepted request. External Job ID: {external_job_id}")
+            
+            # --- Map internal job ID to external job ID using APP state --- 
+            if hasattr(request.app.state, 'job_mapping_store') and isinstance(request.app.state.job_mapping_store, dict):
+                request.app.state.job_mapping_store[job_id] = external_job_id
+                logger.info(f"Stored job mapping: Internal {job_id} -> External {external_job_id}")
+            else:
+                logger.error("job_mapping_store not found or not a dict on app state!")
+                # Handle this critical error - maybe raise?
+                raise HTTPException(status_code=500, detail="Internal error: Job mapping store not available.")
+            # --- End Mapping --- 
+            
+    except httpx.RequestError as e:
+        logger.error(f"HTTP request error submitting to external analysis service: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to communicate with analysis service: {e}")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"External analysis service returned error {e.response.status_code}: {e.response.text}", exc_info=True)
+        # Re-raise the specific error from the external service
+        raise HTTPException(status_code=e.response.status_code, detail=f"Analysis service error: {e.response.text}")
+    except Exception as e:
+         logger.error(f"Unexpected error during external analysis submission for job {job_id}: {e}", exc_info=True)
+         raise HTTPException(status_code=500, detail="Failed to submit job for external analysis.")
 
-                logger.info(f" [TASK: {internal_job_id}] Raw external job ID received: {external_job_id} (Type: {type(external_job_id)})")
-
-                if external_job_id:
-                    # Convert external ID to string for consistent key type
-                    external_job_id_str = str(external_job_id)
-                    logger.info(f" [TASK: {internal_job_id}] External service returned its job_id: {external_job_id_str}")
-
-                    # Store in the dictionary: external_id -> internal_id
-                    job_store[external_job_id_str] = internal_job_id
-                    logger.info(f" [TASK: {internal_job_id}] Stored mapping in memory: '{external_job_id_str}' -> '{internal_job_id}'. Current store size: {len(job_store)}")
-
-                    # Simple check if the key exists immediately after adding (optional)
-                    if external_job_id_str in job_store:
-                         logger.info(f" [TASK: {internal_job_id}] Confirmed key '{external_job_id_str}' exists in job_store immediately after adding.")
-                    else:
-                         logger.error(f" [TASK: {internal_job_id}] *** CRITICAL: Key '{external_job_id_str}' NOT found in job_store immediately after adding! ***")
-
-                else:
-                    logger.warning(f" [TASK: {internal_job_id}] External analysis service response did not contain the expected 'job_id' field in its response.")
-
-            except Exception as json_err:
-                logger.error(f" [TASK: {internal_job_id}] Failed to parse JSON response or get external job_id from external service: {json_err}. Response text: {response.text}")
-
-            logger.info(f" [TASK: {internal_job_id}] POST request completed. Status Code: {response.status_code}")
-
-        except httpx.RequestError as exc:
-            logger.error(f" [TASK: {internal_job_id}] Error submitting job to external service: {exc}")
-        except httpx.HTTPStatusError as exc:
-             logger.error(f" [TASK: {internal_job_id}] External service returned error: Status {exc.response.status_code} - {exc.response.text}")
+    return {"message": "Analysis job submission initiated.", "job_id": job_id}

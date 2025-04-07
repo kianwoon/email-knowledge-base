@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -18,103 +18,151 @@ import {
   VStack,
   useColorModeValue,
   Center,
+  Divider,
+  IconButton,
+  HStack,
+  Tooltip,
 } from '@chakra-ui/react';
+import { RepeatIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
-import { getCollectionSummary } from '../api/knowledge'; // <<< UNCOMMENTED
+import PageBanner from '../components/PageBanner';
+import { getKnowledgeBaseSummary, KnowledgeSummaryResponse } from '../api/knowledge';
+import { getUserTokens, Token } from '../api/token';
 
-interface CollectionSummary {
-  count: number;
-  // Add other stats here later if needed
+interface CombinedSummary {
+  rawDataCount: number;
+  vectorDataCount: number;
+  totalTokenCount: number;
+  activeTokenCount: number;
+  lastUpdated: string | null;
 }
 
 const KnowledgeManagementPage: React.FC = () => {
   const { t } = useTranslation();
-  const [rawDataSummary, setRawDataSummary] = useState<CollectionSummary | null>(null);
-  const [vectorDataSummary, setVectorDataSummary] = useState<CollectionSummary | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [summaryData, setSummaryData] = useState<CombinedSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
-  const cardBg = useColorModeValue('white', 'rgba(255, 255, 255, 0.05)');
-  const cardBorder = useColorModeValue('gray.200', 'rgba(255, 255, 255, 0.16)');
 
-  // --- UNCOMMENTED useEffect ---
-  useEffect(() => {
-    const fetchSummaries = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const [rawSummary, vectorSummary] = await Promise.all([
-          getCollectionSummary('email_knowledge'), 
-          getCollectionSummary('email_knowledge_base')
-        ]);
-        setRawDataSummary(rawSummary);
-        setVectorDataSummary(vectorSummary);
-      } catch (err: any) {
-        setError(err.message || t('knowledgeManagement.errors.loadSummary'));
-        setRawDataSummary(null);
-        setVectorDataSummary(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const cardBg = useColorModeValue('white', 'gray.700');
+  const cardBorder = useColorModeValue('gray.200', 'gray.600');
 
-    fetchSummaries();
+  const fetchAllSummaries = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    console.log("Fetching all summaries...");
+    try {
+      const [knowledgeSummary, tokens] = await Promise.all([
+        getKnowledgeBaseSummary(),
+        getUserTokens()
+      ]);
+      
+      console.log("Knowledge Summary:", knowledgeSummary);
+      console.log("Tokens:", tokens);
+
+      const totalTokens = tokens.length;
+      const activeTokens = tokens.filter((token: Token) => token.is_active).length;
+      
+      setSummaryData({
+        rawDataCount: knowledgeSummary.raw_data_count ?? 0,
+        vectorDataCount: knowledgeSummary.vector_data_count ?? 0,
+        totalTokenCount: totalTokens,
+        activeTokenCount: activeTokens,
+        lastUpdated: knowledgeSummary.last_updated || null,
+      });
+      console.log("Summaries fetched and processed.");
+
+    } catch (err: any) {
+      console.error("Failed to fetch summaries:", err);
+      setError(t('knowledgeManagement.errors.loadFailed', 'Failed to load summary data. Please try again.'));
+    } finally {
+      setIsLoading(false);
+      console.log("Finished fetching summaries.");
+    }
   }, [t]);
-  // --- END UNCOMMENTED useEffect ---
+
+  useEffect(() => {
+    fetchAllSummaries();
+  }, [fetchAllSummaries]);
+
+  const formatDateTime = (isoString: string | null): string => {
+    if (!isoString) return t('common.notAvailable', 'N/A');
+    try {
+      return new Date(isoString).toLocaleString();
+    } catch (e) {
+      console.error("Error formatting date:", e);
+      return isoString;
+    }
+  };
 
   return (
-    <Container maxW="container.xl" py={8}>
+    <Box p={5}>
+      <PageBanner title={t('knowledgeManagement.title', 'Knowledge Base Management')} />
       <VStack spacing={6} align="stretch">
-        <Heading size="lg">{t('knowledgeManagement.title')}</Heading>
-
-        {isLoading && (
-          <Center py={10}>
-            <Spinner size="xl" />
-          </Center>
-        )}
-
+        <HStack justify="space-between" align="center">
+          <Box>
+            <Heading size="lg" mb={1}>{t('knowledgeManagement.summaryTitle', 'Data Summary')}</Heading>
+            {!isLoading && summaryData?.lastUpdated && (
+              <Text fontSize="sm" color="gray.500">
+                {t('knowledgeManagement.summary.lastUpdated', 'Last updated: {{time}}', { time: formatDateTime(summaryData.lastUpdated) })}
+              </Text>
+            )}
+          </Box>
+          <Tooltip label={t('common.refresh', 'Refresh Data')} placement="top">
+            <IconButton
+              aria-label={t('common.refresh', 'Refresh Data')}
+              icon={<RepeatIcon />}
+              onClick={fetchAllSummaries}
+              isLoading={isLoading}
+              variant="ghost"
+            />
+          </Tooltip>
+        </HStack>
+        
+        {isLoading && !summaryData && <Spinner size="xl" />}
+        
         {error && (
-          <Alert status="error" borderRadius="md">
-            <AlertIcon />
-            {error}
-          </Alert>
+            <Alert status="error" borderRadius="md">
+                <AlertIcon />
+                {error} 
+            </Alert>
         )}
 
-        {!isLoading && !error && (
-          <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-            {/* Raw Data Summary Card */}
-            <Card bg={cardBg} borderRadius="xl" boxShadow="md" borderWidth="1px" borderColor={cardBorder}>
-              <CardHeader>
-                <Heading size="md">{t('knowledgeManagement.rawData.title')}</Heading>
-              </CardHeader>
-              <CardBody>
-                <Stat>
-                  <StatLabel>{t('knowledgeManagement.itemCount')}</StatLabel>
-                  <StatNumber>{rawDataSummary?.count ?? '-'}</StatNumber>
-                  <StatHelpText>{t('knowledgeManagement.rawData.description')}</StatHelpText>
-                </Stat>
-                {/* Add more stats or actions here later */}
-              </CardBody>
-            </Card>
+        {!isLoading && !error && summaryData && (
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6} opacity={isLoading ? 0.5 : 1}>
+            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+              <Stat>
+                <StatLabel>{t('knowledgeManagement.summary.rawDataLabel', 'Raw Data Items')}</StatLabel>
+                <StatNumber>{summaryData.rawDataCount}</StatNumber>
+                <StatHelpText>{t('knowledgeManagement.summary.rawDataHelp', 'Source: ')}{`{email}_email_knowledge`}</StatHelpText>
+              </Stat>
+            </Box>
 
-            {/* Vector Data Summary Card */}
-            <Card bg={cardBg} borderRadius="xl" boxShadow="md" borderWidth="1px" borderColor={cardBorder}>
-              <CardHeader>
-                <Heading size="md">{t('knowledgeManagement.vectorData.title')}</Heading>
-              </CardHeader>
-              <CardBody>
-                <Stat>
-                  <StatLabel>{t('knowledgeManagement.itemCount')}</StatLabel>
-                  <StatNumber>{vectorDataSummary?.count ?? '-'}</StatNumber>
-                  <StatHelpText>{t('knowledgeManagement.vectorData.description')}</StatHelpText>
-                </Stat>
-                {/* Add more stats or actions here later */}
-              </CardBody>
-            </Card>
+            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+              <Stat>
+                <StatLabel>{t('knowledgeManagement.summary.vectorDataLabel', 'Vector Data Items')}</StatLabel>
+                <StatNumber>{summaryData.vectorDataCount}</StatNumber>
+                <StatHelpText>{t('knowledgeManagement.summary.vectorDataHelp', 'Source: ')}{`{email}_email_knowledge_base`}</StatHelpText>
+              </Stat>
+            </Box>
+
+            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+              <Stat>
+                <StatLabel>{t('knowledgeManagement.summary.tokenLabel', 'API Access Tokens')}</StatLabel>
+                <StatNumber>{summaryData.totalTokenCount}</StatNumber>
+                <StatHelpText>{t('knowledgeManagement.summary.tokenHelp', '{count} active', { count: summaryData.activeTokenCount })}</StatHelpText>
+              </Stat>
+            </Box>
           </SimpleGrid>
         )}
+
+        <Divider my={6} />
+
+        <Box>
+          <Heading size="md" mb={3}>{t('knowledgeManagement.actionsTitle', 'Management Actions')}</Heading>
+          <Text>{t('knowledgeManagement.actionsPlaceholder', 'Further actions related to knowledge base management can be added here.')}</Text>
+        </Box>
       </VStack>
-    </Container>
+    </Box>
   );
 };
 

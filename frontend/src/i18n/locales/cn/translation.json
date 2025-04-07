@@ -23,7 +23,15 @@
     "documentation": "文档",
     "support": "支持",
     "menu": "菜单",
-    "toggleTheme": "切换主题"
+    "toggleTheme": "切换主题",
+    "dataSource": "数据源",
+    "sharepoint": "SharePoint (即将推出)",
+    "confluence": "Confluence (即将推出)",
+    "elasticsearch": "Elasticsearch (即将推出)",
+    "googleDrive": "Google Drive (即将推出)",
+    "awsS3": "AWS S3 (即将推出)",
+    "aiDataManagement": "AI 数据管理",
+    "tokenManagement": "令牌管理"
   },
   "features": {
     "title": "解锁隐藏的知识",
@@ -790,7 +798,15 @@
       "tag9": "标签 9",
       "important": "重要",
       "routine": "常规"
-    }
+    },
+    "confirm": "确认",
+    "close": "关闭",
+    "previousSlide": "上一张幻灯片",
+    "nextSlide": "下一张幻灯片",
+    "login": "登录",
+    "logout": "登出",
+    "saving": "保存中...",
+    "notAvailable": "不可用"
   },
   "analysis": {
     "classification": {},
@@ -805,7 +821,10 @@
     "signOut": "登出"
   },
   "auth": {
-    "signInWithMicrosoft": "使用 Microsoft 登录"
+    "signIn": "登录",
+    "signOut": "登出",
+    "sessionExpiredTitle": "会话已过期",
+    "sessionExpiredMessage": "您的会话已过期。请重新登录以继续。"
   },
   "errors": {
     "errorLoadingPreviews": "加载预览时出错",
@@ -917,7 +936,7 @@
     }
   },
   "knowledgeManagement": {
-    "title": "知识管理",
+    "title": "知识库管理",
     "itemCount": "项目计数",
     "rawData": {
       "title": "原始数据 (邮件知识)",
@@ -929,11 +948,126 @@
     },
     "errors": {
       "loadSummary": "加载集合摘要失败。"
+    },
+    "summaryTitle": "数据摘要",
+    "summary": {
+      "rawDataLabel": "原始数据项",
+      "rawDataHelp": "来源：{email}_email_knowledge",
+      "vectorDataLabel": "向量数据项",
+      "vectorDataHelp": "来源：{email}_email_knowledge_base",
+      "tokenLabel": "API 访问令牌",
+      "tokenHelp": "{{count}} 个活动",
+      "lastUpdated": "最后更新：{{time}}"
+    },
+    "actionsTitle": "管理操作",
+    "actionsPlaceholder": "可以在此处添加与知识库管理相关的进一步操作。",
+    "errors": {
+        "loadFailed": "加载摘要数据失败。请重试。"
     }
   },
   "sessionExpired": {
     "title": "会话已过期",
     "message": "您的会话已过期。请重新登录以继续。",
     "loginButton": "登录"
+  },
+  "sidebar": {
+    "dashboard": "仪表板",
+    "emailAnalysis": "邮件分析",
+    "knowledgeManagement": "知识库管理",
+    "apiTokenManagement": "API 令牌管理",
+    "reviewQueue": "审核队列",
+    "settings": "设置"
+  },
+  "tokenManagement": {
+    "title": "API 令牌管理",
+    "createTokenButton": "创建新令牌",
+    "noTokens": "未找到 API 令牌。",
+    "deleteConfirmTitle": "确认删除",
+    "deleteConfirmMessage": "您确定要删除令牌 \"{{tokenName}}\" 吗？此操作无法撤销。",
+    "deleteSuccessTitle": "令牌已删除",
+    "deleteSuccessMessage": "令牌 \"{{tokenName}}\" 已被删除。",
+    "deleteErrorTitle": "删除失败",
+    "errors": {
+      "loadTokensFailed": "加载令牌失败。请稍后再试。",
+      "deleteFailed": "删除令牌失败。请重试。"
+    }
+  },
+  "tokenModal": {
+    "createTitle": "创建新的 API 令牌",
+    "editTitle": "编辑 API 令牌",
+    "nameLabel": "名称",
+    "namePlaceholder": "例如：我的分析脚本",
+    "descriptionLabel": "描述",
+    "descriptionPlaceholder": "可选：描述此令牌的用途",
+    "sensitivityLabel": "敏感度级别",
+    "sensitivityLevels": {
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "critical": "关键"
+    },
+    "expiryLabel": "到期日期（可选）",
+    "editableLabel": "允许稍后编辑规则",
+    "tokenValueLabel": "令牌值",
+    "tokenValueNote": "此值仅在创建时显示一次。",
+    "inactiveNote": "令牌当前因过期而无效。",
+    "createButton": "创建令牌",
+    "updateButton": "更新令牌",
+    "createSuccessTitle": "令牌已创建",
+    "createSuccessDesc": "令牌 \"{{name}}\" 已成功创建。",
+    "updateSuccessTitle": "令牌已更新",
+    "updateSuccessDesc": "令牌 \"{{name}}\" 已成功更新。",
+    "validations": {
+      "nameRequired": "令牌名称是必需的。"
+    },
+    "errors": {
+      "createFailed": "创建令牌失败。请重试。",
+      "updateFailed": "更新令牌失败。请重试。",
+      "fetchFailed": "加载令牌详情失败。"
+    },
+    "rules": {
+        "title": "访问规则",
+        "fieldLabel": "规则字段",
+        "valuesLabel": "值（按 Enter 添加）",
+        "valuePlaceholder": "输入一个值",
+        "addAllow": "添加允许规则",
+        "addDeny": "添加拒绝规则",
+        "allowTitle": "允许规则",
+        "denyTitle": "拒绝规则",
+        "removeRuleTooltip": "移除此规则",
+        "removeRuleAriaLabel": "移除规则",
+        "errorTitle": "规则不完整",
+        "errorDescription": "请选择一个字段并添加至少一个值。",
+        "duplicateFieldTitle": "字段重复",
+        "duplicateFieldDescAllow": "字段 '{{field}}' 的允许规则已存在。请先移除现有规则以更改值。",
+        "duplicateFieldDescDeny": "字段 '{{field}}' 的拒绝规则已存在。请先移除现有规则以更改值。",
+        "allowPrefix": "允许",
+        "denyPrefix": "拒绝"
+    }
+  },
+  "tokenManagementPage": {
+    "subtitle": "创建和管理用于共享知识的访问令牌",
+    "createTokenButton": "创建令牌",
+    "existingTokensTitle": "现有令牌",
+    "noTokens": "未找到令牌。点击\"创建令牌\"开始。",
+    "table": {
+      "name": "名称",
+      "sensitivity": "敏感度",
+      "expiry": "到期时间",
+      "actions": "操作"
+    },
+    "actions": {
+      "edit": "编辑令牌",
+      "delete": "删除令牌"
+    },
+    "deleteDialog": {
+      "title": "删除令牌",
+      "message": "您确定要删除此令牌吗？此操作无法撤销。"
+    },
+    "toast": {
+      "deleteSuccessTitle": "令牌已删除",
+      "deleteErrorTitle": "删除失败",
+      "deleteErrorDescription": "无法删除令牌。"
+    }
   }
 } 

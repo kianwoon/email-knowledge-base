@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
@@ -12,7 +12,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 # Import EmailFilter model
 from app.models.email import EmailVectorData, ReviewStatus, EmailFilter
 from app.models.user import User
-from app.routes.auth import get_current_user
+from app.dependencies.auth import get_current_active_user
 from app.services.embedder import create_embedding, search_similar
 from app.config import settings
 # Import Qdrant client functions
@@ -33,7 +33,7 @@ async def embed_email(
     email_id: str, # Should be provided by the caller (e.g., from review step)
     content: str, # Email body
     metadata: Dict[str, Any], # Metadata from qdrant_email_knowledge_schema.md
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     client: QdrantClient = Depends(get_db)
 ):
     """Create embedding for approved email content and store in vector database"""
@@ -110,7 +110,7 @@ async def search_vectors(
     status_filter: Optional[str] = Query(None, alias="status"), # Use alias for reserved word
     start_date: Optional[str] = None, # YYYY-MM-DD
     end_date: Optional[str] = None, # YYYY-MM-DD
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     client: QdrantClient = Depends(get_db)
 ):
     """Search for similar vectors using semantic search with filtering."""
@@ -185,7 +185,7 @@ async def search_vectors(
 @router.delete("/{point_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_vector(
     point_id: str, # Use the Qdrant point ID
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     client: QdrantClient = Depends(get_db)
 ):
     """Delete a vector point from Qdrant, ensuring owner match."""
@@ -223,7 +223,7 @@ async def delete_vector(
 @router.post("/save_job/{job_id}", status_code=status.HTTP_200_OK)
 async def save_job_to_knowledge_base(
     job_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     qdrant_client: QdrantClient = Depends(get_db) 
 ):
     """Fetches emails based on stored criteria for a job_id and stores them in Qdrant."""
@@ -298,7 +298,7 @@ async def save_job_to_knowledge_base(
 
     # --- 2. Fetch Full Email Details using Outlook Service --- 
     if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
-        # This check might be redundant due to Depends(get_current_user), but good practice
+        # This check might be redundant due to Depends(get_current_active_user), but good practice
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Microsoft access token not available")
 
     outlook = OutlookService(current_user.ms_token_data.access_token)
@@ -465,20 +465,30 @@ async def save_job_to_knowledge_base(
 @router.post("/save_filtered_emails", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
 async def save_filtered_emails_to_knowledge_base(
     filter_input: EmailFilter, # Accept filter directly in request body
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     qdrant_client: QdrantClient = Depends(get_db) 
 ):
-    """Fetches emails based on provided filter criteria and stores them in Qdrant."""
-    operation_id = str(uuid.uuid4()) # Generate an ID for this specific operation
-    logger.info(f"[Op:{operation_id}] Received request to save emails to knowledge base by owner: {current_user.email} using filter: {filter_input.model_dump_json()}")
+    operation_id = str(uuid.uuid4())
+    owner_email = current_user.email
+    logger.info(f"[Op:{operation_id}] Received request to save emails to knowledge base by owner: {owner_email} using filter: {filter_input.model_dump_json()}")
+
+    # +++ Add Log to check token INSIDE route handler +++
+    logger.debug(f"[Op:{operation_id}] Value of current_user.ms_access_token at start of route handler: {'Present' if current_user.ms_access_token else 'MISSING'}")
+    # --- End Log ---
+
+    # --- CHECK FOR MS TOKEN --- 
+    if not current_user.ms_access_token: 
+        logger.error(f"[Op:{operation_id}] User {owner_email} missing MS access token.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Microsoft access token not available"
+        )
+    # --- END CHECK ---
 
     filter_criteria_obj = filter_input # Use the filter from the request body
 
     # --- Fetch Full Email Details using Outlook Service --- 
-    if not current_user.ms_token_data or not current_user.ms_token_data.access_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Microsoft access token not available")
-
-    outlook = OutlookService(current_user.ms_token_data.access_token)
+    outlook = OutlookService(current_user.ms_access_token)
     points_to_upsert: List[PointStruct] = []
     processed_email_count = 0
     failed_email_count = 0

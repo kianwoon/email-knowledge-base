@@ -55,6 +55,17 @@ class EmailPreview(BaseModel):
     has_attachments: bool = False
 
 
+class PaginatedEmailPreviewResponse(BaseModel):
+    """Model for paginated list of email previews."""
+    items: List[Dict[str, Any]] = Field(default_factory=list, description="List of email previews (raw dicts from Graph API)")
+    total: Optional[int] = Field(None, description="Total count of items if available (often not provided by Graph API list calls)")
+    next_link: Optional[str] = Field(None, description="URL to fetch the next page of results from MS Graph API")
+
+    model_config = {
+        "extra": "ignore" # Ignore extra fields from Graph API if any
+    }
+
+
 class EmailFilter(BaseModel):
     folder_id: Optional[str] = None
     start_date: Optional[str] = None

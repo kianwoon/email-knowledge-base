@@ -1,127 +1,113 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.staticfiles import StaticFiles
-import os
 import logging
 import sys
+from fastapi import FastAPI, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from contextlib import asynccontextmanager
+
+from app.config import settings
+# Import routers
+from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token 
+# Import services and dependencies needed for startup/app instance
+from app.services import token_service 
+from app.db.qdrant_client import get_qdrant_client
+# Import Base and engine from the new base module to ensure models are registered
+from app.db.base import Base, engine 
 
 # Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("app")
-
-try:
-    from app.config import settings
-except ValueError as e:
-    logger.error(f"CRITICAL ERROR loading configuration: {e}")
-    logger.error("Please ensure all required environment variables are set in your .env file or system environment.")
-    sys.exit(1) # Exit if configuration fails
-
-# Import DB functions for startup event
-from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
-from app.routes import auth, email, review, vector, webhooks, websockets, knowledge
+logging.basicConfig(level=settings.LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
 # Log critical environment variables for debugging
-logger.debug("--- Application Startup --- ")
-logger.debug(f"ENVIRONMENT: {settings.ENVIRONMENT}")
-logger.debug(f"DEBUG: {settings.DEBUG}")
-logger.debug(f"FRONTEND_URL: {settings.FRONTEND_URL}")
-logger.debug(f"BACKEND_URL: {settings.BACKEND_URL}")
-logger.debug(f"CORS Allowed Origins: {settings.CORS_ALLOWED_ORIGINS}")
-logger.debug(f"Webhook Prefix: {settings.WEBHOOK_PREFIX}")
-# Only log sensitive info like this in DEBUG mode or be very careful
-if settings.DEBUG:
-    logger.debug(f"MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
-    logger.debug(f"MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
-    logger.debug(f"MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
+logger.info(f"Running with environment: {settings.ENVIRONMENT}")
+logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
+
+# API Prefix
+api_prefix = "/api/v1"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Code to run on startup
+    logger.info("Application starting up...")
+    
+    # --- Initialize Shared State --- 
+    app.state.job_mapping_store = {} # Initialize the job mapping store
+    logger.info("Initialized shared job_mapping_store on app state.")
+    # --- End Shared State Init ---
+
+    # Ensure token collection exists on startup
+    try:
+        # Use the correctly imported function
+        qdrant_client = get_qdrant_client()
+        token_service.ensure_token_collection(qdrant_client)
+        logger.info("Checked/Ensured token collection exists.")
+    except Exception as e:
+        logger.error(f"Failed to ensure token collection on startup: {e}", exc_info=True)
+        # Decide if this should prevent startup? For now, just log.
+        
+    # --- Database Initialization --- 
+    logger.info("Creating database tables based on models...")
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables checked/created.")
+    except Exception as e:
+        logger.error(f"Error creating database tables: {e}", exc_info=True)
+        # Depending on the desired behavior, you might want to raise the exception
+        # or allow the app to continue without the tables (which will likely cause errors later).
+        # raise e 
+    # --- End Database Initialization ---
+    
+    logger.info("Application startup complete.")
+    yield
+    # Code to run on shutdown
+    logger.info("Application shutting down...")
+    # Optionally clear state if needed
+    app.state.job_mapping_store = None 
 
 app = FastAPI(
-    title="Knowledge Base Builder API",
-    description="API for managing emails, analysis, and knowledge base vectors.",
-    version="0.1.0"
+    title="Knowledge Base Builder API", 
+    version="1.0.0",
+    lifespan=lifespan # Use the new lifespan context manager
 )
 
-# Add the state dictionary here
-app.state.job_mapping_store = {}
+# CORS Middleware
+if settings.CORS_ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin).strip() for origin in settings.CORS_ALLOWED_ORIGINS],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    logger.warning("CORS is not configured. Allowing all origins.")
+    # Allow all origins if not specified (use with caution)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-# --- Add Startup Event --- 
-@app.on_event("startup")
-async def startup_db_check():
-    logger.info("Running startup event: Ensuring Qdrant collection exists...")
-    try:
-        qdrant_client = get_qdrant_client() # Get client instance
-        ensure_collection_exists(qdrant_client) # Run the check/creation logic
-        logger.info("Startup event: Qdrant collection check complete.")
-    except Exception as e:
-        logger.error(f"Startup event FAILED: Could not ensure Qdrant collection. Error: {e}", exc_info=True)
-        # Depending on policy, you might want to exit if DB connection fails on startup
-        # sys.exit(1)
-# --- End Startup Event ---
-
-# Configure CORS using settings
-logger.info(f"Configuring CORS with allowed origins from settings: {settings.CORS_ALLOWED_ORIGINS}")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ALLOWED_ORIGINS, # Use the list from settings
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,  # Cache preflight requests for 24 hours
-)
-
-# --- Mount Routes (WITH /api prefix for consistency) ---
-# This assumes Koyeb is configured to forward /api paths without stripping
-api_prefix = "/api"
-logger.info(f"Including API routers with prefix: {api_prefix}")
-app.include_router(auth.router, prefix=f"{api_prefix}/auth", tags=["Auth"])
-app.include_router(email.router, prefix=f"{api_prefix}/emails", tags=["Emails"])
-app.include_router(review.router, prefix=f"{api_prefix}/review", tags=["Review Process"])
+# Include routers
+app.include_router(auth.router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
+app.include_router(email.router, prefix=f"{api_prefix}/email", tags=["Email Interaction"])
+app.include_router(review.router, prefix=f"{api_prefix}/review", tags=["Review"])
 app.include_router(vector.router, prefix=f"{api_prefix}/vector", tags=["Vector Database"])
 app.include_router(knowledge.router, prefix=f"{api_prefix}/knowledge", tags=["Knowledge"])
+app.include_router(token.router, prefix=f"{api_prefix}/token", tags=["Token"])
+app.include_router(webhooks.router, prefix=f"{api_prefix}/webhooks", tags=["Webhooks"])
+app.include_router(websockets.router, prefix=f"{api_prefix}/ws", tags=["Websockets"])
 
-# REMOVED Routes WITHOUT /api prefix 
-# logger.info("Including API routers WITHOUT prefix (for Koyeb compatibility)...")
-# app.include_router(auth.router, prefix="/auth", tags=["Auth"])
-# ... removed other non-api routes
+# Root endpoint (optional - for basic API check)
+@app.get("/", tags=["Root"])
+async def read_root():
+    return {"message": f"{app.title} is running!"}
 
-# Webhook/WebSocket prefixes remain unchanged
-logger.info(f"Including Webhook router with prefix: {settings.WEBHOOK_PREFIX}")
-app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["Webhooks"])
-logger.info("Including WebSocket router with prefix: ''")
-app.include_router(websockets.router, prefix="", tags=["Websockets"])
-
-# Mount static files directory (remains unchanged)
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-logger.debug(f"Mounting static directory: {static_dir}")
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the Knowledge Base Builder API"}
-
-@app.get("/health") # No /api prefix internally
-async def health_check():
-    """Health check endpoint"""
-    logger.debug("Health check endpoint called")
-    return {
-        "status": "online", 
-        "message": "Email Knowledge Base API is running",
-        "environment": {
-            "FRONTEND_URL": settings.FRONTEND_URL,
-            "MS_REDIRECT_URI": settings.MS_REDIRECT_URI,
-            "IS_PRODUCTION": settings.IS_PRODUCTION,
-            "static_dir": static_dir,
-            "cwd": os.getcwd(),
-            "listdir": os.listdir(".")
-        }
-    }
+# Serve index.html for any other route (React Router handling)
+templates = Jinja2Templates(directory="../../frontend/dist")
 
 if __name__ == "__main__":
     import uvicorn

@@ -23,7 +23,7 @@ import {
   StatNumber,
   useColorMode
 } from '@chakra-ui/react';
-import { FaBrain, FaShieldAlt, FaTag, FaEye, FaLock, FaExclamationTriangle, FaChartLine } from 'react-icons/fa';
+import { FaBrain, FaShieldAlt, FaTag, FaEye, FaLock, FaChartLine, FaExclamationTriangle } from 'react-icons/fa';
 import Footer from '../../components/Footer';
 import PageBanner from '../../components/PageBanner';
 import { useTranslation } from 'react-i18next';

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Application settings
     DEBUG: bool = os.getenv("DEBUG") == "True"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT") # validated by check_required_env_vars
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper() # Added Log Level Setting
 
     @computed_field
     @property
@@ -130,6 +131,10 @@ class Settings(BaseSettings):
     DEV_SERVER_HOST: str = os.getenv("DEV_SERVER_HOST", "0.0.0.0") # Optional with default
     DEV_SERVER_PORT: int = int(os.getenv("DEV_SERVER_PORT", "8000")) # Optional with default
     DEV_SERVER_RELOAD: bool = os.getenv("DEV_SERVER_RELOAD", "True") == "True" # Optional with default
+
+    # --- Database Settings --- 
+    # PostgreSQL/SQLAlchemy Database URI
+    SQLALCHEMY_DATABASE_URI: str = os.getenv("SQLALCHEMY_DATABASE_URI") # validated by check_required_env_vars
 
     model_config = {
         "env_file": ".env",

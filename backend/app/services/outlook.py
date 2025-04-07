@@ -240,11 +240,14 @@ class OutlookService:
             
             logger.info(f"[RESPONSE-FINAL] Items: {len(filtered_items)}, Total: {total_count}, Has Next: {bool(next_link_from_response)}")
 
-            return {
+            return_dict = {
                 "items": [self._format_email_preview(email) for email in filtered_items],
                 "total": total_count,
                 "next_link": next_link_from_response
             }
+            logger.info(f"[SERVICE DICT CHECK] Service is returning dict with next_link: {return_dict.get('next_link')}")
+
+            return return_dict
 
         except httpx.RequestError as e:
              logger.error(f"HTTP request error to Graph API: {e}")

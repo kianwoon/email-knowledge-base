@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import RedirectResponse
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import urllib.parse
 import requests
 import httpx
@@ -15,7 +15,10 @@ import calendar # Import calendar module
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
 from app.services.outlook import OutlookService
-from app.dependencies.auth import get_current_user, users_db, msal_app
+from app.dependencies.auth import get_current_active_user, msal_app
+from app.db.session import get_db # Import get_db
+from sqlalchemy.orm import Session # Import Session
+from app.crud import user_crud # Import the user CRUD function
 
 # Instantiate logger
 logger = logging.getLogger(__name__)
@@ -27,36 +30,16 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 # --- End Request Model --- 
 
-def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
-    """Create JWT access token for internal auth"""
-    to_encode = data.copy()
-    
-    # --- Restore original logic ---
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> Tuple[str, datetime]:
+    to_encode = data.copy() # Use the data passed in
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        # Log the expiration setting being used
-        logger.debug(f"Creating token with expiration from settings: {settings.JWT_EXPIRATION} seconds")
-        expire = datetime.utcnow() + timedelta(seconds=settings.JWT_EXPIRATION)
-    # --- End original logic ---
-
-    # Convert expire datetime to integer UTC timestamp
-    expire_timestamp = calendar.timegm(expire.utctimetuple())
-    logger.debug(f"Converted expiration to UTC timestamp: {expire_timestamp}")
-
-    to_encode.update({"exp": expire_timestamp}) # Use the integer timestamp
-    # Log the calculated expiration timestamp
-    logger.debug(f"Calculated token expiration timestamp (UTC): {expire}") 
-    
-    # Log the exact payload dictionary before encoding
-    logger.debug(f"Payload passed to jwt.encode: {to_encode}")
-
-    encoded_jwt = jwt.encode(
-        to_encode, 
-        settings.JWT_SECRET, 
-        algorithm=settings.JWT_ALGORITHM
-    )
-    return encoded_jwt, expire
+        # Default expiration if not provided (e.g., 15 minutes)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_DEFAULT_EXPIRATION_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return encoded_jwt, expire # Return token and expiry datetime
 
 
 @router.get("/login")
@@ -93,7 +76,10 @@ async def login():
 
 
 @router.get("/callback")
-async def auth_callback(request: Request):
+async def auth_callback(
+    request: Request,
+    db: Session = Depends(get_db) # Inject DB session
+):
     """Handle OAuth callback from Microsoft and set HttpOnly cookie."""
     print("Received callback request")
     print(f"DEBUG - Full request URL: {request.url}")
@@ -122,7 +108,7 @@ async def auth_callback(request: Request):
         return RedirectResponse(url=error_url)
 
     # --- Exchange code for tokens --- 
-    token_result = None # Initialize to None
+    token_result = None
     try:
         print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
         token_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
@@ -147,54 +133,74 @@ async def auth_callback(request: Request):
         
         print(f"DEBUG - Token exchange successful.")
         
+        # Correctly get token from result
+        ms_access_token = token_result.get("access_token") 
+        ms_refresh_token = token_result.get("refresh_token") # Also get refresh token
+        if not ms_access_token:
+            # Handle missing access token error
+            raise ValueError("Microsoft access token not found in the response.")
+        
     except Exception as ex_token:
         print(f"Error during token exchange HTTP request: {str(ex_token)}")
         error_url = f"{settings.FRONTEND_URL}?error=token_exchange_exception&error_description={urllib.parse.quote(str(ex_token))}"
         return RedirectResponse(url=error_url)
 
-    # --- Process user info, create JWT, set cookie --- 
+    # --- Process user info, SAVE TO DB, create JWT, set cookie --- 
     try:
-        # Get user info from Microsoft Graph
-        ms_token = token_result.get("access_token")
-        if not ms_token:
-             raise ValueError("MS Access Token not found in token response.")
-        
-        outlook_service = OutlookService(ms_token)
+        # Use the ms_access_token obtained above
+        outlook_service = OutlookService(ms_access_token)
         user_info = await outlook_service.get_user_info()
         if not user_info:
             raise ValueError("Could not retrieve user info from MS Graph.")
 
         photo_url = await outlook_service.get_user_photo() # Optional
         
-        # Create or update user in our system
-        user_id = user_info.get("id")
-        organization = user_info.get("officeLocation")
-        scope = token_result.get("scope", "")
-        scope_list = scope.split() if isinstance(scope, str) else scope
-
-        user = User(
-            id=user_id,
+        # Create Pydantic User model instance
+        # Note: Using user_info.get("id") for the 'id' field which is the MS Graph user GUID
+        user_pydantic = User(
+            id=user_info.get("id"), 
             email=user_info.get("mail"),
             display_name=user_info.get("displayName"),
-            last_login=datetime.utcnow(),
+            last_login=datetime.now(timezone.utc), # Set initial login time
             photo_url=photo_url,
-            organization=organization,
-            ms_token_data=TokenData(
-                access_token=ms_token,
-                refresh_token=token_result.get("refresh_token"),
-                expires_at=datetime.utcnow() + timedelta(seconds=token_result.get("expires_in", 3600)),
-                scope=scope_list
-            )
+            organization=user_info.get("officeLocation"),
+            # preferences: Dict[str, Any] = Field(default_factory=dict) # Handled by default
+            # is_active: bool = True # Handled by default
+            # ms_token_data is not part of the DB model currently
         )
-        users_db[user_id] = user
-        print(f"DEBUG - User {user.email} stored/updated in users_db.")
 
-        # Create internal JWT token
+        # Create or update user in the DATABASE using CRUD
+        db_user = user_crud.create_or_update_user(db=db, user_data=user_pydantic)
+        logger.info(f"User {db_user.email} created/updated in database.")
+        
+        # Use db_user.id (MS Graph ID) or db_user.email for JWT subject?
+        # Let's stick with email for consistency with get_current_user lookup
+        jwt_subject = db_user.email
+        jwt_user_id = db_user.id # Or use MS Graph ID if needed elsewhere
+
+        # --- Store MS Refresh Token (Example: In localStorage - adjust as needed) ---
+        # NOTE: Storing refresh tokens securely is crucial. localStorage is NOT secure.
+        #       This is a placeholder. Use HttpOnly cookies or secure server-side storage.
+        if ms_refresh_token:
+            # This is just for the example to make the interceptor work later
+            # In a real app, handle this more securely! 
+            # We might pass it back in the JWT or via another secure mechanism.
+            print("DEBUG - (Placeholder) Got MS Refresh Token, would store securely.") 
+        
+        # Create JWT payload, INCLUDING the MS Access Token
+        jwt_payload = {
+            "sub": jwt_user_id, 
+            "email": jwt_subject,
+            "ms_token": ms_access_token # Include the MS token here
+        }
+        
         jwt_access_token, jwt_expires_at_dt = create_access_token(
-            data={"sub": user_id, "email": user.email},
+            data=jwt_payload, # Pass the payload with the MS token
             expires_delta=timedelta(seconds=settings.JWT_EXPIRATION) 
         )
-        max_age_seconds = max(0, int((jwt_expires_at_dt - datetime.utcnow()).total_seconds())) # Ensure non-negative
+        
+        # Calculate max_age using timezone-aware comparison
+        max_age_seconds = max(0, int((jwt_expires_at_dt - datetime.now(timezone.utc)).total_seconds()))
         
         # Determine cookie security based on environment
         secure_cookie = settings.IS_PRODUCTION
@@ -228,14 +234,14 @@ async def auth_callback(request: Request):
             httponly=True,
             secure=secure_cookie,
             samesite="lax",
-            max_age=max_age_seconds,
+            max_age=max_age_seconds, # Use calculated max_age
             path="/" 
         )
-        print(f"DEBUG - Set access_token cookie (HttpOnly).")
+        print(f"DEBUG - Set access_token cookie (HttpOnly) with Max-Age: {max_age_seconds}.")
         return response
 
     except Exception as e:
-        print(f"Error during user processing/token creation/redirect: {str(e)}")
+        print(f"Error during user processing/DB/token creation/redirect: {str(e)}")
         import traceback
         traceback.print_exc()
         error_url = f"{settings.FRONTEND_URL}?error=callback_processing_error&error_description={urllib.parse.quote(str(e))}"
@@ -243,7 +249,7 @@ async def auth_callback(request: Request):
 
 
 @router.get("/me", response_model=User)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_active_user)):
     """Get current authenticated user information"""
     return current_user
 
@@ -320,7 +326,7 @@ async def refresh_token(token_request: RefreshTokenRequest):
     # --- SET HttpOnly Cookie --- 
     response = Response(status_code=status.HTTP_200_OK)
     secure_cookie = settings.IS_PRODUCTION
-    max_age_seconds = max(0, int((new_expires_at - datetime.utcnow()).total_seconds()))
+    max_age_seconds = max(0, int((new_expires_at - datetime.now(timezone.utc)).total_seconds()))
     logger.info(f"Setting new access_token cookie. Max-Age: {max_age_seconds}, Secure: {secure_cookie}")
     response.set_cookie(
         key="access_token",

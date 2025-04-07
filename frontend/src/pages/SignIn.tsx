@@ -328,7 +328,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
                 icon={FaFilter} 
                 title={t('features.smartEmailProcessing.title')} 
                 description={t('features.smartEmailProcessing.description')} 
-                link="/docs/email-processing" 
+                link="/docs/smart-filtering" 
               />
               <FeatureCard 
                 icon={FaBrain} 

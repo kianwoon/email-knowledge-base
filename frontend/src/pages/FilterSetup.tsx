@@ -213,6 +213,20 @@ const FilterSetup: React.FC = () => {
     { value: 'low', label: t('emailProcessing.filters.low') },
   ];
   
+  // +++ ADDED: useEffect for state monitoring +++
+  useEffect(() => {
+    console.log('[STATE_EFFECT] State update detected:', {
+      currentPage,
+      totalPages,
+      totalEmails,
+      nextLinkState: nextLink, // Value of the separate nextLink state
+      filterNextLink: filter.next_link, // Value within the filter object state
+      pageCacheKeys: Array.from(pageCache.keys()),
+      previewsLength: previews.length
+    });
+  }, [currentPage, totalPages, totalEmails, nextLink, filter.next_link, pageCache, previews]);
+  // --- END Added Effect ---
+
   // Load previews
   const loadPreviews = useCallback(async (options?: { size?: number }) => {
     // Use the explicitly passed size, otherwise default to the current state
@@ -277,22 +291,49 @@ const FilterSetup: React.FC = () => {
         const currentPreviews = previewData.items || [];
         const currentNextLink = previewData.next_link ?? undefined;
         
+        // +++ ADDED DETAILED LOGGING +++
+        console.log('[loadPreviews] Data received:', { 
+            numItems: currentPreviews.length,
+            rawTotal: previewData.total, 
+            rawNextLink: currentNextLink 
+        });
+
         // Update Cache for page 1
         const cacheData: PageCacheEntry = { previews: currentPreviews, nextLink: currentNextLink };
         setPageCache(new Map().set(1, cacheData)); // Reset cache and set page 1
+        console.log('[loadPreviews] Cache updated for page 1.');
 
         // Update state with data from API
         setPreviews(currentPreviews);
-        setTotalEmails(previewData.total);
-        const totalPagesFromInitial = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
-        setTotalPages(totalPagesFromInitial);
-        setNextLink(currentNextLink);
+        console.log('[loadPreviews] Previews state updated.');
+        
+        // Update totalEmails, handling null/undefined from API
+        const newTotalEmails = (previewData.total === undefined || previewData.total === null) ? -1 : previewData.total;
+        setTotalEmails(newTotalEmails);
+        console.log(`[loadPreviews] TotalEmails state updated to: ${newTotalEmails}`);
+        
+        // Calculate totalPages based on the *newTotalEmails*
+        const newTotalPages = newTotalEmails === -1
+                                ? (currentNextLink ? 2 : 1) // If total unknown, assume 2 pages if nextLink exists, else 1
+                                : (newTotalEmails > 0 ? Math.ceil(newTotalEmails / currentSize) : 1);
+        setTotalPages(newTotalPages);
+        console.log(`[loadPreviews] TotalPages state updated to: ${newTotalPages}`);
+        
+        // Update nextLink state AND the filter's next_link
+        setNextLink(currentNextLink); 
+        // +++ ADD LOGGING BEFORE setting nextLink state +++
+        console.log(`[loadPreviews] Value received for next_link from API: ${currentNextLink}`);
+        // --- End Added Log ---
+        setFilter(prev => ({ ...prev, next_link: currentNextLink }));
+        console.log(`[loadPreviews] nextLink state and filter.next_link updated to: ${currentNextLink}`);
+        
         setSearchPerformedSuccessfully(true);
+        // --- END ADDED LOGGING ---
 
         console.log('Updated state (non-pagination):', {
           items: currentPreviews.length,
           total: previewData.total,
-          pages: totalPagesFromInitial,
+          pages: newTotalPages,
           nextLink: currentNextLink,
         } as any);
       }
@@ -314,7 +355,7 @@ const FilterSetup: React.FC = () => {
     } finally {
       setIsLoadingPreviews(false);
     }
-  }, [filter, itemsPerPage, isInitialLoad, toast, t, nextLink, currentPage]);
+  }, [filter, itemsPerPage, isInitialLoad, toast, t, currentPage]);
 
   // Log previews state changes
   useEffect(() => {
@@ -356,33 +397,45 @@ const FilterSetup: React.FC = () => {
 
   // Function to handle page changes (Previous/Next buttons)
   const handlePageChange = async (newPage: number) => {
+    // +++ ADD LOGGING AT START +++
+    console.log(`[handlePageChange START] CurrentPage: ${currentPage}, TargetPage: ${newPage}, Standalone nextLink state: ${nextLink}`);
+    // --- END LOG ---
+
     // Basic validation
-    if (newPage < 1 || newPage > totalPages || newPage === currentPage) {
+    if (newPage < 1 || (totalPages > 0 && newPage > totalPages) || newPage === currentPage) { // Added check for known totalPages
       console.log(`handlePageChange: Invalid page requested (${newPage}). Current: ${currentPage}, Total: ${totalPages}`);
       return;
     }
 
-    // --- Handle Forward Pagination (using nextLink) ---
+    // --- Handle Forward Pagination (using nextLink state variable) --- // MODIFIED HERE
     if (newPage > currentPage) {
-      if (!nextLink) {
-        console.error(`handlePageChange: Trying to go to next page (${newPage}), but nextLink is missing.`);
+      console.log(`[handlePageChange] Forward click detected. Checking standalone nextLink state.`);
+      const nextLinkToUse = nextLink; // Use the standalone state variable
+      console.log(`[handlePageChange] standalone nextLink state read as: ${nextLinkToUse}`);
+      if (!nextLinkToUse) { // Check the standalone state variable
+        console.error(`handlePageChange: Trying to go to next page (${newPage}), but standalone nextLink state is missing.`);
         toast({ title: "Pagination Error", description: "Cannot load next page: link is missing.", status: "error", duration: 3000 });
         return;
       }
 
-      console.log(`handlePageChange: Moving forward. CurrentPage: ${currentPage}, TargetPage: ${newPage}, NextLink available: ${!!nextLink}`);
+      console.log(`handlePageChange: Moving forward. CurrentPage: ${currentPage}, TargetPage: ${newPage}, Using standalone NextLink: ${!!nextLinkToUse}`);
       setIsLoadingPreviews(true);
       try {
-        console.log(`handlePageChange: Calling getEmailPreviews with next_link: ${nextLink} and current filters`);
-        // Pass arguments according to the function signature
-        const previewData = await getEmailPreviews(filter, newPage, itemsPerPage, nextLink);
+        console.log(`handlePageChange: Calling getEmailPreviews with filter containing next_link`);
+        
+        // Prepare the filter object specifically for the next_link call
+        const nextLinkFilter: EmailFilter = { next_link: nextLinkToUse }; // Use the value read from state
+        
+        // Call correctly: pass the filter object containing the next_link,
+        // page and itemsPerPage are technically ignored by backend when next_link is used.
+        const previewData = await getEmailPreviews(nextLinkFilter); // Remove page/itemsPerPage for next_link call
 
-        console.log('handlePageChange: Received previewData:', previewData);
+        console.log('handlePageChange: Received previewData from next_link call:', previewData);
         
         if (previewData && previewData.items) {
             const newPreviews = previewData.items;
             const newNextLink = previewData.next_link ?? undefined;
-            const newTotal = previewData.total;
+            const newTotal = previewData.total; // May still be null/undefined from next_link calls
 
             // --- Cache the new page data BEFORE setting state ---
             const cacheData: PageCacheEntry = { previews: newPreviews, nextLink: newNextLink };
@@ -392,17 +445,32 @@ const FilterSetup: React.FC = () => {
 
             console.log(`handlePageChange: Calling setPreviews with ${newPreviews.length} items.`);
             setPreviews(newPreviews);
-            console.log('handlePageChange: Calling setTotalEmails:', newTotal);
-            setTotalEmails(newTotal);
+            
+            // Update total if available, otherwise keep existing or handle -1
+            if (newTotal !== undefined && newTotal !== null) {
+              console.log('handlePageChange: Calling setTotalEmails:', newTotal);
+              setTotalEmails(newTotal);
+            } else {
+              console.log('handlePageChange: TotalEmails not updated as it was null/undefined in response.');
+              // Optionally set to -1 if needed, or keep previous value if known
+              // setTotalEmails(-1); // Or keep existing if totalEmails > 0
+            }
 
-            // Correct totalPages calculation
-            const newTotalPages = newTotal === -1
-                                    ? (newNextLink ? newPage + 1 : newPage) // If unknown total, assume at least one more page if nextLink exists
-                                    : (newTotal > 0 ? Math.ceil(newTotal / itemsPerPage) : 1);
+            // Correct totalPages calculation based on potentially updated totalEmails
+            const currentTotal = newTotal !== undefined && newTotal !== null ? newTotal : totalEmails; // Use new total if available
+            // Ensure itemsPerPage is positive before division
+            const effectiveItemsPerPage = itemsPerPage > 0 ? itemsPerPage : 10; 
+            const newTotalPages = currentTotal === -1
+                                    ? (newNextLink ? newPage + 1 : newPage) 
+                                    : (currentTotal > 0 ? Math.ceil(currentTotal / effectiveItemsPerPage) : 1);
             console.log('handlePageChange: Calling setTotalPages:', newTotalPages);
             setTotalPages(newTotalPages);
-            console.log('handlePageChange: Calling setNextLink:', newNextLink);
-            setNextLink(newNextLink);
+            
+            // Update the filter state AND the main nextLink state with the new next_link for the *next* potential step
+            setFilter(prev => ({ ...prev, next_link: newNextLink })); 
+            setNextLink(newNextLink); 
+            console.log('handlePageChange: Updated filter and nextLink state:', newNextLink);
+
             console.log('handlePageChange: Calling setCurrentPage:', newPage);
             setCurrentPage(newPage);
         } else {
@@ -424,13 +492,19 @@ const FilterSetup: React.FC = () => {
         setIsLoadingPreviews(false);
       }
     } else {
-      // --- Handle Backward Pagination (Using Cache) ---
+      // --- Handle Backward Pagination (Using Cache) --- 
+      // +++ ADDED: Log cache state on click +++
+      console.log(`[handlePageChange] Backward click detected. Checking cache for page ${newPage}. Cache keys:`, Array.from(pageCache.keys()));
+      // --- End Log ---
       if (pageCache.has(newPage)) {
         const cachedPage = pageCache.get(newPage)!;
         console.log(`handlePageChange: Loading page ${newPage} from cache.`, cachedPage);
-        // No need to set loading state when loading from cache
         setPreviews(cachedPage.previews);
-        setNextLink(cachedPage.nextLink); // Restore nextLink for the *target* page
+        // Restore the next_link associated with the page being loaded from cache
+        const cachedNextLink = cachedPage.nextLink;
+        // Update both states when loading from cache
+        setFilter(prev => ({ ...prev, next_link: cachedNextLink }));
+        setNextLink(cachedNextLink);
         setCurrentPage(newPage);
         console.log(`handlePageChange: State updated for cached page ${newPage}.`);
       } else {
@@ -615,15 +689,35 @@ const FilterSetup: React.FC = () => {
   // Update tooltip if KB generation is running
   const proceedButtonTooltip = isKbGenerationRunning ? t('kbGeneration.tooltips.running') : t('emailProcessing.tooltips.proceedDirectSave'); 
 
-  // WebSocket connection effect (Reverted to use analysisData/Error)
+  // WebSocket connection effect
   useEffect(() => {
-    const wsUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
-    if (!wsUrlFromEnv) { 
-      console.error("[WebSocket] VITE_WEBSOCKET_URL is not defined.");
+    // --- Restore usage of VITE_WEBSOCKET_URL --- 
+    const wsBaseUrlFromEnv = import.meta.env.VITE_WEBSOCKET_URL;
+    let wsBaseUrl: string;
+
+    if (wsBaseUrlFromEnv) {
+        // Use env var, ensure it doesn't end with /analysis or /
+        wsBaseUrl = wsBaseUrlFromEnv.replace(/\/analysis$|\/$/, ''); 
+        console.log(`[WebSocket] Using base URL from VITE_WEBSOCKET_URL (cleaned): ${wsBaseUrl}`);
+    } else {
+        // Construct default base URL ( fallback if env var is missing )
+        const host = window.location.hostname;
+        const protocol = (host === 'localhost' || host === '127.0.0.1') ? 'ws' : (window.location.protocol === 'https:' ? 'wss' : 'ws');
+        wsBaseUrl = `${protocol}://${host}:8000/api/v1/ws`; // Default to localhost:8000/api/v1/ws
+        console.log(`[WebSocket] VITE_WEBSOCKET_URL not found. Using default base URL: ${wsBaseUrl}`);
+    }
+    
+    if (!wsBaseUrl) { 
+      console.error("[WebSocket] Base URL could not be determined.");
       setAnalysisError("WebSocket URL not configured.");
       return; 
     }
-    const wsUrl = wsUrlFromEnv;
+
+    // Append the endpoint path exactly once
+    const wsUrl = `${wsBaseUrl}/analysis`; 
+    console.log(`[WebSocket] Attempting to connect to FINAL URL (from Env/Default): ${wsUrl}`);
+    // --- End Restore --- 
+
     const ws = new WebSocket(wsUrl);
     ws.onopen = () => console.log('[WebSocket] Connection opened.');
     ws.onmessage = (event) => {
@@ -659,11 +753,12 @@ const FilterSetup: React.FC = () => {
     };
     ws.onclose = (event) => console.log('[WebSocket] Closed:', event.code, event.reason);
     return () => { 
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        console.log('[WebSocket] Closing connection on cleanup.');
         ws.close();
       }
     };
-  }, [analysisJobId, toast, t]); // Reverted dependencies
+  }, [analysisJobId, toast, t]);
 
   // Restore transformedChartData useMemo hook
   const transformedChartData = useMemo(() => {
@@ -1160,15 +1255,17 @@ const FilterSetup: React.FC = () => {
                                 aria-label={t('common.previousPage')}
                                 icon={<ChevronLeftIcon />}
                                 onClick={() => handlePageChange(currentPage - 1)}
-                                // Disable Previous if on page 1 OR if the previous page isn't in cache (belt-and-suspenders)
-                                isDisabled={currentPage === 1 || isProcessing || !pageCache.has(currentPage - 1)} 
+                                // Disable Previous primarily if on page 1
+                                isDisabled={currentPage === 1} // Simplified check
+                                variant="outline"
                               />
                               <IconButton
                                 aria-label={t('common.nextPage')}
                                 icon={<ChevronRightIconSolid />}
                                 onClick={() => handlePageChange(currentPage + 1)}
-                                // Disable Next if nextLink is missing OR if on last page (when total is known) OR if processing
-                                isDisabled={currentPage >= totalPages || !nextLink || isProcessing} 
+                                // Disable Next if nextLink is missing OR if on last page (when total is known)
+                                isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
+                                variant="outline"
                               />
                             </ButtonGroup>
                        )}
@@ -1297,8 +1394,8 @@ const FilterSetup: React.FC = () => {
                          aria-label={t('common.previousPage')}
                          icon={<ChevronLeftIcon />}
                          onClick={() => handlePageChange(currentPage - 1)}
-                         // Disable Previous if on page 1 OR if the previous page isn't in cache
-                         isDisabled={currentPage === 1 || !pageCache.has(currentPage - 1)}
+                         // Disable Previous primarily if on page 1
+                         isDisabled={currentPage === 1} // Simplified check
                          variant="outline"
                        />
                        <Button variant="outline" isDisabled>

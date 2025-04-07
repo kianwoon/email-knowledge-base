@@ -6,19 +6,11 @@ import { EmailFilter, EmailPreview, EmailContent, PaginatedEmailPreviewResponse 
  */
 export const getEmailFolders = async () => {
   try {
-    // Use apiClient directly
-    const response = await apiClient.get('/emails/folders');
+    const response = await apiClient.get('/email/folders'); // Corrected path
     return response.data;
   } catch (error) {
-    console.error('Error getting email folders:', error);
-    // For demo purposes, return mock data
-    return [
-      { id: 'inbox', displayName: 'Inbox' },
-      { id: 'archive', displayName: 'Archive' },
-      { id: 'sent', displayName: 'Sent Items' },
-      { id: 'drafts', displayName: 'Drafts' },
-      { id: 'deleted', displayName: 'Deleted Items' }
-    ];
+    console.error('Error fetching email folders:', error);
+    throw error;
   }
 };
 
@@ -49,7 +41,7 @@ export const getEmailPreviews = async (
   try {
     // Use POST to /preview, send filter in body, pagination in query
     const response = await apiClient.post<PaginatedEmailPreviewResponse>(
-      '/emails/preview', // Correct endpoint path
+      '/email/preview', // Corrected path (singular)
       bodyFilter,   // Filter data (including next_link if present) in the request body
       { params: queryParams } // Pagination data in query parameters
     );
@@ -89,18 +81,15 @@ export const getEmailContent = async (emailId: string): Promise<EmailContent> =>
 /**
  * Submit email filter criteria for analysis
  */
-export const submitFilterForAnalysis = async (filter: EmailFilter) => {
-  console.log(`[api/email] Submitting filter for analysis to backend...`, filter);
-  
+export const submitFilterForAnalysis = async (filter: EmailFilter): Promise<{ job_id: string }> => {
   try {
-    // Use apiClient directly
-    const response = await apiClient.post<{ job_id: string }>('/emails/analyze', filter); // Use apiClient
-    
-    console.log('[api/email] Backend analysis submission successful:', response.data);
+    // Ensure the endpoint path is correct (singular 'email')
+    const response = await apiClient.post<{ job_id: string }>('/email/analyze', filter);
     return response.data;
   } catch (error) {
-    console.error('[api/email] Error submitting filter for analysis to backend:', error);
-    throw error; 
+    console.error('Error submitting filter for analysis:', error);
+    // Re-throw the error so the calling component can handle it (e.g., show toast)
+    throw error;
   }
 };
 

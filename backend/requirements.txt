@@ -15,3 +15,6 @@ azure-identity==1.17.0
 azure-storage-blob==12.23.1
 msal==1.29.0
 email-validator==2.2.0
+watchfiles
+Jinja2
+psycopg2-binary==2.9.10
