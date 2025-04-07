@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -51,6 +51,7 @@ import {
   Collapse,
   Skeleton,
   SkeletonText,
+  Progress,
 } from '@chakra-ui/react';
 import { 
   AddIcon, 
@@ -192,7 +193,7 @@ const FilterSetup: React.FC = () => {
   const [analysisData, setAnalysisData] = useState<any | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
-  const [isSavingToKB, setIsSavingToKB] = useState(false);
+  const [isKbGenerationRunning, setIsKbGenerationRunning] = useState(false);
   const [searchPerformedSuccessfully, setSearchPerformedSuccessfully] = useState(false);
   
   // Attachment types
@@ -560,50 +561,59 @@ const FilterSetup: React.FC = () => {
     }
   };
 
-  // Handler for the "Save to Knowledge Base" button (Now uses new endpoint)
+  // Handler for the "Save to Knowledge Base" button (REVERTED to Synchronous)
   const handleSaveToKnowledgeBase = async () => {
     if (!searchPerformedSuccessfully || previews.length === 0) {
-      toast({ title: "No email previews to process.", status: "warning", duration: 3000 });
+      toast({ title: t('common.warning'), description: t('emailProcessing.notifications.noEmailsToProcess'), status: "warning", duration: 3000 });
       return;
     }
 
-    // No need to check for analysisJobId anymore
-    setIsSavingToKB(true); // Indicate the saving process
-    
+    console.log('[handleSaveToKnowledgeBase] Setting loading TRUE');
+    setIsKbGenerationRunning(true); // Indicate the process has started
+
+    // --- ADDED DELAY FOR TESTING --- 
+    console.log('[handleSaveToKnowledgeBase] Waiting 3 seconds before API call...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('[handleSaveToKnowledgeBase] Delay finished, proceeding with API call.');
+    // --- END DELAY --- 
+
     try {
-      console.log(`Attempting to save emails using current filter...`, filter);
-      // Call the new API function with the current filter state
-      const result = await saveFilteredEmailsToKnowledgeBase(filter); 
+      console.log(`Attempting synchronous save emails using current filter...`, filter);
+      // Call the API function and wait for the final result
+      const result = await saveFilteredEmailsToKnowledgeBase(filter);
 
+      console.log('Synchronous KB Generation Result:', result);
+      // Show toast based on the final result from the backend
       toast({
-        title: t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title'), // Use appropriate translation key
-        description: result.message || t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.description'),
-        status: result.status === 'success' || result.status === 'partial_success' ? 'success' : 'warning', // Adjust status based on response
-        duration: 5000,
-      });
-      console.log('Save filtered emails to knowledge base result:', result);
-
-    } catch (error: any) {
-      console.error(`Error saving filtered emails to knowledge base:`, error);
-      const errorMessage = error.message || t('errors.unknownError'); // Error now comes from the API function
-      toast({
-        title: t('errors.errorSavingToKB'), // Use appropriate translation key
-        description: errorMessage,
-        status: 'error',
+        title: result.status === 'success' || result.status === 'partial_success' 
+                 ? t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title') 
+                 : t('common.error'), // Or a specific failure title
+        description: result.message || t('errors.unknownError'),
+        status: result.status === 'success' ? 'success' : (result.status === 'partial_success' ? 'warning' : 'error'),
         duration: 7000,
       });
+
+    } catch (error: any) {
+      console.error(`Error during synchronous KB generation:`, error);
+      const errorMessage = error.message || t('errors.unknownError'); 
+      toast({
+        title: t('errors.errorSavingToKB'), // Use generic KB saving error title
+        description: errorMessage,
+        status: 'error', duration: 7000,
+      });
     } finally {
-      setIsSavingToKB(false); // Saving finished (success or fail)
-      // Reset isAnalyzing state as well if it was potentially set by previous logic (cleanup)
-      setIsAnalyzing(false); 
-    }
+       // Ensure loading state is turned off regardless of success/failure
+       console.log('[handleSaveToKnowledgeBase] Setting loading FALSE');
+       setIsKbGenerationRunning(false);
+    } 
   };
   
-  // --- Derived State and Tooltips (Reverted) --- 
-  const isProcessing = isAnalyzing || isSavingToKB; 
+  // --- Derived State and Tooltips (Update to use isKbGenerationRunning) --- 
+  const isProcessing = isAnalyzing || isKbGenerationRunning; // Check if analyzing OR generating KB
   const canClickButtons = searchPerformedSuccessfully && previews.length > 0 && !isProcessing;
   const analyzeButtonTooltip = t('emailProcessing.tooltips.analyze'); 
-  const proceedButtonTooltip = t('emailProcessing.tooltips.proceedDirectSave'); 
+  // Update tooltip if KB generation is running
+  const proceedButtonTooltip = isKbGenerationRunning ? t('kbGeneration.tooltips.running') : t('emailProcessing.tooltips.proceedDirectSave'); 
 
   // WebSocket connection effect (Reverted to use analysisData/Error)
   useEffect(() => {
@@ -1127,22 +1137,22 @@ const FilterSetup: React.FC = () => {
                           </Tooltip>
                        )}
                        
-                       {/* Proceed Button */} 
-                       {canClickButtons && (
+                       {/* Proceed Button - Render unconditionally, rely on isDisabled */}
                           <Tooltip label={proceedButtonTooltip} placement="top">
+                             {/* Wrap Box in Tooltip to ensure tooltip still works when button is disabled */} 
                              <Box as="span" display="inline-block"> 
-                              <Button
+                                <Button
                                   leftIcon={<FaSave />} size="sm" colorScheme="teal"
                                   onClick={handleSaveToKnowledgeBase}
-                                  isLoading={isSavingToKB}
-                                  loadingText={t('emailProcessing.actions.saving')}
-                                  isDisabled={isProcessing} 
-                              >
+                                  isLoading={isKbGenerationRunning} // Spinner based on this state
+                                  loadingText={t('emailProcessing.actions.proceedGenerateKB')}
+                                  isDisabled={isProcessing} // Disable based on combined state
+                                >
                                   {t('emailProcessing.actions.proceedGenerateKB')}
-                              </Button>
+                                </Button>
                              </Box>
                           </Tooltip>
-                       )}
+                       
                        {/* Pagination (Update isDisabled for Previous button) */}
                        {previews.length > 0 && !isLoadingPreviews && totalPages > 1 && (
                            <ButtonGroup size="sm" isAttached variant="outline">

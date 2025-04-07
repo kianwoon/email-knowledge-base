@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Box, Flex, Spinner, Center, VStack, Text, useToast, Container } from '@chakra-ui/react';
+import {
+  Box, Flex, Spinner, Center, VStack, Text, useToast, Container,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Button, useDisclosure
+} from '@chakra-ui/react';
 import { getCurrentUser, logout as logoutApi } from './api/auth';
+import { useTranslation } from 'react-i18next';
+import { setupInterceptors } from './api/apiClient';
 
 // Pages
 import SignIn from './pages/SignIn';
@@ -9,6 +14,7 @@ import FilterSetup from './pages/FilterSetup';
 import EmailReview from './pages/EmailReview';
 import Search from './pages/Search';
 import Support from './pages/Support';
+import KnowledgeManagementPage from './pages/KnowledgeManagementPage';
 
 // Documentation Pages
 import Documentation from './pages/documentation/Documentation';
@@ -34,9 +40,17 @@ const LoadingScreen = () => (
 function App() {
   const [auth, setAuth] = useState<{ isAuthenticated: boolean; user: any | null }>({ isAuthenticated: false, user: null });
   const [isLoading, setIsLoading] = useState(true);
+  const { isOpen: isSessionExpiredModalOpen, onOpen: onSessionExpiredModalOpen, onClose: onSessionExpiredModalClose } = useDisclosure();
   const toast = useToast();
   const navigate = useNavigate();
-  // const location = useLocation(); // No longer needed for useEffect dependency
+  const { t } = useTranslation();
+
+  // --- Setup Interceptors on Mount --- 
+  useEffect(() => {
+    setupInterceptors();
+    // Log to confirm it ran inside App
+    console.log('[App useEffect] Interceptors set up.');
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   // --- Modified handleLogout --- 
   const handleLogout = useCallback(async () => {
@@ -48,10 +62,30 @@ function App() {
       console.error("[App] API logout failed:", error);
       // Proceed with frontend state clearing even if API fails
     }
-    // No need to clear localStorage tokens anymore
+    // Update auth state
     setAuth({ isAuthenticated: false, user: null });
+    // Clear any potential MS refresh token (optional, depends on storage strategy)
+    // localStorage.removeItem('refresh_token'); 
     navigate('/', { replace: true });
   }, [navigate]);
+
+  // --- Session Expired Event Listener --- 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log("[App] Caught session-expired event.");
+      // Ensure user state reflects logged out
+      setAuth({ isAuthenticated: false, user: null });
+      // Open the modal
+      onSessionExpiredModalOpen();
+    };
+
+    window.addEventListener('session-expired', handleSessionExpired);
+
+    // Cleanup listener on component unmount
+    return () => {
+      window.removeEventListener('session-expired', handleSessionExpired);
+    };
+  }, [onSessionExpiredModalOpen]);
 
   // --- Modified useEffect for Cookie-Based Auth Check --- 
   useEffect(() => {
@@ -94,6 +128,12 @@ function App() {
     // Run only once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array
+
+  // --- Handler for closing the session expired modal and redirecting ---
+  const handleCloseSessionExpiredModal = () => {
+    onSessionExpiredModalClose();
+    navigate('/', { replace: true });
+  };
 
   // --- Keep LoadingScreen check --- 
   if (isLoading) {
@@ -157,6 +197,10 @@ function App() {
                       path="/search"
                       element={ auth.isAuthenticated ? <Search /> : <Navigate to="/" replace /> }
                   />
+                  <Route
+                      path="/knowledge"
+                      element={ auth.isAuthenticated ? <KnowledgeManagementPage /> : <Navigate to="/" replace /> }
+                  />
                   <Route path="*" element={<Navigate to={auth.isAuthenticated ? "/filter" : "/"} replace />} />
                 </Routes>
               </Box>
@@ -164,6 +208,23 @@ function App() {
           } />
         </Routes>
       </Container>
+
+      {/* Session Expired Modal */}
+      <Modal isOpen={isSessionExpiredModalOpen} onClose={handleCloseSessionExpiredModal} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t('sessionExpired.title')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Text>{t('sessionExpired.message')}</Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button colorScheme="blue" onClick={handleCloseSessionExpiredModal}>
+              {t('sessionExpired.loginButton')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 }

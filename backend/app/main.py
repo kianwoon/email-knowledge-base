@@ -25,7 +25,7 @@ except ValueError as e:
 
 # Import DB functions for startup event
 from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
-from app.routes import auth, email, review, vector, webhooks, websockets
+from app.routes import auth, email, review, vector, webhooks, websockets, knowledge
 
 # Log critical environment variables for debugging
 logger.debug("--- Application Startup --- ")
@@ -76,17 +76,28 @@ app.add_middleware(
     max_age=86400,  # Cache preflight requests for 24 hours
 )
 
-# Mount routes - Internal paths DO NOT include /api because Koyeb strips it
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
-app.include_router(email.router, prefix="/emails", tags=["emails"])
-app.include_router(review.router, prefix="/review", tags=["Review Process"])
-app.include_router(vector.router, prefix="/vector", tags=["Vector Database"])
-# Webhook prefix is path *after* /api is stripped (e.g., /webhooks)
-app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["webhooks"])
-# WebSocket prefix is path *after* /api is stripped (e.g., "" for /api/analysis -> /analysis)
-app.include_router(websockets.router, prefix="", tags=["websockets"])
+# --- Mount Routes (WITH /api prefix for consistency) ---
+# This assumes Koyeb is configured to forward /api paths without stripping
+api_prefix = "/api"
+logger.info(f"Including API routers with prefix: {api_prefix}")
+app.include_router(auth.router, prefix=f"{api_prefix}/auth", tags=["Auth"])
+app.include_router(email.router, prefix=f"{api_prefix}/emails", tags=["Emails"])
+app.include_router(review.router, prefix=f"{api_prefix}/review", tags=["Review Process"])
+app.include_router(vector.router, prefix=f"{api_prefix}/vector", tags=["Vector Database"])
+app.include_router(knowledge.router, prefix=f"{api_prefix}/knowledge", tags=["Knowledge"])
 
-# Mount static files directory
+# REMOVED Routes WITHOUT /api prefix 
+# logger.info("Including API routers WITHOUT prefix (for Koyeb compatibility)...")
+# app.include_router(auth.router, prefix="/auth", tags=["Auth"])
+# ... removed other non-api routes
+
+# Webhook/WebSocket prefixes remain unchanged
+logger.info(f"Including Webhook router with prefix: {settings.WEBHOOK_PREFIX}")
+app.include_router(webhooks.router, prefix=settings.WEBHOOK_PREFIX, tags=["Webhooks"])
+logger.info("Including WebSocket router with prefix: ''")
+app.include_router(websockets.router, prefix="", tags=["Websockets"])
+
+# Mount static files directory (remains unchanged)
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 logger.debug(f"Mounting static directory: {static_dir}")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")

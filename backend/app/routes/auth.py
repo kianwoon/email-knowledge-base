@@ -62,51 +62,30 @@ def create_access_token(data: Dict, expires_delta: Optional[timedelta] = None):
 @router.get("/login")
 async def login():
     """Generate Microsoft OAuth login URL"""
-    # Enhanced logging for debugging
-    print(f"=== Login Endpoint Called ===")
-    print(f"DEBUG - Environment variables:")
-    print(f"DEBUG - BACKEND_URL: {settings.BACKEND_URL}")
-    print(f"DEBUG - FRONTEND_URL: {settings.FRONTEND_URL}")
-    print(f"DEBUG - MS_REDIRECT_URI: {settings.MS_REDIRECT_URI}")
-    print(f"DEBUG - MS_CLIENT_ID: {settings.MS_CLIENT_ID[:5]}...{settings.MS_CLIENT_ID[-5:] if settings.MS_CLIENT_ID else 'Not set'}")
-    print(f"DEBUG - MS_TENANT_ID: {settings.MS_TENANT_ID[:5]}...{settings.MS_TENANT_ID[-5:] if settings.MS_TENANT_ID else 'Not set'}")
-    print(f"DEBUG - IS_PRODUCTION: {settings.IS_PRODUCTION}")
-    
+    logger.debug("Generating Microsoft OAuth login URL...")
     try:
-        # Create state with next_url for callback
-        frontend_url = settings.FRONTEND_URL
-        print(f"DEBUG - Using frontend URL for state: {frontend_url}")
+        state_payload = {"next_url": settings.FRONTEND_URL} # Use frontend URL directly
+        state = json.dumps(state_payload)
+        logger.debug(f"Generated state: {state}")
         
-        # Ensure we have a valid frontend URL
-        if not frontend_url or not frontend_url.startswith(('http://', 'https://')):
-            print(f"DEBUG - Invalid frontend URL, using settings value")
-            frontend_url = settings.FRONTEND_URL
-            print(f"DEBUG - Using frontend URL from settings: {frontend_url}")
-        
-        state = json.dumps({"next_url": frontend_url})
-        print(f"DEBUG - Generated state: {state}")
-        
-        # Generate auth URL using settings
-        # Note: Endpoint paths are still hardcoded as per decision
         auth_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
-        auth_url = f"{auth_url_base}/oauth2/v2.0/authorize"
+        auth_url_endpoint = f"{auth_url_base}/oauth2/v2.0/authorize"
         
         auth_params = {
             "client_id": settings.MS_CLIENT_ID,
             "response_type": "code",
             "redirect_uri": settings.MS_REDIRECT_URI,
-            "scope": settings.MS_SCOPE_STR, # Use scope from settings
+            "scope": settings.MS_SCOPE_STR,
             "state": state,
             "prompt": "select_account"
         }
         
-        # Log the full auth URL for debugging
-        full_auth_url = f"{auth_url}?{urlencode(auth_params)}"
-        print(f"DEBUG - Full auth URL: {full_auth_url}")
+        full_auth_url = f"{auth_url_endpoint}?{urlencode(auth_params)}"
+        logger.debug(f"Constructed auth URL: {full_auth_url}")
         
         return {"auth_url": full_auth_url}
     except Exception as e:
-        print(f"ERROR - Exception in login route: {str(e)}")
+        logger.error(f"Failed to generate login URL: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate login URL: {str(e)}"

@@ -1,95 +1,93 @@
-import axios, { InternalAxiosRequestConfig } from 'axios';
+import axios, { InternalAxiosRequestConfig, AxiosError } from 'axios';
+import { refreshToken } from './auth';
 
-// Get the API base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-
+// Get backend URL from environment variables
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 console.log('[ApiClient] Environment Mode:', import.meta.env.MODE);
 console.log('[ApiClient] VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
-console.log('[ApiClient] Final API_BASE_URL:', API_BASE_URL);
+console.log('[ApiClient] Final API_BASE_URL:', BACKEND_URL);
 
-if (!API_BASE_URL) {
-  console.error('[ApiClient] API_BASE_URL is not configured properly');
-  // You might want to throw an error here in a real app
-}
-
-// Create axios instance
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json', // Added Accept based on auth.ts
-  },
-  timeout: 60000, // Increase timeout to 60 seconds
-  withCredentials: true
+  baseURL: `${BACKEND_URL}/api`, 
+  withCredentials: true, 
+  timeout: 60000, // Example timeout
 });
 
-// --- REMOVE Authorization Header Request Interceptor --- 
-/*
-apiClient.interceptors.request.use(
-    (config: InternalAxiosRequestConfig) => {
-        console.log(`[Interceptor] Running for request: ${config.method?.toUpperCase()} ${config.url}`);
-        const token = getToken(); // Assume getToken is defined elsewhere
-        const expired = isTokenExpired(); // Assume isTokenExpired is defined elsewhere
-        console.log(`[Interceptor] Retrieved token: ${token ? token.substring(0, 10) + '...' : 'NULL'}`);
-        console.log(`[Interceptor] Token expired check: ${expired}`);
-
-        if (token && !expired) {
-            console.log('[Interceptor] Attaching token to Authorization header.');
-            config.headers.Authorization = `Bearer ${token}`;
-        } else {
-             if (token && expired) {
-                 console.log('[Interceptor] Token found but expired, clearing token.');
-                 // clearToken(); // Assume clearToken is defined
-            } else if (!token) {
-                 console.log('[Interceptor] No token found.');
-            }
-        }
-        console.log('[Interceptor] Request Headers:', JSON.stringify(config.headers));
-        return config;
+// Function to set up interceptors (can be called from main app setup)
+export const setupInterceptors = () => {
+  // --- ADDED Log --- 
+  console.log('[setupInterceptors] Function CALLED - Setting up Axios interceptors...');
+  // --- END Log ---
+  
+  // Request interceptor (kept minimal as before)
+  apiClient.interceptors.request.use(
+    (config) => {
+      // Minimal request interceptor logic if needed
+      return config;
     },
     (error) => {
-        console.error('[Interceptor] Request Setup Error:', error);
-        return Promise.reject(error);
+      return Promise.reject(error);
     }
-);
-*/
+  );
 
-// --- Keep or Modify Response Interceptor (for handling 401s, etc.) --- 
-// The response interceptor might still be useful for triggering logout 
-// or attempting refresh based on the MS refresh token (which we'll handle later)
-// For now, let's simplify it or comment it out if it relies on the old token logic.
+  // Response interceptor (logic from previous steps)
+  apiClient.interceptors.response.use(
+    (response) => response, 
+    async (error: AxiosError<any>) => { 
+      const originalRequest = error.config as InternalAxiosRequestConfig<any> & { _retry?: boolean };
+      
+      // --- RE-ADD DEBUG LOGGING --- 
+      console.log('[Interceptor] Error Handler Triggered.');
+      console.log('[Interceptor] error.response?.status:', error.response?.status);
+      console.log('[Interceptor] error.response?.data:', error.response?.data);
+      console.log('[Interceptor] error.response?.data?.detail:', error.response?.data?.detail);
+      // --- END DEBUG LOGGING --- 
 
-// Example: Keeping a simplified response interceptor for 401 logging
-// IMPORTANT: Refresh logic needs rework for cookie-based auth
-/*
-apiClient.interceptors.response.use(
-  response => response, // Pass through successful responses
-  async error => {
-    const originalRequest = error.config;
-    
-    // Check if it's a 401 Unauthorized error
-    if (error.response && error.response.status === 401 && !originalRequest._retry) {
-      console.warn('[Interceptor] Received 401 Unauthorized. Cookie might be invalid/expired.');
-      originalRequest._retry = true; // Prevent retry loops
+      // Check if it's the specific "User not found" 404 error
+      if (
+        error.response?.status === 404 && 
+        error.response?.data?.detail === "User not found"
+      ) {
+          console.warn('[Interceptor] Detected User Not Found (404). Treating as session invalid.');
+          // ... (clear tokens, dispatch event)
+          localStorage.removeItem('token'); 
+          localStorage.removeItem('expires');
+          localStorage.removeItem('refresh_token');
+          console.log('[Interceptor] Dispatching session-expired event due to User Not Found 404.');
+          window.dispatchEvent(new CustomEvent('session-expired'));
+          return Promise.reject(error); 
+      }
 
-      // TODO: Implement MS refresh token logic here if needed later.
-      // This would involve:
-      // 1. Having the MS refresh token available (e.g., from memory, fetched from /me)
-      // 2. Calling a backend endpoint (e.g., /auth/ms-refresh) that uses the MS refresh token
-      //    to get a new MS access token AND issues a new JWT cookie.
-      // 3. Retrying the original request (browser should automatically send the new cookie).
+      // Handle 401 Unauthorized (likely expired token)
+      if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+         originalRequest._retry = true; 
+         console.log('[Interceptor] Attempting token refresh...');
 
-      // For now, just log and reject, potentially trigger logout in App.tsx
-      // Or trigger a global logout event
-      window.dispatchEvent(new CustomEvent('auth-error')); // Example event
+         try {
+           const msRefreshToken = localStorage.getItem('refresh_token');
+           if (!msRefreshToken) {
+             throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
+           }
+           await refreshToken(msRefreshToken);
+           console.log('[Interceptor] Token refresh successful (expecting cookie to be set).');
+           console.log('[Interceptor] Retrying original request (expecting new cookie).');
+           return apiClient(originalRequest);
+         } catch (refreshError) {
+           console.error('[Interceptor] Token refresh failed:', refreshError);
+           // ... (clear tokens, dispatch event)
+           localStorage.removeItem('token'); 
+           localStorage.removeItem('expires');
+           localStorage.removeItem('refresh_token');
+           console.log('[Interceptor] Dispatching session-expired event due to refresh failure.');
+           window.dispatchEvent(new CustomEvent('session-expired'));
+           return Promise.reject(refreshError);
+         }
+      }
+
+      // For any other errors, just reject the promise
+      return Promise.reject(error);
     }
-    
-    return Promise.reject(error);
-  }
-);
-*/
-
-// Response interceptor will be added separately to avoid circular dependency
-// console.log('[ApiClient] Instance created.');
+  );
+};
 
 export default apiClient; 

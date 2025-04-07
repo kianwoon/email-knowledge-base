@@ -7,6 +7,7 @@ import logging
 # Qdrant imports
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.models import PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Import EmailFilter model
 from app.models.email import EmailVectorData, ReviewStatus, EmailFilter
@@ -115,14 +116,16 @@ async def search_vectors(
     """Search for similar vectors using semantic search with filtering."""
     logger.info(f"Received search request: '{query}' for owner: {current_user.email}")
     try:
+        # Construct the user-specific collection name
+        sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
+        target_collection_name = f"{sanitized_email}_email_knowledge_base" # Search the vector collection
+        logger.info(f"Targeting search in collection: {target_collection_name}")
+
         # Generate embedding for the query
         query_embedding = await create_embedding(query)
 
-        # Build Qdrant filters based on query parameters
+        # Build Qdrant filters based on query parameters (NO owner filter needed)
         qdrant_filter = models.Filter(must=[])
-
-        # ALWAYS filter by owner
-        qdrant_filter.must.append(models.FieldCondition(key="owner", match=models.MatchValue(value=current_user.email)))
 
         if folder:
             qdrant_filter.must.append(models.FieldCondition(key="folder", match=models.MatchValue(value=folder)))
@@ -150,11 +153,11 @@ async def search_vectors(
              
         logger.debug(f"Constructed Qdrant filter: {qdrant_filter.model_dump_json()}")
 
-        # Search Qdrant
+        # Search Qdrant using user-specific collection name
         search_result = client.search(
-            collection_name=settings.QDRANT_COLLECTION_NAME,
+            collection_name=target_collection_name, # Use user-specific name
             query_vector=query_embedding,
-            query_filter=qdrant_filter,
+            query_filter=qdrant_filter if qdrant_filter.must else None, # Pass filter only if it has conditions
             limit=limit,
             with_payload=True # Include metadata in results
         )
@@ -518,9 +521,9 @@ async def save_filtered_emails_to_knowledge_base(
             try:
                 logger.debug(f"[Op:{operation_id}] Fetching content for email_id: {email_id}")
                 email_content = await outlook.get_email_content(email_id)
-                logger.debug(f"[Op:{operation_id}] Processing email subject: {email_content.subject}")
+                # logger.debug(f"[Op:{operation_id}] Processing email subject: {email_content.subject}")
                 
-                # --- Prepare Metadata and Vector (No analysis tags here) --- 
+                # --- Prepare Metadata (No analysis tags here) --- 
                 attachments_payload = []
                 if email_content.attachments:
                     for att in email_content.attachments:
@@ -534,38 +537,38 @@ async def save_filtered_emails_to_knowledge_base(
                 has_attachments_bool = len(email_content.attachments) > 0 if email_content.attachments else False
 
                 email_metadata = {
-                    "type": "email",
-                    # "job_id": operation_id, # Use operation ID if needed for grouping?
+                    "type": "email_raw", # Indicate this is raw data
                     "owner": current_user.email,
                     "sender": email_content.sender if email_content.sender else "unknown@sender.com", 
                     "subject": email_content.subject or "",
                     "date": email_content.received_date or "", 
                     "has_attachments": has_attachments_bool,
                     "folder": filter_criteria_obj.folder_id, 
-                    "tags": [], # No analysis tags in this flow
-                    "analysis_status": "pending", # <-- Corrected default
-                    "status": "pending_review", # <-- Corrected default
+                    "tags": [], 
+                    "analysis_status": "pending", # Changed from pending_vectorization
+                    "status": "raw_stored", # New status? 
                     "source": "email",
                     "raw_text": email_content.body or "",
                     "attachments": attachments_payload,
                     "attachment_count": len(attachments_payload),
-                    "query_criteria": filter_criteria_obj.model_dump()
+                    "query_criteria": filter_criteria_obj.model_dump(),
+                    'original_email_id': email_id # Keep original ID
                 }
 
-                email_body = email_metadata["raw_text"] or email_metadata["subject"]
-                embedding = await create_embedding(email_body)
+                # --- Create Dummy Vector to satisfy dimension requirement --- 
+                dummy_vector = [0.0] * settings.QDRANT_VECTOR_SIZE
 
                 qdrant_point_uuid = str(uuid.uuid4()) 
-                email_metadata['original_email_id'] = email_id 
+                # email_metadata['original_email_id'] = email_id 
 
                 point = PointStruct(
                     id=qdrant_point_uuid, 
-                    vector=embedding,
+                    vector=dummy_vector, # Provide a zero vector of the correct dimension
                     payload=email_metadata
                 )
                 points_to_upsert.append(point)
                 processed_email_count += 1
-                logger.debug(f"[Op:{operation_id}] Prepared point {qdrant_point_uuid} (email: {email_id}).")
+                logger.debug(f"[Op:{operation_id}] Prepared raw point {qdrant_point_uuid} (email: {email_id}).")
 
             except Exception as fetch_err:
                 failed_email_count += 1
@@ -575,28 +578,60 @@ async def save_filtered_emails_to_knowledge_base(
          logger.error(f"[Op:{operation_id}] Error during email fetching: {str(outer_err)}", exc_info=True)
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error occurred fetching email details.")
 
-    # --- Batch Upsert --- 
+    # --- Batch Upsert to RAW Collection --- 
     if points_to_upsert:
         try:
-            logger.info(f"[Op:{operation_id}] Upserting {len(points_to_upsert)} email points to Qdrant...")
+            # --- Construct User-Specific RAW Collection Name --- 
+            sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
+            target_collection_name = f"{sanitized_email}_email_knowledge" # <<< TARGET RAW COLLECTION
+            logger.info(f"[Op:{operation_id}] Target Qdrant collection: {target_collection_name}")
+            
+            # --- Ensure RAW Collection Exists (Provide minimal vector config to satisfy API) --- 
+            try:
+                logger.info(f"[Op:{operation_id}] Ensuring collection '{target_collection_name}' exists.")
+                qdrant_client.create_collection(
+                    collection_name=target_collection_name,
+                    # Provide a vectors_config even for raw, using settings for consistency
+                    vectors_config=models.VectorParams(
+                        size=settings.QDRANT_VECTOR_SIZE,      # Use configured size
+                        distance=settings.QDRANT_DISTANCE_METRIC # Use configured distance
+                    )
+                )
+                logger.info(f"[Op:{operation_id}] Collection '{target_collection_name}' created.")
+            except UnexpectedResponse as e:
+                if e.status_code == 409:
+                    logger.warning(f"[Op:{operation_id}] Collection '{target_collection_name}' already exists. Proceeding with upsert.")
+                    pass 
+                else:
+                    logger.error(f"[Op:{operation_id}] Failed to create collection {target_collection_name} due to unexpected Qdrant error: {e}", exc_info=True)
+                    raise e 
+            except Exception as create_err:
+                logger.error(f"[Op:{operation_id}] Failed to ensure/create collection {target_collection_name}: {create_err}", exc_info=True)
+                raise create_err 
+            # --- End Ensure RAW Collection Exists ---
+
+            logger.info(f"[Op:{operation_id}] Upserting {len(points_to_upsert)} raw email points to {target_collection_name}...")
             qdrant_client.upsert(
-                collection_name=settings.QDRANT_COLLECTION_NAME,
-                points=points_to_upsert,
+                collection_name=target_collection_name, # USE User-specific RAW name
+                points=points_to_upsert, # Points now only have payload
                 wait=True
             )
-            logger.info(f"[Op:{operation_id}] Successfully upserted {len(points_to_upsert)} points.")
+            logger.info(f"[Op:{operation_id}] Successfully upserted {len(points_to_upsert)} points to {target_collection_name}.")
         except Exception as e:
-            logger.error(f"[Op:{operation_id}] Failed batch upsert: {str(e)}", exc_info=True)
+            # Construct the target name again for the error message
+            sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
+            target_collection_name = f"{sanitized_email}_email_knowledge" # <<< TARGET RAW COLLECTION
+            logger.error(f"[Op:{operation_id}] Failed batch upsert to {target_collection_name}: {str(e)}", exc_info=True)
             return {
                 "operation_id": operation_id,
-                "message": f"Attempted to save. Processed: {processed_email_count}, Failed: {failed_email_count}, Qdrant Errors: {len(points_to_upsert)}",
+                "message": f"Attempted to save raw data. Processed: {processed_email_count}, Failed: {failed_email_count}, Qdrant Errors: {len(points_to_upsert)} to {target_collection_name}",
                 "status": "partial_failure"
             }
     else:
-        logger.warning(f"[Op:{operation_id}] No points prepared for upsert (errors: {failed_email_count})")
+        logger.warning(f"[Op:{operation_id}] No raw points prepared for upsert (errors: {failed_email_count})")
 
     return {
         "operation_id": operation_id,
-        "message": f"Save completed. Emails Processed: {processed_email_count}, Errors: {failed_email_count}",
+        "message": f"Raw data save completed. Emails Processed: {processed_email_count}, Errors: {failed_email_count}",
         "status": "success" if failed_email_count == 0 else "partial_success"
     }

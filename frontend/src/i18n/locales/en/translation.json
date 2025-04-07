@@ -22,7 +22,8 @@
     "documentation": "Documentation",
     "support": "Support",
     "menu": "Menu",
-    "toggleTheme": "Toggle theme"
+    "toggleTheme": "Toggle theme",
+    "knowledgeManagement": "Knowledge"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -1228,5 +1229,25 @@
       "analyze": "Analyze the subjects of the filtered emails to identify topics and clusters.",
       "proceedDirectSave": "Process the filtered emails and add their content to the knowledge base directly."
     }
+  },
+  "knowledgeManagement": {
+    "title": "Knowledge Management",
+    "itemCount": "Item Count",
+    "rawData": {
+      "title": "Raw Data (Email Knowledge)",
+      "description": "Original email data stored before processing."
+    },
+    "vectorData": {
+      "title": "Vector Data (Knowledge Base)",
+      "description": "Processed email data converted into vectors for search."
+    },
+    "errors": {
+      "loadSummary": "Failed to load collection summaries."
+    }
+  },
+  "sessionExpired": {
+    "title": "Session Expired",
+    "message": "Your session has expired. Please log in again to continue.",
+    "loginButton": "Login"
   }
 }

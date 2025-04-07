@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars
     QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY") # Optional, not validated by helper
     QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME") # validated by check_required_env_vars
+    QDRANT_RAW_COLLECTION_NAME: str = "email_knowledge"
+    # --- ADDED Qdrant Vector Params ---
+    QDRANT_VECTOR_SIZE: int = 1536 # Default for text-embedding-3-small, adjust if needed
+    QDRANT_DISTANCE_METRIC: str = "Cosine" # Default for OpenAI embeddings
+    # --- END ADDED ---
 
     # Email processing settings
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS")) # validated by pydantic & check_required

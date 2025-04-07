@@ -17,8 +17,9 @@
   "navigation": {
     "home": "首页",
     "filterEmails": "筛选邮件",
-    "review": "审阅",
+    "review": "审查",
     "search": "搜索",
+    "knowledgeManagement": "知识库",
     "documentation": "文档",
     "support": "支持",
     "menu": "菜单",
@@ -914,5 +915,25 @@
       "searchError": "搜索知识库时出错",
       "loadError": "加载内容时出错"
     }
+  },
+  "knowledgeManagement": {
+    "title": "知识管理",
+    "itemCount": "项目计数",
+    "rawData": {
+      "title": "原始数据 (邮件知识)",
+      "description": "处理前存储的原始邮件数据。"
+    },
+    "vectorData": {
+      "title": "向量数据 (知识库)",
+      "description": "已处理并转换为向量以供搜索的邮件数据。"
+    },
+    "errors": {
+      "loadSummary": "加载集合摘要失败。"
+    }
+  },
+  "sessionExpired": {
+    "title": "会话已过期",
+    "message": "您的会话已过期。请重新登录以继续。",
+    "loginButton": "登录"
   }
 } 

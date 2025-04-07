@@ -30,7 +30,7 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { getLoginUrl } from '../api/auth';
 
@@ -63,6 +63,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
     { path: '/filter', label: t('navigation.filterEmails'), icon: FaFilter },
     { path: '/review', label: t('navigation.review'), icon: FaClipboardCheck },
     { path: '/search', label: t('navigation.search'), icon: FaSearch },
+    { path: '/knowledge', label: t('navigation.knowledgeManagement'), icon: FaBoxes },
     { path: '/docs', label: t('navigation.documentation'), icon: FaBook },
   ];
 

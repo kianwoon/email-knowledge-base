@@ -58,7 +58,8 @@ export const getEmailPreviews = async (
     return response.data;
   } catch (error: any) {
     console.error('Error fetching email previews:', error.response?.data || error.message);
-    throw new Error(error.response?.data?.detail || 'Failed to fetch email previews');
+    // RE-THROW the original error
+    throw error;
   }
 };
 
