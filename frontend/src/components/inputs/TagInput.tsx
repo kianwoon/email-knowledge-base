@@ -76,7 +76,7 @@ const TagInput: React.FC<TagInputProps> = ({
             borderRadius="full"
             variant="solid"
             colorScheme="blue" // Or another color scheme
-            isDisabled={isDisabled}
+            _disabled={{ opacity: 0.5 }} // Apply disabled styles using _disabled
           >
             <TagLabel>{tag}</TagLabel>
             {!isDisabled && <TagCloseButton onClick={() => handleRemoveTag(index)} />}
