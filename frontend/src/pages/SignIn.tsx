@@ -72,9 +72,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
     const expires = params.get('expires');
 
     if (token && expires) {
-      // Store tokens
-      localStorage.setItem('token', token);
-      localStorage.setItem('expires', expires);
+      // Store tokens - REMOVED as HttpOnly cookie is set by backend
+      // localStorage.setItem('token', token);
+      // localStorage.setItem('expires', expires);
 
       // Clear URL parameters
       window.history.replaceState({}, document.title, window.location.pathname);

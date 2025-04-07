@@ -56,12 +56,6 @@ export const refreshToken = async (msRefreshToken: string) => {
     
     console.log('Refresh token response received:', response.data);
     
-    if (response.data.access_token) {
-      localStorage.setItem('token', response.data.access_token);
-      localStorage.setItem('expires', response.data.expires_at);
-      // Optional: Handle updating MS refresh token if backend returns it
-    }
-    
     return response.data;
   } catch (error) {
     console.error('Error refreshing token:', error);

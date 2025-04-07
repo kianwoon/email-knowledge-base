@@ -247,7 +247,6 @@ const FilterSetup: React.FC = () => {
         const totalPagesFromNextLink = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
         setTotalPages(totalPagesFromNextLink); 
         setNextLink(currentNextLink);
-        setSearchPerformedSuccessfully(true);
         // setCurrentPage(currentPage + 1); // This should be handled by the caller (e.g., handlePageChange)
 
       } else {
@@ -374,15 +373,9 @@ const FilterSetup: React.FC = () => {
       setIsLoadingPreviews(true);
       try {
         console.log(`handlePageChange: Calling getEmailPreviews with next_link: ${nextLink} and current filters`);
-        // Pass next_link AND current filter criteria for manual filtering in backend if needed
-        const previewData = await getEmailPreviews({
-            next_link: nextLink,
-            folder_id: filter.folder_id || undefined,
-            start_date: filter.start_date || undefined,
-            end_date: filter.end_date || undefined,
-            keywords: filter.keywords && filter.keywords.length > 0 ? filter.keywords : undefined,
-            per_page: itemsPerPage // Pass itemsPerPage too
-        } as any);
+        // Pass arguments according to the function signature
+        const previewData = await getEmailPreviews(filter, newPage, itemsPerPage, nextLink);
+
         console.log('handlePageChange: Received previewData:', previewData);
         
         if (previewData && previewData.items) {
