@@ -29,38 +29,32 @@ export const getEmailPreviews = async (
   filter: EmailFilter, 
   page: number = 1, 
   per_page: number = 10,
-  next_link?: string // Optional: Pass the next_link from the previous response
+  next_link?: string // Still accept next_link, might be needed in filter body
 ): Promise<PaginatedEmailPreviewResponse> => {
   
-  // REMOVE LOCALSTORAGE CHECK - Handled by cookie
-  // console.log(`[getEmailPreviews] Checking token. localStorage.getItem('accessToken') value:`, localStorage.getItem('accessToken'));
-  // const token = localStorage.getItem('accessToken');
-  // if (!token) throw new Error('No access token found');
-  
-  // Construct query parameters
-  const params: any = { 
-    page,
-    per_page 
+  // Construct query parameters for pagination
+  const queryParams: any = { page, per_page };
+
+  // Prepare the filter data to be sent in the body
+  // Include next_link if provided
+  const bodyFilter: EmailFilter & { next_link?: string } = {
+     ...filter,
+     next_link: next_link // Add next_link to the body payload
   };
 
-  // Use next_link directly if provided
-  if (next_link) {
-    params.next_link = next_link;
-  }
+  console.log(`[getEmailPreviews] Calling POST /preview`);
+  console.log(`[getEmailPreviews] Query Params: ${JSON.stringify(queryParams)}`);
+  console.log(`[getEmailPreviews] Body Filter: ${JSON.stringify(bodyFilter)}`);
 
-  console.log('[API Call] getEmailPreviews - Request Params:', params, 'Body (Filter):', filter);
-  
   try {
-    const response = await apiClient.post(
-      `/emails/preview`, 
-      filter, // Send filter criteria in the body
-      { 
-        params: params, // Send pagination params in query string
-        // REMOVE EXPLICIT HEADERS - Handled by cookie + apiClient
-        // headers: { Authorization: `Bearer ${token}` }, 
-      }
+    // Use POST to /preview, send filter in body, pagination in query
+    const response = await apiClient.post<PaginatedEmailPreviewResponse>(
+      '/emails/preview', // Correct endpoint path
+      bodyFilter,   // Filter data (including next_link if present) in the request body
+      { params: queryParams } // Pagination data in query parameters
     );
-    console.log('[API Response] getEmailPreviews:', response.data);
+    
+    console.log(`[getEmailPreviews] Response status: ${response.status}`);
     return response.data;
   } catch (error: any) {
     console.error('Error fetching email previews:', error.response?.data || error.message);

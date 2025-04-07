@@ -95,6 +95,12 @@ interface FilterTemplate {
   filter: EmailFilter;
 }
 
+// Type for cache entries
+interface PageCacheEntry {
+  previews: EmailPreview[];
+  nextLink?: string;
+}
+
 const EmailTableSkeleton = () => (
   <Table variant="simple">
     <Thead>
@@ -178,6 +184,7 @@ const FilterSetup: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [nextLink, setNextLink] = useState<string | undefined>(undefined);
+  const [pageCache, setPageCache] = useState<Map<number, PageCacheEntry>>(new Map());
   const pageSizeOptions = [10, 25, 50, 100];
   const [isEndDateDisabled, setIsEndDateDisabled] = useState(true);
   const [dateError, setDateError] = useState<string | null>(null);
@@ -220,24 +227,33 @@ const FilterSetup: React.FC = () => {
     try {
       // If using next_link, use it directly (size doesn't apply to next_link requests)
       if (nextLink) {
+        // This block is typically hit during forward pagination handled by handlePageChange,
+        // but keeping it here for potential direct calls to loadPreviews with nextLink.
         console.log('Using next_link for pagination:', nextLink);
         // Pass only the next_link, backend handles the rest
         const previewData = await getEmailPreviews({ next_link: nextLink }); 
         console.log('Next link response:', previewData);
         
-        setPreviews(previewData.items || []);
-        
-        // Update total count and pages from the pagination response unconditionally
+        const currentPreviews = previewData.items || [];
+        const currentNextLink = previewData.next_link ?? undefined;
+
+        // Update Cache for the *next* page (currentPage + 1 because nextLink loads the next page)
+        const cacheData: PageCacheEntry = { previews: currentPreviews, nextLink: currentNextLink };
+        setPageCache(prevCache => new Map(prevCache).set(currentPage + 1, cacheData));
+
+        // Update state
+        setPreviews(currentPreviews);
         setTotalEmails(previewData.total);
-        // Use currentSize for page calculation when total is known
         const totalPagesFromNextLink = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
         setTotalPages(totalPagesFromNextLink); 
-        setNextLink(previewData.next_link ?? undefined);
+        setNextLink(currentNextLink);
         setSearchPerformedSuccessfully(true);
+        // setCurrentPage(currentPage + 1); // This should be handled by the caller (e.g., handlePageChange)
 
       } else {
-        // Initial Load / Non-pagination request
-        setCurrentPage(1); // Reset to page 1 on new filter/search
+        // Initial Load / Non-pagination request (Search or first load)
+        // Resetting page to 1 and clearing cache should be done *before* calling loadPreviews
+        // setCurrentPage(1); // Reset to page 1 on new filter/search - MOVED TO CALLERS
 
         // Prepare base parameters for the API call
         const apiParams: any = {
@@ -258,20 +274,26 @@ const FilterSetup: React.FC = () => {
         console.log('Received preview data (non-pagination):', previewData);
         console.log(`[FilterSetup] Received ${previewData?.items?.length ?? 0} items from API (non-pagination).`);
 
+        const currentPreviews = previewData.items || [];
+        const currentNextLink = previewData.next_link ?? undefined;
+        
+        // Update Cache for page 1
+        const cacheData: PageCacheEntry = { previews: currentPreviews, nextLink: currentNextLink };
+        setPageCache(new Map().set(1, cacheData)); // Reset cache and set page 1
+
         // Update state with data from API
-        setPreviews(previewData.items || []);
+        setPreviews(currentPreviews);
         setTotalEmails(previewData.total);
-        // Use currentSize for page calculation when total is known
         const totalPagesFromInitial = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
         setTotalPages(totalPagesFromInitial);
-        setNextLink(previewData.next_link ?? undefined);
+        setNextLink(currentNextLink);
         setSearchPerformedSuccessfully(true);
 
         console.log('Updated state (non-pagination):', {
-          items: previewData.items?.length,
+          items: currentPreviews.length,
           total: previewData.total,
           pages: totalPagesFromInitial,
-          nextLink: previewData.next_link ?? undefined,
+          nextLink: currentNextLink,
         } as any);
       }
     } catch (error: any) {
@@ -288,10 +310,11 @@ const FilterSetup: React.FC = () => {
       setTotalEmails(0);
       setTotalPages(1);
       setNextLink(undefined);
+      setPageCache(new Map()); // Clear cache on error
     } finally {
       setIsLoadingPreviews(false);
     }
-  }, [filter, itemsPerPage, isInitialLoad, toast, t, nextLink]);
+  }, [filter, itemsPerPage, isInitialLoad, toast, t, nextLink, currentPage]);
 
   // Log previews state changes
   useEffect(() => {
@@ -325,9 +348,10 @@ const FilterSetup: React.FC = () => {
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFilter(prev => ({ ...prev, [name]: value }));
-    // Reset pagination on filter change
+    // Reset pagination and cache on filter change
     setNextLink(undefined);
     setCurrentPage(1);
+    setPageCache(new Map());
   };
 
   // Function to handle page changes (Previous/Next buttons)
@@ -362,22 +386,29 @@ const FilterSetup: React.FC = () => {
         console.log('handlePageChange: Received previewData:', previewData);
         
         if (previewData && previewData.items) {
-            console.log(`handlePageChange: Calling setPreviews with ${previewData.items.length} items.`);
-            setPreviews(previewData.items);
-            console.log('handlePageChange: Calling setTotalEmails:', previewData.total);
-            setTotalEmails(previewData.total);
+            const newPreviews = previewData.items;
+            const newNextLink = previewData.next_link ?? undefined;
             const newTotal = previewData.total;
+
+            // --- Cache the new page data BEFORE setting state ---
+            const cacheData: PageCacheEntry = { previews: newPreviews, nextLink: newNextLink };
+            setPageCache(prevCache => new Map(prevCache).set(newPage, cacheData));
+            console.log(`handlePageChange: Cached data for page ${newPage}.`);
+            // --- End Cache Update ---
+
+            console.log(`handlePageChange: Calling setPreviews with ${newPreviews.length} items.`);
+            setPreviews(newPreviews);
             console.log('handlePageChange: Calling setTotalEmails:', newTotal);
             setTotalEmails(newTotal);
 
             // Correct totalPages calculation
             const newTotalPages = newTotal === -1
-                                    ? (previewData.next_link ? newPage + 1 : newPage) // If unknown total, assume at least one more page if nextLink exists
+                                    ? (newNextLink ? newPage + 1 : newPage) // If unknown total, assume at least one more page if nextLink exists
                                     : (newTotal > 0 ? Math.ceil(newTotal / itemsPerPage) : 1);
             console.log('handlePageChange: Calling setTotalPages:', newTotalPages);
             setTotalPages(newTotalPages);
-            console.log('handlePageChange: Calling setNextLink:', previewData.next_link);
-            setNextLink(previewData.next_link ?? undefined);
+            console.log('handlePageChange: Calling setNextLink:', newNextLink);
+            setNextLink(newNextLink);
             console.log('handlePageChange: Calling setCurrentPage:', newPage);
             setCurrentPage(newPage);
         } else {
@@ -399,21 +430,35 @@ const FilterSetup: React.FC = () => {
         setIsLoadingPreviews(false);
       }
     } else {
-      // --- Handle Backward Pagination (or jump to specific page - Currently Not Supported by Backend API) ---
-      // The backend API only supports pagination via next_link. 
-      // To go back, we would need to re-run the original query for page 1
-      // and then potentially fetch subsequent pages using their next_links.
-      // This is inefficient and not implemented here.
-      console.warn(`handlePageChange: Backward pagination (to page ${newPage}) is not implemented.`);
-      toast({ title: "Not Implemented", description: "Backward pagination is not currently supported.", status: "warning", duration: 3000 });
+      // --- Handle Backward Pagination (Using Cache) ---
+      if (pageCache.has(newPage)) {
+        const cachedPage = pageCache.get(newPage)!;
+        console.log(`handlePageChange: Loading page ${newPage} from cache.`, cachedPage);
+        // No need to set loading state when loading from cache
+        setPreviews(cachedPage.previews);
+        setNextLink(cachedPage.nextLink); // Restore nextLink for the *target* page
+        setCurrentPage(newPage);
+        console.log(`handlePageChange: State updated for cached page ${newPage}.`);
+      } else {
+        // This case should ideally not happen with sequential back clicks,
+        // but handle it defensively.
+        console.warn(`handlePageChange: Page ${newPage} not found in cache. Cannot go back.`);
+        toast({ 
+            title: "Cache Miss", 
+            description: `Page ${newPage} is not cached. Cannot go back further. Please perform a new search if needed.`, 
+            status: "warning", 
+            duration: 4000 
+        });
+      }
     }
   };
 
   // Handle search
   const handleSearchClick = useCallback(async () => {
-    // Reset pagination state
+    // Reset pagination state AND cache
     setCurrentPage(1);
     setNextLink(undefined);
+    setPageCache(new Map());
     setIsInitialLoad(false);
     setPreviews([]); // Clear existing previews before new search
     setTotalEmails(0); // Reset total count before new search
@@ -426,9 +471,10 @@ const FilterSetup: React.FC = () => {
       // Handle potentially undefined keywords array
       setFilter(prev => ({ ...prev, keywords: [...(prev.keywords ?? []), keywordInput.trim()] }));
       setKeywordInput('');
-      // Reset pagination
+      // Reset pagination and cache
       setNextLink(undefined);
       setCurrentPage(1);
+      setPageCache(new Map());
     }
   };
   
@@ -436,35 +482,39 @@ const FilterSetup: React.FC = () => {
   const handleRemoveKeyword = (keywordToRemove: string) => {
     // Handle potentially undefined keywords array
     setFilter(prev => ({ ...prev, keywords: (prev.keywords ?? []).filter(kw => kw !== keywordToRemove) }));
-    // Reset pagination
+    // Reset pagination and cache
     setNextLink(undefined);
     setCurrentPage(1);
+    setPageCache(new Map());
   };
   
   // Handler for folder select change
   const handleFolderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFilter(prev => ({ ...prev, folder_id: e.target.value }));
-    // Reset pagination
+    // Reset pagination and cache
     setNextLink(undefined);
     setCurrentPage(1);
+    setPageCache(new Map());
   };
 
   // Handler for basic input/textarea changes that update the filter state
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFilter(prev => ({ ...prev, [name]: value }));
-    // Reset pagination if these inputs should trigger a re-filter
+    // Reset pagination and cache if these inputs should trigger a re-filter
     setNextLink(undefined); 
     setCurrentPage(1);
+    setPageCache(new Map());
   };
 
   // Handler for date input changes (Specific because it handles isEndDateDisabled)
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFilter(prev => ({ ...prev, [name]: value }));
-    // Reset pagination
+    // Reset pagination and cache
     setNextLink(undefined); 
     setCurrentPage(1);
+    setPageCache(new Map());
     
     if (name === 'start_date') {
       setIsEndDateDisabled(!value);
@@ -477,9 +527,10 @@ const FilterSetup: React.FC = () => {
     const newSize = parseInt(value, 10);
     if (isNaN(newSize) || newSize <= 0) return; 
     setItemsPerPage(newSize);
-    // Reset pagination
+    // Reset pagination and cache
     setNextLink(undefined);
     setCurrentPage(1);
+    setPageCache(new Map());
     // Trigger reload with new size, passing it explicitly
     loadPreviews({ size: newSize }); // <-- Pass newSize here
   };
@@ -1099,19 +1150,21 @@ const FilterSetup: React.FC = () => {
                              </Box>
                           </Tooltip>
                        )}
-                       {/* Pagination (Stays the same, check isDisabled) */}
+                       {/* Pagination (Update isDisabled for Previous button) */}
                        {previews.length > 0 && !isLoadingPreviews && totalPages > 1 && (
                            <ButtonGroup size="sm" isAttached variant="outline">
                               <IconButton
                                 aria-label={t('common.previousPage')}
                                 icon={<ChevronLeftIcon />}
                                 onClick={() => handlePageChange(currentPage - 1)}
-                                isDisabled={currentPage === 1 || isProcessing} 
+                                // Disable Previous if on page 1 OR if the previous page isn't in cache (belt-and-suspenders)
+                                isDisabled={currentPage === 1 || isProcessing || !pageCache.has(currentPage - 1)} 
                               />
                               <IconButton
                                 aria-label={t('common.nextPage')}
                                 icon={<ChevronRightIconSolid />}
                                 onClick={() => handlePageChange(currentPage + 1)}
+                                // Disable Next if nextLink is missing OR if on last page (when total is known) OR if processing
                                 isDisabled={currentPage >= totalPages || !nextLink || isProcessing} 
                               />
                             </ButtonGroup>
@@ -1218,7 +1271,7 @@ const FilterSetup: React.FC = () => {
                    )}
                  </Box>
                  
-                 {/* Add pagination controls */}
+                 {/* Add pagination controls (Update isDisabled for Previous button) */}
                  {previews.length > 0 && (
                    <Flex justify="space-between" align="center" mt={4}>
                      {/* <Select 
@@ -1241,7 +1294,8 @@ const FilterSetup: React.FC = () => {
                          aria-label={t('common.previousPage')}
                          icon={<ChevronLeftIcon />}
                          onClick={() => handlePageChange(currentPage - 1)}
-                         isDisabled={currentPage === 1}
+                         // Disable Previous if on page 1 OR if the previous page isn't in cache
+                         isDisabled={currentPage === 1 || !pageCache.has(currentPage - 1)}
                          variant="outline"
                        />
                        <Button variant="outline" isDisabled>
@@ -1251,7 +1305,7 @@ const FilterSetup: React.FC = () => {
                          aria-label={t('common.nextPage')}
                          icon={<ChevronRightIconSolid />}
                          onClick={() => handlePageChange(currentPage + 1)}
-                         // Enable Next if nextLink is present OR if total is known and not on last page
+                         // Disable Next if nextLink is missing OR if on last page (when total is known)
                          isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
                          variant="outline"
                        />

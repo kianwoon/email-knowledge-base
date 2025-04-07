@@ -192,7 +192,7 @@ class OutlookService:
             else:
                 logger.info("[QUERY-BUILD] Building $filter query (no keywords).")
                 filter_parts = []
-                if folder_id:
+                if folder_id and folder_id.strip():
                     safe_folder_id = folder_id.replace("'", "''") 
                     filter_parts.append(f"parentFolderId eq '{safe_folder_id}'")
                 graph_api_start_date, graph_api_end_date = self._parse_dates_for_graph_filter(start_date, end_date)
@@ -299,7 +299,7 @@ class OutlookService:
 
     def _passes_manual_filter(self, item: Dict, folder_id: Optional[str], dt_start: Optional[datetime], dt_end: Optional[datetime]) -> bool:
         """Checks if a single item passes manual folder and date filters."""
-        if folder_id and item.get("parentFolderId") != folder_id:
+        if folder_id and folder_id.strip() and item.get("parentFolderId") != folder_id:
             return False
         
         received_date_str = item.get("receivedDateTime")

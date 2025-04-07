@@ -338,14 +338,31 @@ async def refresh_token(token_request: RefreshTokenRequest):
         data={"sub": user_id, "email": user_email}
     )
     
-    # Return the NEW internal access token
-    # Optionally: Could also return the new MS refresh token (result.get("refresh_token"))
-    # if the frontend needs to update it in localStorage.
-    return Token(
-        access_token=new_internal_access_token,
-        token_type="bearer",
-        expires_at=new_expires_at
+    # --- SET HttpOnly Cookie --- 
+    response = Response(status_code=status.HTTP_200_OK)
+    secure_cookie = settings.IS_PRODUCTION
+    max_age_seconds = max(0, int((new_expires_at - datetime.utcnow()).total_seconds()))
+    logger.info(f"Setting new access_token cookie. Max-Age: {max_age_seconds}, Secure: {secure_cookie}")
+    response.set_cookie(
+        key="access_token",
+        value=new_internal_access_token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax", # Match callback settings
+        max_age=max_age_seconds,
+        path="/"
     )
+    # --- End SET Cookie --- 
+
+    # Return a success indicator or minimal info, token is in the cookie
+    # The old return type `Token` might no longer be accurate if we don't return the token here.
+    # Let's return a simple dict for now. Frontend interceptor doesn't strictly need the token in body anymore.
+    return {
+        "status": "success",
+        "message": "Token refreshed successfully."
+        # Optionally include user_id or email if needed by frontend immediately after refresh,
+        # but primary token transport is the cookie.
+    }
 
 @router.post("/logout")
 async def logout(response: Response):

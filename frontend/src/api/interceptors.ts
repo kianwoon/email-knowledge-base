@@ -28,9 +28,9 @@ export const setupResponseInterceptor = () => {
           
           if (refreshResponse.access_token && originalRequest.headers) {
              // Update the authorization header in the original request config
-            originalRequest.headers['Authorization'] = `Bearer ${refreshResponse.access_token}`;
+            // originalRequest.headers['Authorization'] = `Bearer ${refreshResponse.access_token}`; // <<< REMOVED: Rely on HttpOnly cookie set by backend
             // Retry the original request using the modified config
-            console.log('[Interceptor] Retrying original request with new token.');
+            console.log('[Interceptor] Retrying original request (expecting new cookie).');
             return apiClient(originalRequest);
           } else {
              throw new Error('Refresh response did not contain access token.');
@@ -38,7 +38,7 @@ export const setupResponseInterceptor = () => {
         } catch (refreshError) {
           console.error('[Interceptor] Token refresh failed:', refreshError);
           // Clear tokens and redirect to login
-          localStorage.removeItem('accessToken');
+          localStorage.removeItem('token'); // <<< FIXED TYPO: Was 'accessToken'
           localStorage.removeItem('expires');
           localStorage.removeItem('refresh_token');
           // Redirect to root, which should handle login redirect if needed

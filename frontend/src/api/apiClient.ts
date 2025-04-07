@@ -40,7 +40,6 @@ apiClient.interceptors.request.use(
              if (token && expired) {
                  console.log('[Interceptor] Token found but expired, clearing token.');
                  // clearToken(); // Assume clearToken is defined
-                 // localStorage.removeItem('refresh_token');
             } else if (!token) {
                  console.log('[Interceptor] No token found.');
             }
