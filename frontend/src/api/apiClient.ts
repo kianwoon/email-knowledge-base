@@ -8,7 +8,7 @@ console.log('[ApiClient] VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL)
 console.log('[ApiClient] Final API_BASE_URL:', BACKEND_URL);
 
 const apiClient = axios.create({
-  baseURL: `${BACKEND_URL}/api/v1`, 
+  baseURL: `${BACKEND_URL}`, 
   withCredentials: true, 
   timeout: 60000, // Example timeout
 });
