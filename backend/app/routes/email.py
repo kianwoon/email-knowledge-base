@@ -331,15 +331,22 @@ async def analyze_emails(
             
             logger.info(f"External analysis service accepted request. External Job ID: {external_job_id}")
             
-            # --- Map internal job ID to external job ID using APP state --- 
-            if hasattr(request.app.state, 'job_mapping_store') and isinstance(request.app.state.job_mapping_store, dict):
-                request.app.state.job_mapping_store[job_id] = external_job_id
-                logger.info(f"Stored job mapping: Internal {job_id} -> External {external_job_id}")
-            else:
-                logger.error("job_mapping_store not found or not a dict on app state!")
-                # Handle this critical error - maybe raise?
-                raise HTTPException(status_code=500, detail="Internal error: Job mapping store not available.")
-            # --- End Mapping --- 
+            # --- Store external_job_id in Qdrant ---
+            try:
+                logger.info(f"Updating Qdrant point {query_point_id} with external_job_id: {external_job_id}")
+                qdrant.set_payload(
+                    collection_name=settings.QDRANT_COLLECTION_NAME,
+                    payload={"external_job_id": external_job_id},
+                    points=[query_point_id], # Use the ID of the point we created earlier
+                    wait=True # Ensure payload is updated before proceeding
+                )
+                logger.info(f"Successfully updated Qdrant point {query_point_id} for internal job {job_id}")
+            except Exception as e:
+                 logger.error(f"Failed to update Qdrant point {query_point_id} with external_job_id for internal job {job_id}: {e}", exc_info=True)
+                 # Decide if this is critical - maybe raise an error?
+                 # For now, log and continue, but webhook correlation will fail later.
+                 raise HTTPException(status_code=500, detail="Failed to store external job ID mapping.")
+            # --- End Qdrant Update ---
             
     except httpx.RequestError as e:
         logger.error(f"HTTP request error submitting to external analysis service: {e}", exc_info=True)

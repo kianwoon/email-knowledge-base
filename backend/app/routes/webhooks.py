@@ -61,71 +61,43 @@ async def handle_analysis_webhook(
         logger.debug(f"[WEBHOOK] Status received: {webhook_data.status}")
         logger.debug(f"[WEBHOOK] Payload results count: {len(webhook_data.results)}")
 
-        # --- Find Internal Job ID using In-Memory Dictionary --- 
+        # --- Find Internal Job ID and Owner using Qdrant --- 
         internal_job_id = None
-        job_store = request.app.state.job_mapping_store
-
+        owner = "unknown_owner"
         try:
-            external_job_id_str = external_job_id # Already ensured string above
-            
-            # Lookup in the dictionary
-            internal_job_id = job_store.get(external_job_id_str)
-
-            if internal_job_id:
-                logger.info(f"[WEBHOOK] Found internal job ID (via memory store): {internal_job_id} for external ID: {external_job_id_str}")
-                # Optionally remove the mapping now that it's used?
-                # try:
-                #     del job_store[external_job_id_str]
-                #     logger.info(f"[WEBHOOK] Removed mapping for {external_job_id_str} from memory store. Size now: {len(job_store)}")
-                # except KeyError:
-                #     logger.warning(f"[WEBHOOK] Tried to remove mapping for {external_job_id_str}, but it was already gone.")
-            else:
-                logger.warning(f"[WEBHOOK] No mapping found in memory store for external job ID: {external_job_id_str}. Cannot correlate callback. Store size: {len(job_store)}")
-
-        except Exception as e:
-            logger.error(f"[WEBHOOK] Error looking up external job ID mapping ({external_job_id_str}) in memory store: {e}")
-            internal_job_id = None # Ensure it's None if lookup fails
-
-        # If internal_job_id could not be found, we cannot proceed meaningfully
-        if not internal_job_id:
-             logger.error(f"[WEBHOOK] Halting processing for external job {external_job_id} as internal job ID could not be determined.")
-             return {"message": "Webhook received but could not correlate to an internal job."}
-
-        # --- Proceed using internal_job_id --- 
-        
-        # We need the owner. Since it's not in the simple dict mapping, 
-        # we MUST retrieve the original query criteria point from Qdrant using internal_job_id
-        owner = "unknown_owner" # Default
-        try:
-            # Find the query_criteria point using the internal_job_id
-            logger.info(f"[WEBHOOK] Retrieving original query criteria from Qdrant for internal job {internal_job_id}")
+            logger.info(f"[WEBHOOK] Searching Qdrant for query_criteria with external_job_id: {external_job_id}")
             criteria_filter = Filter(
                 must=[
                     FieldCondition(key="payload.type", match=MatchValue(value="query_criteria")),
-                    FieldCondition(key="payload.job_id", match=MatchValue(value=internal_job_id))
+                    FieldCondition(key="payload.external_job_id", match=MatchValue(value=external_job_id))
                 ]
             )
             criteria_search = qdrant.search(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 query_filter=criteria_filter,
-                query_vector=[0.0] * settings.EMBEDDING_DIMENSION, # Dummy vector
-                limit=1
+                # No vector needed for filtering only
+                limit=1 
             )
 
             if criteria_search and len(criteria_search) == 1:
                  original_criteria_payload = criteria_search[0].payload
-                 owner = original_criteria_payload.get("owner", owner) # Update owner
-                 logger.info(f"[WEBHOOK] Retrieved owner '{owner}' from original criteria for internal job {internal_job_id}")
+                 internal_job_id = original_criteria_payload.get("job_id")
+                 owner = original_criteria_payload.get("owner", owner) # Update owner if found
+                 logger.info(f"[WEBHOOK] Found internal job ID '{internal_job_id}' and owner '{owner}' via Qdrant for external ID: {external_job_id}")
             else:
-                 logger.warning(f"[WEBHOOK] Could not find original query_criteria point in Qdrant for internal job {internal_job_id}. Using default owner.")
-        except Exception as e:
-             logger.error(f"[WEBHOOK] Error retrieving original query criteria from Qdrant for internal job {internal_job_id}: {e}")
-             # Continue with default owner, but log the error
+                 logger.warning(f"[WEBHOOK] No query_criteria point found in Qdrant for external job ID: {external_job_id}. Cannot correlate callback.")
+                 # Cannot proceed without internal_job_id
+                 return {"message": "Webhook received but could not correlate to an internal job via Qdrant."}
 
+        except Exception as e:
+            logger.error(f"[WEBHOOK] Error querying Qdrant for external job ID mapping ({external_job_id}): {e}", exc_info=True)
+            # Cannot proceed without internal_job_id
+            raise HTTPException(status_code=500, detail="Internal server error correlating webhook via Qdrant.")
+        # --- End Qdrant Lookup --- 
 
         # --- RESTORED: Store the analysis chart data --- 
         logger.info(f"Storing chart data for internal job {internal_job_id} with owner='{owner}'")
-        chart_point_id = str(uuid.uuid4()) # Unique ID for the chart data point
+        chart_point_id = str(uuid.uuid4())
         chart_payload = {
             "type": "analysis_chart",
             "job_id": internal_job_id, # Store the INTERNAL job ID
