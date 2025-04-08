@@ -75,7 +75,8 @@ async def handle_analysis_webhook(
             criteria_search = qdrant.search(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 query_filter=criteria_filter,
-                # No vector needed for filtering only
+                # No vector needed for filtering only <-- Re-adding dummy vector as it's required
+                query_vector=[0.0] * settings.EMBEDDING_DIMENSION, # Add dummy vector
                 limit=1 
             )
 
