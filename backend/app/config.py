@@ -41,8 +41,14 @@ class Settings(BaseSettings):
     def IS_PRODUCTION(self) -> bool:
         return self.ENVIRONMENT == "production"
 
-    # API prefix - Intentionally constant
-    API_PREFIX: str = ""
+    # API prefix - Environment-aware
+    API_PREFIX_DEV: str = "/api/v1"  # Development prefix
+    API_PREFIX_PROD: str = "/v1"     # Production prefix
+
+    @computed_field
+    @property
+    def API_PREFIX(self) -> str:
+        return self.API_PREFIX_PROD if self.IS_PRODUCTION else self.API_PREFIX_DEV
 
     # URLs - Must be provided via environment
     BACKEND_URL: str = os.getenv("BACKEND_URL") # validated by check_required_env_vars

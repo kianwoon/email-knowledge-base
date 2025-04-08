@@ -26,7 +26,7 @@ logger.info(f"Running with environment: {settings.ENVIRONMENT}")
 logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
 
 # API Prefix
-api_prefix = "/v1"
+api_prefix = settings.API_PREFIX
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -102,16 +102,16 @@ else:
     )
 
 # Include routers
-app.include_router(auth.router, prefix=f"{api_prefix}/auth", tags=["Authentication"])
-app.include_router(email.router, prefix=f"{api_prefix}/email", tags=["Email Interaction"])
-app.include_router(review.router, prefix=f"{api_prefix}/review", tags=["Review"])
-app.include_router(vector.router, prefix=f"{api_prefix}/vector", tags=["Vector Database"])
-app.include_router(knowledge.router, prefix=f"{api_prefix}/knowledge", tags=["Knowledge"])
-app.include_router(token.router, prefix=f"{api_prefix}/token", tags=["Token"])
-app.include_router(webhooks.router, prefix=f"{api_prefix}/webhooks", tags=["Webhooks"])
-app.include_router(websockets.router, prefix=f"{api_prefix}/ws", tags=["Websockets"])
+app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["Authentication"])
+app.include_router(email.router, prefix=f"{settings.API_PREFIX}/email", tags=["Email Interaction"])
+app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=["Review"])
+app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
+app.include_router(knowledge.router, prefix=f"{settings.API_PREFIX}/knowledge", tags=["Knowledge"])
+app.include_router(token.router, prefix=f"{settings.API_PREFIX}/token", tags=["Token"])
+app.include_router(webhooks.router, prefix=f"{settings.API_PREFIX}/webhooks", tags=["Webhooks"])
+app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["Websockets"])
 # Add the new router
-app.include_router(shared_knowledge.router, prefix=api_prefix, tags=["Shared Knowledge"]) # Prefix includes /api/v1
+app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["Shared Knowledge"]) # Prefix includes /api/v1
 
 # Root endpoint (optional - for basic API check)
 @app.get("/", tags=["Root"])
