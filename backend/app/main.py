@@ -30,15 +30,15 @@ api_prefix = settings.API_PREFIX
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Code to run on startup
+    # Startup
     logger.info("Application starting up...")
     
-    # --- Initialize Shared State --- 
-    app.state.job_mapping_store = {} # Initialize the job mapping store
-    logger.info("Initialized shared job_mapping_store on app state.")
-    # --- End Shared State Init ---
-
-    # Ensure token collection exists on startup
+    # --- Initialize the shared dictionary on app state --- 
+    # app.state.job_mapping_store = {}
+    # logger.info("Initialized shared job_mapping_store on app state.")
+    # --- This is no longer needed as we use Qdrant for mapping ---
+    
+    # Ensure Qdrant collection for tokens exists
     try:
         # Use the correctly imported function
         qdrant_client = get_qdrant_client()
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     # Code to run on shutdown
     logger.info("Application shutting down...")
     # Optionally clear state if needed
-    app.state.job_mapping_store = None 
+    # app.state.job_mapping_store = None 
 
 app = FastAPI(
     title="Knowledge Base Builder API", 
