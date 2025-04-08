@@ -12,18 +12,17 @@ PLACEHOLDER_API_URL="__VITE_API_BASE_URL_PLACEHOLDER__"
 PLACEHOLDER_WS_URL="__VITE_WEBSOCKET_URL_PLACEHOLDER__"
 
 # --- Read the ACTUAL URLs from Koyeb Runtime Environment Variables ---
-# IMPORTANT: Use the variable names EXACTLY as defined in your Koyeb Service Environment Variables.
-# Check your Koyeb dashboard. These are EXAMPLES - replace if necessary.
-ACTUAL_API_URL="${API_BASE_URL}"
-ACTUAL_WS_URL="${WEBSOCKET_URL}"
+# Read from the VITE_ prefixed variables as specified for Koyeb
+ACTUAL_API_URL="${VITE_API_BASE_URL}"
+ACTUAL_WS_URL="${VITE_WEBSOCKET_URL}"
 
 # Check if variables are set (optional but recommended)
 if [ -z "$ACTUAL_API_URL" ]; then
-  echo "Error: Environment variable API_BASE_URL is not set."
+  echo "Error: Environment variable VITE_API_BASE_URL is not set."
   exit 1
 fi
 if [ -z "$ACTUAL_WS_URL" ]; then
-  echo "Error: Environment variable WEBSOCKET_URL is not set."
+  echo "Error: Environment variable VITE_WEBSOCKET_URL is not set."
   exit 1
 fi
 
