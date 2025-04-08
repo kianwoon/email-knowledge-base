@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "production"
 
     # API prefix - Intentionally constant
-    API_PREFIX: str = "/api"
+    API_PREFIX: str = ""
 
     # URLs - Must be provided via environment
     BACKEND_URL: str = os.getenv("BACKEND_URL") # validated by check_required_env_vars
