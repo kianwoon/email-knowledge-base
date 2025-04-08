@@ -26,7 +26,7 @@ logger.info(f"Running with environment: {settings.ENVIRONMENT}")
 logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
 
 # API Prefix
-api_prefix = "/api/v1"
+api_prefix = "/v1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
