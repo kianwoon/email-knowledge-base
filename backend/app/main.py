@@ -1,6 +1,6 @@
 import logging
 import sys
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -20,6 +20,14 @@ from app.db.base import Base, engine
 # Configure logging
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+# --- Add Middleware for Path Logging ---
+@app.middleware("http")
+async def log_request_path(request: Request, call_next):
+    logger.info(f"MIDDLEWARE: Received request for path: {request.url.path}")
+    response = await call_next(request)
+    return response
+# --- End Middleware ---
 
 # Log critical environment variables for debugging
 logger.info(f"Running with environment: {settings.ENVIRONMENT}")
