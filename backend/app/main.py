@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from app.config import settings
 # Import routers
 from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token 
+# Import the new shared_knowledge router
+from app.routes import shared_knowledge 
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -100,6 +102,8 @@ app.include_router(knowledge.router, prefix=f"{api_prefix}/knowledge", tags=["Kn
 app.include_router(token.router, prefix=f"{api_prefix}/token", tags=["Token"])
 app.include_router(webhooks.router, prefix=f"{api_prefix}/webhooks", tags=["Webhooks"])
 app.include_router(websockets.router, prefix=f"{api_prefix}/ws", tags=["Websockets"])
+# Add the new router
+app.include_router(shared_knowledge.router, prefix=api_prefix, tags=["Shared Knowledge"]) # Prefix includes /api/v1
 
 # Root endpoint (optional - for basic API check)
 @app.get("/", tags=["Root"])

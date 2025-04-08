@@ -49,6 +49,12 @@ class TokenUpdateRequest(BaseModel):
     # Cannot update is_active directly via API, managed internally based on expiry
     # Cannot update token_value
 
+# NEW: Model for bundling tokens
+class TokenBundleRequest(BaseModel):
+    token_ids: List[uuid.UUID] = Field(..., description="List of token UUIDs to bundle.", min_items=2)
+    name: str = Field(..., min_length=1, max_length=100, description="Name for the new bundled token.")
+    description: Optional[str] = Field(None, max_length=500, description="Optional description for the bundled token.")
+
 # --- SQLAlchemy Database Model (Refactored for PostgreSQL) --- 
 
 class TokenDB(Base):

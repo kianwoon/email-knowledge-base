@@ -15,14 +15,17 @@ from ..models.user import User
 from ..db.qdrant_client import get_qdrant_client
 from ..dependencies.auth import get_current_active_user_or_token_owner
 from ..db.session import get_db
-from ..models.token_models import TokenResponse, TokenCreateRequest, TokenUpdateRequest, TokenExport, TokenDB, AccessRule
+from ..models.token_models import TokenResponse, TokenCreateRequest, TokenUpdateRequest, TokenExport, TokenDB, AccessRule, TokenBundleRequest
 from ..crud.token_crud import (
     create_user_token, 
     get_user_tokens, 
     get_token_by_id, 
     update_user_token, 
     delete_user_token,
-    get_active_tokens
+    get_active_tokens,
+    prepare_bundled_token_data,
+    create_bundled_token,
+    db_format_to_rules
 )
 
 # Import datetime for expiry check
@@ -128,6 +131,46 @@ async def delete_token(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete token")
     return # Return 204 No Content on success
 
+# ==========================================
+# Token Bundling API
+# ==========================================
+
+# POST /token/bundle - Create a new token by bundling existing ones
+@router.post("/bundle", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def create_bundled_token_route(
+    bundle_request: TokenBundleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    """Creates a new, non-editable token by bundling the rules and sensitivity of existing tokens."""
+    logger.info(f"User {current_user.email} requesting to bundle tokens: {bundle_request.token_ids}")
+    try:
+        # 1. Prepare the bundled data using the CRUD function
+        bundle_data = prepare_bundled_token_data(
+            db=db, 
+            token_ids=bundle_request.token_ids, 
+            owner_email=current_user.email
+        )
+        
+        # 2. Create the new bundled token in the database
+        new_bundled_token = create_bundled_token(
+            db=db,
+            name=bundle_request.name,
+            description=bundle_request.description,
+            owner_email=current_user.email,
+            bundle_data=bundle_data
+        )
+
+        # 3. Convert to response model (using existing helper)
+        # Note: token_db_to_response includes the raw token value set in create_bundled_token
+        return token_db_to_response(new_bundled_token)
+
+    except ValueError as ve:
+        logger.warning(f"Token bundling validation failed for user {current_user.email}: {ve}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Unexpected error during token bundling for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create bundled token.")
 
 # ==========================================
 # Internal/Middleware Export Endpoint
