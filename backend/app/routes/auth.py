@@ -54,10 +54,15 @@ async def login():
         auth_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
         auth_url_endpoint = f"{auth_url_base}/oauth2/v2.0/authorize"
         
+        # --- Start Add Logging ---
+        redirect_uri_to_use = settings.MS_REDIRECT_URI
+        logger.info(f"DEBUG auth.py /login: Using MS_REDIRECT_URI: {redirect_uri_to_use}")
+        # --- End Add Logging ---
+        
         auth_params = {
             "client_id": settings.MS_CLIENT_ID,
             "response_type": "code",
-            "redirect_uri": settings.MS_REDIRECT_URI,
+            "redirect_uri": redirect_uri_to_use, # Use the logged variable
             "scope": settings.MS_SCOPE_STR,
             "state": state,
             "prompt": "select_account"
@@ -81,6 +86,11 @@ async def auth_callback(
     db: Session = Depends(get_db) # Inject DB session
 ):
     """Handle OAuth callback from Microsoft and set HttpOnly cookie."""
+    # --- Start Add Logging ---
+    # Log the exact incoming request URL as soon as the function is hit
+    logger.info(f"DEBUG auth.py /callback: Received request for URL: {request.url}") 
+    # --- End Add Logging ---
+
     print("Received callback request")
     print(f"DEBUG - Full request URL: {request.url}")
     print(f"DEBUG - Request headers: {dict(request.headers)}")
