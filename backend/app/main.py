@@ -21,14 +21,6 @@ from app.db.base import Base, engine
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-# --- Add Middleware for Path Logging ---
-@app.middleware("http")
-async def log_request_path(request: Request, call_next):
-    logger.info(f"MIDDLEWARE: Received request for path: {request.url.path}")
-    response = await call_next(request)
-    return response
-# --- End Middleware ---
-
 # Log critical environment variables for debugging
 logger.info(f"Running with environment: {settings.ENVIRONMENT}")
 logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
@@ -80,6 +72,14 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan # Use the new lifespan context manager
 )
+
+# --- Add Middleware for Path Logging HERE --- 
+@app.middleware("http")
+async def log_request_path(request: Request, call_next):
+    logger.info(f"MIDDLEWARE: Received request for path: {request.url.path}")
+    response = await call_next(request)
+    return response
+# --- End Middleware ---
 
 # CORS Middleware
 if settings.CORS_ALLOWED_ORIGINS:
