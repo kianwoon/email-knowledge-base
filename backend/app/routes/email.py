@@ -17,6 +17,7 @@ from app.models.user import User
 from app.config import settings
 from app.routes.vector import get_db
 from ..db.qdrant_client import get_qdrant_client
+from app.db.job_mapping_db import insert_mapping as insert_sqlite_mapping
 
 router = APIRouter()
 
@@ -331,22 +332,12 @@ async def analyze_emails(
             
             logger.info(f"External analysis service accepted request. External Job ID: {external_job_id}")
             
-            # --- Store external_job_id in Qdrant ---
-            try:
-                logger.info(f"Updating Qdrant point {query_point_id} with external_job_id: {external_job_id}")
-                qdrant.set_payload(
-                    collection_name=settings.QDRANT_COLLECTION_NAME,
-                    payload={"external_job_id": external_job_id},
-                    points=[query_point_id], # Use the ID of the point we created earlier
-                    wait=True # Ensure payload is updated before proceeding
-                )
-                logger.info(f"Successfully updated Qdrant point {query_point_id} for internal job {job_id}")
-            except Exception as e:
-                 logger.error(f"Failed to update Qdrant point {query_point_id} with external_job_id for internal job {job_id}: {e}", exc_info=True)
-                 # Decide if this is critical - maybe raise an error?
-                 # For now, log and continue, but webhook correlation will fail later.
-                 raise HTTPException(status_code=500, detail="Failed to store external job ID mapping.")
-            # --- End Qdrant Update ---
+            # --- Store mapping in SQLite --- 
+            if not insert_sqlite_mapping(str(external_job_id), job_id, owner):
+                 # Handle insertion failure - log is already done in insert_mapping
+                 # Raise an exception to prevent misleading success response to frontend?
+                 raise HTTPException(status_code=500, detail="Failed to store job ID mapping.")
+            # --- End SQLite Store --- 
             
     except httpx.RequestError as e:
         logger.error(f"HTTP request error submitting to external analysis service: {e}", exc_info=True)

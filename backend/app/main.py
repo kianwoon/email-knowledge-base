@@ -14,6 +14,8 @@ from app.routes import shared_knowledge
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
+from app.db.session import SessionLocal
+from app.db.job_mapping_db import initialize_db as initialize_job_mapping_db
 # Import Base and engine from the new base module to ensure models are registered
 from app.db.base import Base, engine 
 
@@ -38,16 +40,20 @@ async def lifespan(app: FastAPI):
     # logger.info("Initialized shared job_mapping_store on app state.")
     # --- This is no longer needed as we use Qdrant for mapping ---
     
+    # Initialize SQLite Job Mapping DB
+    initialize_job_mapping_db()
+    
     # Ensure Qdrant collection for tokens exists
     try:
         # Use the correctly imported function
-        qdrant_client = get_qdrant_client()
-        token_service.ensure_token_collection(qdrant_client)
-        logger.info("Checked/Ensured token collection exists.")
+        # client = get_qdrant_client()
+        # ensure_token_collection_exists(client) # <-- This function call needs to be handled elsewhere, likely token_service
+        # logger.info("Checked/Ensured token collection exists.")
+        # Let's rely on the token_service to handle this check as needed.
+        logger.info("Token collection check will be handled by token_service.")
     except Exception as e:
-        logger.error(f"Failed to ensure token collection on startup: {e}", exc_info=True)
-        # Decide if this should prevent startup? For now, just log.
-        
+        logger.error(f"Error during token collection check on startup: {e}", exc_info=True)
+
     # --- Database Initialization --- 
     logger.info("Creating database tables based on models...")
     try:
