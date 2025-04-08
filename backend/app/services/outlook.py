@@ -324,20 +324,39 @@ class OutlookService:
         return True
 
     def _format_email_preview(self, email: Dict) -> Dict:
-        """Format email data into preview format."""
+        """Helper to format a single email dictionary into the desired preview structure."""
         try:
-            return {
+            preview = {
                 "id": email["id"],
-                "subject": email.get("subject", "(No subject)"),
-                "sender": email["sender"]["emailAddress"]["address"],
-                "received_date": email["receivedDateTime"],
-                "has_attachments": email.get("hasAttachments", False),
-                "importance": email.get("importance", "normal"),
-                "snippet": email.get("bodyPreview", "")
+                # Safely get sender, providing defaults if keys are missing
+                "sender": email.get("sender", {}).get("emailAddress", {}).get("address", "Unknown Sender"),
+                "subject": email.get("subject", "No Subject"), # Use .get for subject too
+                "preview": email.get("bodyPreview", ""), # And for preview
+                "receivedDateTime": email["receivedDateTime"],
+                "hasAttachments": email.get("hasAttachments", False), # And attachments flag
+                "importance": email.get("importance", "normal"), # And importance
+                "isRead": email.get("isRead", True) # And isRead flag
+            }
+            # Add optional fields if they exist
+            if "toRecipients" in email and email["toRecipients"]:
+                preview["toRecipients"] = [r.get("emailAddress", {}).get("address") for r in email["toRecipients"]]
+            if "ccRecipients" in email and email["ccRecipients"]:
+                preview["ccRecipients"] = [r.get("emailAddress", {}).get("address") for r in email["ccRecipients"]]
+            
+            return preview
+        except KeyError as e:
+            logger.error(f"KeyError formatting email preview: Missing key {e}, Email ID: {email.get('id')}")
+            # Return a partial preview or skip this email
+            return {
+                 "id": email.get("id", "Unknown ID"), 
+                 "error": f"Missing key: {e}"
             }
         except Exception as e:
-            logger.error(f"Error formatting email preview: {str(e)}, Email data: {email}")
-            raise
+            logger.error(f"Unexpected error formatting email preview for ID {email.get('id')}: {e}", exc_info=True)
+            return {
+                 "id": email.get("id", "Unknown ID"), 
+                 "error": "Formatting error"
+            }
 
     async def get_email_content(self, email_id: str) -> EmailContent:
         """Get full email content by ID"""
