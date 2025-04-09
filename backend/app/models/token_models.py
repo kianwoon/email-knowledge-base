@@ -126,10 +126,24 @@ class TokenResponse(BaseModel):
     created_at: datetime
     expiry: Optional[datetime]
     is_active: bool
-    allow_topics: Optional[List[str]] = None 
-    deny_topics: Optional[List[str]] = None  
+    # Use rules instead of topics
+    allow_rules: Optional[List[AccessRule]] = None 
+    deny_rules: Optional[List[AccessRule]] = None  
 
     model_config = ConfigDict(from_attributes=True)
+
+    # Add validator to automatically convert DB format (list of dicts) to AccessRule objects
+    @validator('allow_rules', 'deny_rules', pre=True, always=True)
+    def parse_rules(cls, v):
+        if v is None: return []
+        if isinstance(v, list):
+            try:
+                return [AccessRule(**item) for item in v]
+            except Exception as e:
+                # Log error or handle appropriately if parsing fails
+                print(f"Error parsing rules: {e}") 
+                return []
+        return []
 
 # SQLAlchemy model for the 'tokens' table - THIS IS THE SECOND, CORRECT DEFINITION
 class TokenDB(Base):
@@ -144,11 +158,8 @@ class TokenDB(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    allow_topics: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True)
-    deny_topics: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True)
-    # New columns for embeddings
-    allow_topics_embeddings: Mapped[Optional[List[List[float]]]] = mapped_column(JSONB, nullable=True)
-    deny_topics_embeddings: Mapped[Optional[List[List[float]]]] = mapped_column(JSONB, nullable=True)
+    allow_rules: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
+    deny_rules: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
     
     def __repr__(self):
         return f"<TokenDB(id={self.id}, name='{self.name}', owner='{self.owner_email}')>"

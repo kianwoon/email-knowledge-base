@@ -192,38 +192,19 @@ async def create_user_token(db: Session, token_data: TokenCreate, owner_email: s
     raw_token_value = secrets.token_urlsafe(32) 
     hashed_value = bcrypt.hashpw(raw_token_value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
-    expiry_datetime = None
-    if token_data.expiry_days is not None:
-        expiry_datetime = datetime.now(timezone.utc) + timedelta(days=token_data.expiry_days)
-
-    # --- Generate Embeddings Concurrently ---
-    allow_embeddings = None
-    deny_embeddings = None
-    
-    if token_data.allow_topics:
-        logger.info(f"Generating embeddings for {len(token_data.allow_topics)} allow_topics...")
-        allow_tasks = [create_embedding(topic) for topic in token_data.allow_topics]
-        allow_embeddings = await asyncio.gather(*allow_tasks)
-        logger.info("Finished generating allow_topics embeddings.")
-
-    if token_data.deny_topics:
-        logger.info(f"Generating embeddings for {len(token_data.deny_topics)} deny_topics...")
-        deny_tasks = [create_embedding(topic) for topic in token_data.deny_topics]
-        deny_embeddings = await asyncio.gather(*deny_tasks)
-        logger.info("Finished generating deny_topics embeddings.")
-    # --- End Embedding Generation ---
+    # Removed outdated embedding generation logic based on allow/deny_topics
 
     db_token = TokenDB(
         name=token_data.name,
+        description=token_data.description,
+        sensitivity=token_data.sensitivity,
         hashed_token=hashed_value,
         owner_email=owner_email,
-        expiry=expiry_datetime,
+        expiry=getattr(token_data, 'expiry', None),
         is_active=True, 
-        allow_topics=token_data.allow_topics,
-        deny_topics=token_data.deny_topics,
-        # Store generated embeddings
-        allow_topics_embeddings=allow_embeddings,
-        deny_topics_embeddings=deny_embeddings
+        # Use getattr for safety, default to None (handled by rules_to_db_format)
+        allow_rules=rules_to_db_format(getattr(token_data, 'allow_rules', None)), 
+        deny_rules=rules_to_db_format(getattr(token_data, 'deny_rules', None))   
     )
     db.add(db_token)
     # Commit synchronously after async operations are done

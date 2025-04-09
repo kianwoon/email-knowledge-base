@@ -14,9 +14,9 @@ export interface TokenCreate {
   name: string;
   description?: string | null;
   sensitivity: string;
-  allow_topics?: string[]; // Optional array of strings
-  deny_topics?: string[];  // Optional array of strings
-  expiry_days?: number | null; // Keep expiry_days as per backend model
+  allow_rules?: AccessRule[]; 
+  deny_rules?: AccessRule[];  
+  expiry?: string | null; // Align with backend model (TokenBase uses datetime)
 }
 
 // Interface for updating a token (sent to backend)

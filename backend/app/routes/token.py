@@ -69,8 +69,8 @@ async def read_user_tokens(
                      created_at=token.created_at,
                      expiry=token.expiry,
                      is_active=token.is_active,
-                     allow_topics=token.allow_topics,
-                     deny_topics=token.deny_topics
+                     allow_rules=token.allow_rules,
+                     deny_rules=token.deny_rules
                  )
              )
         return response_list
@@ -344,6 +344,6 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
         created_at=token_db.created_at,
         expiry=token_db.expiry,
         is_active=token_db.is_active,
-        allow_topics=token_db.allow_topics, 
-        deny_topics=token_db.deny_topics   
+        allow_rules=token_db.allow_rules,
+        deny_rules=token_db.deny_rules
     ) 
