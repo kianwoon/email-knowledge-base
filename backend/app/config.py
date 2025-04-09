@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     # --- Celery Settings --- 
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL") # Added Celery Broker URL
     # Optional: Add CELERY_RESULT_BACKEND if you use results
-    # CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND")
+    CELERY_RESULT_BACKEND: Optional[str] = os.getenv("CELERY_RESULT_BACKEND") # Uncommented and made Optional
 
     model_config = {
         "env_file": ".env",
