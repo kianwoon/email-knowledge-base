@@ -17,7 +17,7 @@ from ..db.session import get_db
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
     TokenExport, TokenDB, AccessRule, TokenBundleRequest, 
-    TokenCreateResponse, TokenCreate, TokenUpdate
+    TokenCreateResponse
 )
 from ..crud.token_crud import (
     create_user_token, 
@@ -84,7 +84,7 @@ async def read_user_tokens(
 # POST /token/ - Create a new token for the current user
 @router.post("/", response_model=TokenCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_token_route(
-    token_in: TokenCreate,
+    token_in: TokenCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_request_user)
 ):
@@ -130,7 +130,7 @@ async def read_token(
 @router.patch("/{token_id}", response_model=TokenResponse)
 async def update_token_route(
     token_id: int,
-    token_in: TokenUpdate,
+    token_in: TokenUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_request_user)
 ):

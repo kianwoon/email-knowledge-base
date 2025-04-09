@@ -96,55 +96,6 @@ class TokenExport(BaseModel):
             return [AccessRule(**item) for item in v]
         return [] # Default to empty list if input is not a list 
 
-# Pydantic model for creating a token (input)
-class TokenCreate(BaseModel):
-    name: str
-    description: Optional[str] = None # Added description
-    sensitivity: str = Field(default="public", description="Sensitivity level")
-    allow_topics: Optional[List[str]] = Field(None, description="List of allowed topics")
-    deny_topics: Optional[List[str]] = Field(None, description="List of denied topics")
-    expiry_days: Optional[int] = Field(None, description="Optional expiry in days from creation") 
-
-# Pydantic model for updating a token
-class TokenUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None # Added description
-    sensitivity: Optional[str] = None 
-    is_active: Optional[bool] = None
-    allow_topics: Optional[List[str]] = None
-    deny_topics: Optional[List[str]] = None
-    expiry: Optional[datetime] = None 
-
-# Pydantic model for representing a token (output) - THIS IS THE SECOND, CORRECT DEFINITION
-class TokenResponse(BaseModel):
-    id: int # Assuming int PK
-    name: str
-    description: Optional[str] = None # Added description
-    sensitivity: str # Added sensitivity
-    token_preview: str # Show only prefix/suffix
-    owner_email: str
-    created_at: datetime
-    expiry: Optional[datetime]
-    is_active: bool
-    # Use rules instead of topics
-    allow_rules: Optional[List[AccessRule]] = None 
-    deny_rules: Optional[List[AccessRule]] = None  
-
-    model_config = ConfigDict(from_attributes=True)
-
-    # Add validator to automatically convert DB format (list of dicts) to AccessRule objects
-    @validator('allow_rules', 'deny_rules', pre=True, always=True)
-    def parse_rules(cls, v):
-        if v is None: return []
-        if isinstance(v, list):
-            try:
-                return [AccessRule(**item) for item in v]
-            except Exception as e:
-                # Log error or handle appropriately if parsing fails
-                print(f"Error parsing rules: {e}") 
-                return []
-        return []
-
 # SQLAlchemy model for the 'tokens' table - THIS IS THE SECOND, CORRECT DEFINITION
 class TokenDB(Base):
     __tablename__ = "tokens"
