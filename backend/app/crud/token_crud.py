@@ -117,7 +117,6 @@ async def update_user_token(db: Session, token_id: int, token_update_data: Token
     update_data = token_update_data.model_dump(exclude_unset=True)
     needs_embedding_update = False
 
-    # Update standard fields and check if rules changed
     for key, value in update_data.items():
         if key == "allow_rules":
             setattr(db_token, key, value)
@@ -128,12 +127,10 @@ async def update_user_token(db: Session, token_id: int, token_update_data: Token
         else:
             setattr(db_token, key, value)
 
-    # Regenerate embeddings if rules were updated
     if needs_embedding_update:
         logger.info(f"Rules updated for token {token_id}, regenerating embeddings...")
         allow_embeddings_new = await _generate_embeddings_for_rules(db_token.allow_rules)
         deny_embeddings_new = await _generate_embeddings_for_rules(db_token.deny_rules)
-        # Update embeddings only if generation was successful
         if allow_embeddings_new is not None:
              setattr(db_token, 'allow_embeddings', allow_embeddings_new)
         if deny_embeddings_new is not None:
@@ -144,13 +141,22 @@ async def update_user_token(db: Session, token_id: int, token_update_data: Token
     return db_token
 
 def delete_user_token(db: Session, token_id: int) -> bool:
-    """Deletes a token by its ID. Returns True if deleted, False otherwise."""
-    db_token = db.get(TokenDB, token_id)
-    if db_token:
-        db.delete(db_token)
-        db.commit()
-        return True
-    return False
+    """Soft deletes a token by setting its is_active flag to False."""
+    try:
+        db_token = db.get(TokenDB, token_id)
+        if db_token:
+            # Instead of deleting, set is_active to False
+            db_token.is_active = False
+            db.commit()
+            logger.info(f"Soft deleted token ID {token_id}.")
+            return True
+        else:
+             logger.warning(f"Attempted to soft delete non-existent token ID {token_id}.")
+             return False # Token not found
+    except Exception as e:
+         logger.error(f"Error during soft delete of token ID {token_id}: {e}", exc_info=True)
+         db.rollback() # Rollback transaction on error
+         return False
 
 def get_active_tokens(db: Session) -> List[TokenDB]:
     """Fetches all tokens that are currently active."""
