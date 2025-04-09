@@ -145,6 +145,11 @@ class Settings(BaseSettings):
     # PostgreSQL/SQLAlchemy Database URI
     SQLALCHEMY_DATABASE_URI: str = os.getenv("SQLALCHEMY_DATABASE_URI") # validated by check_required_env_vars
 
+    # --- Celery Settings --- 
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL") # Added Celery Broker URL
+    # Optional: Add CELERY_RESULT_BACKEND if you use results
+    # CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND")
+
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,
