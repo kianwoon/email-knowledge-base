@@ -107,13 +107,22 @@ async def preview_emails(
 
         return response_data
 
+    except HTTPException as http_exc:
+        # If the service layer already raised an HTTPException (like our 401),
+        # log it and re-raise it directly.
+        logger.error(f"HTTPException during email preview: {http_exc.status_code} - {http_exc.detail}", exc_info=False) # Log less verbosely maybe
+        raise http_exc # Re-raise the original HTTPException
     except AttributeError as ae:
         # This specific error should be resolved now, but keep the handler
         logger.error(f"AttributeError calling OutlookService or processing filters: {ae}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal error processing email request (AttributeError).")
     except Exception as e:
-        logger.error(f"Error fetching email previews: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        # Catch any OTHER unexpected exceptions and convert them to a 500
+        logger.error(f"Unexpected error fetching email previews: {e}", exc_info=True)
+        # Original generic 500 handling:
+        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        # Improved generic 500 handling:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while fetching email previews.")
 
 
 @router.get("/{email_id}", response_model=EmailContent)
