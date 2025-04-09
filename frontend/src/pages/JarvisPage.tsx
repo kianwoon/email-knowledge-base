@@ -24,6 +24,7 @@ import {
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser } from 'react-icons/fa';
+import { sendChatMessage } from '../api/chat';
 
 // Types for LLM models
 interface LLMModel {
@@ -59,6 +60,7 @@ const JarvisPage: React.FC = () => {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get unique providers from the models list
   const uniqueProviders = useMemo(() => {
@@ -79,23 +81,43 @@ const JarvisPage: React.FC = () => {
     }));
   };
 
-  // Handle chat submission
+  // Update chat submission handler
   const handleSendMessage = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() || isLoading) return;
 
-    // Add user message to chat
-    const newMessage = { role: 'user' as const, content: message };
-    setChatHistory(prev => [...prev, newMessage]);
+    const userMessage = { role: 'user' as const, content: message };
+    // Optimistically update UI
+    setChatHistory(prev => [...prev, userMessage]);
     setMessage('');
+    setIsLoading(true);
 
-    // TODO: Implement actual API call to selected LLM
-    // This is a placeholder response
-    setTimeout(() => {
+    // Prepare history for API (optional, depends on backend needs)
+    const historyForApi = chatHistory; // Send the current history
+
+    try {
+      // Call the backend API (Note: This simple version doesn't pass model or key yet)
+      const reply = await sendChatMessage(userMessage.content, historyForApi);
+      
+      // Add assistant response
+      setChatHistory(prev => [...prev, { role: 'assistant', content: reply }]);
+      
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      const errorMsg = (error instanceof Error) ? error.message : 'Failed to get response';
       setChatHistory(prev => [
         ...prev,
-        { role: 'assistant', content: t('jarvis.placeholderResponse') }
+        { role: 'assistant', content: `Error: ${errorMsg}` }
       ]);
-    }, 1000);
+      toast({ // Add toast notification
+        title: t('common.error'),
+        description: errorMsg || t('errors.chatFailed'),
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsLoading(false); // Stop loading indicator
+    }
   };
 
   return (
@@ -160,11 +182,13 @@ const JarvisPage: React.FC = () => {
                         handleSendMessage();
                       }
                     }}
+                    disabled={isLoading}
                   />
                   <Button
                     colorScheme="blue"
                     onClick={handleSendMessage}
-                    isDisabled={!selectedModel || !message.trim()}
+                    isDisabled={!selectedModel || !message.trim() || isLoading}
+                    isLoading={isLoading}
                     alignSelf="flex-end"
                   >
                     {t('common.send')}

@@ -14,6 +14,8 @@ from app.config import settings
 from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token, tasks 
 # Import the new shared_knowledge router
 from app.routes import shared_knowledge 
+# Import the new chat router
+from app.routes import chat 
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -119,12 +121,12 @@ app.include_router(knowledge.router, prefix=f"{settings.API_PREFIX}/knowledge", 
 app.include_router(token.router, prefix=f"{settings.API_PREFIX}/token", tags=["Token"])
 app.include_router(webhooks.router, prefix=f"{settings.API_PREFIX}/webhooks", tags=["Webhooks"])
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["Websockets"])
-# Add the new router
-app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["Shared Knowledge"]) # Prefix includes /api/v1
+app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["Shared Knowledge"])
+app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"])
 
-# --- Include Task Router --- 
-app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"]) # e.g., /api/v1/tasks
-# --- End Include --- 
+# --- Include Chat Router --- 
+app.include_router(chat.router, prefix=settings.API_PREFIX, tags=["Chat"]) # Includes /api/v1 prefix
+# --- End Include ---
 
 # Root endpoint (optional - for basic API check)
 @app.get("/", tags=["Root"])

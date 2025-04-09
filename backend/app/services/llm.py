@@ -1,5 +1,5 @@
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -104,3 +104,37 @@ Return a JSON object with the following fields:
             summary="Analysis failed. Please review manually.",
             key_points=["Analysis failed due to an error."]
         )
+
+
+# New function for basic OpenAI chat
+async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    Generates a chat response using the pre-configured OpenAI client.
+    """
+    messages = []
+    # Optional: Add a simple system prompt if desired
+    # messages.append({"role": "system", "content": "You are a helpful assistant."})
+    
+    if chat_history:
+        messages.extend(chat_history)
+        
+    messages.append({"role": "user", "content": message})
+    
+    try:
+        # Use the configured model from settings (or a default like "gpt-3.5-turbo")
+        model_to_use = settings.LLM_MODEL # Or specify e.g., "gpt-4o-mini"
+        
+        response = await client.chat.completions.create(
+            model=model_to_use, 
+            messages=messages,
+            temperature=0.7, # Adjust temperature as needed for creativity vs factualness
+        )
+        
+        response_content = response.choices[0].message.content
+        return response_content if response_content else "Sorry, I couldn't generate a response."
+    
+    except Exception as e:
+        print(f"Error calling OpenAI for chat: {str(e)}")
+        # Depending on the error type, you might want different user messages
+        # For now, a generic error message
+        return f"Sorry, an error occurred while generating the response: {str(e)}"
