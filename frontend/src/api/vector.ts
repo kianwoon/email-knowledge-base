@@ -43,22 +43,31 @@ export const saveJobToKnowledgeBase = async (jobId: string): Promise<SaveJobResp
 
 // --- NEW API FUNCTION --- 
 
-export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Promise<{ operation_id: string; message: string; status: string }> => {
-  console.log('[API Call] Saving filtered emails to KB with filter:', filter);
+// Define the expected response type for the ASYNCHRONOUS task submission
+interface SubmitTaskResponse {
+  task_id: string;
+  message: string;
+}
+
+export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Promise<SubmitTaskResponse> => {
+  console.log('[API Call] Submitting task to save filtered emails to KB with filter:', filter);
   
   try {
     // Use the existing apiClient
-    const response = await apiClient.post(
-      `/vector/save_filtered_emails`, // Use the new endpoint
+    const response = await apiClient.post<SubmitTaskResponse>( // Specify the expected response type
+      `/vector/save_filtered_emails`, // Use the endpoint that dispatches the task
       filter // Send the filter object as the request body
     );
-    console.log('[API Response] saveFilteredEmailsToKnowledgeBase:', response.data);
-    // Example success response: { operation_id: "uuid", message: "...", status: "success" | "partial_success" }
+    console.log('[API Response] saveFilteredEmailsToKnowledgeBase (Task Submission):', response.data);
+    // Expecting { task_id: "...", message: "..." }
+    if (!response.data || !response.data.task_id) {
+        throw new Error("API response did not include a task_id.");
+    }
     return response.data; 
   } catch (error: any) {
-    console.error('Error saving filtered emails to knowledge base:', error.response?.data || error.message);
+    console.error('Error submitting task to save filtered emails:', error.response?.data || error.message);
     // Re-throw a more specific error message if available from backend
-    throw new Error(error.response?.data?.detail || 'Failed to save filtered emails to knowledge base');
+    throw new Error(error.response?.data?.detail || 'Failed to submit task to save filtered emails');
   }
 }; 
 

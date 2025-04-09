@@ -1,13 +1,18 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
+from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB # Use JSONB for PostgreSQL
 
 # SQLAlchemy imports
 from sqlalchemy import Column, String, Boolean, DateTime, JSON, Text
 # Use PostgreSQL specific UUID type
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID 
-from app.db.session import Base # Import Base from the session file
+# Import Base from the canonical definition in base_class
+from app.db.base_class import Base 
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer
 
 # --- Base Models --- 
 
@@ -37,6 +42,9 @@ class TokenCreateRequest(BaseModel):
     deny_rules: List[AccessRule] = Field(default_factory=list, description="List of rules where ANY match denies access")
     expiry: Optional[datetime] = Field(None, description="Optional expiry date/time for the token")
     is_editable: bool = Field(True, description="Whether the token configuration can be edited after creation")
+    allow_topics: Optional[List[str]] = None
+    deny_topics: Optional[List[str]] = None
+    expiry_days: Optional[int] = None # Optional expiry in days
 
 class TokenUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -48,6 +56,8 @@ class TokenUpdateRequest(BaseModel):
     is_editable: Optional[bool] = None
     # Cannot update is_active directly via API, managed internally based on expiry
     # Cannot update token_value
+    allow_topics: Optional[List[str]] = None
+    deny_topics: Optional[List[str]] = None
 
 # NEW: Model for bundling tokens
 class TokenBundleRequest(BaseModel):
@@ -55,60 +65,11 @@ class TokenBundleRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Name for the new bundled token.")
     description: Optional[str] = Field(None, max_length=500, description="Optional description for the bundled token.")
 
-# --- SQLAlchemy Database Model (Refactored for PostgreSQL) --- 
-
-class TokenDB(Base):
-    __tablename__ = "tokens"
-
-    # Use PG_UUID for PostgreSQL
-    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True) # Use Text for potentially longer descriptions
-    # token_value: Do we need to store the raw value in DB? 
-    # Typically NO. We store the hash and return raw value only once upon creation.
-    # Let's remove the raw token_value column from the DB model for better security.
-    hashed_token = Column(String, nullable=False, unique=True, index=True) # Store the hash for verification
-    sensitivity = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    owner_email = Column(String, nullable=False, index=True) # Assuming email is string
-    expiry = Column(DateTime(timezone=True), nullable=True)
-    is_editable = Column(Boolean, nullable=False, default=True)
-    is_active = Column(Boolean, nullable=False, default=True) 
-    allow_rules = Column(JSON, nullable=False, default=lambda: []) # JSON type is generally compatible
-    deny_rules = Column(JSON, nullable=False, default=lambda: [])  # JSON type is generally compatible
-
-    # Removed Pydantic Config and validators from SQLAlchemy model
-
 # --- API Response Models --- 
 
 class TokenResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    description: Optional[str] = None
-    token_value: Optional[str] = None # Only include raw token on create, otherwise None
-    sensitivity: str
-    created_at: datetime
-    updated_at: datetime
-    owner_email: str
-    expiry: Optional[datetime] = None
-    is_editable: bool
-    is_active: bool
-    allow_rules: List[AccessRule] # Parse JSONB back into model
-    deny_rules: List[AccessRule]  # Parse JSONB back into model
-
-    @validator('allow_rules', 'deny_rules', pre=True)
-    def parse_rules(cls, v):
-        if isinstance(v, list):
-            # If already parsed (e.g., from DB model via orm_mode), return directly
-            if all(isinstance(item, AccessRule) for item in v):
-                 return v
-             # If coming from raw JSON/dict list from DB
-            return [AccessRule(**item) for item in v]
-        return [] # Default to empty list if input is not a list
-
-    class Config:
-        orm_mode = True
+    # This model definition seems duplicated later - keeping the second one
+    pass # Placeholder - remove this section later if the second one is confirmed correct
 
 # --- Token Export Model (for middleware consumption) --- 
 
@@ -134,3 +95,64 @@ class TokenExport(BaseModel):
             # If coming from raw JSON/dict list from DB
             return [AccessRule(**item) for item in v]
         return [] # Default to empty list if input is not a list 
+
+# Pydantic model for creating a token (input)
+class TokenCreate(BaseModel):
+    name: str
+    description: Optional[str] = None # Added description
+    sensitivity: str = Field(default="public", description="Sensitivity level")
+    allow_topics: Optional[List[str]] = Field(None, description="List of allowed topics")
+    deny_topics: Optional[List[str]] = Field(None, description="List of denied topics")
+    expiry_days: Optional[int] = Field(None, description="Optional expiry in days from creation") 
+
+# Pydantic model for updating a token
+class TokenUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None # Added description
+    sensitivity: Optional[str] = None 
+    is_active: Optional[bool] = None
+    allow_topics: Optional[List[str]] = None
+    deny_topics: Optional[List[str]] = None
+    expiry: Optional[datetime] = None 
+
+# Pydantic model for representing a token (output) - THIS IS THE SECOND, CORRECT DEFINITION
+class TokenResponse(BaseModel):
+    id: int # Assuming int PK
+    name: str
+    description: Optional[str] = None # Added description
+    sensitivity: str # Added sensitivity
+    token_preview: str # Show only prefix/suffix
+    owner_email: str
+    created_at: datetime
+    expiry: Optional[datetime]
+    is_active: bool
+    allow_topics: Optional[List[str]] = None 
+    deny_topics: Optional[List[str]] = None  
+
+    model_config = ConfigDict(from_attributes=True)
+
+# SQLAlchemy model for the 'tokens' table - THIS IS THE SECOND, CORRECT DEFINITION
+class TokenDB(Base):
+    __tablename__ = "tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), index=True) 
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # Added description
+    hashed_token: Mapped[str] = mapped_column(String(255), unique=True, index=True) 
+    owner_email: Mapped[str] = mapped_column(String(255), index=True) 
+    sensitivity: Mapped[str] = mapped_column(String(50), nullable=False, default="public", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_topics: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True)
+    deny_topics: Mapped[Optional[List[str]]] = mapped_column(JSONB, nullable=True)
+    # New columns for embeddings
+    allow_topics_embeddings: Mapped[Optional[List[List[float]]]] = mapped_column(JSONB, nullable=True)
+    deny_topics_embeddings: Mapped[Optional[List[List[float]]]] = mapped_column(JSONB, nullable=True)
+    
+    def __repr__(self):
+        return f"<TokenDB(id={self.id}, name='{self.name}', owner='{self.owner_email}')>"
+
+# Model to return the full token value ONCE upon creation
+class TokenCreateResponse(TokenResponse):
+     token_value: str 

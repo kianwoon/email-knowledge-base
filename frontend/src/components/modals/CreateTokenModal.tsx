@@ -14,16 +14,12 @@ import {
   Input,
   Textarea,
   Select,
-  Checkbox,
   VStack,
   useToast,
   Text as ChakraText,
   Divider,
-  IconButton,
-  HStack,
   InputGroup,
   InputRightElement,
-  Code,
   Alert,
   AlertIcon,
   AlertTitle,
@@ -31,18 +27,17 @@ import {
   useClipboard,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { TokenCreate, createToken, AccessRule, Token } from '../../api/token'; // Import API function and type
-import { FaPlus, FaTrash, FaCopy } from 'react-icons/fa'; // Added icons
-import TagInput from '../inputs/TagInput'; // Import the new TagInput component
+import { TokenCreate, createToken, Token } from '../../api/token';
+import { FaCopy } from 'react-icons/fa';
+import TagInput from '../inputs/TagInput';
 
-// Define props for the modal
 interface CreateTokenModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onTokenCreated: () => void; // Callback to refresh list on parent page
+  onTokenCreated: () => void;
 }
 
-// TODO: Get these from backend or config
+// Bring back sensitivity levels
 const SENSITIVITY_LEVELS = ["public", "internal", "confidential", "strict-confidential"];
 
 const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, onTokenCreated }) => {
@@ -53,99 +48,64 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]); // Default sensitivity
-  const [expiry, setExpiry] = useState(''); // Use string for datetime-local input
-  const [isEditable, setIsEditable] = useState(true);
-  // State for rules
-  const [allowRules, setAllowRules] = useState<AccessRule[]>([]);
-  const [denyRules, setDenyRules] = useState<AccessRule[]>([]);
+  const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]); // Add state back
+  const [expiryDays, setExpiryDays] = useState<number | null>(null);
+
+  // State for topics
+  const [allowTopics, setAllowTopics] = useState<string[]>([]);
+  const [denyTopics, setDenyTopics] = useState<string[]>([]);
 
   // --- State for Success View ---
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [showSuccessView, setShowSuccessView] = useState<boolean>(false);
   const { onCopy, hasCopied } = useClipboard(createdTokenValue || '');
 
-  // --- Functions to manage rules state --- 
-  const addRule = (type: 'allow' | 'deny') => {
-    const newRule: AccessRule = { field: '', values: [] };
-    if (type === 'allow') {
-      setAllowRules([...allowRules, newRule]);
-    } else {
-      setDenyRules([...denyRules, newRule]);
-    }
-  };
-
-  // Simplified updateRule for TagInput
-  const updateRule = (index: number, field: keyof AccessRule, value: string | string[], type: 'allow' | 'deny') => {
-    const rules = type === 'allow' ? allowRules : denyRules;
-    const setRules = type === 'allow' ? setAllowRules : setDenyRules;
-    const updatedRules = [...rules];
-
-    // Direct assignment for field, TagInput handles values array
-    updatedRules[index] = { ...updatedRules[index], [field]: value };
-
-    setRules(updatedRules);
-  };
-
-  const removeRule = (index: number, type: 'allow' | 'deny') => {
-    const rules = type === 'allow' ? allowRules : denyRules;
-    const setRules = type === 'allow' ? setAllowRules : setDenyRules;
-    setRules(rules.filter((_, i) => i !== index));
-  };
-  // --- End rule management functions ---
-
   const resetForm = () => {
     setName('');
     setDescription('');
-    setSensitivity(SENSITIVITY_LEVELS[0]);
-    setExpiry('');
-    setIsEditable(true);
-    // Reset rules
-    setAllowRules([]); 
-    setDenyRules([]); 
-    setIsLoading(false); // Also reset loading state
+    setSensitivity(SENSITIVITY_LEVELS[0]); // Reset sensitivity
+    setExpiryDays(null);
+    setAllowTopics([]);
+    setDenyTopics([]);
+    setIsLoading(false);
   };
 
   const handleCloseAndReset = () => {
     resetForm();
     setCreatedTokenValue(null);
     setShowSuccessView(false);
-    onClose(); // Call the original onClose from props
+    onClose();
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsLoading(true);
-    setCreatedTokenValue(null); // Clear previous token value if any
+    setCreatedTokenValue(null);
     setShowSuccessView(false);
 
     const tokenData: TokenCreate = {
       name,
       description: description || null,
-      sensitivity,
-      expiry: expiry ? new Date(expiry).toISOString() : null, // Convert to ISO string or null
-      is_editable: isEditable,
-      // Include rules from state
-      allow_rules: allowRules.filter(rule => rule.field && rule.values.length > 0), // Filter out incomplete rules
-      deny_rules: denyRules.filter(rule => rule.field && rule.values.length > 0),   // Filter out incomplete rules
+      sensitivity, // Add sensitivity to payload
+      expiry_days: expiryDays,
+      allow_topics: allowTopics,
+      deny_topics: denyTopics,
     };
 
     try {
-      // Capture the response which should include the token_value
-      const createdToken: Token = await createToken(tokenData); 
+      const createdToken: Token = await createToken(tokenData);
       
       toast({
         title: t('createTokenModal.toast.successTitle', 'Token Created'),
-        description: t('createTokenModal.toast.successDescription', `Token "${name}" was successfully created.`),        status: 'success',
-        duration: 3000, // Shorten duration slightly
+        description: t('createTokenModal.toast.successDescription', `Token "${name}" was successfully created.`),
+        status: 'success',
+        duration: 3000,
         isClosable: true,
       });
       
-      // Set state to show the success view with the token
-      setCreatedTokenValue(createdToken.token_value);
+      setCreatedTokenValue(createdToken.token_value || '[Error: Token Value Missing]');
       setShowSuccessView(true);
-      onTokenCreated(); // Trigger list refresh in parent
-      // DO NOT close modal here - user needs to copy the token
+      onTokenCreated();
 
     } catch (error: any) {
       console.error("Token creation failed:", error);
@@ -156,13 +116,12 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
         duration: 9000,
         isClosable: true,
       });
-      setShowSuccessView(false); // Ensure success view is not shown on error
+      setShowSuccessView(false);
     } finally {
-      setIsLoading(false); // Stop loading indicator
+      setIsLoading(false);
     }
   };
 
-  // --- Copy Handler ---
   const handleCopyToken = () => {
     if (createdTokenValue) {
       onCopy();
@@ -248,63 +207,50 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
 
               <FormControl isRequired>
                 <FormLabel>{t('createTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
-                <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value)}>
-                  {SENSITIVITY_LEVELS.map(level => (
+                <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value as typeof sensitivity)}>
+                  {SENSITIVITY_LEVELS.map((level) => (
                     <option key={level} value={level}>{level}</option>
                   ))}
                 </Select>
                 <FormHelperText>{t('createTokenModal.form.sensitivity.helper', 'Determines the maximum data sensitivity accessible.')}</FormHelperText>
               </FormControl>
 
-              <FormControl>
-                <FormLabel>{t('createTokenModal.form.allowRules.label', 'Allow Rules (Require ALL)')}</FormLabel>
-                <VStack align="stretch" spacing={2} pl={2} borderLeft="2px" borderColor="green.200">
-                  {allowRules.map((rule, index) => (
-                    <HStack key={`allow-${index}`} spacing={2} align="flex-start">
-                      <Input placeholder={t('createTokenModal.form.rules.fieldPlaceholder', 'Metadata Field')} value={rule.field} onChange={(e) => updateRule(index, 'field', e.target.value, 'allow')} size="sm" flexShrink={0} w="150px" />
-                      <TagInput placeholder={t('createTokenModal.form.rules.valuesPlaceholder', 'Allowed Values (Enter)')} value={rule.values} onChange={(newValues) => updateRule(index, 'values', newValues, 'allow')} size="sm" />
-                      <IconButton aria-label={t('createTokenModal.form.rules.removeRule', 'Remove Rule')} icon={<FaTrash />} size="sm" variant="ghost" colorScheme="red" onClick={() => removeRule(index, 'allow')} alignSelf="center" />
-                    </HStack>
-                  ))}
-                  <Button leftIcon={<FaPlus />} size="sm" variant="outline" onClick={() => addRule('allow')}>{t('createTokenModal.form.rules.addAllowRule', 'Add Allow Rule')}</Button>
-                </VStack>
-                <FormHelperText>{t('createTokenModal.form.allowRules.helper', 'Data must match ALL allow rules defined.')}</FormHelperText>
-              </FormControl>
-              
               <Divider />
 
               <FormControl>
-                <FormLabel>{t('createTokenModal.form.denyRules.label', 'Deny Rules (Require ANY)')}</FormLabel>
-                <VStack align="stretch" spacing={2} pl={2} borderLeft="2px" borderColor="red.200">
-                  {denyRules.map((rule, index) => (
-                     <HStack key={`deny-${index}`} spacing={2} align="flex-start">
-                      <Input placeholder={t('createTokenModal.form.rules.fieldPlaceholder', 'Metadata Field')} value={rule.field} onChange={(e) => updateRule(index, 'field', e.target.value, 'deny')} size="sm" flexShrink={0} w="150px" />
-                      <TagInput placeholder={t('createTokenModal.form.rules.valuesPlaceholder', 'Denied Values (Enter)')} value={rule.values} onChange={(newValues) => updateRule(index, 'values', newValues, 'deny')} size="sm" />
-                      <IconButton aria-label={t('createTokenModal.form.rules.removeRule', 'Remove Rule')} icon={<FaTrash />} size="sm" variant="ghost" colorScheme="red" onClick={() => removeRule(index, 'deny')} alignSelf="center" />
-                    </HStack>
-                  ))}
-                  <Button leftIcon={<FaPlus />} size="sm" variant="outline" onClick={() => addRule('deny')}>{t('createTokenModal.form.rules.addDenyRule', 'Add Deny Rule')}</Button>
-                </VStack>
-                 <FormHelperText>{t('createTokenModal.form.denyRules.helper', 'Data matching ANY deny rule defined will be excluded.')}</FormHelperText>
-              </FormControl>
-              
-              <Divider />
-
-              <FormControl>
-                <FormLabel>{t('createTokenModal.form.expiry.label', 'Expiry Date (Optional)')}</FormLabel>
-                <Input 
-                  type="datetime-local"
-                  value={expiry}
-                  onChange={(e) => setExpiry(e.target.value)}
+                <FormLabel>{t('createTokenModal.form.allowTopics.label', 'Allow Topics')}</FormLabel>
+                <TagInput 
+                  placeholder={t('createTokenModal.form.allowTopics.placeholder', 'Add allowed topics (Enter)')} 
+                  value={allowTopics}
+                  onChange={(newTopics) => setAllowTopics(newTopics)}
                 />
-                <FormHelperText>{t('createTokenModal.form.expiry.helper', 'Token will automatically become invalid after this date.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.allowTopics.helper', 'Optional: List of topics this token can access.')}</FormHelperText>
               </FormControl>
 
+              <Divider />
+
               <FormControl>
-                <Checkbox isChecked={isEditable} onChange={(e) => setIsEditable(e.target.checked)}>
-                  {t('createTokenModal.form.editable.label', 'Editable after creation')}
-                </Checkbox>
-                <FormHelperText>{t('createTokenModal.form.editable.helper', 'If unchecked, the token configuration cannot be changed later.')}</FormHelperText>
+                <FormLabel>{t('createTokenModal.form.denyTopics.label', 'Deny Topics')}</FormLabel>
+                <TagInput 
+                  placeholder={t('createTokenModal.form.denyTopics.placeholder', 'Add denied topics (Enter)')} 
+                  value={denyTopics}
+                  onChange={(newTopics) => setDenyTopics(newTopics)}
+                />
+                <FormHelperText>{t('createTokenModal.form.denyTopics.helper', 'Optional: List of topics this token CANNOT access.')}</FormHelperText>
+              </FormControl>
+
+              <Divider />
+
+              <FormControl>
+                <FormLabel>{t('createTokenModal.form.expiryDays.label', 'Expiry (Days, Optional)')}</FormLabel>
+                <Input 
+                  type="number"
+                  placeholder={t('createTokenModal.form.expiryDays.placeholder', 'e.g., 30')}
+                  value={expiryDays === null ? '' : expiryDays}
+                  onChange={(e) => setExpiryDays(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                  min="1"
+                />
+                <FormHelperText>{t('createTokenModal.form.expiryDays.helper', 'Token will become inactive after this many days.')}</FormHelperText>
               </FormControl>
 
             </VStack>

@@ -326,22 +326,37 @@ class OutlookService:
     def _format_email_preview(self, email: Dict) -> Dict:
         """Helper to format a single email dictionary into the desired preview structure."""
         try:
+            # --- Validate/Format Date --- 
+            received_date_str = email.get("receivedDateTime")
+            formatted_date = None
+            if received_date_str:
+                try:
+                    # Attempt to parse to ensure it's valid ISO format
+                    # datetime.fromisoformat handles Z for UTC correctly
+                    dt_obj = datetime.fromisoformat(received_date_str.replace('Z', '+00:00')) 
+                    # Return the original string if valid, as JS can parse ISO 8601
+                    formatted_date = received_date_str 
+                except ValueError:
+                    logger.warning(f"Could not parse receivedDateTime '{received_date_str}' for email ID {email.get('id')}. Sending null.")
+                    formatted_date = None # Send null if invalid
+            # --- End Validate/Format Date ---
+
             preview = {
                 "id": email["id"],
                 # Safely get sender, providing defaults if keys are missing
                 "sender": email.get("sender", {}).get("emailAddress", {}).get("address", "Unknown Sender"),
                 "subject": email.get("subject", "No Subject"), # Use .get for subject too
                 "preview": email.get("bodyPreview", ""), # And for preview
-                "receivedDateTime": email["receivedDateTime"],
-                "hasAttachments": email.get("hasAttachments", False), # And attachments flag
+                "received_date": formatted_date, # Use validated/formatted date
+                "has_attachments": email.get("hasAttachments", False), # And attachments flag
                 "importance": email.get("importance", "normal"), # And importance
-                "isRead": email.get("isRead", True) # And isRead flag
+                "is_read": email.get("isRead", True) # And isRead flag
             }
             # Add optional fields if they exist
             if "toRecipients" in email and email["toRecipients"]:
-                preview["toRecipients"] = [r.get("emailAddress", {}).get("address") for r in email["toRecipients"]]
+                preview["to_recipients"] = [r.get("emailAddress", {}).get("address") for r in email["toRecipients"]]
             if "ccRecipients" in email and email["ccRecipients"]:
-                preview["ccRecipients"] = [r.get("emailAddress", {}).get("address") for r in email["ccRecipients"]]
+                preview["cc_recipients"] = [r.get("emailAddress", {}).get("address") for r in email["ccRecipients"]]
             
             return preview
         except KeyError as e:

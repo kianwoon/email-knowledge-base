@@ -29,17 +29,17 @@ import {
   Switch,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { TokenUpdate, Token, getTokenById, updateToken, AccessRule } from '../../api/token';
-import { FaPlus, FaTrash } from 'react-icons/fa';
+import { TokenUpdate, Token, getTokenById, updateToken } from '../../api/token';
 import TagInput from '../inputs/TagInput';
 
 interface EditTokenModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTokenUpdated: () => void;
-  tokenId: string | null;
+  tokenId: number | null;
 }
 
+// Bring back sensitivity levels
 const SENSITIVITY_LEVELS = ["public", "internal", "confidential", "strict-confidential"];
 
 const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onTokenUpdated, tokenId }) => {
@@ -54,52 +54,27 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]);
+  const [allowTopics, setAllowTopics] = useState<string[]>([]);
+  const [denyTopics, setDenyTopics] = useState<string[]>([]);
   const [expiry, setExpiry] = useState('');
-  const [isEditable, setIsEditable] = useState(true);
-  const [allowRules, setAllowRules] = useState<AccessRule[]>([]);
-  const [denyRules, setDenyRules] = useState<AccessRule[]>([]);
-  const [originalIsEditable, setOriginalIsEditable] = useState(true);
-
-  const addRule = (type: 'allow' | 'deny') => {
-    const newRule: AccessRule = { field: '', values: [] };
-    if (type === 'allow') {
-      setAllowRules([...allowRules, newRule]);
-    } else {
-      setDenyRules([...denyRules, newRule]);
-    }
-  };
-
-  const updateRule = (index: number, field: keyof AccessRule, value: string | string[], type: 'allow' | 'deny') => {
-    const rules = type === 'allow' ? allowRules : denyRules;
-    const setRules = type === 'allow' ? setAllowRules : setDenyRules;
-    const updatedRules = [...rules];
-    updatedRules[index] = { ...updatedRules[index], [field]: value };
-    setRules(updatedRules);
-  };
-
-  const removeRule = (index: number, type: 'allow' | 'deny') => {
-    const rules = type === 'allow' ? allowRules : denyRules;
-    const setRules = type === 'allow' ? setAllowRules : setDenyRules;
-    setRules(rules.filter((_, i) => i !== index));
-  };
+  const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
-    if (isOpen && tokenId) {
+    if (isOpen && tokenId !== null) {
       const fetchToken = async () => {
         setIsFetching(true);
         setError(null);
         try {
           console.log(`EditModal: Fetching data for token ID: ${tokenId}`);
-          const tokenData = await getTokenById(tokenId);
+          const tokenData = await getTokenById(String(tokenId));
           console.log('EditModal: Data received:', tokenData);
           setName(tokenData.name);
           setDescription(tokenData.description || '');
           setSensitivity(tokenData.sensitivity || SENSITIVITY_LEVELS[0]);
+          setAllowTopics(tokenData.allow_topics || []);
+          setDenyTopics(tokenData.deny_topics || []);
           setExpiry(tokenData.expiry ? tokenData.expiry.slice(0, 16) : '');
-          setIsEditable(tokenData.is_editable);
-          setOriginalIsEditable(tokenData.is_editable);
-          setAllowRules(tokenData.allow_rules || []);
-          setDenyRules(tokenData.deny_rules || []);
+          setIsActive(tokenData.is_active);
         } catch (err: any) {
           console.error('EditModal: Error fetching token data:', err);
           setError(t('editTokenModal.errors.fetchFailed', 'Failed to load token data. Please try again.'));
@@ -112,11 +87,10 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
       setName('');
       setDescription('');
       setSensitivity(SENSITIVITY_LEVELS[0]);
+      setAllowTopics([]);
+      setDenyTopics([]);
       setExpiry('');
-      setIsEditable(true);
-      setOriginalIsEditable(true);
-      setAllowRules([]);
-      setDenyRules([]);
+      setIsActive(true);
       setError(null);
       setIsFetching(false);
       setIsLoading(false);
@@ -125,10 +99,10 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!tokenId || !originalIsEditable) {
+    if (tokenId === null) {
         toast({
             title: t('editTokenModal.toast.errorTitle', 'Update Failed'),
-            description: t('editTokenModal.nonEditableWarning', 'This token is marked as non-editable. Changes will not be saved.'),
+            description: t('editTokenModal.toast.missingId', 'Token ID is missing.'),
             status: 'error',
             duration: 9000,
             isClosable: true,
@@ -141,14 +115,14 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
       name,
       description: description || null,
       sensitivity,
+      allow_topics: allowTopics,
+      deny_topics: denyTopics,
       expiry: expiry ? new Date(expiry).toISOString() : null,
-      is_editable: isEditable,
-      allow_rules: allowRules.filter(rule => rule.field && rule.values.length > 0),
-      deny_rules: denyRules.filter(rule => rule.field && rule.values.length > 0),
+      is_active: isActive,
     };
 
     try {
-      await updateToken(tokenId, tokenUpdateData);
+      await updateToken(String(tokenId), tokenUpdateData);
       toast({
         title: t('editTokenModal.toast.successTitle', 'Token Updated'),
         description: t('editTokenModal.toast.successDescription', `Token "${name}" was successfully updated.`),        
@@ -180,7 +154,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
         <ModalCloseButton />
         <ModalBody pb={6}>
           {isFetching ? (
-            <CircularProgress isIndeterminate color="blue.300" />
+            <Center h="200px"> <CircularProgress isIndeterminate color="blue.300" /> </Center>
           ) : error ? (
             <Alert status="error">
               <AlertIcon />
@@ -188,23 +162,21 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
             </Alert>
           ) : (
             <VStack spacing={4} align="stretch">
-              {!originalIsEditable && (
-                <Alert status="warning">
-                    <AlertIcon />
-                    {t('editTokenModal.nonEditableWarning', 'This token is marked as non-editable. Changes will not be saved.')}
-                </Alert>
-              )}
-              <FormControl isRequired isDisabled={!originalIsEditable}>
+              <FormControl isRequired>
                 <FormLabel>{t('editTokenModal.form.name.label', 'Token Name')}</FormLabel>
                 <Input ref={initialRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('editTokenModal.form.name.placeholder', 'e.g., My API Key')} />
               </FormControl>
 
-              <FormControl isDisabled={!originalIsEditable}>
+              <FormControl>
                 <FormLabel>{t('editTokenModal.form.description.label', 'Description')}</FormLabel>
-                <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('editTokenModal.form.description.placeholder', 'Optional: Describe the token\'s purpose')} />
+                <Textarea 
+                  placeholder={t('editTokenModal.form.description.placeholder', 'Optional: Describe the purpose of this token')} 
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
               </FormControl>
 
-              <FormControl isRequired isDisabled={!originalIsEditable}>
+              <FormControl isRequired>
                 <FormLabel>{t('editTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
                 <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value as typeof sensitivity)}>
                   {SENSITIVITY_LEVELS.map((level) => (
@@ -213,106 +185,34 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                 </Select>
                 <FormHelperText>{t('editTokenModal.form.sensitivity.helper', 'Controls data access restrictions.')}</FormHelperText>
               </FormControl>
-              
+
               <Divider />
 
-              <FormControl isDisabled={!originalIsEditable}>
-                <FormLabel>{t('editTokenModal.form.allowRules.label', 'Allow Rules (Require ALL)')}</FormLabel>
-                 <VStack align="stretch" spacing={2} pl={2} borderLeft="2px" borderColor="green.200">
-                    {allowRules.map((rule, index) => (
-                      <HStack key={`allow-${index}`} spacing={2} align="flex-start">
-                        <Input 
-                          placeholder={t('editTokenModal.form.rules.fieldPlaceholder', 'Metadata Field')} 
-                          value={rule.field}
-                          onChange={(e) => updateRule(index, 'field', e.target.value, 'allow')}
-                          size="sm"
-                          isDisabled={!originalIsEditable}
-                          flexShrink={0}
-                          w="150px"
-                        />
-                        <TagInput 
-                          placeholder={t('editTokenModal.form.rules.valuesPlaceholder', 'Allowed Values (Enter)')} 
-                          value={rule.values}
-                          onChange={(newValues) => updateRule(index, 'values', newValues, 'allow')}
-                          size="sm"
-                          isDisabled={!originalIsEditable}
-                        />
-                        <IconButton 
-                          aria-label={t('editTokenModal.form.rules.removeRule', 'Remove Rule')} 
-                          icon={<FaTrash />} 
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="red"
-                          onClick={() => removeRule(index, 'allow')}
-                          isDisabled={!originalIsEditable}
-                          alignSelf="center"
-                        />
-                      </HStack>
-                    ))}
-                    <Button 
-                      leftIcon={<FaPlus />} 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => addRule('allow')}
-                      isDisabled={!originalIsEditable}
-                    >
-                      {t('editTokenModal.form.rules.addAllowRule', 'Add Allow Rule')}
-                    </Button>
-                  </VStack>
-                <FormHelperText>{t('editTokenModal.form.allowRules.helper', 'Data must match ALL allow rules defined.')}</FormHelperText>
+              <FormControl>
+                 <FormLabel>{t('editTokenModal.form.allowTopics.label', 'Allow Topics')}</FormLabel>
+                  <TagInput 
+                      placeholder={t('editTokenModal.form.allowTopics.placeholder', 'Add allowed topics (Enter)')} 
+                      value={allowTopics}
+                      onChange={(newTopics) => setAllowTopics(newTopics)}
+                    />
+                <FormHelperText>{t('editTokenModal.form.allowTopics.helper', 'Optional: List of topics this token can access.')}</FormHelperText>
               </FormControl>
 
               <Divider />
 
-              <FormControl isDisabled={!originalIsEditable}>
-                 <FormLabel>{t('editTokenModal.form.denyRules.label', 'Deny Rules (Require ANY)')}</FormLabel>
-                  <VStack align="stretch" spacing={2} pl={2} borderLeft="2px" borderColor="red.200">
-                    {denyRules.map((rule, index) => (
-                      <HStack key={`deny-${index}`} spacing={2} align="flex-start">
-                        <Input 
-                          placeholder={t('editTokenModal.form.rules.fieldPlaceholder', 'Metadata Field')} 
-                          value={rule.field}
-                          onChange={(e) => updateRule(index, 'field', e.target.value, 'deny')}
-                          size="sm"
-                          isDisabled={!originalIsEditable}
-                          flexShrink={0}
-                          w="150px"
-                        />
-                        <TagInput 
-                          placeholder={t('editTokenModal.form.rules.valuesPlaceholder', 'Denied Values (Enter)')} 
-                          value={rule.values}
-                          onChange={(newValues) => updateRule(index, 'values', newValues, 'deny')}
-                          size="sm"
-                          isDisabled={!originalIsEditable}
-                        />
-                        <IconButton 
-                          aria-label={t('editTokenModal.form.rules.removeRule', 'Remove Rule')} 
-                          icon={<FaTrash />} 
-                          size="sm"
-                          variant="ghost"
-                          colorScheme="red"
-                          onClick={() => removeRule(index, 'deny')}
-                          isDisabled={!originalIsEditable}
-                          alignSelf="center"
-                        />
-                      </HStack>
-                    ))}
-                    <Button 
-                      leftIcon={<FaPlus />} 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => addRule('deny')}
-                      isDisabled={!originalIsEditable}
-                    >
-                      {t('editTokenModal.form.rules.addDenyRule', 'Add Deny Rule')}
-                    </Button>
-                  </VStack>
-                <FormHelperText>{t('editTokenModal.form.denyRules.helper', 'Data matching ANY deny rule defined will be excluded.')}</FormHelperText>
+              <FormControl>
+                 <FormLabel>{t('editTokenModal.form.denyTopics.label', 'Deny Topics')}</FormLabel>
+                  <TagInput 
+                      placeholder={t('editTokenModal.form.denyTopics.placeholder', 'Add denied topics (Enter)')} 
+                      value={denyTopics}
+                      onChange={(newTopics) => setDenyTopics(newTopics)}
+                    />
+                <FormHelperText>{t('editTokenModal.form.denyTopics.helper', 'Optional: List of topics this token CANNOT access.')}</FormHelperText>
               </FormControl>
 
               <Divider />
 
-              <FormControl isDisabled={!originalIsEditable}>
+              <FormControl>
                  <FormLabel>{t('editTokenModal.form.expiry.label', 'Expiry Date (Optional)')}</FormLabel>
                  <Input 
                     type="datetime-local" 
@@ -322,18 +222,17 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                  <FormHelperText>{t('editTokenModal.form.expiry.helper', 'Token will become inactive after this date.')}</FormHelperText>
               </FormControl>
 
-               <FormControl display="flex" alignItems="center" isDisabled={!originalIsEditable}>
-                  <FormLabel htmlFor="is-editable" mb="0">
-                     {t('editTokenModal.form.editable.label', 'Editable?')}
-                  </FormLabel>
-                  <Switch 
-                      id="is-editable" 
-                      isChecked={isEditable} 
-                      onChange={(e) => setIsEditable(e.target.checked)} 
-                      isDisabled={!originalIsEditable}
-                  />
-                  <FormHelperText ml={2}>{t('editTokenModal.form.editable.helper', 'Can this token\'s settings be changed later?')}</FormHelperText>
-               </FormControl>
+              <FormControl display="flex" alignItems="center">
+                 <FormLabel htmlFor="is-active" mb="0">
+                    {t('editTokenModal.form.active.label', 'Active')}
+                 </FormLabel>
+                 <Switch 
+                     id="is-active" 
+                     isChecked={isActive} 
+                     onChange={(e) => setIsActive(e.target.checked)} 
+                 />
+                 <FormHelperText ml={2}>{t('editTokenModal.form.active.helper', 'Inactive tokens cannot be used.')}</FormHelperText>
+              </FormControl>
 
             </VStack>
           )}
@@ -347,7 +246,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
             colorScheme="blue" 
             type="submit" 
             isLoading={isLoading} 
-            isDisabled={isFetching || !!error || !originalIsEditable}
+            isDisabled={isFetching || !!error}
           >
             {t('common.actions.saveChanges', 'Save Changes')}
           </Button>

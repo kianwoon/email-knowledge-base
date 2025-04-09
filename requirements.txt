@@ -7,7 +7,11 @@ httpx==0.25.0
 python-jose==3.3.0
 passlib==1.7.4
 python-multipart==0.0.6
-msal==1.24.1
+msal==1.29,<2
 qdrant-client==1.13.3
 email-validator==2.2.0
 openai==1.69.0
+celery[redis]>=5.3.6
+redis>=5.0.0
+sqlalchemy-utils>=0.41.1
+cryptography>=42.0.0

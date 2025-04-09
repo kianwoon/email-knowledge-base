@@ -29,6 +29,7 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   useToast,
+  Badge,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
@@ -52,9 +53,9 @@ const TokenManagementPage: React.FC = () => {
 
   const { isOpen: isCreateModalOpen, onOpen: onCreateModalOpen, onClose: onCreateModalClose } = useDisclosure();
   const { isOpen: isEditModalOpen, onOpen: onEditModalOpen, onClose: onEditModalClose } = useDisclosure();
-  const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
+  const [editingTokenId, setEditingTokenId] = useState<number | null>(null);
   const { isOpen: isDeleteDialogOpen, onOpen: onDeleteDialogOpen, onClose: onDeleteDialogClose } = useDisclosure();
-  const [tokenToDelete, setTokenToDelete] = useState<string | null>(null);
+  const [tokenToDelete, setTokenToDelete] = useState<number | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -76,24 +77,24 @@ const TokenManagementPage: React.FC = () => {
     fetchUserTokens();
   }, [fetchUserTokens]);
 
-  const handleEditToken = (tokenId: string) => {
+  const handleEditToken = (tokenId: number) => {
     console.log('Requesting edit for token:', tokenId);
     setEditingTokenId(tokenId);
     onEditModalOpen();
   };
 
-  const handleDeleteToken = (tokenId: string) => {
+  const handleDeleteToken = (tokenId: number) => {
     console.log('Requesting delete for token:', tokenId);
     setTokenToDelete(tokenId);
     onDeleteDialogOpen();
   };
 
   const confirmDeleteToken = async () => {
-    if (!tokenToDelete) return;
+    if (tokenToDelete === null) return;
     console.log('Confirming delete for token:', tokenToDelete);
     setIsDeleting(true);
     try {
-      await deleteTokenApi(tokenToDelete);
+      await deleteTokenApi(String(tokenToDelete));
       toast({
         title: t('tokenManagementPage.toast.deleteSuccessTitle', 'Token Deleted'),
         status: 'success',
@@ -177,7 +178,9 @@ const TokenManagementPage: React.FC = () => {
                     <Thead>
                       <Tr>
                         <Th>{t('tokenManagementPage.table.name', 'Name')}</Th>
+                        <Th>{t('tokenManagementPage.table.description', 'Description')}</Th>
                         <Th>{t('tokenManagementPage.table.sensitivity', 'Sensitivity')}</Th>
+                        <Th>{t('tokenManagementPage.table.active', 'Active')}</Th>
                         <Th>{t('tokenManagementPage.table.expiry', 'Expiry')}</Th>
                         <Th>{t('tokenManagementPage.table.actions', 'Actions')}</Th>
                       </Tr>
@@ -186,7 +189,13 @@ const TokenManagementPage: React.FC = () => {
                       {tokens.map((token) => (
                         <Tr key={token.id}>
                           <Td>{token.name}</Td>
+                          <Td>{token.description || '-'}</Td>
                           <Td><Tag colorScheme="purple">{token.sensitivity}</Tag></Td>
+                          <Td>
+                            <Badge colorScheme={token.is_active ? 'green' : 'red'}>
+                              {token.is_active ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
+                            </Badge>
+                          </Td>
                           <Td>{formatDate(token.expiry)}</Td>
                           <Td>
                             <HStack spacing={2}>

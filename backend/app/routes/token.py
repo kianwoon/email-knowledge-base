@@ -4,18 +4,21 @@ from uuid import UUID
 from typing import List, Optional, Any
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 import uuid
 
 from ..services import token_service
-from ..models.token import Token, TokenCreate, TokenUpdate
 from ..models.user import User
 from ..db.qdrant_client import get_qdrant_client
-from ..dependencies.auth import get_current_active_user_or_token_owner
+from ..dependencies.auth import get_current_active_user_or_token_owner as get_request_user
 from ..db.session import get_db
-from ..models.token_models import TokenResponse, TokenCreateRequest, TokenUpdateRequest, TokenExport, TokenDB, AccessRule, TokenBundleRequest
+from ..models.token_models import (
+    TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
+    TokenExport, TokenDB, AccessRule, TokenBundleRequest, 
+    TokenCreateResponse, TokenCreate, TokenUpdate
+)
 from ..crud.token_crud import (
     create_user_token, 
     get_user_tokens, 
@@ -47,34 +50,74 @@ router = APIRouter(
 @router.get("/", response_model=List[TokenResponse])
 async def read_user_tokens(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
-    db_tokens = get_user_tokens(db, owner_email=current_user.email)
-    return [token_db_to_response(token) for token in db_tokens]
+    """List all API tokens for the authenticated user."""
+    try:
+        db_tokens = get_user_tokens(db, owner_email=current_user.email)
+        response_list = []
+        for token in db_tokens:
+             preview = f"token_id_{token.id}" 
+             response_list.append(
+                 TokenResponse(
+                     id=token.id,
+                     name=token.name,
+                     description=token.description,
+                     sensitivity=token.sensitivity,
+                     token_preview=preview,
+                     owner_email=token.owner_email,
+                     created_at=token.created_at,
+                     expiry=token.expiry,
+                     is_active=token.is_active,
+                     allow_topics=token.allow_topics,
+                     deny_topics=token.deny_topics
+                 )
+             )
+        return response_list
+    except Exception as e:
+        logger.error(f"Failed to list tokens for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve API tokens."
+        )
 
 # POST /token/ - Create a new token for the current user
-@router.post("/", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=TokenCreateResponse, status_code=status.HTTP_201_CREATED)
 async def create_token_route(
-    token_in: TokenCreateRequest,
+    token_in: TokenCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
-    # Ensure allow/deny rules are lists
-    token_in.allow_rules = token_in.allow_rules or []
-    token_in.deny_rules = token_in.deny_rules or []
-    
-    # Create token in DB
-    db_token = create_user_token(db=db, token_data=token_in, owner_email=current_user.email)
-    
-    # Return the response model (helper adds the raw token value)
-    return token_db_to_response(db_token)
+    """Create a new API token for the authenticated user."""
+    try:
+        logger.info(f"Creating token '{token_in.name}' for user '{current_user.email}'")
+        # Await the async CRUD function
+        db_token = await create_user_token(
+            db=db, 
+            token_data=token_in, 
+            owner_email=current_user.email
+        )
+        
+        # Prepare response using TokenCreateResponse, including raw token value
+        raw_token_value = getattr(db_token, 'token_value', '[Error Retrieving Token]')
+        # Use the helper function for consistent response formatting
+        response_data = token_db_to_response(db_token)
+        # Add the raw token value ONLY for the create response
+        return TokenCreateResponse(**response_data.model_dump(), token_value=raw_token_value)
+
+    except Exception as e:
+        logger.error(f"Failed to create token for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create API token."
+        )
 
 # GET /token/{token_id} - Get a specific token by ID
 @router.get("/{token_id}", response_model=TokenResponse)
 async def read_token(
-    token_id: uuid.UUID,
+    token_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
     db_token = get_token_by_id(db, token_id=token_id)
     if db_token is None:
@@ -86,50 +129,79 @@ async def read_token(
 # PATCH /token/{token_id} - Update a token
 @router.patch("/{token_id}", response_model=TokenResponse)
 async def update_token_route(
-    token_id: uuid.UUID,
-    token_in: TokenUpdateRequest,
+    token_id: int,
+    token_in: TokenUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
-    # Check ownership first
-    db_token = get_token_by_id(db, token_id=token_id)
-    if db_token is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
-    if db_token.owner_email != current_user.email:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions to edit this token")
-    
-    # Check if token is editable
-    if not db_token.is_editable:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Token is not editable")
+    """Update an API token owned by the authenticated user."""
+    try:
+        # Verify ownership (sync operation)
+        db_token_check = get_token_by_id(db, token_id=token_id)
+        if not db_token_check or db_token_check.owner_email != current_user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Token not found or you do not own this token."
+            )
+        
+        # Await the async update function
+        updated_token = await update_user_token(
+            db=db, token_id=token_id, token_update_data=token_in
+        )
+        if not updated_token:
+             # This case should ideally not happen if the check above passed, but good for safety
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Token not found during update attempt."
+            )
 
-    # Perform the update
-    updated_token = update_user_token(db=db, token_id=token_id, token_update_data=token_in)
-    if updated_token is None:
-        # This case might be redundant if checks above are thorough
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found or update failed") 
-    return token_db_to_response(updated_token)
+        logger.info(f"User '{current_user.email}' updated token ID {token_id}")
+        # Use the helper function for consistent response formatting
+        return token_db_to_response(updated_token)
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise 404s etc.
+    except Exception as e:
+        logger.error(f"Failed to update token ID {token_id} for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update API token."
+        )
 
 # DELETE /token/{token_id} - Delete a token
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_token(
-    token_id: uuid.UUID,
+    token_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
-    # Check ownership first
-    db_token = get_token_by_id(db, token_id=token_id)
-    if db_token is None:
-        # Return 204 even if not found, as the end state is the same (token doesn't exist)
-        return 
-    if db_token.owner_email != current_user.email:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions to delete this token")
-
-    # Perform deletion
-    deleted = delete_user_token(db=db, token_id=token_id)
-    if not deleted:
-         # This case implies the token existed moments ago but couldn't be deleted (unlikely)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete token")
-    return # Return 204 No Content on success
+    """Delete an API token owned by the authenticated user."""
+    try:
+        # Verify ownership before deleting
+        db_token = get_token_by_id(db, token_id=token_id)
+        if not db_token or db_token.owner_email != current_user.email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Token not found or you do not own this token."
+            )
+        
+        deleted = delete_user_token(db=db, token_id=token_id)
+        if not deleted:
+             raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Token not found during deletion attempt."
+            )
+        logger.info(f"User '{current_user.email}' deleted token ID {token_id}")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        
+    except HTTPException as http_exc: 
+        raise http_exc # Re-raise 404s etc.
+    except Exception as e:
+        logger.error(f"Failed to delete token ID {token_id} for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete API token."
+        )
 
 # ==========================================
 # Token Bundling API
@@ -140,7 +212,7 @@ async def delete_token(
 async def create_bundled_token_route(
     bundle_request: TokenBundleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user_or_token_owner)
+    current_user: User = Depends(get_request_user)
 ):
     """Creates a new, non-editable token by bundling the rules and sensitivity of existing tokens."""
     logger.info(f"User {current_user.email} requesting to bundle tokens: {bundle_request.token_ids}")
@@ -185,7 +257,7 @@ async def create_bundled_token_route(
             )
 async def export_active_tokens(
     db: Session = Depends(get_db),
-    requesting_user: User = Depends(get_current_active_user_or_token_owner)
+    requesting_user: User = Depends(get_request_user)
 ):
     """Exports all active tokens (unexpired, is_active=True) for the authenticated user.
     Accessible via user session or Bearer token authentication.
@@ -260,18 +332,18 @@ def db_format_to_rules(db_rules: Optional[Any]) -> List[AccessRule]:
     return parsed_rules
 
 def token_db_to_response(token_db: TokenDB) -> TokenResponse:
+    """Converts a TokenDB object to a TokenResponse object."""
+    token_preview = f"token_id_{token_db.id}" 
     return TokenResponse(
         id=token_db.id,
         name=token_db.name,
         description=token_db.description,
-        token_value=getattr(token_db, 'token_value', '********'), # Use getattr for safety
         sensitivity=token_db.sensitivity,
+        token_preview=token_preview, 
+        owner_email=token_db.owner_email,
         created_at=token_db.created_at,
-        updated_at=token_db.updated_at,
         expiry=token_db.expiry,
-        is_editable=token_db.is_editable,
         is_active=token_db.is_active,
-        allow_rules=db_format_to_rules(token_db.allow_rules),
-        deny_rules=db_format_to_rules(token_db.deny_rules),
-        owner_email=token_db.owner_email
+        allow_topics=token_db.allow_topics, 
+        deny_topics=token_db.deny_topics   
     ) 

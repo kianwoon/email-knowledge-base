@@ -19,6 +19,9 @@ from app.dependencies.auth import get_current_active_user, msal_app
 from app.db.session import get_db # Import get_db
 from sqlalchemy.orm import Session # Import Session
 from app.crud import user_crud # Import the user CRUD function
+# --- Import for manual encryption --- 
+from app.utils.security import encrypt_token
+# --- End Import --- 
 
 # Instantiate logger
 logger = logging.getLogger(__name__)
@@ -182,7 +185,38 @@ async def auth_callback(
         # Create or update user in the DATABASE using CRUD
         db_user = user_crud.create_or_update_user(db=db, user_data=user_pydantic)
         logger.info(f"User {db_user.email} created/updated in database.")
-        
+
+        # --- Store MS Refresh Token in DB (Step 0.4.3 - Manual Encryption) ---
+        if ms_refresh_token:
+            logger.debug(f"Attempting to encrypt and save refresh token for user {db_user.email}.")
+            encrypted_token_bytes = encrypt_token(ms_refresh_token)
+            if encrypted_token_bytes:
+                db_user.ms_refresh_token = encrypted_token_bytes # Store the encrypted bytes
+                try:
+                    db.add(db_user) # Add the user object back to the session if needed
+                    db.commit()
+                    # db.refresh(db_user) # Refresh might still cause issues, let's skip for now
+                    logger.info(f"Successfully saved encrypted refresh token for user {db_user.email}.")
+                except Exception as db_err:
+                    db.rollback() # Important: Rollback on error
+                    logger.error(f"Database error saving refresh token for user {db_user.email}: {db_err}", exc_info=True)
+                    # Decide if this should be a fatal error for the login process
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Could not save user session information securely."
+                    )
+            else:
+                # Encryption failed (error already logged by encrypt_token)
+                logger.error(f"Encryption failed for refresh token of user {db_user.email}. Cannot save token.")
+                # Raise an error because we couldn't securely store the token
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to secure user session information."
+                )
+        else:
+            logger.warning(f"No refresh token received from Microsoft for user {db_user.email}. Cannot save.")
+        # --- End Store MS Refresh Token ---
+
         # Use db_user.id (MS Graph ID) or db_user.email for JWT subject?
         # Let's stick with email for consistency with get_current_user lookup
         jwt_subject = db_user.email
@@ -191,11 +225,11 @@ async def auth_callback(
         # --- Store MS Refresh Token (Example: In localStorage - adjust as needed) ---
         # NOTE: Storing refresh tokens securely is crucial. localStorage is NOT secure.
         #       This is a placeholder. Use HttpOnly cookies or secure server-side storage.
-        if ms_refresh_token:
-            # This is just for the example to make the interceptor work later
-            # In a real app, handle this more securely! 
-            # We might pass it back in the JWT or via another secure mechanism.
-            print("DEBUG - (Placeholder) Got MS Refresh Token, would store securely.") 
+        # if ms_refresh_token: # COMMENTED OUT - Now handled above with DB storage
+        #     # This is just for the example to make the interceptor work later
+        #     # In a real app, handle this more securely! 
+        #     # We might pass it back in the JWT or via another secure mechanism.
+        #     print("DEBUG - (Placeholder) Got MS Refresh Token, would store securely.") 
         
         # Create JWT payload, INCLUDING the MS Access Token
         jwt_payload = {

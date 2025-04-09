@@ -52,6 +52,7 @@ import {
   Skeleton,
   SkeletonText,
   Progress,
+  Badge,
 } from '@chakra-ui/react';
 import { 
   AddIcon, 
@@ -81,8 +82,8 @@ import { v4 as uuidv4 } from 'uuid';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import SubjectSunburstChart from '../components/SubjectSunburstChart';
 import { saveFilteredEmailsToKnowledgeBase } from '../api/vector';
-
 import { getEmailFolders, getEmailPreviews, submitFilterForAnalysis } from '../api/email';
+import { getTaskStatus, TaskStatus } from '../api/tasks';
 import { EmailFilter, EmailPreview } from '../types/email';
 
 interface EmailFolder {
@@ -195,6 +196,11 @@ const FilterSetup: React.FC = () => {
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
   const [isKbGenerationRunning, setIsKbGenerationRunning] = useState(false);
   const [searchPerformedSuccessfully, setSearchPerformedSuccessfully] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [taskProgress, setTaskProgress] = useState<number | null>(null);
+  const [taskStatus, setTaskStatus] = useState<string | null>(null);
+  const [taskDetails, setTaskDetails] = useState<any | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Attachment types
   const attachmentTypes = [
@@ -226,6 +232,31 @@ const FilterSetup: React.FC = () => {
     });
   }, [currentPage, totalPages, totalEmails, nextLink, filter.next_link, pageCache, previews]);
   // --- END Added Effect ---
+
+  // --- Helper Function for Date Formatting ---
+  const formatDisplayDate = (dateString: string | null | undefined): string => {
+    if (!dateString) {
+      return t('common.notAvailable', 'N/A'); // Handle null/undefined/empty
+    }
+    try {
+      const date = new Date(dateString);
+      // Check if the date object is valid
+      if (isNaN(date.getTime())) {
+        console.warn(`[FilterSetup] Could not parse date string: ${dateString}`);
+        return t('common.invalidDate', 'Invalid Date'); // Return specific string for invalid dates
+      }
+      // Use options for a more consistent format if desired, otherwise default locale
+      return date.toLocaleDateString(undefined, { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+      }); 
+    } catch (e) {
+      console.error(`[FilterSetup] Error formatting date string ${dateString}:`, e);
+      return t('common.error', 'Error'); // Indicate an error occurred
+    }
+  };
+  // --- End Helper Function ---
 
   // Load previews
   const loadPreviews = useCallback(async (options?: { size?: number }) => {
@@ -443,9 +474,9 @@ const FilterSetup: React.FC = () => {
             console.log(`handlePageChange: Cached data for page ${newPage}.`);
             // --- End Cache Update ---
 
-            console.log(`handlePageChange: Calling setPreviews with ${newPreviews.length} items.`);
+            console.log(`handlePageChange: Calling setPreviews with ${newPreviews.length} items. First new ID: ${newPreviews[0]?.id}`); // LOG PREVIEWS
             setPreviews(newPreviews);
-            
+
             // Update total if available, otherwise keep existing or handle -1
             if (newTotal !== undefined && newTotal !== null) {
               console.log('handlePageChange: Calling setTotalEmails:', newTotal);
@@ -459,20 +490,27 @@ const FilterSetup: React.FC = () => {
             // Correct totalPages calculation based on potentially updated totalEmails
             const currentTotal = newTotal !== undefined && newTotal !== null ? newTotal : totalEmails; // Use new total if available
             // Ensure itemsPerPage is positive before division
-            const effectiveItemsPerPage = itemsPerPage > 0 ? itemsPerPage : 10; 
+            const effectiveItemsPerPage = itemsPerPage > 0 ? itemsPerPage : 10;
             const newTotalPages = currentTotal === -1
-                                    ? (newNextLink ? newPage + 1 : newPage) 
+                                    ? (newNextLink ? newPage + 1 : newPage)
                                     : (currentTotal > 0 ? Math.ceil(currentTotal / effectiveItemsPerPage) : 1);
             console.log('handlePageChange: Calling setTotalPages:', newTotalPages);
             setTotalPages(newTotalPages);
-            
+
             // Update the filter state AND the main nextLink state with the new next_link for the *next* potential step
-            setFilter(prev => ({ ...prev, next_link: newNextLink })); 
-            setNextLink(newNextLink); 
-            console.log('handlePageChange: Updated filter and nextLink state:', newNextLink);
+            setFilter(prev => ({ ...prev, next_link: newNextLink }));
+            setNextLink(newNextLink);
+            console.log('handlePageChange: Updated filter and nextLink state:', newNextLink); // LOG NEW NEXT LINK
 
             console.log('handlePageChange: Calling setCurrentPage:', newPage);
             setCurrentPage(newPage);
+            // +++ ADDED LOGGING AFTER STATE UPDATES +++
+            console.log('[POST-STATE UPDATE CHECK]', {
+                currentPageAfterUpdate: newPage,
+                nextLinkAfterUpdate: newNextLink, // Log the value we attempted to set
+                firstPreviewIdAfterUpdate: newPreviews[0]?.id // Log first ID from the data we set
+            });
+            // --- END ADDED LOGGING ---
         } else {
             console.error('handlePageChange: Received invalid previewData:', previewData);
             toast({ title: "API Error", description: "Received invalid data for next page.", status: "error", duration: 3000 });
@@ -635,51 +673,134 @@ const FilterSetup: React.FC = () => {
     }
   };
 
-  // Handler for the "Save to Knowledge Base" button (REVERTED to Synchronous)
+  // --- Polling Logic (Defined inside component scope) --- 
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      console.log('[Polling] Stopping polling interval.');
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []); // No dependencies, interval ref managed internally
+
+  const pollTaskStatus = useCallback(async (taskId: string) => {
+    console.log(`[Polling] Checking status for task ${taskId}...`);
+    try {
+      const statusResult = await getTaskStatus(taskId);
+      console.log(`[Polling] Status received:`, statusResult);
+      
+      // Update state based on response
+      setTaskStatus(statusResult.status);
+      // Use optional chaining and nullish coalescing for safer updates
+      setTaskProgress(statusResult.progress ?? taskProgress); 
+      setTaskDetails(statusResult.details ?? 'No details provided.');
+
+      // Check for final states
+      if (statusResult.status === 'SUCCESS' || statusResult.status === 'FAILURE') {
+        console.log(`[Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping polling.`);
+        stopPolling();
+        setIsKbGenerationRunning(false); // Task finished, allow button clicks again
+        setActiveTaskId(null); // Clear active task ID
+        
+        // Show final toast
+        const finalMessage = typeof statusResult.details === 'string' ? statusResult.details :
+                             (statusResult.details && typeof statusResult.details.message === 'string' ? statusResult.details.message :
+                             (statusResult.status === 'SUCCESS' ? t('common.taskCompleted') : t('common.taskFailed')));
+        toast({
+          title: statusResult.status === 'SUCCESS' ? t('common.success') : t('common.error'),
+          description: finalMessage,
+          status: statusResult.status === 'SUCCESS' ? 'success' : 'error',
+          duration: 7000,
+          isClosable: true,
+        });
+      }
+    } catch (error: any) {
+      console.error(`[Polling] Error fetching status for task ${taskId}:`, error);
+      setTaskStatus('POLLING_ERROR');
+      setTaskDetails(`Error polling status: ${error.message}`);
+      // Optionally stop polling on error, or let it retry
+      stopPolling(); 
+      setIsKbGenerationRunning(false); // Stop loading indicator on polling error
+      setActiveTaskId(null);
+       toast({
+          title: t('errors.errorPollingStatus'),
+          description: error.message,
+          status: 'error',
+          duration: 7000,
+        });
+    }
+  }, [stopPolling, toast, t, taskProgress]); // Include dependencies
+
+  const startPolling = useCallback((taskId: string) => {
+    stopPolling(); // Ensure no previous interval is running
+    console.log(`[Polling] Starting polling for task ${taskId}...`);
+    // Initial check immediately
+    pollTaskStatus(taskId);
+    // Set interval for subsequent checks (e.g., every 3 seconds)
+    pollingIntervalRef.current = setInterval(() => {
+      // Pass taskId to the function inside interval
+      pollTaskStatus(taskId);
+    }, 3000); // Adjust interval as needed
+  }, [stopPolling, pollTaskStatus]); // Include dependencies
+
+  // Cleanup interval on component unmount
+  useEffect(() => {
+    // Return the cleanup function
+    return () => {
+      stopPolling();
+    };
+  }, [stopPolling]); // Dependency array ensures cleanup uses the latest stopPolling
+  // --- End Polling Logic ---
+
+  // Handler for the "Save to Knowledge Base" button (UPDATED for Async Task)
   const handleSaveToKnowledgeBase = async () => {
     if (!searchPerformedSuccessfully || previews.length === 0) {
       toast({ title: t('common.warning'), description: t('emailProcessing.notifications.noEmailsToProcess'), status: "warning", duration: 3000 });
       return;
     }
 
-    console.log('[handleSaveToKnowledgeBase] Setting loading TRUE');
-    setIsKbGenerationRunning(true); // Indicate the process has started
-
-    // --- ADDED DELAY FOR TESTING --- 
-    console.log('[handleSaveToKnowledgeBase] Waiting 3 seconds before API call...');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    console.log('[handleSaveToKnowledgeBase] Delay finished, proceeding with API call.');
-    // --- END DELAY --- 
+    console.log('[handleSaveToKnowledgeBase] Setting loading TRUE and submitting task...');
+    setIsKbGenerationRunning(true); // Indicate the process has started (task submission)
+    setActiveTaskId(null);
+    setTaskProgress(0);
+    setTaskStatus('SUBMITTING');
+    setTaskDetails('Submitting task to backend...');
 
     try {
-      console.log(`Attempting synchronous save emails using current filter...`, filter);
-      // Call the API function and wait for the final result
-      const result = await saveFilteredEmailsToKnowledgeBase(filter);
-
-      console.log('Synchronous KB Generation Result:', result);
-      // Show toast based on the final result from the backend
+      // Call the API function that dispatches the task
+      const response = await saveFilteredEmailsToKnowledgeBase(filter);
+      
+      // Task submitted successfully, store the task ID
+      setActiveTaskId(response.task_id);
+      setTaskStatus('PENDING'); // Initial status after successful submission
+      setTaskDetails(`Task ${response.task_id} submitted. Waiting for progress...`);
       toast({
-        title: result.status === 'success' || result.status === 'partial_success' 
-                 ? t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title') 
-                 : t('common.error'), // Or a specific failure title
-        description: result.message || t('errors.unknownError'),
-        status: result.status === 'success' ? 'success' : (result.status === 'partial_success' ? 'warning' : 'error'),
-        duration: 7000,
+        title: t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title'),
+        description: `${t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.description')} Task ID: ${response.task_id}`,
+        status: 'info', // Use info for submission, success comes later
+        duration: 5000,
       });
 
+      // Start polling for task status
+      startPolling(response.task_id); // Use the function defined within component scope
+
     } catch (error: any) {
-      console.error(`Error during synchronous KB generation:`, error);
+      console.error(`Error submitting KB generation task:`, error);
       const errorMessage = error.message || t('errors.unknownError'); 
       toast({
-        title: t('errors.errorSavingToKB'), // Use generic KB saving error title
+        title: t('errors.errorSubmittingTask'), // Specific error for submission failure
         description: errorMessage,
         status: 'error', duration: 7000,
       });
-    } finally {
-       // Ensure loading state is turned off regardless of success/failure
-       console.log('[handleSaveToKnowledgeBase] Setting loading FALSE');
+       // Reset states on submission failure
+       console.log('[handleSaveToKnowledgeBase] Task submission failed. Setting loading FALSE');
        setIsKbGenerationRunning(false);
+       setActiveTaskId(null);
+       setTaskProgress(null);
+       setTaskStatus('FAILED_SUBMISSION');
+       setTaskDetails(`Failed to submit task: ${errorMessage}`);
     } 
+    // NOTE: setIsKbGenerationRunning(false) is NOT called here immediately.
+    // It will be set to false when polling indicates a final state (SUCCESS/FAILURE).
   };
   
   // --- Derived State and Tooltips (Update to use isKbGenerationRunning) --- 
@@ -1319,7 +1440,7 @@ const FilterSetup: React.FC = () => {
                                </Td>
                                <Td>
                                  <Text noOfLines={1}>
-                                   {new Date(email.received_date).toLocaleDateString()}
+                                   {formatDisplayDate(email.received_date)}
                                  </Text>
                                </Td>
                                <Td>
@@ -1455,6 +1576,55 @@ const FilterSetup: React.FC = () => {
               </CardBody>
             </Card>
           )}
+
+          {/* --- Task Progress Display --- */} 
+          {isKbGenerationRunning && activeTaskId && (
+            <Card variant="outline" mb={6} borderColor={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? "red.300" : "blue.300"}>
+              <CardHeader pb={2}>
+                  <Heading size="md" display="flex" alignItems="center">
+                    <Spinner size="sm" mr={3} /> 
+                    {t('kbGeneration.progressTitle', 'Knowledge Base Generation Progress')}
+                  </Heading>
+              </CardHeader>
+              <CardBody pt={2}>
+                <VStack spacing={3} align="stretch">
+                  <Text fontSize="sm"><strong>{t('common.taskID', 'Task ID:')}</strong> {activeTaskId}</Text>
+                  <Text fontSize="sm">
+                    <strong>{t('common.status', 'Status:')}</strong> 
+                    <Badge 
+                      ml={2} 
+                      colorScheme={
+                        taskStatus === 'SUCCESS' ? 'green' : 
+                        taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 
+                        taskStatus === 'PROGRESS' ? 'blue' : 'gray'
+                      }
+                    >
+                        {taskStatus || 'Initializing...'}
+                    </Badge>
+                  </Text>
+                  {taskProgress !== null && (
+                    <Box>
+                      <Text fontSize="xs" mb={1} textAlign="right">{taskProgress}%</Text>
+                      <Progress 
+                        value={taskProgress} 
+                        size="sm" 
+                        colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
+                        hasStripe={taskStatus === 'PROGRESS' || taskStatus === 'STARTED' || taskStatus === 'PENDING'}
+                        isAnimated={taskStatus === 'PROGRESS' || taskStatus === 'STARTED' || taskStatus === 'PENDING'}
+                        borderRadius="md"
+                      />
+                    </Box>
+                  )}
+                  {taskDetails && (
+                      <Text fontSize="xs" color="gray.500" mt={1}>
+                        {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
+                      </Text>
+                  )}
+                </VStack>
+              </CardBody>
+            </Card>
+          )}
+          {/* --- End Task Progress Display --- */} 
 
         </VStack>
       </Container>

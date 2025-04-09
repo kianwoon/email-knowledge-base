@@ -1,27 +1,29 @@
 import logging
+import os
 import sys
-from fastapi import FastAPI, Request, Depends, Response
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
 from app.config import settings
 # Import routers
-from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token 
+from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token, tasks 
 # Import the new shared_knowledge router
 from app.routes import shared_knowledge 
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.db.job_mapping_db import initialize_db as initialize_job_mapping_db
 # Import Base and engine from the new base module to ensure models are registered
 from app.db.base import Base, engine 
 
 # Configure logging
-logging.basicConfig(level=settings.LOG_LEVEL)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
 
 # Log critical environment variables for debugging
 logger.info(f"Running with environment: {settings.ENVIRONMENT}")
@@ -75,37 +77,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Knowledge Base Builder API", 
-    version="1.0.0",
+    description="API for managing email processing, knowledge base, and analysis.",
+    version="0.1.0",
     lifespan=lifespan # Use the new lifespan context manager
 )
 
-# --- Add Middleware for Path Logging HERE --- 
+# Middleware for logging requests
 @app.middleware("http")
-async def log_request_path(request: Request, call_next):
-    logger.info(f"MIDDLEWARE: Received request for path: {request.url.path}")
-    response = await call_next(request)
-    return response
-# --- End Middleware ---
+async def log_requests(request: Request, call_next):
+    logger.info(f"Request: {request.method} {request.url.path} {request.client.host}")
+    try:
+        response = await call_next(request)
+        logger.info(f"Response: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.exception("Unhandled exception during request processing")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal Server Error"}
+        )
 
 # CORS Middleware
 if settings.CORS_ALLOWED_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin).strip() for origin in settings.CORS_ALLOWED_ORIGINS],
+        allow_origins=settings.CORS_ALLOWED_ORIGINS, 
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    logger.info(f"CORS enabled for origins: {settings.CORS_ALLOWED_ORIGINS}")
 else:
-    logger.warning("CORS is not configured. Allowing all origins.")
-    # Allow all origins if not specified (use with caution)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    logger.warning("CORS_ALLOWED_ORIGINS not set, CORS middleware not added.")
 
 # Include routers
 app.include_router(auth.router, prefix=f"{settings.API_PREFIX}/auth", tags=["Authentication"])
@@ -119,6 +122,10 @@ app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=[
 # Add the new router
 app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["Shared Knowledge"]) # Prefix includes /api/v1
 
+# --- Include Task Router --- 
+app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"]) # e.g., /api/v1/tasks
+# --- End Include --- 
+
 # Root endpoint (optional - for basic API check)
 @app.get("/", tags=["Root"])
 async def read_root():
@@ -126,6 +133,24 @@ async def read_root():
 
 # Serve index.html for any other route (React Router handling)
 templates = Jinja2Templates(directory="../../frontend/dist")
+
+# Exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error for request {request.method} {request.url}: {exc.errors()}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()},
+    )
+
+# Mount static files (Optional - if serving frontend from backend)
+# Ensure the path exists and is correct in your environment (e.g., Docker container)
+# frontend_build_dir = "/app/static"
+# if os.path.isdir(frontend_build_dir):
+#     logger.info(f"Mounting static files from {frontend_build_dir}")
+#     app.mount("/", StaticFiles(directory=frontend_build_dir, html=True), name="static")
+# else:
+#     logger.info(f"Static files directory not found: {frontend_build_dir}, skipping static file mount.")
 
 if __name__ == "__main__":
     import uvicorn

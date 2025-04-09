@@ -4,10 +4,19 @@ from typing import List, Optional, Dict, Any, Set
 import uuid
 import bcrypt
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from qdrant_client import models as qdrant_models # Import Qdrant models
+import logging
+import json
+import asyncio
+from app.services.embedder import create_embedding
 
-from ..models.token_models import TokenDB, TokenCreateRequest, TokenUpdateRequest, AccessRule
+from ..models.token_models import TokenDB, TokenCreateRequest, TokenUpdateRequest, AccessRule, TokenCreate, TokenUpdate
+from ..models.user import UserDB # Assuming UserDB is needed for other functions
+from ..config import settings # Assuming settings might be needed elsewhere
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Define the order of sensitivity levels (lowest to highest)
 # Ensure this matches the levels used elsewhere (e.g., token models)
@@ -178,82 +187,104 @@ def get_user_tokens(db: Session, owner_email: str) -> List[TokenDB]:
     results = db.execute(statement).scalars().all()
     return results
 
-def create_user_token(db: Session, token_data: TokenCreateRequest, owner_email: str) -> TokenDB:
-    """Creates a new token for a user."""
-    raw_token_value = secrets.token_urlsafe(32)
+async def create_user_token(db: Session, token_data: TokenCreate, owner_email: str) -> TokenDB:
+    """Creates a new token for a user, including topic embeddings."""
+    raw_token_value = secrets.token_urlsafe(32) 
     hashed_value = bcrypt.hashpw(raw_token_value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    
+    expiry_datetime = None
+    if token_data.expiry_days is not None:
+        expiry_datetime = datetime.now(timezone.utc) + timedelta(days=token_data.expiry_days)
+
+    # --- Generate Embeddings Concurrently ---
+    allow_embeddings = None
+    deny_embeddings = None
+    
+    if token_data.allow_topics:
+        logger.info(f"Generating embeddings for {len(token_data.allow_topics)} allow_topics...")
+        allow_tasks = [create_embedding(topic) for topic in token_data.allow_topics]
+        allow_embeddings = await asyncio.gather(*allow_tasks)
+        logger.info("Finished generating allow_topics embeddings.")
+
+    if token_data.deny_topics:
+        logger.info(f"Generating embeddings for {len(token_data.deny_topics)} deny_topics...")
+        deny_tasks = [create_embedding(topic) for topic in token_data.deny_topics]
+        deny_embeddings = await asyncio.gather(*deny_tasks)
+        logger.info("Finished generating deny_topics embeddings.")
+    # --- End Embedding Generation ---
 
     db_token = TokenDB(
-        id=uuid.uuid4(),
         name=token_data.name,
-        description=token_data.description,
         hashed_token=hashed_value,
-        sensitivity=token_data.sensitivity,
         owner_email=owner_email,
-        expiry=token_data.expiry,
-        is_editable=token_data.is_editable,
-        is_active=True,
-        allow_rules=rules_to_db_format(token_data.allow_rules),
-        deny_rules=rules_to_db_format(token_data.deny_rules),
+        expiry=expiry_datetime,
+        is_active=True, 
+        allow_topics=token_data.allow_topics,
+        deny_topics=token_data.deny_topics,
+        # Store generated embeddings
+        allow_topics_embeddings=allow_embeddings,
+        deny_topics_embeddings=deny_embeddings
     )
     db.add(db_token)
-    db.commit()
+    # Commit synchronously after async operations are done
+    db.commit() 
     db.refresh(db_token)
     
+    # Temporarily attach the raw token value
     setattr(db_token, 'token_value', raw_token_value)
     
     return db_token
 
-def update_user_token(db: Session, token_id: uuid.UUID, token_update_data: TokenUpdateRequest) -> Optional[TokenDB]:
-    """Updates an existing token."""
-    # No need to convert UUID for PostgreSQL WHERE clause
-    statement = (
-        update(TokenDB)
-        .where(TokenDB.id == token_id) # Use UUID object directly
-        # Ensure we are only updating allowed fields from TokenUpdateRequest
-        .values(**token_update_data.dict(exclude_unset=True, exclude={'allow_rules', 'deny_rules'})) # Exclude rules initially
-        .returning(TokenDB)
-    )
+async def update_user_token(db: Session, token_id: int, token_update_data: TokenUpdate) -> Optional[TokenDB]:
+    """Updates an existing token using the TokenUpdate model, including embeddings if topics change."""
+    db_token = db.get(TokenDB, token_id)
+    if not db_token:
+        return None 
+
+    update_data = token_update_data.model_dump(exclude_unset=True)
     
-    # Handle rules separately if they are present in the update data
-    update_payload = token_update_data.dict(exclude_unset=True)
-    rule_update_values = {}
-    if 'allow_rules' in update_payload:
-        rule_update_values['allow_rules'] = rules_to_db_format(token_update_data.allow_rules)
-    if 'deny_rules' in update_payload:
-        rule_update_values['deny_rules'] = rules_to_db_format(token_update_data.deny_rules)
+    regenerate_allow_embeddings = 'allow_topics' in update_data
+    regenerate_deny_embeddings = 'deny_topics' in update_data
+
+    # Update standard attributes first
+    for key, value in update_data.items():
+        setattr(db_token, key, value)
         
-    if rule_update_values:
-         statement = statement.values(**rule_update_values)
-
-    # Always update the updated_at timestamp
-    statement = statement.values(updated_at=datetime.now(timezone.utc))
-
-    try:
-        result = db.execute(statement).scalar_one_or_none()
-        if result:
-            db.commit()
-            return result
+    # --- Regenerate Embeddings if Topics Changed ---
+    if regenerate_allow_embeddings:
+        new_allow_topics = update_data['allow_topics']
+        if new_allow_topics:
+            logger.info(f"Regenerating embeddings for {len(new_allow_topics)} updated allow_topics...")
+            allow_tasks = [create_embedding(topic) for topic in new_allow_topics]
+            db_token.allow_topics_embeddings = await asyncio.gather(*allow_tasks)
+            logger.info("Finished regenerating allow_topics embeddings.")
         else:
-            db.rollback()
-            # Re-fetch to check if it existed but wasn't editable (though route should check first)
-            # Use the string version of the ID for the check as well
-            existing = get_token_by_id(db, token_id) # get_token_by_id already handles string conversion
-            if existing and not existing.is_editable:
-                 raise ValueError("Token is not editable")
-            return None # Not found
-    except Exception as e:
-        db.rollback()
-        print(f"Error during token update: {e}") 
-        raise
+            db_token.allow_topics_embeddings = None # Clear embeddings if topics are cleared
 
-def delete_user_token(db: Session, token_id: uuid.UUID) -> bool:
-    """Deletes a token by its ID. Returns True if deleted, False otherwise."""
-    # No need to convert UUID for PostgreSQL WHERE clause
-    statement = delete(TokenDB).where(TokenDB.id == token_id) # Use UUID object directly
-    result = db.execute(statement)
+    if regenerate_deny_embeddings:
+        new_deny_topics = update_data['deny_topics']
+        if new_deny_topics:
+            logger.info(f"Regenerating embeddings for {len(new_deny_topics)} updated deny_topics...")
+            deny_tasks = [create_embedding(topic) for topic in new_deny_topics]
+            db_token.deny_topics_embeddings = await asyncio.gather(*deny_tasks)
+            logger.info("Finished regenerating deny_topics embeddings.")
+        else:
+            db_token.deny_topics_embeddings = None # Clear embeddings if topics are cleared
+    # --- End Embedding Regeneration ---
+        
+    # Commit synchronously after async operations
     db.commit()
-    return result.rowcount > 0
+    db.refresh(db_token)
+    return db_token
+
+def delete_user_token(db: Session, token_id: int) -> bool:
+    """Deletes a token by its ID. Returns True if deleted, False otherwise."""
+    db_token = db.get(TokenDB, token_id)
+    if db_token:
+        db.delete(db_token)
+        db.commit()
+        return True
+    return False
 
 def get_active_tokens(db: Session) -> List[TokenDB]:
     """Fetches all tokens that are currently active."""

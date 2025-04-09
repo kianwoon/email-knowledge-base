@@ -130,7 +130,7 @@ async def get_current_user(
         raise credentials_exception # Should not happen if JWTError didn't catch it
 
     # Fetch UserDB object from database using the email directly
-    user_db = user_crud.get_user(db, email=email)
+    user_db = user_crud.get_user_full_instance(db, email=email)
     
     if user_db is None:
         logger.warning(f"User with email '{email}' (from JWT) not found in DB.")
@@ -175,7 +175,7 @@ async def get_current_active_user_or_token_owner(
             is_expired = db_token.expiry is not None and db_token.expiry <= now
             if db_token.is_active and not is_expired:
                  # Use the explicitly injected db session here
-                token_owner_db: Optional[UserDB] = user_crud.get_user(db, email=db_token.owner_email)
+                token_owner_db: Optional[UserDB] = user_crud.get_user_full_instance(db, email=db_token.owner_email)
                 if token_owner_db:
                     logger.info(f"Authenticated via valid API token owned by: {token_owner_db.email}")
                     # Convert UserDB to Pydantic User before returning

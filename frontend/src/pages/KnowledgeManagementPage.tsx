@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Container,
@@ -22,12 +22,15 @@ import {
   IconButton,
   HStack,
   Tooltip,
+  Progress,
+  AlertDescription,
 } from '@chakra-ui/react';
 import { RepeatIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
 import { getKnowledgeBaseSummary, KnowledgeSummaryResponse } from '../api/knowledge';
 import { getUserTokens, Token } from '../api/token';
+import { getMyLatestKbTask, getTaskStatus, TaskStatus } from '../api/tasks';
 
 interface CombinedSummary {
   rawDataCount: number;
@@ -42,9 +45,43 @@ const KnowledgeManagementPage: React.FC = () => {
   const [summaryData, setSummaryData] = useState<CombinedSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTask, setActiveTask] = useState<TaskStatus | null>(null);
+  const [isLoadingTaskStatus, setIsLoadingTaskStatus] = useState(true);
+  const taskPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const cardBg = useColorModeValue('white', 'gray.700');
   const cardBorder = useColorModeValue('gray.200', 'gray.600');
+
+  const stopTaskPolling = useCallback(() => {
+    if (taskPollingIntervalRef.current) {
+      clearInterval(taskPollingIntervalRef.current);
+      taskPollingIntervalRef.current = null;
+      console.log('[Task Polling] Polling stopped.');
+    }
+  }, []);
+
+  const pollTaskStatus = useCallback(async (taskId: string) => {
+    console.log(`[Task Polling] Checking status for task ${taskId}...`);
+    try {
+      const statusResult = await getTaskStatus(taskId);
+      setActiveTask(statusResult);
+
+      if (statusResult.status === 'SUCCESS' || statusResult.status === 'FAILURE' || statusResult.status === 'REVOKED') {
+        console.log(`[Task Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping polling.`);
+        stopTaskPolling();
+      }
+    } catch (error) {
+      console.error(`[Task Polling] Error fetching status for task ${taskId}:`, error);
+      stopTaskPolling();
+    }
+  }, [stopTaskPolling]);
+
+  const startTaskPolling = useCallback((taskId: string) => {
+    stopTaskPolling();
+    console.log(`[Task Polling] Starting polling for task ${taskId}...`);
+    pollTaskStatus(taskId);
+    taskPollingIntervalRef.current = setInterval(() => pollTaskStatus(taskId), 5000);
+  }, [pollTaskStatus, stopTaskPolling]);
 
   const fetchAllSummaries = useCallback(async () => {
     setIsLoading(true);
@@ -80,9 +117,38 @@ const KnowledgeManagementPage: React.FC = () => {
     }
   }, [t]);
 
+  const checkActiveTask = useCallback(async () => {
+    setIsLoadingTaskStatus(true);
+    console.log("Checking for active KB task...");
+    try {
+      const task = await getMyLatestKbTask();
+      if (task && task.task_id && !['SUCCESS', 'FAILURE', 'REVOKED'].includes(task.status)) {
+        console.log("Active task found:", task);
+        setActiveTask(task);
+        startTaskPolling(task.task_id);
+      } else {
+        console.log("No active KB task found or task is finished.");
+        setActiveTask(null);
+        stopTaskPolling();
+      }
+    } catch (err) {
+      console.error("Failed to check for active task:", err);
+      setError(t('knowledgeManagement.errors.taskCheckFailed', 'Failed to check for active background tasks.'));
+      setActiveTask(null);
+      stopTaskPolling();
+    } finally {
+      setIsLoadingTaskStatus(false);
+    }
+  }, [t, startTaskPolling, stopTaskPolling]);
+
   useEffect(() => {
     fetchAllSummaries();
-  }, [fetchAllSummaries]);
+    checkActiveTask();
+
+    return () => {
+      stopTaskPolling();
+    };
+  }, [fetchAllSummaries, checkActiveTask, stopTaskPolling]);
 
   const formatDateTime = (isoString: string | null): string => {
     if (!isoString) return t('common.notAvailable', 'N/A');
@@ -93,6 +159,19 @@ const KnowledgeManagementPage: React.FC = () => {
       return isoString;
     }
   };
+
+  let taskProgress = 0;
+  let taskStatusMessage = '';
+  const isTaskRunning = activeTask && !['SUCCESS', 'FAILURE', 'REVOKED'].includes(activeTask.status);
+
+  if (isTaskRunning && activeTask) {
+    taskProgress = typeof activeTask.progress === 'number' ? activeTask.progress : 0;
+    taskStatusMessage = typeof activeTask.details === 'string' ? activeTask.details : t('knowledgeManagement.task.calculating', 'Calculating...');
+  } else if (activeTask?.status === 'PENDING') {
+    taskStatusMessage = t('knowledgeManagement.task.pending', 'Task is pending...');
+  } else if (activeTask?.status === 'STARTED') {
+    taskStatusMessage = t('knowledgeManagement.task.started', 'Task started...');
+  }
 
   return (
     <Box p={5}>
@@ -153,6 +232,37 @@ const KnowledgeManagementPage: React.FC = () => {
               </Stat>
             </Box>
           </SimpleGrid>
+        )}
+
+        {(isLoadingTaskStatus || isTaskRunning) && (
+            <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
+                <CardHeader>
+                    <Heading size='md'>{t('knowledgeManagement.task.title', 'Background Task Status')}</Heading>
+                </CardHeader>
+                <CardBody>
+                    {isLoadingTaskStatus ? (
+                        <Center><Spinner size="md" /></Center>
+                    ) : isTaskRunning && activeTask ? (
+                        <VStack align="stretch" spacing={3}>
+                            <Text>
+                                {t('knowledgeManagement.task.processing', 'Knowledge base update in progress...')}
+                                <Text as='span' fontSize='sm' color='gray.500' ml={2}>
+                                    ({t('knowledgeManagement.task.taskId', 'Task ID: {{id}}', { id: activeTask.task_id })})
+                                </Text>
+                            </Text>
+                            <Progress 
+                                value={taskProgress} 
+                                size='sm' 
+                                colorScheme='blue' 
+                                borderRadius="md"
+                                hasStripe 
+                                isAnimated={taskProgress < 100}
+                             />
+                            <Text fontSize='sm' color='gray.500'>{taskStatusMessage}</Text>
+                        </VStack>
+                    ) : null}
+                </CardBody>
+            </Card>
         )}
 
         <Divider my={6} />

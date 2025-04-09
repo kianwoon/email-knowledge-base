@@ -18,32 +18,30 @@ export const getEmailFolders = async () => {
  * Get email previews based on filter criteria
  */
 export const getEmailPreviews = async (
-  filter: EmailFilter, 
-  page: number = 1, 
-  per_page: number = 10,
-  next_link?: string // Still accept next_link, might be needed in filter body
+  // Accept a single object containing all possible parameters
+  params: EmailFilter & { page?: number; per_page?: number; next_link?: string }
 ): Promise<PaginatedEmailPreviewResponse> => {
   
-  // Construct query parameters for pagination
-  const queryParams: any = { page, per_page };
+  // Extract pagination parameters for the query string, using defaults
+  const page = params.page ?? 1;
+  const per_page = params.per_page ?? 10;
+  const queryParams = { page, per_page };
 
-  // Prepare the filter data to be sent in the body
-  // Include next_link if provided
-  const bodyFilter: EmailFilter & { next_link?: string } = {
-     ...filter,
-     next_link: next_link // Add next_link to the body payload
-  };
+  // Prepare the filter data for the body: use all params EXCEPT page/per_page
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { page: _page, per_page: _per_page, ...bodyFilter } = params;
 
   console.log(`[getEmailPreviews] Calling POST /preview`);
   console.log(`[getEmailPreviews] Query Params: ${JSON.stringify(queryParams)}`);
-  console.log(`[getEmailPreviews] Body Filter: ${JSON.stringify(bodyFilter)}`);
+  // Log the body filter, which might include next_link or other criteria
+  console.log(`[getEmailPreviews] Body Filter: ${JSON.stringify(bodyFilter)}`); 
 
   try {
-    // Use POST to /preview, send filter in body, pagination in query
+    // Use POST to /preview, send filter criteria (including next_link if present) in body, pagination in query
     const response = await apiClient.post<PaginatedEmailPreviewResponse>(
-      '/email/preview', // Corrected path (singular)
-      bodyFilter,   // Filter data (including next_link if present) in the request body
-      { params: queryParams } // Pagination data in query parameters
+      '/email/preview', 
+      bodyFilter,          // Body contains filters and potentially next_link
+      { params: queryParams } // Query string contains page and per_page
     );
     
     console.log(`[getEmailPreviews] Response status: ${response.status}`);

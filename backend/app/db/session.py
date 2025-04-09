@@ -33,7 +33,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 # Config file is directly in 'app' package, not 'app.core'
-from app.config import settings
+from ..config import settings
 
 DATABASE_URL = settings.SQLALCHEMY_DATABASE_URI
 
@@ -44,17 +44,16 @@ if DATABASE_URL is None:
     # For now, keeping the raise but it might prevent app startup if var is missing
     raise ValueError("SQLALCHEMY_DATABASE_URI environment variable not set.")
 
-# Add connect_args for SQLite if needed, e.g.:
-# connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-# engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+# Create the SQLAlchemy engine
+# Use check_same_thread=False only for SQLite
+engine_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    engine_args["connect_args"] = {"check_same_thread": False}
 
+engine = create_engine(DATABASE_URL, **engine_args)
 
-# SessionLocal definition (uncommented)
+# Create a session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Define Base for models to inherit from
-Base = declarative_base()
 
 # Dependency function to get DB session (using SQLAlchemy SessionLocal)
 def get_db():

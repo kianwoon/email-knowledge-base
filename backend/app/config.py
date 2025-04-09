@@ -133,6 +133,9 @@ class Settings(BaseSettings):
         # Split by comma and remove any leading/trailing whitespace
         return [domain.strip() for domain in self.ALLOWED_REDIRECT_DOMAINS_STR.split(',')]
 
+    # Token Encryption Key (Added for Step 0.4.1)
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY") # validated by check_required_env_vars
+
     # Development Server Settings
     DEV_SERVER_HOST: str = os.getenv("DEV_SERVER_HOST", "0.0.0.0") # Optional with default
     DEV_SERVER_PORT: int = int(os.getenv("DEV_SERVER_PORT", "8000")) # Optional with default

@@ -11,13 +11,21 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 
 # Import EmailFilter model
 from app.models.email import EmailVectorData, ReviewStatus, EmailFilter
-from app.models.user import User
+from app.models.user import User, UserDB
 from app.dependencies.auth import get_current_active_user
 from app.services.embedder import create_embedding, search_similar
 from app.config import settings
 # Import Qdrant client functions
 from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
 from app.services.outlook import OutlookService # Ensure this is imported
+# +++ Import DB Session Dependency +++
+from app.db.session import get_db as get_sql_db # Rename to avoid conflict
+from sqlalchemy.orm import Session
+# --- End Import ---
+
+# --- Import Celery Task --- 
+from app.tasks import process_user_emails
+# --- End Import --- 
 
 router = APIRouter()
 logger = logging.getLogger("app")
@@ -462,186 +470,54 @@ async def save_job_to_knowledge_base(
 
 # --- New Endpoint for Saving Filtered Emails --- 
 
-@router.post("/save_filtered_emails", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
+@router.post("/save_filtered_emails", status_code=status.HTTP_202_ACCEPTED, response_model=Dict[str, str])
 async def save_filtered_emails_to_knowledge_base(
     filter_input: EmailFilter, # Accept filter directly in request body
     current_user: User = Depends(get_current_active_user),
-    qdrant_client: QdrantClient = Depends(get_db) 
+    # +++ Add DB session dependency +++
+    db: Session = Depends(get_sql_db)
+    # --- End Add ---
+    # qdrant_client: QdrantClient = Depends(get_db) # Qdrant client not needed directly here anymore
 ):
+    """Accepts email filter criteria and dispatches a background task to process and store emails."""
     operation_id = str(uuid.uuid4())
     owner_email = current_user.email
     logger.info(f"[Op:{operation_id}] Received request to save emails to knowledge base by owner: {owner_email} using filter: {filter_input.model_dump_json()}")
 
-    # +++ Add Log to check token INSIDE route handler +++
-    logger.debug(f"[Op:{operation_id}] Value of current_user.ms_access_token at start of route handler: {'Present' if current_user.ms_access_token else 'MISSING'}")
-    # --- End Log ---
+    # Basic validation (token check might be implicitly handled by dependency)
+    # We rely on the task to handle token refresh and validation internally
 
-    # --- CHECK FOR MS TOKEN --- 
-    if not current_user.ms_access_token: 
-        logger.error(f"[Op:{operation_id}] User {owner_email} missing MS access token.")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Microsoft access token not available"
-        )
-    # --- END CHECK ---
-
-    filter_criteria_obj = filter_input # Use the filter from the request body
-
-    # --- Fetch Full Email Details using Outlook Service --- 
-    outlook = OutlookService(current_user.ms_access_token)
-    points_to_upsert: List[PointStruct] = []
-    processed_email_count = 0
-    failed_email_count = 0
-    all_email_ids = []
-    PAGE_SIZE = 100
-
+    # Dispatch the Celery task
     try:
-        logger.info(f"[Op:{operation_id}] Fetching all email IDs via pagination using criteria: {filter_criteria_obj.model_dump_json()}")
-        current_next_link = None
-        page_num = 1
+        # Convert filter model to dict for Celery serialization
+        filter_dict = filter_input.model_dump(mode='json')
         
-        while True:
-            logger.info(f"[Op:{operation_id}] Fetching page {page_num} of email previews (size: {PAGE_SIZE})...")
-            params = filter_criteria_obj.model_dump(exclude_none=True)
-            params['per_page'] = PAGE_SIZE
-            if current_next_link:
-                params['next_link'] = current_next_link
-            
-            paged_result_dict = await outlook.get_email_preview(**params)
-            
-            items_on_page_raw = paged_result_dict.get("items", [])
-            current_next_link = paged_result_dict.get("next_link")
-
-            if items_on_page_raw:
-                 ids_on_page = [item['id'] for item in items_on_page_raw if item.get('id')]
-                 all_email_ids.extend(ids_on_page)
-                 logger.info(f"[Op:{operation_id}] Fetched {len(ids_on_page)} IDs from page {page_num}. Total IDs so far: {len(all_email_ids)}.")
-            else:
-                logger.info(f"[Op:{operation_id}] No items found on page {page_num}.")
-
-            if not current_next_link:
-                logger.info(f"[Op:{operation_id}] No more pages found. Finished fetching IDs.")
-                break 
-            
-            page_num += 1
-
-        logger.info(f"[Op:{operation_id}] Found {len(all_email_ids)} total email IDs matching criteria. Fetching content...")
-
-        for email_id in all_email_ids:
-            try:
-                logger.debug(f"[Op:{operation_id}] Fetching content for email_id: {email_id}")
-                email_content = await outlook.get_email_content(email_id)
-                # logger.debug(f"[Op:{operation_id}] Processing email subject: {email_content.subject}")
-                
-                # --- Prepare Metadata (No analysis tags here) --- 
-                attachments_payload = []
-                if email_content.attachments:
-                    for att in email_content.attachments:
-                        content_base64 = att.content if hasattr(att, 'content') and att.content is not None else None 
-                        if content_base64 is None:
-                            logger.warning(f"[Op:{operation_id}] Attachment {att.name} for email {email_id} is missing base64 content.")
-                        attachments_payload.append({
-                            "filename": att.name, "mimetype": att.content_type, 
-                            "size": att.size, "content_base64": content_base64
-                        })
-                has_attachments_bool = len(email_content.attachments) > 0 if email_content.attachments else False
-
-                email_metadata = {
-                    "type": "email_raw", # Indicate this is raw data
-                    "owner": current_user.email,
-                    "sender": email_content.sender if email_content.sender else "unknown@sender.com", 
-                    "subject": email_content.subject or "",
-                    "date": email_content.received_date or "", 
-                    "has_attachments": has_attachments_bool,
-                    "folder": filter_criteria_obj.folder_id, 
-                    "tags": [], 
-                    "analysis_status": "pending", # Changed from pending_vectorization
-                    "status": "raw_stored", # New status? 
-                    "source": "email",
-                    "raw_text": email_content.body or "",
-                    "attachments": attachments_payload,
-                    "attachment_count": len(attachments_payload),
-                    "query_criteria": filter_criteria_obj.model_dump(),
-                    'original_email_id': email_id # Keep original ID
-                }
-
-                # --- Create Dummy Vector to satisfy dimension requirement --- 
-                dummy_vector = [0.0] * settings.QDRANT_VECTOR_SIZE
-
-                qdrant_point_uuid = str(uuid.uuid4()) 
-                # email_metadata['original_email_id'] = email_id 
-
-                point = PointStruct(
-                    id=qdrant_point_uuid, 
-                    vector=dummy_vector, # Provide a zero vector of the correct dimension
-                    payload=email_metadata
-                )
-                points_to_upsert.append(point)
-                processed_email_count += 1
-                logger.debug(f"[Op:{operation_id}] Prepared raw point {qdrant_point_uuid} (email: {email_id}).")
-
-            except Exception as fetch_err:
-                failed_email_count += 1
-                logger.error(f"[Op:{operation_id}] Failed to fetch/process email_id {email_id}: {str(fetch_err)}", exc_info=True)
-
-    except Exception as outer_err:
-         logger.error(f"[Op:{operation_id}] Error during email fetching: {str(outer_err)}", exc_info=True)
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error occurred fetching email details.")
-
-    # --- Batch Upsert to RAW Collection --- 
-    if points_to_upsert:
+        logger.info(f"[Op:{operation_id}] Dispatching Celery task 'process_user_emails' for user {owner_email}.")
+        task = process_user_emails.delay(user_id=owner_email, filter_criteria_dict=filter_dict)
+        logger.info(f"[Op:{operation_id}] Task dispatched with ID: {task.id}")
+        
+        # +++ Store task ID on user record +++
         try:
-            # --- Construct User-Specific RAW Collection Name --- 
-            sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
-            target_collection_name = f"{sanitized_email}_email_knowledge" # <<< TARGET RAW COLLECTION
-            logger.info(f"[Op:{operation_id}] Target Qdrant collection: {target_collection_name}")
-            
-            # --- Ensure RAW Collection Exists (Provide minimal vector config to satisfy API) --- 
-            try:
-                logger.info(f"[Op:{operation_id}] Ensuring collection '{target_collection_name}' exists.")
-                qdrant_client.create_collection(
-                    collection_name=target_collection_name,
-                    # Provide a vectors_config even for raw, using settings for consistency
-                    vectors_config=models.VectorParams(
-                        size=settings.QDRANT_VECTOR_SIZE,      # Use configured size
-                        distance=settings.QDRANT_DISTANCE_METRIC # Use configured distance
-                    )
-                )
-                logger.info(f"[Op:{operation_id}] Collection '{target_collection_name}' created.")
-            except UnexpectedResponse as e:
-                if e.status_code == 409:
-                    logger.warning(f"[Op:{operation_id}] Collection '{target_collection_name}' already exists. Proceeding with upsert.")
-                    pass 
-                else:
-                    logger.error(f"[Op:{operation_id}] Failed to create collection {target_collection_name} due to unexpected Qdrant error: {e}", exc_info=True)
-                    raise e 
-            except Exception as create_err:
-                logger.error(f"[Op:{operation_id}] Failed to ensure/create collection {target_collection_name}: {create_err}", exc_info=True)
-                raise create_err 
-            # --- End Ensure RAW Collection Exists ---
+            # Re-fetch the DB user to update them using the injected session 'db'
+            # Make sure UserDB model is imported at the top of the file
+            db_user = db.query(UserDB).filter(UserDB.email == owner_email).first()
+            if db_user:
+                db_user.last_kb_task_id = task.id
+                db.commit()
+                logger.info(f"[Op:{operation_id}] Stored task ID {task.id} for user {owner_email}.")
+            else:
+                logger.error(f"[Op:{operation_id}] Could not find user {owner_email} in DB to store task ID.")
+        except Exception as db_error:
+            db.rollback() # Rollback on error
+            logger.error(f"[Op:{operation_id}] Failed to store task ID for user {owner_email}: {db_error}", exc_info=True)
+        # --- End Store task ID ---
 
-            logger.info(f"[Op:{operation_id}] Upserting {len(points_to_upsert)} raw email points to {target_collection_name}...")
-            qdrant_client.upsert(
-                collection_name=target_collection_name, # USE User-specific RAW name
-                points=points_to_upsert, # Points now only have payload
-                wait=True
-            )
-            logger.info(f"[Op:{operation_id}] Successfully upserted {len(points_to_upsert)} points to {target_collection_name}.")
-        except Exception as e:
-            # Construct the target name again for the error message
-            sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
-            target_collection_name = f"{sanitized_email}_email_knowledge" # <<< TARGET RAW COLLECTION
-            logger.error(f"[Op:{operation_id}] Failed batch upsert to {target_collection_name}: {str(e)}", exc_info=True)
-            return {
-                "operation_id": operation_id,
-                "message": f"Attempted to save raw data. Processed: {processed_email_count}, Failed: {failed_email_count}, Qdrant Errors: {len(points_to_upsert)} to {target_collection_name}",
-                "status": "partial_failure"
-            }
-    else:
-        logger.warning(f"[Op:{operation_id}] No raw points prepared for upsert (errors: {failed_email_count})")
+        # Return the task ID to the client
+        return {"task_id": task.id, "message": "Email processing task accepted."}
 
-    return {
-        "operation_id": operation_id,
-        "message": f"Raw data save completed. Emails Processed: {processed_email_count}, Errors: {failed_email_count}",
-        "status": "success" if failed_email_count == 0 else "partial_success"
-    }
+    except Exception as e:
+        logger.error(f"[Op:{operation_id}] Failed to dispatch Celery task for user {owner_email}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate email processing task."
+        )

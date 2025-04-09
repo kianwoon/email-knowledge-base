@@ -13,38 +13,37 @@ export interface AccessRule {
 export interface TokenCreate {
   name: string;
   description?: string | null;
-  sensitivity: string; // Keep as string for now, conversion happens elsewhere if needed
-  expiry?: string | null; // ISO 8601 format string or null
-  is_editable: boolean;
-  allow_rules: AccessRule[];
-  deny_rules: AccessRule[];
+  sensitivity: string;
+  allow_topics?: string[]; // Optional array of strings
+  deny_topics?: string[];  // Optional array of strings
+  expiry_days?: number | null; // Keep expiry_days as per backend model
 }
 
 // Interface for updating a token (sent to backend)
 export interface TokenUpdate {
   name?: string;
   description?: string | null;
-  sensitivity?: string; // Keep as string
+  sensitivity?: string;
+  allow_topics?: string[]; // Optional array of strings
+  deny_topics?: string[];  // Optional array of strings
+  is_active?: boolean; // Keep is_active as per backend model
   expiry?: string | null; // ISO 8601 format string or null
-  is_editable?: boolean;
-  allow_rules?: AccessRule[];
-  deny_rules?: AccessRule[];
 }
 
 // Interface for a token received from the backend
 export interface Token {
-  id: string;
+  id: number;
   name: string;
-  description: string | null;
-  token_value: string; // The actual token string
-  sensitivity: string; // Keep as string
-  created_at: string; // ISO 8601 format string
-  expiry: string | null; // ISO 8601 format string or null
-  is_editable: boolean;
-  is_active: boolean; 
-  allow_rules: AccessRule[];
-  deny_rules: AccessRule[];
-  owner_email?: string; // Assuming backend provides this
+  description?: string | null;
+  sensitivity: string;
+  token_preview: string;
+  owner_email: string;
+  created_at: string; // Keep as string, conversion happens in UI
+  expiry: string | null; // Keep as string
+  is_active: boolean;
+  allow_topics?: string[]; // Updated field
+  deny_topics?: string[];  // Updated field
+  token_value?: string; // Keep token_value for create response
 }
 
 // --- API Functions --- 
@@ -70,13 +69,9 @@ export const getUserTokens = async (): Promise<Token[]> => {
 export const createToken = async (tokenData: TokenCreate): Promise<Token> => {
   console.log('API: Creating token:', tokenData);
   try {
-    // Ensure rules are arrays even if empty
-    const payload = {
-        ...tokenData,
-        allow_rules: tokenData.allow_rules || [],
-        deny_rules: tokenData.deny_rules || [],
-    };
-    const response = await apiClient.post<Token>('/token/', payload);
+    // The backend POST /token/ route returns TokenCreateResponse which includes token_value
+    // The Token type includes optional token_value to handle this.
+    const response = await apiClient.post<Token>('/token/', tokenData);
     console.log('API: Token created:', response.data);
     return response.data;
   } catch (error) {
@@ -120,23 +115,12 @@ export const getTokenById = async (tokenId: string): Promise<Token> => {
 export const updateToken = async (tokenId: string, tokenData: TokenUpdate): Promise<Token> => {
   console.log(`API: Updating token ${tokenId}:`, tokenData);
   try {
-    // Ensure rules are included if provided, otherwise don't send empty arrays
-    const payload: TokenUpdate = { ...tokenData };
-    if (tokenData.allow_rules) {
-        payload.allow_rules = tokenData.allow_rules.filter(rule => rule.field && rule.values.length > 0);
-    }
-    if (tokenData.deny_rules) {
-        payload.deny_rules = tokenData.deny_rules.filter(rule => rule.field && rule.values.length > 0);
-    }
-    // Remove keys with undefined values explicitly if needed by backend, but usually not necessary
-    // Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
-
-    // Use PATCH instead of PUT
-    const response = await apiClient.patch<Token>(`/token/${tokenId}`, payload);
+    // Backend returns standard TokenResponse (mapped to Token type)
+    const response = await apiClient.patch<Token>(`/token/${tokenId}`, tokenData);
     console.log(`API: Token ${tokenId} updated:`, response.data);
     return response.data;
   } catch (error) {
-    console.error(`API Error updating token ${tokenId}:`, error);
+    console.error(`API Error updating token ${tokenId}:`, error); 
     throw error;
   }
-}; 
+};
