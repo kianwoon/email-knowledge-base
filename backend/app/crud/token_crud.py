@@ -192,6 +192,17 @@ async def create_user_token(db: Session, token_data: TokenCreate, owner_email: s
     raw_token_value = secrets.token_urlsafe(32) 
     hashed_value = bcrypt.hashpw(raw_token_value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
+    # Calculate expiry datetime based on expiry_days if provided
+    expiry_datetime = None
+    if hasattr(token_data, 'expiry_days') and token_data.expiry_days is not None and token_data.expiry_days > 0:
+        try:
+            # Need to import timedelta and timezone
+            from datetime import timedelta, timezone 
+            expiry_datetime = datetime.now(timezone.utc) + timedelta(days=int(token_data.expiry_days))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid expiry_days value received: {token_data.expiry_days}. Setting expiry to None.")
+            expiry_datetime = None
+
     # Removed outdated embedding generation logic based on allow/deny_topics
 
     db_token = TokenDB(
@@ -200,7 +211,7 @@ async def create_user_token(db: Session, token_data: TokenCreate, owner_email: s
         sensitivity=token_data.sensitivity,
         hashed_token=hashed_value,
         owner_email=owner_email,
-        expiry=getattr(token_data, 'expiry', None),
+        expiry=expiry_datetime, # Use the calculated expiry_datetime
         is_active=True, 
         # Use getattr for safety, default to None (handled by rules_to_db_format)
         allow_rules=rules_to_db_format(getattr(token_data, 'allow_rules', None)), 

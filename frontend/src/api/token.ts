@@ -16,7 +16,8 @@ export interface TokenCreate {
   sensitivity: string;
   allow_rules?: AccessRule[]; 
   deny_rules?: AccessRule[];  
-  expiry?: string | null; // Align with backend model (TokenBase uses datetime)
+  expiry_days?: number | null; // Use expiry_days as expected by backend TokenCreate
+  // is_editable is handled by backend default, not needed here for creation
 }
 
 // Interface for updating a token (sent to backend)
