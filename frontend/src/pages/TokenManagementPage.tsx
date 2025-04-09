@@ -154,12 +154,6 @@ const TokenManagementPage: React.FC = () => {
             </Button>
           </Box>
 
-          {isLoading && (
-             <Center py={10}>
-               <Spinner size="xl" />
-             </Center>
-          )}
-
           {error && (
             <Alert status="error" borderRadius="md">
               <AlertIcon />
@@ -167,61 +161,70 @@ const TokenManagementPage: React.FC = () => {
             </Alert>
           )}
 
-          {!isLoading && !error && (
-            <Box>
-              <Heading size="lg" mb={4}>{t('tokenManagementPage.existingTokensTitle', 'Existing Tokens')}</Heading>
-              {tokens.length === 0 ? (
-                <Text>{t('tokenManagementPage.noTokens', 'No tokens found. Click Create Token to get started.')}</Text>
-              ) : (
-                <TableContainer>
-                  <Table variant="simple">
-                    <Thead>
-                      <Tr>
-                        <Th>{t('tokenManagementPage.table.name', 'Name')}</Th>
-                        <Th>{t('tokenManagementPage.table.description', 'Description')}</Th>
-                        <Th>{t('tokenManagementPage.table.sensitivity', 'Sensitivity')}</Th>
-                        <Th>{t('tokenManagementPage.table.active', 'Active')}</Th>
-                        <Th>{t('tokenManagementPage.table.expiry', 'Expiry')}</Th>
-                        <Th>{t('tokenManagementPage.table.actions', 'Actions')}</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {tokens.map((token) => (
-                        <Tr key={token.id}>
-                          <Td>{token.name}</Td>
-                          <Td>{token.description || '-'}</Td>
-                          <Td><Tag colorScheme="purple">{token.sensitivity}</Tag></Td>
-                          <Td>
-                            <Badge colorScheme={token.is_active ? 'green' : 'red'}>
-                              {token.is_active ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-                            </Badge>
-                          </Td>
-                          <Td>{formatDate(token.expiry)}</Td>
-                          <Td>
-                            <HStack spacing={2}>
-                              <IconButton
-                                aria-label={t('tokenManagementPage.actions.edit', 'Edit Token')}
-                                icon={<FaEdit />}
-                                size="sm"
-                                onClick={() => handleEditToken(token.id)}
-                              />
-                              <IconButton
-                                aria-label={t('tokenManagementPage.actions.delete', 'Delete Token')}
-                                icon={<FaTrash />}
-                                size="sm"
-                                colorScheme="red"
-                                onClick={() => handleDeleteToken(token.id)}
-                              />
-                            </HStack>
-                          </Td>
-                        </Tr>
-                      ))}
-                    </Tbody>
-                  </Table>
-                </TableContainer>
-              )}
-            </Box>
-          )}
+          <Box>
+            <Heading size="lg" mb={4}>{t('tokenManagementPage.existingTokensTitle', 'Existing Tokens')}</Heading>
+            {isLoading && tokens.length === 0 && !error && (
+               <Center py={10}>
+                 <Spinner size="xl" />
+               </Center>
+            )}
+            {(!isLoading || tokens.length > 0) && !error && (
+                <> 
+                  {tokens.length === 0 ? (
+                    <Text>{t('tokenManagementPage.noTokens', 'No tokens found. Click Create Token to get started.')}</Text>
+                  ) : (
+                    <TableContainer>
+                      <Table variant="simple">
+                        <Thead>
+                          <Tr>
+                            <Th>{t('tokenManagementPage.table.name', 'Name')}</Th>
+                            <Th>{t('tokenManagementPage.table.description', 'Description')}</Th>
+                            <Th>{t('tokenManagementPage.table.sensitivity', 'Sensitivity')}</Th>
+                            <Th>{t('tokenManagementPage.table.active', 'Active')}</Th>
+                            <Th>{t('tokenManagementPage.table.expiry', 'Expiry')}</Th>
+                            <Th>{t('tokenManagementPage.table.actions', 'Actions')}</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {tokens.map((token) => (
+                            <Tr key={token.id}>
+                              <Td>{token.name}</Td>
+                              <Td>{token.description || '-'}</Td>
+                              <Td><Tag colorScheme="purple">{token.sensitivity}</Tag></Td>
+                              <Td>
+                                <Badge colorScheme={token.is_active ? 'green' : 'red'}>
+                                  {token.is_active ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
+                                </Badge>
+                              </Td>
+                              <Td>{formatDate(token.expiry)}</Td>
+                              <Td>
+                                <HStack spacing={2}>
+                                  <IconButton
+                                    aria-label={t('tokenManagementPage.actions.edit', 'Edit Token')}
+                                    icon={<FaEdit />}
+                                    size="sm"
+                                    onClick={() => handleEditToken(token.id)}
+                                    isDisabled={isLoading}
+                                  />
+                                  <IconButton
+                                    aria-label={t('tokenManagementPage.actions.delete', 'Delete Token')}
+                                    icon={<FaTrash />}
+                                    size="sm"
+                                    colorScheme="red"
+                                    onClick={() => handleDeleteToken(token.id)}
+                                    isDisabled={isLoading}
+                                  />
+                                </HStack>
+                              </Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </>
+            )}
+          </Box>
         </VStack>
       </Container>
 
