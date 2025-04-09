@@ -30,7 +30,7 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey, FaRobot } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { getLoginUrl } from '../api/auth';
 
@@ -77,10 +77,11 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
     // New AI Data Management Menu
     {
       label: t('navigation.aiDataManagement'),
-      icon: FaBrain, // Use FaBrain icon
+      icon: FaBrain,
       children: [
-        { path: '/knowledge', label: t('navigation.knowledgeManagement'), icon: FaBoxes }, // Moved under AI Mgmt
-        { path: '/tokens', label: t('navigation.tokenManagement'), icon: FaKey } // Added Token Mgmt
+        { path: '/knowledge', label: t('navigation.knowledgeManagement'), icon: FaBoxes },
+        { path: '/tokens', label: t('navigation.tokenManagement'), icon: FaKey },
+        { path: '/jarvis', label: t('navigation.jarvis'), icon: FaRobot }
       ]
     },
     { path: '/docs', label: t('navigation.documentation'), icon: FaBook },
@@ -90,8 +91,8 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
     i18n.changeLanguage(lng);
   };
 
-  // Check if language is Chinese (either zh or cn)
-  const isChinese = i18n.language === 'zh' || i18n.language === 'cn';
+  // Check if language is Chinese (use 'cn')
+  const isChinese = i18n.language === 'cn';
 
   // User menu component
   const UserMenu = () => {
