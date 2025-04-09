@@ -27,7 +27,7 @@ import {
   useClipboard,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { TokenCreate, createToken, Token } from '../../api/token';
+import { TokenCreatePayload, TokenCreateResponse, createToken } from '../../api/token';
 import { FaCopy } from 'react-icons/fa';
 import TagInput from '../inputs/TagInput';
 
@@ -37,7 +37,6 @@ interface CreateTokenModalProps {
   onTokenCreated: () => void;
 }
 
-// Bring back sensitivity levels
 const SENSITIVITY_LEVELS = ["public", "internal", "confidential", "strict-confidential"];
 
 const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, onTokenCreated }) => {
@@ -48,14 +47,12 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]); // Add state back
+  const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]);
   const [expiryDays, setExpiryDays] = useState<number | null>(null);
+  const [allowRules, setAllowRules] = useState<string[]>([]);
+  const [denyRules, setDenyRules] = useState<string[]>([]);
 
-  // State for topics
-  const [allowTopics, setAllowTopics] = useState<string[]>([]);
-  const [denyTopics, setDenyTopics] = useState<string[]>([]);
-
-  // --- State for Success View ---
+  // State for Success View
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [showSuccessView, setShowSuccessView] = useState<boolean>(false);
   const { onCopy, hasCopied } = useClipboard(createdTokenValue || '');
@@ -63,10 +60,10 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   const resetForm = () => {
     setName('');
     setDescription('');
-    setSensitivity(SENSITIVITY_LEVELS[0]); // Reset sensitivity
+    setSensitivity(SENSITIVITY_LEVELS[0]);
     setExpiryDays(null);
-    setAllowTopics([]);
-    setDenyTopics([]);
+    setAllowRules([]);
+    setDenyRules([]);
     setIsLoading(false);
   };
 
@@ -83,19 +80,18 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
     setCreatedTokenValue(null);
     setShowSuccessView(false);
 
-    // Construct payload matching the updated TokenCreate interface
-    const tokenData: TokenCreate = {
+    const tokenData: TokenCreatePayload = {
       name,
-      description: description || null,
+      description: description || undefined,
       sensitivity,
       expiry_days: expiryDays,
-      allow_rules: [],
-      deny_rules: []
+      allow_rules: allowRules.length > 0 ? allowRules : undefined,
+      deny_rules: denyRules.length > 0 ? denyRules : undefined,
     };
 
     try {
-      const createdToken: Token = await createToken(tokenData);
-      
+      const createdToken: TokenCreateResponse = await createToken(tokenData);
+
       toast({
         title: t('createTokenModal.toast.successTitle', 'Token Created'),
         description: t('createTokenModal.toast.successDescription', `Token "${name}" was successfully created.`),
@@ -103,7 +99,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
         duration: 3000,
         isClosable: true,
       });
-      
+
       setCreatedTokenValue(createdToken.token_value || '[Error: Token Value Missing]');
       setShowSuccessView(true);
       onTokenCreated();
@@ -126,7 +122,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   const handleCopyToken = () => {
     if (createdTokenValue) {
       onCopy();
-      toast({        
+      toast({
         title: t('createTokenModal.copySuccess', 'Token Copied'),
         status: 'success',
         duration: 2000,
@@ -140,7 +136,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
       <ModalOverlay />
       <ModalContent as={!showSuccessView ? "form" : "div"} onSubmit={!showSuccessView ? handleSubmit : undefined}>
         <ModalHeader>
-          {showSuccessView 
+          {showSuccessView
             ? t('createTokenModal.successTitle', 'Token Created Successfully')
             : t('createTokenModal.title', 'Create New Access Token')}
         </ModalHeader>
@@ -149,7 +145,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
         <ModalBody pb={6}>
           {showSuccessView && createdTokenValue ? (
             <VStack spacing={4} align="stretch">
-              <Alert
+               <Alert
                 status='success'
                 variant='subtle'
                 flexDirection='column'
@@ -190,8 +186,8 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
             <VStack spacing={4} align="stretch">
               <FormControl isRequired>
                 <FormLabel>{t('createTokenModal.form.name.label', 'Token Name')}</FormLabel>
-                <Input 
-                  placeholder={t('createTokenModal.form.name.placeholder', 'e.g., Project X API Key')} 
+                <Input
+                  placeholder={t('createTokenModal.form.name.placeholder', 'e.g., Project X API Key')}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
@@ -199,8 +195,8 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
 
               <FormControl>
                 <FormLabel>{t('createTokenModal.form.description.label', 'Description')}</FormLabel>
-                <Textarea 
-                  placeholder={t('createTokenModal.form.description.placeholder', 'Optional: Describe the purpose of this token')} 
+                <Textarea
+                  placeholder={t('createTokenModal.form.description.placeholder', 'Optional: Describe the purpose of this token')}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
@@ -208,7 +204,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
 
               <FormControl isRequired>
                 <FormLabel>{t('createTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
-                <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value as typeof sensitivity)}>
+                <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value)}>
                   {SENSITIVITY_LEVELS.map((level) => (
                     <option key={level} value={level}>{level}</option>
                   ))}
@@ -219,62 +215,56 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
               <Divider />
 
               <FormControl>
-                <FormLabel>{t('createTokenModal.form.allowTopics.label', 'Allow Topics')}</FormLabel>
-                <TagInput 
-                  placeholder={t('createTokenModal.form.allowTopics.placeholder', 'Add allowed topics (Enter)')} 
-                  value={allowTopics}
-                  onChange={(newTopics) => setAllowTopics(newTopics)}
+                <FormLabel>{t('createTokenModal.form.allowRules.label', 'Allow Rules')}</FormLabel>
+                <TagInput
+                  placeholder={t('createTokenModal.form.allowRules.placeholder', 'Enter allowed rule and press Enter')}
+                  value={allowRules}
+                  onChange={setAllowRules}
                 />
-                <FormHelperText>{t('createTokenModal.form.allowTopics.helper', 'Optional: List of topics this token can access.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.allowRules.helper', 'Optional: List of rules allowing access.')}</FormHelperText>
               </FormControl>
 
               <Divider />
 
               <FormControl>
-                <FormLabel>{t('createTokenModal.form.denyTopics.label', 'Deny Topics')}</FormLabel>
-                <TagInput 
-                  placeholder={t('createTokenModal.form.denyTopics.placeholder', 'Add denied topics (Enter)')} 
-                  value={denyTopics}
-                  onChange={(newTopics) => setDenyTopics(newTopics)}
+                <FormLabel>{t('createTokenModal.form.denyRules.label', 'Deny Rules')}</FormLabel>
+                <TagInput
+                  placeholder={t('createTokenModal.form.denyRules.placeholder', 'Enter denied rule and press Enter')}
+                  value={denyRules}
+                  onChange={setDenyRules}
                 />
-                <FormHelperText>{t('createTokenModal.form.denyTopics.helper', 'Optional: List of topics this token CANNOT access.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.denyRules.helper', 'Optional: List of rules denying access.')}</FormHelperText>
               </FormControl>
 
               <Divider />
 
               <FormControl>
                 <FormLabel>{t('createTokenModal.form.expiryDays.label', 'Expiry (Days, Optional)')}</FormLabel>
-                <Input 
+                <Input
                   type="number"
                   placeholder={t('createTokenModal.form.expiryDays.placeholder', 'e.g., 30')}
                   value={expiryDays === null ? '' : expiryDays}
                   onChange={(e) => setExpiryDays(e.target.value === '' ? null : parseInt(e.target.value, 10))}
                   min="1"
                 />
-                <FormHelperText>{t('createTokenModal.form.expiryDays.helper', 'Token will become inactive after this many days.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.expiryDays.helper', 'Token will automatically become inactive after this many days.')}</FormHelperText>
               </FormControl>
-
             </VStack>
           )}
         </ModalBody>
 
         <ModalFooter>
           {showSuccessView ? (
-            <Button onClick={handleCloseAndReset}> 
+            <Button colorScheme="blue" onClick={handleCloseAndReset}>
               {t('common.close', 'Close')}
             </Button>
           ) : (
             <>
-              <Button onClick={handleCloseAndReset} mr={3} isDisabled={isLoading}>
+              <Button variant="ghost" mr={3} onClick={handleCloseAndReset} isDisabled={isLoading}>
                 {t('common.cancel', 'Cancel')}
               </Button>
-              <Button 
-                colorScheme="cyan" 
-                type="submit"
-                isLoading={isLoading}
-                loadingText={t('common.creating', 'Creating...')}
-              >
-                {t('createTokenModal.submitButton', 'Create Token')}
+              <Button type="submit" colorScheme="cyan" isLoading={isLoading}>
+                {t('createTokenModal.createButton', 'Create Token')}
               </Button>
             </>
           )}
@@ -284,4 +274,4 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   );
 };
 
-export default CreateTokenModal; 
+export default CreateTokenModal;

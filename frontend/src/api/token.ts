@@ -1,34 +1,31 @@
-import apiClient from './apiClient';
+import axiosInstance from './apiClient';
 
 // Define interfaces for Token data (align with backend models)
 // Consider sharing types via a common package if project grows
 
-// Interface for the structure of an access rule
-export interface AccessRule {
-  field: string;       // e.g., 'tags', 'source_id'
-  values: string[];    // e.g., ['project-x'], ['email-123']
-}
-
 // Interface for creating a token (sent to backend)
-export interface TokenCreate {
+export interface TokenCreatePayload {
   name: string;
-  description?: string | null;
+  description?: string;
   sensitivity: string;
-  allow_rules?: AccessRule[]; 
-  deny_rules?: AccessRule[];  
-  expiry_days?: number | null; // Use expiry_days as expected by backend TokenCreate
-  // is_editable is handled by backend default, not needed here for creation
+  allow_rules?: string[];
+  deny_rules?: string[];
+  allow_embeddings?: string[];
+  deny_embeddings?: string[];
+  expiry_days?: number | null;
 }
 
 // Interface for updating a token (sent to backend)
-export interface TokenUpdate {
+export interface TokenUpdatePayload {
   name?: string;
-  description?: string | null;
+  description?: string;
   sensitivity?: string;
-  allow_topics?: string[]; // Optional array of strings
-  deny_topics?: string[];  // Optional array of strings
-  is_active?: boolean; // Keep is_active as per backend model
-  expiry?: string | null; // ISO 8601 format string or null
+  allow_rules?: string[];
+  deny_rules?: string[];
+  allow_embeddings?: string[];
+  deny_embeddings?: string[];
+  expiry?: string | null;
+  is_active?: boolean;
 }
 
 // Interface for a token received from the backend
@@ -39,12 +36,25 @@ export interface Token {
   sensitivity: string;
   token_preview: string;
   owner_email: string;
-  created_at: string; // Keep as string, conversion happens in UI
-  expiry: string | null; // Keep as string
+  created_at: string; // ISO string format from backend
+  expiry?: string | null; // ISO string format or null
   is_active: boolean;
-  allow_topics?: string[]; // Updated field
-  deny_topics?: string[];  // Updated field
-  token_value?: string; // Keep token_value for create response
+  allow_rules?: string[];
+  deny_rules?: string[];
+  allow_embeddings?: string[];
+  deny_embeddings?: string[];
+}
+
+// Interface for the response when creating a token (includes the raw value)
+export interface TokenCreateResponse extends Token {
+  token_value: string;
+}
+
+// Interface for bundling tokens
+export interface TokenBundlePayload {
+  token_ids: number[];
+  name: string;
+  description?: string;
 }
 
 // --- API Functions --- 
@@ -55,7 +65,7 @@ export interface Token {
 export const getUserTokens = async (): Promise<Token[]> => {
   console.log('API: Fetching user tokens...');
   try {
-    const response = await apiClient.get<Token[]>('/token/');
+    const response = await axiosInstance.get<Token[]>('/token/');
     console.log('API: Tokens received:', response.data);
     return response.data;
   } catch (error) {
@@ -67,12 +77,12 @@ export const getUserTokens = async (): Promise<Token[]> => {
 /**
  * Create a new token.
  */
-export const createToken = async (tokenData: TokenCreate): Promise<Token> => {
-  console.log('API: Creating token:', tokenData);
+export const createToken = async (payload: TokenCreatePayload): Promise<TokenCreateResponse> => {
+  console.log('API: Creating token:', payload);
   try {
     // The backend POST /token/ route returns TokenCreateResponse which includes token_value
     // The Token type includes optional token_value to handle this.
-    const response = await apiClient.post<Token>('/token/', tokenData);
+    const response = await axiosInstance.post<TokenCreateResponse>('/token/', payload);
     console.log('API: Token created:', response.data);
     return response.data;
   } catch (error) {
@@ -87,7 +97,7 @@ export const createToken = async (tokenData: TokenCreate): Promise<Token> => {
 export const deleteTokenApi = async (tokenId: string): Promise<void> => {
   console.log(`API: Deleting token: ${tokenId}...`);
   try {
-    await apiClient.delete(`/token/${tokenId}`);
+    await axiosInstance.delete(`/token/${tokenId}`);
     console.log(`API: Token ${tokenId} deleted successfully.`);
   } catch (error) {
     console.error(`API Error deleting token ${tokenId}:`, error);
@@ -101,7 +111,7 @@ export const deleteTokenApi = async (tokenId: string): Promise<void> => {
 export const getTokenById = async (tokenId: string): Promise<Token> => {
   console.log(`API: Fetching token by ID: ${tokenId}...`);
   try {
-    const response = await apiClient.get<Token>(`/token/${tokenId}`);
+    const response = await axiosInstance.get<Token>(`/token/${tokenId}`);
     console.log(`API: Token ${tokenId} received:`, response.data);
     return response.data;
   } catch (error) {
@@ -113,15 +123,21 @@ export const getTokenById = async (tokenId: string): Promise<Token> => {
 /**
  * Update an existing token.
  */
-export const updateToken = async (tokenId: string, tokenData: TokenUpdate): Promise<Token> => {
-  console.log(`API: Updating token ${tokenId}:`, tokenData);
+export const updateToken = async (tokenId: string, payload: TokenUpdatePayload): Promise<Token> => {
+  console.log(`API: Updating token ${tokenId}:`, payload);
   try {
     // Backend returns standard TokenResponse (mapped to Token type)
-    const response = await apiClient.patch<Token>(`/token/${tokenId}`, tokenData);
+    const response = await axiosInstance.patch<Token>(`/token/${tokenId}`, payload);
     console.log(`API: Token ${tokenId} updated:`, response.data);
     return response.data;
   } catch (error) {
     console.error(`API Error updating token ${tokenId}:`, error); 
     throw error;
   }
+};
+
+// Bundle existing tokens
+export const bundleTokens = async (payload: TokenBundlePayload): Promise<Token> => {
+  const response = await axiosInstance.post<Token>('/token/bundle', payload);
+  return response.data;
 };

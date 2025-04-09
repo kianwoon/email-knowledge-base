@@ -16,7 +16,7 @@ from ..dependencies.auth import get_current_active_user_or_token_owner as get_re
 from ..db.session import get_db
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
-    TokenExport, TokenDB, AccessRule, TokenBundleRequest, 
+    TokenExport, TokenDB, TokenBundleRequest, 
     TokenCreateResponse
 )
 from ..crud.token_crud import (
@@ -27,8 +27,7 @@ from ..crud.token_crud import (
     delete_user_token,
     get_active_tokens,
     prepare_bundled_token_data,
-    create_bundled_token,
-    db_format_to_rules
+    create_bundled_token
 )
 
 # Import datetime for expiry check
@@ -57,22 +56,13 @@ async def read_user_tokens(
         db_tokens = get_user_tokens(db, owner_email=current_user.email)
         response_list = []
         for token in db_tokens:
-             preview = f"token_id_{token.id}" 
-             response_list.append(
-                 TokenResponse(
-                     id=token.id,
-                     name=token.name,
-                     description=token.description,
-                     sensitivity=token.sensitivity,
-                     token_preview=preview,
-                     owner_email=token.owner_email,
-                     created_at=token.created_at,
-                     expiry=token.expiry,
-                     is_active=token.is_active,
-                     allow_rules=token.allow_rules,
-                     deny_rules=token.deny_rules
-                 )
-             )
+             # Use the corrected helper function
+             try:
+                 response_list.append(token_db_to_response(token))
+             except Exception as inner_e:
+                 logger.error(f"Error processing token ID {getattr(token, 'id', 'UNKNOWN')}: {inner_e}", exc_info=True)
+                 # Optionally skip or add placeholder on error
+
         return response_list
     except Exception as e:
         logger.error(f"Failed to list tokens for user '{current_user.email}': {e}", exc_info=True)
@@ -280,70 +270,62 @@ async def export_active_tokens(
             #       or the requirement needs re-evaluation.
             # A better approach might be *not* to export the value itself, only metadata.
             active_tokens_export.append(TokenExport(
-                name=token.name,
-                description=token.description,
-                # token_value=token.hashed_token, # Returning HASHED value for now
-                # OR return a placeholder if value shouldn't be exported:
-                token_value="**********", 
+                # Construct TokenExport correctly using _topics
+                id=token.id, 
+                hashed_token=token.hashed_token, 
                 sensitivity=token.sensitivity,
                 owner_email=token.owner_email,
-                expiry=token.expiry,
-                allow_rules=db_format_to_rules(token.allow_rules),
-                deny_rules=db_format_to_rules(token.deny_rules)
+                is_active=token.is_active,
+                allow_topics=token.allow_topics or [], # Use topics, provide default
+                deny_topics=token.deny_topics or []     # Use topics, provide default
             ))
             
     return active_tokens_export
 
-# --- Helper Function --- 
-def db_format_to_rules(db_rules: Optional[Any]) -> List[AccessRule]:
-    """Converts the stored rule format (likely JSON) into a list of AccessRule objects."""
-    if not db_rules:
-        return []
-    
-    parsed_rules = []
-    try:
-        # Attempt to parse if it's a JSON string, otherwise assume it's already parsed (e.g., by SQLAlchemy JSON type)
-        if isinstance(db_rules, str):
-            loaded_rules = json.loads(db_rules)
-        else:
-            loaded_rules = db_rules # Assumes it's already a list/dict structure
-            
-        if not isinstance(loaded_rules, list):
-            logger.warning(f"Stored rules are not a list: {type(loaded_rules)}. Returning empty list.")
-            return []
-
-        for rule_dict in loaded_rules:
-            if isinstance(rule_dict, dict):
-                 try:
-                    # Validate and create AccessRule object
-                    parsed_rules.append(AccessRule(**rule_dict))
-                 except Exception as validation_error: # Catch validation errors
-                     logger.warning(f"Skipping invalid rule data during conversion: {rule_dict}. Error: {validation_error}")
-            else:
-                logger.warning(f"Skipping non-dictionary item in stored rules list: {rule_dict}")
-                
-    except json.JSONDecodeError:
-        logger.error(f"Failed to decode JSON rules from DB: {db_rules}")
-        return [] # Return empty on decode error
-    except Exception as e:
-        logger.error(f"Error converting DB rules to AccessRule objects: {e}. Input: {db_rules}", exc_info=True)
-        return [] # Return empty on other errors
-        
-    return parsed_rules
+# ==========================================
+# Helper Function
+# ==========================================
 
 def token_db_to_response(token_db: TokenDB) -> TokenResponse:
-    """Converts a TokenDB object to a TokenResponse object."""
-    token_preview = f"token_id_{token_db.id}" 
-    return TokenResponse(
-        id=token_db.id,
-        name=token_db.name,
-        description=token_db.description,
-        sensitivity=token_db.sensitivity,
-        token_preview=token_preview, 
-        owner_email=token_db.owner_email,
-        created_at=token_db.created_at,
-        expiry=token_db.expiry,
-        is_active=token_db.is_active,
-        allow_rules=token_db.allow_rules,
-        deny_rules=token_db.deny_rules
-    ) 
+    """Converts a TokenDB database object to a TokenResponse API model."""
+    if not token_db:
+        raise ValueError("Cannot convert None TokenDB object to response.")
+
+    try:
+        hashed = token_db.hashed_token
+        token_preview_value = f"{hashed[:4]}...{hashed[-4:]}" if hashed and len(hashed) > 8 else "[Invalid Hash]"
+
+        # Construct the input dictionary for validation
+        response_data = {
+            "id": token_db.id,
+            "name": token_db.name,
+            "description": token_db.description,
+            "sensitivity": token_db.sensitivity,
+            "token_preview": token_preview_value,
+            "owner_email": token_db.owner_email,
+            "created_at": token_db.created_at,
+            "expiry": token_db.expiry,
+            "is_active": token_db.is_active,
+            "allow_rules": token_db.allow_rules,
+            "deny_rules": token_db.deny_rules,
+            # Include embeddings in the input dict. Pydantic ignores fields not in the target model.
+            "allow_embeddings": token_db.allow_embeddings, 
+            "deny_embeddings": token_db.deny_embeddings, 
+        }
+        
+        # Validate the dictionary to create the TokenResponse object
+        response = TokenResponse.model_validate(response_data)
+
+        # Ensure list fields *that exist on TokenResponse* are never None
+        response.allow_rules = response.allow_rules or []
+        response.deny_rules = response.deny_rules or []
+        # DO NOT access response.allow_embeddings or response.deny_embeddings here
+
+        return response
+    except Exception as e:
+        token_id = getattr(token_db, 'id', 'UNKNOWN')
+        logger.error(f"Error converting TokenDB ID {token_id} to TokenResponse: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Internal error processing token data for token ID {token_id}."
+        ) 
