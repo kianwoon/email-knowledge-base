@@ -144,8 +144,8 @@ async def _process_and_store_emails(
                     "attachments": attachments_payload, # Store attachments payload
                     "attachment_count": len(attachments_payload),
                     "query_criteria": filter_criteria.model_dump(exclude={'next_link'}),
-                    'original_email_id': email_id
-                    # NO analysis_status, NO chunk details
+                    'original_email_id': email_id,
+                    "analysis_status": "pending"
                 }
 
                 # --- Prepare PointStruct with Placeholder Vector ---

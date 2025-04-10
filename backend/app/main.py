@@ -43,6 +43,14 @@ logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
 # API Prefix
 api_prefix = settings.API_PREFIX
 
+# --- Logging Configuration ---
+# Configure root logger to show INFO level logs
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, 
+                    format='%(levelname)s:     %(name)s - %(message)s') 
+# Optionally, set to logging.DEBUG for more verbose output:
+# logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s:     %(name)s - %(message)s')
+# --- End Logging Configuration ---
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup

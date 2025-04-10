@@ -107,8 +107,8 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
       name,
       description: description || undefined,
       sensitivity,
-      allow_rules: allowRules.length > 0 ? allowRules : undefined,
-      deny_rules: denyRules.length > 0 ? denyRules : undefined,
+      allow_rules: allowRules,
+      deny_rules: denyRules,
       // REMOVED embedding fields from payload
       expiry: expiry ? new Date(expiry).toISOString() : null,
       is_active: isActive,

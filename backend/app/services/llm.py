@@ -153,38 +153,97 @@ async def generate_openai_rag_response(
         # 3. Determine user-specific collection name and search
         sanitized_email = user.email.replace('@', '_').replace('.', '_')
         collection_to_search = f"{sanitized_email}_knowledge_base"
-        logger.debug(f"Searching RAG collection '{collection_to_search}' for user {user.email}...")
+        logger.info(f"RAG: Targeting Qdrant collection: '{collection_to_search}' for user {user.email}")
+
+        # Log a snippet of the query embedding
+        embedding_snippet = str(query_embedding[:5]) + "..." if query_embedding else "None"
+        logger.debug(f"RAG: Using query embedding (first 5 elements): {embedding_snippet}")
+
         search_results = await search_qdrant_knowledge(
-            query_embedding=query_embedding, 
-            limit=3, 
+            query_embedding=query_embedding,
+            limit=10,
             collection_name=collection_to_search
         )
-        logger.debug(f"Found {len(search_results)} context documents from RAG collection.")
+        # Log the raw search result length AND the results themselves for inspection
+        logger.info(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
+        logger.debug(f"RAG: Raw search results: {search_results}")
 
         # 4. Format context and augment prompt
         context_str = ""
         if search_results:
             context_str += "Relevant Context From Knowledge Base:\n---\n"
             for i, result in enumerate(search_results):
-                payload_text = result.get('payload', {}).get('raw_text', '') 
+                payload_text = result.get('payload', {}).get('content', '') 
                 context_str += f"Context {i+1} (Score: {result.get('score'):.4f}):\n{payload_text}\n---\n"
             context_str += "End of Context\n\n"
         else:
+            # Log if no results were found (shouldn't happen based on INFO log, but good practice)
+            logger.warning(f"RAG: search_qdrant_knowledge returned 0 results for collection '{collection_to_search}'.")
             context_str = "No relevant context found in the knowledge base.\n\n"
+        
+        # --- ADDED LOG: Show the final constructed context --- 
+        logger.debug(f"RAG: Final context string being sent to LLM:\n---\n{context_str}\n---")
+        # --- END ADDED LOG ---
 
-        system_prompt = f"""You are a helpful AI assistant. Answer the user's question based *only* on the provided context from the knowledge base. If the context doesn't contain the answer, state that the information is not available in the knowledge base. Do not use prior knowledge outside the provided context.
+        # --- REVISED SYSTEM PROMPT V5 (Allowing History for Follow-ups) ---
+        system_prompt = f"""You are a helpful AI assistant. Your primary goal is to answer the user's question based on the **provided RAG context** and the **ongoing conversation history**. Do not use prior knowledge outside of these.
 
-{context_str}User Question: {message}
+**Instructions (Follow in order):**
+
+1.  **Counting Query:** If the user asks 'how many' of something:
+    *   Carefully review all provided context snippets for evidence related to the user's query terms.
+    *   Attempt to count the distinct instances mentioned based *only* on the RAG context.
+    *   **Response:** State the count clearly if possible. If not, state that and summarize the key details of all relevant evidence found in the RAG context. **Stop.**
+
+2.  **Follow-up Query:** If the user's current question is a follow-up referring to your *immediately preceding* response (e.g., 'give me the details', 'tell me more about that', 'what was the first point?'):
+    *   Refer primarily to your **own previous response** in the chat history.
+    *   Provide the requested details or elaboration based on what you stated previously. Use the RAG context only if needed to supplement the details from your previous response. **Stop.**
+
+3.  **Other Query - Direct Answer:** If the question is not about counting or a direct follow-up, try to find and provide a direct answer from the RAG context. If successful, provide the answer and stop.
+
+4.  **Fallback - Summarization:** If you cannot provide a count, answer a follow-up, or find a direct answer based *only* on the RAG context and history, state that you couldn't find the specific information, and then summarize the key information from the RAG context that seems most relevant to the user's original question.
+
+--- START RAG CONTEXT ---
+{context_str}
+--- END RAG CONTEXT ---
+
+User Question: {message}
 
 Answer:"""
+        # --- END REVISED SYSTEM PROMPT V5 ---
+        
+        # --- START HISTORY HANDLING ---
         messages = []
         messages.append({"role": "system", "content": system_prompt})
 
+        # Add chat history (last 5 messages), ensuring alternating user/assistant roles
+        if chat_history:
+            # Take the last 5 entries (or fewer if history is shorter)
+            history_to_use = chat_history[-5:]
+            logger.debug(f"RAG: Adding {len(history_to_use)} messages from history to prompt.")
+            for entry in history_to_use:
+                role = entry.get("role")
+                content = entry.get("content")
+                if role and content:
+                    # Basic validation: Ensure role is 'user' or 'assistant'
+                    if role in ["user", "assistant"]:
+                         messages.append({"role": role, "content": content})
+                    else:
+                        logger.warning(f"RAG: Skipping history entry with invalid role: {role}")
+                else:
+                     logger.warning(f"RAG: Skipping history entry with missing role or content: {entry}")
+
+        # Add the *current* user message (it's already included IN the system prompt's {message})
+        # We don't add it separately here as it's part of the final instruction in the system prompt.
+        # --- END HISTORY HANDLING ---
+
         # 5. Call OpenAI using the USER-specific client
         logger.debug(f"Calling OpenAI model '{settings.LLM_MODEL}' with user key...")
+        # Log the final messages structure being sent (optional but good for debugging history)
+        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}") 
         response = await user_client.chat.completions.create(
-            model=settings.LLM_MODEL, # Consider allowing model selection later
-            messages=messages,
+            model=settings.LLM_MODEL, 
+            messages=messages, # Send the constructed messages list
             temperature=0.1,
         )
         response_content = response.choices[0].message.content

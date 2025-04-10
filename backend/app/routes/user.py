@@ -34,9 +34,11 @@ class APIKeyInfoResponse(BaseModel):
 # Add Pydantic models for the request and response
 class DefaultModelRequest(BaseModel):
     model_id: str
+    model_config = {'protected_namespaces': ()}
 
 class DefaultModelResponse(BaseModel):
     model_id: str
+    model_config = {'protected_namespaces': ()}
 
 # Legacy endpoint for backward compatibility - maps to OpenAI provider
 @router.post("/api-key", status_code=status.HTTP_204_NO_CONTENT)
