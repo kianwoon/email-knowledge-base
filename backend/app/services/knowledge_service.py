@@ -87,7 +87,8 @@ async def _process_and_store_emails(
                 subject = email_content.subject or ""
                 if subject and openai_client.api_key:
                     try:
-                        prompt = f"Generate 3-5 relevant tags as a JSON object for the following email subject. The JSON object should have a single key 'tags' containing a list of strings. Subject: '{subject}'"
+                        # Refined prompt for more meaningful tags
+                        prompt = f"Analyze the following email subject and generate 3-5 concise, descriptive tags suitable for categorization and filtering. Focus on the main topic, project names, document types, or key entities mentioned. Output as a JSON object with a single key 'tags' containing a list of lowercased strings. Subject: '{subject}'"
                         response = await openai_client.chat.completions.create(
                             model=settings.OPENAI_MODEL_NAME,
                             messages=[{"role": "user", "content": prompt}],
