@@ -190,35 +190,36 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             self.update_state(state=state, meta=full_meta)
         
         # Run the async service function within an event loop
+        # Revert to receiving PointStructs
         processed_count, failed_count, points_to_upsert = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,
                 owner_email=user_id,
                 filter_criteria=filter_criteria,
                 outlook_service=outlook_service,
-                qdrant_client=qdrant_client, # Pass the client
-                target_collection_name=target_collection_name, # Pass the correct name
-                update_state_func=update_progress # Pass the callback
+                qdrant_client=qdrant_client, 
+                target_collection_name=target_collection_name, 
+                update_state_func=update_progress 
             )
         )
 
-        logger.info(f"Task {task_id}: Email processing completed by service. Processed: {processed_count}, Failed: {failed_count}. Points to upsert: {len(points_to_upsert)}")
+        logger.info(f"Task {task_id}: Email processing completed. Processed: {processed_count}, Failed: {failed_count}. Points to upsert: {len(points_to_upsert)}")
         self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Upserting data...'})
 
-        # --- Upsert Points to Qdrant --- 
+        # --- Upsert PointStructs to Qdrant --- 
         if points_to_upsert:
             try:
-                logger.info(f"Task {task_id}: Upserting {len(points_to_upsert)} points to Qdrant collection '{target_collection_name}'.")
+                logger.info(f"Task {task_id}: Upserting {len(points_to_upsert)} points (with placeholder vectors) to Qdrant collection '{target_collection_name}'.")
+                # Use points argument again
                 qdrant_client.upsert(
                     collection_name=target_collection_name,
-                    points=points_to_upsert,
+                    points=points_to_upsert, # Pass list of PointStructs
                     wait=True
                 )
                 logger.info(f"Task {task_id}: Successfully upserted {len(points_to_upsert)} points.")
             except Exception as upsert_err:
                 failed_count += len(points_to_upsert) # Count these as failed if upsert fails
                 logger.error(f"Task {task_id}: Failed to upsert {len(points_to_upsert)} points to Qdrant: {upsert_err}", exc_info=True)
-                # Decide if this is a partial or total failure for the task status
                 self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Qdrant upsert failed: {upsert_err}'})
                 return {'status': 'ERROR', 'message': f'Failed to save processed data: {upsert_err}'}
         else:
