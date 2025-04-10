@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # OpenAI settings
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY") # validated by check_required_env_vars
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") # validated by check_required_env_vars
-    OPENAI_MODEL_NAME: str = os.getenv("LLM", "gpt-3.5-turbo")
+    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
     # Qdrant settings
     QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars

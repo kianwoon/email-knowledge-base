@@ -242,11 +242,11 @@ Answer:""" # End of system prompt
         # --- END HISTORY HANDLING ---
 
         # 5. Call OpenAI using the USER-specific client
-        logger.debug(f"Calling OpenAI model '{settings.LLM_MODEL}' with user key...")
+        logger.debug(f"Calling OpenAI model '{settings.OPENAI_MODEL_NAME}' with user key...")
         # Log the final messages structure being sent (optional but good for debugging history)
         logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}") 
         response = await user_client.chat.completions.create(
-            model=settings.LLM_MODEL, 
+            model=settings.OPENAI_MODEL_NAME, 
             messages=messages, # Send the constructed messages list
             temperature=0.1,
         )
