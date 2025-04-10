@@ -83,15 +83,57 @@ const JarvisPage: React.FC = () => {
   // Ref for the chat container
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize with a welcome message immediately
+  // Reference for the refresh interval
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Define chat message type
+  type ChatMessage = {
+    role: 'user' | 'assistant';
+    content: string;
+  };
+
+  // Initialize with a welcome message or load existing chat history
   useEffect(() => {
-    setChatHistory([
-      { 
-        role: 'assistant', 
-        content: t('jarvis.welcomeMessage', 'Hello! I am Jarvis, your AI assistant. How can I help you today?')
+    // Try to load existing chat history from sessionStorage
+    const savedHistory = sessionStorage.getItem('jarvis_chat_history');
+    if (savedHistory) {
+      try {
+        const parsedHistory = JSON.parse(savedHistory) as ChatMessage[];
+        // Validate the parsed history
+        if (Array.isArray(parsedHistory) && parsedHistory.every(msg => 
+          (msg.role === 'user' || msg.role === 'assistant') && typeof msg.content === 'string'
+        )) {
+          setChatHistory(parsedHistory);
+        } else {
+          throw new Error('Invalid chat history format');
+        }
+      } catch (e) {
+        console.error("Failed to parse saved chat history:", e);
+        // If parsing fails, set default welcome message
+        setChatHistory([
+          { 
+            role: 'assistant' as const, 
+            content: t('jarvis.welcomeMessage', 'Hello! I am Jarvis, your AI assistant. How can I help you today?')
+          }
+        ]);
       }
-    ]);
+    } else {
+      // If no saved history, set default welcome message
+      setChatHistory([
+        { 
+          role: 'assistant' as const, 
+          content: t('jarvis.welcomeMessage', 'Hello! I am Jarvis, your AI assistant. How can I help you today?')
+        }
+      ]);
+    }
   }, [t]);
+
+  // Save chat history to sessionStorage whenever it changes
+  useEffect(() => {
+    if (chatHistory.length > 0) {
+      sessionStorage.setItem('jarvis_chat_history', JSON.stringify(chatHistory));
+    }
+  }, [chatHistory]);
 
   // Load saved default model
   useEffect(() => {
@@ -120,35 +162,35 @@ const JarvisPage: React.FC = () => {
     loadDefaultModel();
   }, []);
 
-  // Load saved API keys
+  // Initial load of API keys
   useEffect(() => {
-    const loadKeys = async () => {
-      // Check if we already loaded keys in this session
-      const sessionLoaded = sessionStorage.getItem('jarvis_keys_loaded');
-      if (sessionLoaded === 'true') {
-        return;
+    const loadInitialKeys = async () => {
+      // Check if we already have keys in sessionStorage
+      const cachedKeys = sessionStorage.getItem('jarvis_api_keys');
+      if (cachedKeys) {
+        try {
+          const parsed = JSON.parse(cachedKeys);
+          setApiKeys(parsed);
+          setHasApiKey(Object.keys(parsed).length > 0);
+          return;
+        } catch (e) {
+          console.error("Failed to parse cached API keys:", e);
+        }
       }
 
-      const timer = setTimeout(async () => {
-        await loadApiKeys(false);
-        // Mark as loaded in this session
-        sessionStorage.setItem('jarvis_keys_loaded', 'true');
-        
-        // Set up refresh interval
-        const refreshInterval = setInterval(() => {
-          loadApiKeys(true);
-        }, 30000);
-        
-        return () => {
-          clearInterval(refreshInterval);
-        };
-      }, 100);
-      
-      return () => clearTimeout(timer);
+      // If no cached keys, load from database
+      await loadApiKeys(false);
     };
 
-    loadKeys();
-  }, []);
+    loadInitialKeys();
+  }, []); // Run only on mount
+
+  // Load keys only when entering Settings tab
+  useEffect(() => {
+    if (activeTab === 1) { // Settings tab
+      loadApiKeys(false);
+    }
+  }, [activeTab]);
 
   // Get unique providers from the models list - memoized
   const uniqueProviders = useMemo(() => {
@@ -161,13 +203,75 @@ const JarvisPage: React.FC = () => {
     return Array.from(providers);
   }, []);
 
+  const loadApiKeys = async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setApiKeyLoading(true);
+      setApiKeyError(null);
+    }
+
+    try {
+      const providersToCheck: ApiProvider[] = ['openai', 'anthropic', 'google'];
+      
+      const keyPromises = providersToCheck.map(async (provider) => {
+        try {
+          let apiKey: string | null = null;
+          if (provider === 'openai') {
+            try {
+              apiKey = await getOpenAIApiKey();
+              if (apiKey === null) {
+                apiKey = await getProviderApiKey(provider);
+              }
+            } catch (legacyError) {
+              apiKey = await getProviderApiKey(provider);
+            }
+          } else {
+            apiKey = await getProviderApiKey(provider);
+          }
+          return { provider, apiKey };
+        } catch (error) {
+          console.error(`Error loading ${provider} API key:`, error);
+          return { provider, apiKey: null };
+        }
+      });
+
+      const results = await Promise.allSettled(keyPromises);
+      const newApiKeys: Record<string, string> = {};
+      let hasAnyKey = false;
+      
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.apiKey) {
+          newApiKeys[result.value.provider] = result.value.apiKey;
+          hasAnyKey = true;
+        }
+      });
+
+      setApiKeys(newApiKeys);
+      setHasApiKey(hasAnyKey);
+      sessionStorage.setItem('jarvis_api_keys', JSON.stringify(newApiKeys));
+
+      if (hasAnyKey) {
+        setRetryCount(0);
+        localStorage.setItem('jarvis_had_api_key', 'true');
+      }
+    } catch (error) {
+      console.error("Failed to load API keys:", error);
+      if (!isBackgroundRefresh) {
+        setApiKeyError("Failed to load saved API keys");
+      }
+    } finally {
+      if (!isBackgroundRefresh) {
+        setApiKeyLoading(false);
+      }
+    }
+  };
+
   // Handle API key updates
   const handleApiKeyUpdate = (provider: string, key: string) => {
-    console.log(`Updating ${provider} API key to length: ${key.length}`);
-    setApiKeys(prev => ({
-      ...prev,
+    const newKeys = {
+      ...apiKeys,
       [provider]: key
-    }));
+    };
+    setApiKeys(newKeys);
   };
 
   // Save API keys
@@ -175,15 +279,14 @@ const JarvisPage: React.FC = () => {
     try {
       if (!apiKeys[provider]) return;
       
-      console.log(`Saving ${provider} API key of length: ${apiKeys[provider].length}`);
-      
       if (provider === 'openai') {
-        // Use legacy endpoint for backward compatibility
         await saveOpenAIApiKey(apiKeys[provider]);
       } else {
-        // Use new provider-specific endpoint
         await saveProviderApiKey(provider as ApiProvider, apiKeys[provider]);
       }
+      
+      // Update sessionStorage after successful save to DB
+      sessionStorage.setItem('jarvis_api_keys', JSON.stringify(apiKeys));
       
       toast({
         title: t('jarvis.apiKeySaved', 'API Key Saved'),
@@ -251,13 +354,17 @@ const JarvisPage: React.FC = () => {
     }
   };
 
-  // Update chat submission handler
+  // Update handleSendMessage to handle errors without breaking history
   const handleSendMessage = async () => {
     if (!message.trim() || isLoading) return;
 
-    const userMessage = { role: 'user' as const, content: message };
-    // Optimistically update UI
-    setChatHistory(prev => [...prev, userMessage]);
+    const userMessage: ChatMessage = { role: 'user', content: message };
+    const currentHistory = [...chatHistory, userMessage];
+    
+    // Update UI and save to sessionStorage
+    setChatHistory(currentHistory);
+    sessionStorage.setItem('jarvis_chat_history', JSON.stringify(currentHistory));
+    
     setMessage('');
     setIsLoading(true);
 
@@ -265,16 +372,20 @@ const JarvisPage: React.FC = () => {
       // Send message with selected model
       const reply = await sendChatMessage(userMessage.content, chatHistory, selectedModel);
       
-      // Add assistant response
-      setChatHistory(prev => [...prev, { role: 'assistant', content: reply }]);
+      // Add assistant response and save to sessionStorage
+      const updatedHistory = [...currentHistory, { role: 'assistant' as const, content: reply }];
+      setChatHistory(updatedHistory);
+      sessionStorage.setItem('jarvis_chat_history', JSON.stringify(updatedHistory));
       
     } catch (error) {
       console.error("Failed to send message:", error);
       const errorMsg = (error instanceof Error) ? error.message : 'Failed to get response';
-      setChatHistory(prev => [
-        ...prev,
-        { role: 'assistant', content: `Error: ${errorMsg}` }
-      ]);
+      
+      // Add error message and save to sessionStorage
+      const errorHistory = [...currentHistory, { role: 'assistant' as const, content: `Error: ${errorMsg}` }];
+      setChatHistory(errorHistory);
+      sessionStorage.setItem('jarvis_chat_history', JSON.stringify(errorHistory));
+      
       toast({
         title: t('common.error'),
         description: errorMsg || t('errors.chatFailed'),
@@ -284,120 +395,6 @@ const JarvisPage: React.FC = () => {
       });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const loadApiKeys = async (isBackgroundRefresh = false) => {
-    const now = Date.now();
-    
-    // For background refresh, check if enough time has passed
-    if (isBackgroundRefresh) {
-      const lastRefresh = sessionStorage.getItem('jarvis_last_refresh');
-      if (lastRefresh && (now - parseInt(lastRefresh)) < 30000) {
-        return; // Skip if less than 30 seconds since last refresh
-      }
-    }
-
-    // For initial load, check if we have cached keys
-    if (!isBackgroundRefresh) {
-      const cachedKeys = sessionStorage.getItem('jarvis_api_keys');
-      if (cachedKeys) {
-        try {
-          const parsed = JSON.parse(cachedKeys);
-          setApiKeys(parsed);
-          setHasApiKey(Object.keys(parsed).length > 0);
-          return;
-        } catch (e) {
-          console.error("Failed to parse cached API keys:", e);
-        }
-      }
-    }
-
-    if (!isBackgroundRefresh) {
-      setApiKeyLoading(true);
-      if (!isRetry) setApiKeyError(null);
-    }
-
-    try {
-      // List of providers to check
-      const providersToCheck: ApiProvider[] = ['openai', 'anthropic', 'google'];
-      
-      // Create an array of promises for fetching keys
-      const keyPromises = providersToCheck.map(async (provider) => {
-        try {
-          let apiKey: string | null = null;
-          // Special handling for OpenAI: try legacy endpoint first
-          if (provider === 'openai') {
-            try {
-              apiKey = await getOpenAIApiKey();
-              // If legacy returns null, still try the provider-specific one
-              if (apiKey === null) {
-                apiKey = await getProviderApiKey(provider);
-              }
-            } catch (legacyError) {
-              // Fallback to provider-specific endpoint on error
-              apiKey = await getProviderApiKey(provider);
-            }
-          } else {
-            // For other providers, use the standard endpoint
-            apiKey = await getProviderApiKey(provider);
-          }
-          return { provider, apiKey };
-        } catch (error) {
-          console.error(`Error loading ${provider} API key:`, error);
-          return { provider, apiKey: null };
-        }
-      });
-
-      const results = await Promise.allSettled(keyPromises);
-      const newApiKeys: Record<string, string> = {};
-      let hasAnyKey = false;
-      
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value.apiKey) {
-          newApiKeys[result.value.provider] = result.value.apiKey;
-          hasAnyKey = true;
-        }
-      });
-
-      // Update state and cache
-      setApiKeys(newApiKeys);
-      setHasApiKey(hasAnyKey);
-      sessionStorage.setItem('jarvis_api_keys', JSON.stringify(newApiKeys));
-      sessionStorage.setItem('jarvis_last_refresh', now.toString());
-
-      if (hasAnyKey) {
-        setRetryCount(0);
-        localStorage.setItem('jarvis_had_api_key', 'true');
-      } else if (!isBackgroundRefresh) {
-        const hadApiKey = localStorage.getItem('jarvis_had_api_key') === 'true';
-        if (hadApiKey && activeTab === 0) {
-          toast({
-            title: t('jarvis.apiKeyMissing', 'API Key Missing'),
-            description: t('jarvis.apiKeyMissingAfterLogin', 'Your API key could not be loaded after login. Please try refreshing the page or re-entering your API key.'),
-            status: 'warning',
-            duration: 8000,
-            isClosable: true,
-          });
-        } else if (activeTab === 0 && !hadApiKey) {
-          toast({
-            title: t('jarvis.noApiKey', 'API Key Required'),
-            description: t('jarvis.apiKeyRequired', 'You need to provide your API key to use Jarvis. Please add it in the settings tab.'),
-            status: 'info',
-            duration: 8000,
-            isClosable: true,
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Failed to load API keys:", error);
-      if (!isBackgroundRefresh) {
-        setApiKeyError("Failed to load saved API keys");
-      }
-    } finally {
-      if (!isBackgroundRefresh) {
-        setApiKeyLoading(false);
-      }
     }
   };
 
