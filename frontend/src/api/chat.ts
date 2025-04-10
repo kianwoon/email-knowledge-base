@@ -32,9 +32,8 @@ export const sendChatMessage = async (
       payload.model_id = modelId;
     }
     
-    // Make sure the path matches the backend route: /api/v1/chat/openai
-    // (apiClient likely adds /api/v1 automatically)
-    const response = await apiClient.post<ChatResponsePayload>('/chat/openai', payload);
+    // Update the path to match the corrected backend route: /api/v1/chat/
+    const response = await apiClient.post<ChatResponsePayload>('/chat/', payload);
     
     return response.data.reply;
   } catch (error) {

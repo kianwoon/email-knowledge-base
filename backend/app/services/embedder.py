@@ -7,28 +7,25 @@ from fastapi import HTTPException
 from app.config import settings
 from app.db.qdrant_client import get_qdrant_client
 
-# Initialize OpenAI client
+# Initialize default client using system key
 openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-
-async def create_embedding(text: str) -> List[float]:
-    """
-    Create an embedding vector for the given text using OpenAI's embedding model
-    """
+# Modify to accept an optional client
+async def create_embedding(text: str, client: Optional[AsyncOpenAI] = None) -> List[float]:
+    """Creates an embedding for the given text using OpenAI's text-embedding-3-small model."""
+    # Use the provided client if available, otherwise use the default global client
+    active_client = client if client else openai_client
     try:
-        response = await openai_client.embeddings.create(
-            model=settings.EMBEDDING_MODEL,
-            input=text
+        response = await active_client.embeddings.create(
+            input=[text], 
+            model="text-embedding-3-small"
         )
-        embedding = response.data[0].embedding
-        return embedding
+        return response.data[0].embedding
     except Exception as e:
-        print(f"Error creating embedding: {str(e)}")
-        # Consider logging the error properly
-        # Return a zero vector or raise an exception based on desired handling
-        # Raising an exception might be better to signal failure upstream
-        raise ValueError(f"Failed to create embedding: {e}")
-        # return [0.0] * settings.EMBEDDING_DIMENSION # Old fallback
+        # Log the error
+        print(f"Error creating embedding: {e}")
+        # Re-raise or handle as appropriate, e.g., return None or raise specific exception
+        raise
 
 # Renamed placeholder search_similar and implemented real search
 async def search_qdrant_knowledge(

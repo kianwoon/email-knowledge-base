@@ -1,15 +1,22 @@
 import json
 from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
+from sqlalchemy.orm import Session
+import logging # Import logging
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
 from app.models.user import User # Assuming User model is here
 # Import RAG components
 from app.services.embedder import create_embedding, search_qdrant_knowledge
+from app.crud import api_key_crud # Import API key CRUD
+from fastapi import HTTPException, status # Import HTTPException
 
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
+# Keep the global client for other potential uses (like analyze_email_content)
+# But Jarvis chat will use a user-specific key if available.
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
@@ -109,41 +116,56 @@ Return a JSON object with the following fields:
         )
 
 
-# Updated function to accept user email for collection targeting
+# Updated function to accept user email AND DB session for key lookup
 async def generate_openai_rag_response(
     message: str, 
-    user: User, # Add user parameter
+    user: User, # User object
+    db: Session, # Database session
     chat_history: Optional[List[Dict[str, str]]] = None
 ) -> str:
     """
-    Generates a chat response using RAG, targeting the user's specific embedding collection.
-    # ... (rest of docstring) ...
+    Generates a chat response using RAG and the USER'S OpenAI API key.
+    Fails if the user has not provided their OpenAI API key.
     """
     try:
-        # 1. Create embedding for the user message
-        print(f"Creating embedding for message: '{message[:50]}...' ")
-        query_embedding = await create_embedding(message)
-        print("Embedding created.")
+        # 1. Get USER's OpenAI API Key
+        logger.debug(f"Attempting to retrieve user's OpenAI API key for {user.email}")
+        user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
 
-        # 2. Determine user-specific collection name for RAG and search
-        sanitized_email = user.email.replace('@', '_').replace('.', '_')
-        # *** CORRECTED: Use _knowledge_base for RAG search ***
-        collection_to_search = f"{sanitized_email}_knowledge_base" 
+        if not user_openai_key:
+            logger.warning(f"User {user.email} does not have an OpenAI API key set for Jarvis.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OpenAI API key is required for Jarvis. Please add your key in the settings."
+            )
         
-        print(f"Searching RAG collection '{collection_to_search}' for relevant context for user {user.email}...")
+        logger.debug(f"Using user's personal OpenAI key for {user.email}")
+        # Initialize a client SPECIFICALLY with the user's key for this request
+        user_client = AsyncOpenAI(api_key=user_openai_key)
+
+        # 2. Create embedding for the user message (can still use system key client? Let's use user key)
+        # Potentially switch embedding to use user_client too if needed, or keep using global client
+        # For now, let's use the user_client for embedding as well for consistency
+        logger.debug(f"Creating embedding for message: '{message[:50]}...' using user key")
+        query_embedding = await create_embedding(message, client=user_client) # Pass the user client
+        logger.debug("Embedding created using user key.")
+
+        # 3. Determine user-specific collection name and search
+        sanitized_email = user.email.replace('@', '_').replace('.', '_')
+        collection_to_search = f"{sanitized_email}_knowledge_base"
+        logger.debug(f"Searching RAG collection '{collection_to_search}' for user {user.email}...")
         search_results = await search_qdrant_knowledge(
             query_embedding=query_embedding, 
             limit=3, 
-            collection_name=collection_to_search # Pass the RAG collection name
+            collection_name=collection_to_search
         )
-        print(f"Found {len(search_results)} context documents from RAG collection.")
+        logger.debug(f"Found {len(search_results)} context documents from RAG collection.")
 
-        # 3. Format context and augment prompt
+        # 4. Format context and augment prompt
         context_str = ""
         if search_results:
             context_str += "Relevant Context From Knowledge Base:\n---\n"
             for i, result in enumerate(search_results):
-                # Ensure 'raw_text' is the correct key in the _knowledge_base payload
                 payload_text = result.get('payload', {}).get('raw_text', '') 
                 context_str += f"Context {i+1} (Score: {result.get('score'):.4f}):\n{payload_text}\n---\n"
             context_str += "End of Context\n\n"
@@ -158,22 +180,28 @@ Answer:"""
         messages = []
         messages.append({"role": "system", "content": system_prompt})
 
-        # 4. Call OpenAI
-        print(f"Calling OpenAI model '{settings.LLM_MODEL}' with augmented prompt...")
-        response = await client.chat.completions.create(
-            model=settings.LLM_MODEL, 
+        # 5. Call OpenAI using the USER-specific client
+        logger.debug(f"Calling OpenAI model '{settings.LLM_MODEL}' with user key...")
+        response = await user_client.chat.completions.create(
+            model=settings.LLM_MODEL, # Consider allowing model selection later
             messages=messages,
             temperature=0.1,
         )
         response_content = response.choices[0].message.content
-        print("Received response from OpenAI.")
+        logger.debug(f"Received response from OpenAI using user key for {user.email}.")
         return response_content if response_content else "Sorry, I couldn't generate a response based on the context."
     
+    except HTTPException as he:
+        # Re-raise HTTP exceptions (like the 400 for missing key)
+        raise he
     except Exception as e:
-        print(f"Error during RAG generation for user {user.email}: {str(e)}")
+        logger.error(f"Error during RAG generation for user {user.email} using their key: {str(e)}", exc_info=True)
         # Log the specific collection searched during the error
         collection_name_on_error = f"{user.email.replace('@', '_').replace('.', '_')}_knowledge_base"
-        return f"Sorry, an error occurred while searching the '{collection_name_on_error}' knowledge base: {str(e)}"
+        # Return a generic error, hide specific details unless needed for debugging
+        # Consider raising a 500 error instead of returning a string for better handling
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+                            detail=f"Sorry, an error occurred while searching the '{collection_name_on_error}' knowledge base.")
 
 # Keep the old simple chat function for now, or remove if replaced by RAG
 # async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:

@@ -127,7 +127,7 @@ app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["S
 app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"])
 
 # --- Include Chat Router --- 
-app.include_router(chat.router, prefix=settings.API_PREFIX, tags=["Chat"]) # Includes /api/v1 prefix
+app.include_router(chat.router, prefix=f"{settings.API_PREFIX}/chat", tags=["Chat"])
 # --- End Include ---
 
 # --- Include User Router ---

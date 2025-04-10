@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
@@ -7,6 +8,7 @@ from app.services.llm import generate_openai_rag_response
 # Import authentication dependency and User model
 from app.dependencies.auth import get_current_active_user 
 from app.models.user import User 
+from app.db.session import get_db
 
 router = APIRouter()
 
@@ -17,28 +19,26 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
-@router.post("/chat/openai", response_model=ChatResponse)
-async def handle_openai_chat(
+@router.post("/", response_model=ChatResponse)
+async def chat_endpoint(
     request: ChatRequest,
-    current_user: User = Depends(get_current_active_user) # Add dependency
+    current_user: User = Depends(get_current_active_user), # Get authenticated user
+    db: Session = Depends(get_db) # Inject DB session
 ):
-    """
-    Endpoint to handle chat requests using RAG with OpenAI, 
-    targeting the user's specific collection.
-    """
-    if not current_user:
-         # This check might be redundant if get_current_active_user raises exception
-         raise HTTPException(status_code=401, detail="Could not authenticate user")
-         
+    """Receives a chat message and returns a response using RAG."""
     try:
-        # Call the RAG function, passing the authenticated user
+        # Call the RAG function, passing the user object and db session
         response_text = await generate_openai_rag_response(
-            message=request.message,
-            user=current_user, # Pass the user object
-            chat_history=request.chat_history 
+            message=request.message, 
+            user=current_user,
+            db=db, # Pass the db session
+            chat_history=request.chat_history # Pass history if provided
         )
         return ChatResponse(reply=response_text)
+    except HTTPException as he:
+        # Re-raise HTTP exceptions (like 400 for missing key)
+        raise he
     except Exception as e:
-        # Log the exception details if needed
-        print(f"Error in chat endpoint for user {current_user.email}: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error generating chat response.") 
+        # Log the error
+        # Consider more specific error handling
+        raise HTTPException(status_code=500, detail=f"Error generating chat response: {str(e)}") 
