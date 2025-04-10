@@ -201,10 +201,16 @@ async def get_current_active_user_or_token_owner(
 async def get_current_active_user(
     current_user: User | None = Depends(get_current_user)
 ) -> User:
+    """Get current active user or raise 401."""
     if current_user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+    
     return current_user
 
 async def get_current_user_from_cookie(request: Request) -> User:

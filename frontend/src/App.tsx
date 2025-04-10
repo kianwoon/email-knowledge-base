@@ -295,7 +295,9 @@ function App() {
             path="/jarvis"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
-                <JarvisPage />
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <JarvisPage />
+                </React.Suspense>
               </ProtectedRoute>
             }
           />

@@ -4,6 +4,9 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
+from app.models.user import User # Assuming User model is here
+# Import RAG components
+from app.services.embedder import create_embedding, search_qdrant_knowledge
 
 
 # Initialize OpenAI client
@@ -106,35 +109,72 @@ Return a JSON object with the following fields:
         )
 
 
-# New function for basic OpenAI chat
-async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
+# Updated function to accept user email for collection targeting
+async def generate_openai_rag_response(
+    message: str, 
+    user: User, # Add user parameter
+    chat_history: Optional[List[Dict[str, str]]] = None
+) -> str:
     """
-    Generates a chat response using the pre-configured OpenAI client.
+    Generates a chat response using RAG, targeting the user's specific embedding collection.
+    # ... (rest of docstring) ...
     """
-    messages = []
-    # Optional: Add a simple system prompt if desired
-    # messages.append({"role": "system", "content": "You are a helpful assistant."})
-    
-    if chat_history:
-        messages.extend(chat_history)
-        
-    messages.append({"role": "user", "content": message})
-    
     try:
-        # Use the configured model from settings (or a default like "gpt-3.5-turbo")
-        model_to_use = settings.LLM_MODEL # Or specify e.g., "gpt-4o-mini"
+        # 1. Create embedding for the user message
+        print(f"Creating embedding for message: '{message[:50]}...' ")
+        query_embedding = await create_embedding(message)
+        print("Embedding created.")
+
+        # 2. Determine user-specific collection name for RAG and search
+        sanitized_email = user.email.replace('@', '_').replace('.', '_')
+        # *** CORRECTED: Use _knowledge_base for RAG search ***
+        collection_to_search = f"{sanitized_email}_knowledge_base" 
         
-        response = await client.chat.completions.create(
-            model=model_to_use, 
-            messages=messages,
-            temperature=0.7, # Adjust temperature as needed for creativity vs factualness
+        print(f"Searching RAG collection '{collection_to_search}' for relevant context for user {user.email}...")
+        search_results = await search_qdrant_knowledge(
+            query_embedding=query_embedding, 
+            limit=3, 
+            collection_name=collection_to_search # Pass the RAG collection name
         )
-        
+        print(f"Found {len(search_results)} context documents from RAG collection.")
+
+        # 3. Format context and augment prompt
+        context_str = ""
+        if search_results:
+            context_str += "Relevant Context From Knowledge Base:\n---\n"
+            for i, result in enumerate(search_results):
+                # Ensure 'raw_text' is the correct key in the _knowledge_base payload
+                payload_text = result.get('payload', {}).get('raw_text', '') 
+                context_str += f"Context {i+1} (Score: {result.get('score'):.4f}):\n{payload_text}\n---\n"
+            context_str += "End of Context\n\n"
+        else:
+            context_str = "No relevant context found in the knowledge base.\n\n"
+
+        system_prompt = f"""You are a helpful AI assistant. Answer the user's question based *only* on the provided context from the knowledge base. If the context doesn't contain the answer, state that the information is not available in the knowledge base. Do not use prior knowledge outside the provided context.
+
+{context_str}User Question: {message}
+
+Answer:"""
+        messages = []
+        messages.append({"role": "system", "content": system_prompt})
+
+        # 4. Call OpenAI
+        print(f"Calling OpenAI model '{settings.LLM_MODEL}' with augmented prompt...")
+        response = await client.chat.completions.create(
+            model=settings.LLM_MODEL, 
+            messages=messages,
+            temperature=0.1,
+        )
         response_content = response.choices[0].message.content
-        return response_content if response_content else "Sorry, I couldn't generate a response."
+        print("Received response from OpenAI.")
+        return response_content if response_content else "Sorry, I couldn't generate a response based on the context."
     
     except Exception as e:
-        print(f"Error calling OpenAI for chat: {str(e)}")
-        # Depending on the error type, you might want different user messages
-        # For now, a generic error message
-        return f"Sorry, an error occurred while generating the response: {str(e)}"
+        print(f"Error during RAG generation for user {user.email}: {str(e)}")
+        # Log the specific collection searched during the error
+        collection_name_on_error = f"{user.email.replace('@', '_').replace('.', '_')}_knowledge_base"
+        return f"Sorry, an error occurred while searching the '{collection_name_on_error}' knowledge base: {str(e)}"
+
+# Keep the old simple chat function for now, or remove if replaced by RAG
+# async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
+#    ... (previous implementation) ...

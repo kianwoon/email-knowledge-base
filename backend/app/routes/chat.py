@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
-from app.services.llm import generate_openai_chat_response
-# Assuming you have authentication set up via dependencies
-# from app.dependencies import get_current_user # Adjust if your dependency is different
-# from app.models.user import User # Adjust user model path if needed
+# Import the RAG function
+from app.services.llm import generate_openai_rag_response
+# Import authentication dependency and User model
+from app.dependencies.auth import get_current_active_user 
+from app.models.user import User 
 
 router = APIRouter()
 
@@ -19,18 +20,25 @@ class ChatResponse(BaseModel):
 @router.post("/chat/openai", response_model=ChatResponse)
 async def handle_openai_chat(
     request: ChatRequest,
-    # current_user: User = Depends(get_current_user) # Uncomment and adjust if auth is needed
+    current_user: User = Depends(get_current_active_user) # Add dependency
 ):
     """
-    Endpoint to handle chat requests using the simple OpenAI-only backend.
+    Endpoint to handle chat requests using RAG with OpenAI, 
+    targeting the user's specific collection.
     """
+    if not current_user:
+         # This check might be redundant if get_current_active_user raises exception
+         raise HTTPException(status_code=401, detail="Could not authenticate user")
+         
     try:
-        response_text = await generate_openai_chat_response(
+        # Call the RAG function, passing the authenticated user
+        response_text = await generate_openai_rag_response(
             message=request.message,
-            chat_history=request.chat_history
+            user=current_user, # Pass the user object
+            chat_history=request.chat_history 
         )
         return ChatResponse(reply=response_text)
     except Exception as e:
         # Log the exception details if needed
-        print(f"Error in chat endpoint: {e}")
+        print(f"Error in chat endpoint for user {current_user.email}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error generating chat response.") 

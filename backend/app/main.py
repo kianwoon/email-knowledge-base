@@ -16,6 +16,8 @@ from app.routes import auth, email, review, vector, webhooks, websockets, knowle
 from app.routes import shared_knowledge 
 # Import the new chat router
 from app.routes import chat 
+# Import the user router for API key management
+from app.routes import user
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -126,6 +128,10 @@ app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["T
 
 # --- Include Chat Router --- 
 app.include_router(chat.router, prefix=settings.API_PREFIX, tags=["Chat"]) # Includes /api/v1 prefix
+# --- End Include ---
+
+# --- Include User Router ---
+app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["User"])
 # --- End Include ---
 
 # Root endpoint (optional - for basic API check)

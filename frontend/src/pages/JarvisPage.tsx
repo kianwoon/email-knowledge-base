@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box,
   Container,
@@ -18,13 +18,16 @@ import {
   TabPanel,
   Textarea,
   HStack,
-  Avatar,
   Flex,
   useColorModeValue,
+  Spinner,
+  Alert,
+  AlertIcon,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser } from 'react-icons/fa';
 import { sendChatMessage } from '../api/chat';
+import { getOpenAIApiKey, saveOpenAIApiKey } from '../api/user';
 
 // Types for LLM models
 interface LLMModel {
@@ -34,44 +37,86 @@ interface LLMModel {
   requiresKey: boolean;
 }
 
-// Expanded list of models
+// Reduced list of models to improve initial load time
 const AVAILABLE_MODELS: LLMModel[] = [
-  { id: 'gpt-4', name: 'GPT-4', provider: 'OpenAI', requiresKey: true },
   { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'OpenAI', requiresKey: true },
+  { id: 'gpt-4', name: 'GPT-4', provider: 'OpenAI', requiresKey: true },
   { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', requiresKey: true },
-  { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'Anthropic', requiresKey: true },
   { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'Google', requiresKey: true },
-  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'Google', requiresKey: true },
-  { id: 'llama3-70b', name: 'Llama 3 70B', provider: 'Meta', requiresKey: true },
-  { id: 'llama3-8b', name: 'Llama 3 8B', provider: 'Meta', requiresKey: true },
-  { id: 'mistral-large', name: 'Mistral Large', provider: 'Mistral', requiresKey: true },
-  { id: 'mixtral-8x7b', name: 'Mixtral 8x7B', provider: 'Mistral', requiresKey: true },
-  { id: 'deepseek-chat', name: 'Deepseek Chat', provider: 'Deepseek', requiresKey: true },
 ];
 
 const JarvisPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
+  
+  // Memoize color values to prevent recalculations
   const userBg = useColorModeValue('blue.50', 'blue.900');
   const assistantBg = useColorModeValue('gray.100', 'gray.700');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  const textColor = useColorModeValue('gray.800', 'whiteAlpha.900');
 
   // State for model selection and API keys
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-3.5-turbo'); // Default model
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [apiKeyLoading, setApiKeyLoading] = useState(false); // Changed to false initially to prevent blocking UI
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
 
-  // Get unique providers from the models list
+  // Initialize with a welcome message immediately
+  useEffect(() => {
+    setChatHistory([
+      { 
+        role: 'assistant', 
+        content: t('jarvis.welcomeMessage', 'Hello! I am Jarvis, your AI assistant. How can I help you today?')
+      }
+    ]);
+  }, [t]);
+
+  // Load saved API keys separately after the UI has rendered
+  useEffect(() => {
+    const loadApiKeys = async () => {
+      try {
+        setApiKeyLoading(true);
+        setApiKeyError(null);
+        
+        const openaiKey = await getOpenAIApiKey();
+        
+        if (openaiKey) {
+          setApiKeys(prev => ({
+            ...prev,
+            'OpenAI': openaiKey
+          }));
+        }
+        
+      } catch (error) {
+        console.error("Failed to load API keys:", error);
+        setApiKeyError("Failed to load saved API keys");
+      } finally {
+        setApiKeyLoading(false);
+      }
+    };
+    
+    // Small delay to allow page to render first
+    const timer = setTimeout(() => {
+      loadApiKeys();
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Get unique providers from the models list - memoized
   const uniqueProviders = useMemo(() => {
     const providers = new Set<string>();
     AVAILABLE_MODELS.forEach(model => {
-      if (model.requiresKey) { // Only add providers that require a key
+      if (model.requiresKey) {
         providers.add(model.provider);
       }
     });
     return Array.from(providers);
-  }, []); // Re-calculate only if AVAILABLE_MODELS changes (it doesn't here, but good practice)
+  }, []);
 
   // Handle API key updates
   const handleApiKeyUpdate = (provider: string, key: string) => {
@@ -79,6 +124,31 @@ const JarvisPage: React.FC = () => {
       ...prev,
       [provider]: key
     }));
+  };
+
+  // Save API keys
+  const handleSaveApiKey = async (provider: string) => {
+    try {
+      if (provider === 'OpenAI' && apiKeys['OpenAI']) {
+        await saveOpenAIApiKey(apiKeys['OpenAI']);
+        toast({
+          title: t('common.success'),
+          description: t('jarvis.apiKeySaved', 'API key saved successfully'),
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to save ${provider} API key:`, error);
+      toast({
+        title: t('common.error'),
+        description: t('jarvis.apiKeySaveError', 'Failed to save API key'),
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
   };
 
   // Update chat submission handler
@@ -91,12 +161,9 @@ const JarvisPage: React.FC = () => {
     setMessage('');
     setIsLoading(true);
 
-    // Prepare history for API (optional, depends on backend needs)
-    const historyForApi = chatHistory; // Send the current history
-
     try {
-      // Call the backend API (Note: This simple version doesn't pass model or key yet)
-      const reply = await sendChatMessage(userMessage.content, historyForApi);
+      // Send message with selected model
+      const reply = await sendChatMessage(userMessage.content, chatHistory, selectedModel);
       
       // Add assistant response
       setChatHistory(prev => [...prev, { role: 'assistant', content: reply }]);
@@ -108,7 +175,7 @@ const JarvisPage: React.FC = () => {
         ...prev,
         { role: 'assistant', content: `Error: ${errorMsg}` }
       ]);
-      toast({ // Add toast notification
+      toast({
         title: t('common.error'),
         description: errorMsg || t('errors.chatFailed'),
         status: 'error',
@@ -116,16 +183,23 @@ const JarvisPage: React.FC = () => {
         isClosable: true,
       });
     } finally {
-      setIsLoading(false); // Stop loading indicator
+      setIsLoading(false);
     }
   };
 
   return (
-    <Container maxW="container.xl" py={8}>
-      <VStack spacing={8} align="stretch">
+    <Container maxW="container.xl" py={5}>
+      <VStack spacing={5} align="stretch">
         <Heading>{t('jarvis.title')}</Heading>
 
-        <Tabs isLazy>
+        {apiKeyError && (
+          <Alert status="warning">
+            <AlertIcon />
+            {apiKeyError} - {t('jarvis.continueWithoutKeys', 'You can continue without saved API keys.')}
+          </Alert>
+        )}
+
+        <Tabs isLazy index={activeTab} onChange={setActiveTab}>
           <TabList>
             <Tab>{t('jarvis.chat')}</Tab>
             <Tab>{t('jarvis.settings')}</Tab>
@@ -133,11 +207,11 @@ const JarvisPage: React.FC = () => {
 
           <TabPanels>
             <TabPanel>
-              {/* Chat Interface - Enhanced */}
+              {/* Chat Interface */}
               <VStack spacing={4} align="stretch">
                 <Box
                   borderWidth={1}
-                  borderColor={useColorModeValue('gray.200', 'gray.600')}
+                  borderColor={borderColor}
                   borderRadius="md"
                   p={4}
                   h={{ base: '50vh', md: '60vh' }}
@@ -155,7 +229,7 @@ const JarvisPage: React.FC = () => {
                       <Box
                         maxW="80%"
                         bg={msg.role === 'user' ? userBg : assistantBg}
-                        color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+                        color={textColor}
                         px={4}
                         py={2}
                         borderRadius="lg"
@@ -166,6 +240,12 @@ const JarvisPage: React.FC = () => {
                     </Flex>
                   ))}
                   <Box flexGrow={1} />
+                  {apiKeyLoading && (
+                    <Flex justify="center" align="center" mt={2}>
+                      <Spinner size="sm" mr={2} />
+                      <Text fontSize="sm">{t('jarvis.loadingApiKeys', 'Loading API keys...')}</Text>
+                    </Flex>
+                  )}
                 </Box>
 
                 <HStack>
@@ -187,7 +267,7 @@ const JarvisPage: React.FC = () => {
                   <Button
                     colorScheme="blue"
                     onClick={handleSendMessage}
-                    isDisabled={!selectedModel || !message.trim() || isLoading}
+                    isDisabled={!message.trim() || isLoading}
                     isLoading={isLoading}
                     alignSelf="flex-end"
                   >
@@ -198,14 +278,13 @@ const JarvisPage: React.FC = () => {
             </TabPanel>
 
             <TabPanel>
-              {/* Settings Interface - Enhanced */}
+              {/* Settings Interface */}
               <VStack spacing={6} align="stretch">
                 <FormControl>
                   <FormLabel>{t('jarvis.settingsContent.selectModel')}</FormLabel>
                   <Select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    placeholder={t('jarvis.settingsContent.selectModelPlaceholder')}
                   >
                     {AVAILABLE_MODELS.map(model => (
                       <option key={model.id} value={model.id}>
@@ -215,18 +294,28 @@ const JarvisPage: React.FC = () => {
                   </Select>
                 </FormControl>
 
-                {/* API Key Inputs - Grouped by Provider */}
+                {/* API Key Inputs - Grouped by Provider with Save Buttons */}
                 {uniqueProviders.map(provider => (
                   <FormControl key={provider}>
                     <FormLabel>
                       {t('jarvis.settingsContent.apiKey', { provider })}
                     </FormLabel>
-                    <Input
-                      type="password"
-                      value={apiKeys[provider] || ''}
-                      onChange={(e) => handleApiKeyUpdate(provider, e.target.value)}
-                      placeholder={t('jarvis.settingsContent.apiKeyPlaceholder')}
-                    />
+                    <HStack>
+                      <Input
+                        type="password"
+                        value={apiKeys[provider] || ''}
+                        onChange={(e) => handleApiKeyUpdate(provider, e.target.value)}
+                        placeholder={t('jarvis.settingsContent.apiKeyPlaceholder')}
+                      />
+                      <Button
+                        onClick={() => handleSaveApiKey(provider)}
+                        isDisabled={!apiKeys[provider]}
+                        colorScheme="green"
+                        size="md"
+                      >
+                        {t('common.save')}
+                      </Button>
+                    </HStack>
                   </FormControl>
                 ))}
               </VStack>

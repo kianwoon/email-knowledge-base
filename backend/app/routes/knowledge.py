@@ -92,15 +92,17 @@ async def get_knowledge_summary_route(
 ):
     """Get combined summary statistics (item counts) for user's knowledge collections."""
     sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
-    raw_collection_name = f"{sanitized_email}_email_knowledge"
-    vector_collection_name = f"{sanitized_email}_email_knowledge_base"
+    # Collection for raw data items
+    raw_collection_name = f"{sanitized_email}_email_knowledge" 
+    # Collection for vector data (RAG) - UPDATED to use knowledge_base collection
+    vector_collection_name = f"{sanitized_email}_knowledge_base"
     logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {raw_collection_name}, {vector_collection_name}")
 
     raw_count = 0
     vector_count = 0
 
     try:
-        # Get raw data count
+        # Get raw data count from raw_collection_name
         try:
             logger.debug(f"Calling qdrant_client.count for raw data collection: {raw_collection_name}")
             count_result_raw = qdrant.count(collection_name=raw_collection_name, exact=True)
@@ -112,9 +114,9 @@ async def get_knowledge_summary_route(
                 raw_count = 0
             else:
                 logger.error(f"Qdrant error counting {raw_collection_name}: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing raw data storage.") # Re-raise for outer catch or handle
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing raw data storage.")
 
-        # Get vector data count
+        # Get vector data count from knowledge_base collection
         try:
             logger.debug(f"Calling qdrant_client.count for vector data collection: {vector_collection_name}")
             count_result_vector = qdrant.count(collection_name=vector_collection_name, exact=True)
@@ -126,13 +128,13 @@ async def get_knowledge_summary_route(
                 vector_count = 0
             else:
                 logger.error(f"Qdrant error counting {vector_collection_name}: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.") # Re-raise for outer catch or handle
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.")
 
-        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': Raw={raw_count}, Vector={vector_count}")
+        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': Raw={raw_count} from {raw_collection_name}, Vector={vector_count} from {vector_collection_name}")
+        # Return counts from both collections
         return KnowledgeSummaryResponseModel(raw_data_count=raw_count, vector_data_count=vector_count)
 
     except Exception as e:
-        # Catch any other unexpected errors during the process
         logger.error(f"Unexpected error fetching combined summary for user '{current_user.email}': {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
