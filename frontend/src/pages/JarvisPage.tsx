@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Box,
   Container,
@@ -77,6 +77,9 @@ const JarvisPage: React.FC = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [savingDefaultModel, setSavingDefaultModel] = useState(false);
+
+  // Ref for the chat container
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Initialize with a welcome message immediately
   useEffect(() => {
@@ -400,6 +403,19 @@ const JarvisPage: React.FC = () => {
     }
   };
 
+  // useEffect to scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      const { scrollHeight, clientHeight, scrollTop } = chatContainerRef.current;
+      // Optional: Only auto-scroll if user isn't scrolled up significantly
+      // You can adjust the threshold (e.g., 100 pixels)
+      // const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
+      // if (!isScrolledUp) {
+          chatContainerRef.current.scrollTop = scrollHeight;
+      // }
+    }
+  }, [chatHistory]); // Dependency array includes chatHistory
+
   return (
     <Container maxW="container.xl" py={5}>
       <VStack spacing={5} align="stretch">
@@ -423,6 +439,7 @@ const JarvisPage: React.FC = () => {
               {/* Chat Interface */}
               <VStack spacing={4} align="stretch">
                 <Box
+                  ref={chatContainerRef}
                   borderWidth={1}
                   borderColor={borderColor}
                   borderRadius="md"

@@ -1045,7 +1045,7 @@
     "signInWithMicrosoft": "使用 Microsoft 登录"
   },
   "jarvis": {
-    "title": "Jarvis - AI 助手",
+    "title": "贾维斯 - AI 助手",
     "chat": "对话",
     "settings": "设置",
     "settingsTitle": "API 设置",
@@ -1054,9 +1054,9 @@
       "user": "用户",
       "assistant": "助手"
     },
-    "messagePlaceholder": "请输入您的消息...",
+    "messagePlaceholder": "向贾维斯输入消息...",
     "placeholderResponse": "这是一个占位响应。API 集成待实现。",
-    "welcomeMessage": "您好！我是 Jarvis，您的 AI 助手。今天我能为您做些什么？",
+    "welcomeMessage": "您好！我是 贾维斯，您的 AI 助手。今天我能为您做些什么？",
     "apiKeySaved": "API 密钥已保存",
     "apiKeySavedDesc": "您的 {{provider}} API 密钥已成功保存。",
     "apiKeySaveError": "保存 API 密钥时出错",
