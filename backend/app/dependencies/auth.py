@@ -232,7 +232,10 @@ async def get_current_active_user(
     
     return current_user
 
-async def get_current_user_from_cookie(request: Request) -> User:
+async def get_current_user_from_cookie(
+    request: Request, 
+    db: Session = Depends(get_db) # Inject DB Session
+) -> User:
     """Dependency to get current authenticated user from HttpOnly cookie."""
     logger.info("Attempting to get current user from cookie...")
     
@@ -244,10 +247,8 @@ async def get_current_user_from_cookie(request: Request) -> User:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated: Access token cookie missing",
-            # No WWW-Authenticate header needed for cookie auth typically
         )
         
-    # --- Keep existing JWT validation logic --- 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials from cookie",
@@ -265,7 +266,7 @@ async def get_current_user_from_cookie(request: Request) -> User:
             options={"leeway": 30} # Keep leeway
         )
         user_id = payload.get("sub")
-        email = payload.get("email")
+        email = payload.get("email") # Keep email for potential logging
         logger.info(f"Token from cookie decoded successfully. Payload sub: {user_id}, email: {email}")
         
         if user_id is None:
@@ -287,44 +288,83 @@ async def get_current_user_from_cookie(request: Request) -> User:
         logger.error(f"Unexpected error during token decoding (from cookie): {e}", exc_info=True)
         raise credentials_exception
         
-    # --- Keep existing user lookup and MS token refresh logic --- 
-    user = users_db.get(user_id)
-    if user is None:
-        logger.error(f"User with ID '{user_id}' (from cookie token) not found in users_db.")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+    # --- Use DB Session for user lookup ---
+    user_db_instance = user_crud.get_user_by_id(db, user_id=user_id) 
     
+    if user_db_instance is None:
+        # Use the email from the token for logging if available
+        log_identifier = f"ID '{user_id}'" + (f" (email: {email})" if email else "")
+        logger.error(f"User with {log_identifier} (from cookie token) not found in database.")
+        # Keep 401 to avoid revealing user existence based on ID
+        raise credentials_exception # Changed from 404 to 401 for consistency
+    
+    # Convert UserDB to Pydantic User model for internal logic consistency
+    # This assumes User model has a way to validate from ORM instance
+    try:
+        user = User.model_validate(user_db_instance)
+    except Exception as e:
+        logger.error(f"Failed to validate UserDB instance for user {user_id} into User model: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error processing user data.")
+
+    # --- MS token refresh logic using user_db_instance ---
     logger.info(f"User '{user_id}' found in db. Checking MS token expiry.")
     # Check if Microsoft token is expired and needs refresh
-    if user.ms_token_data and user.ms_token_data.expires_at <= datetime.utcnow():
-        logger.info(f"MS token for user '{user_id}' expired or expires soon. Attempting refresh.")
-        try:
-            # Use refresh token to get new access token
-            result = msal_app.acquire_token_by_refresh_token(
-                refresh_token=user.ms_token_data.refresh_token,
-                scopes=settings.MS_SCOPE
-            )
-            
-            if "error" in result:
-                raise Exception(f"Token refresh failed: {result.get('error_description')}")
-            
-            # Update user's token data
-            user.ms_token_data = TokenData(
-                access_token=result.get("access_token"),
-                refresh_token=result.get("refresh_token", user.ms_token_data.refresh_token),
-                expires_at=datetime.utcnow() + timedelta(seconds=result.get("expires_in", 3600)),
-                scope=result.get("scope", [])
-            )
-        except Exception as e:
-            logger.error(f"Failed to refresh MS token for user '{user_id}': {str(e)}", exc_info=True)
-            # Don't raise an exception here, let the request proceed with the expired token
-            # The Microsoft Graph API will return 401 if the token is invalid
-            # --- REVISED: Raise 401 on refresh failure --- 
-            logger.error(f"Failed to refresh MS token for user '{user_id}': {str(e)}", exc_info=True)
-            # Raise the credentials_exception (HTTP 401) to force re-login
-            raise credentials_exception
-            # --- END REVISION ---
+    # Directly access ms_token_data which should be a JSONB field or similar in UserDB
+    # Assuming ms_token_data is stored as a dict or can be accessed like one
+    current_ms_token_data = user_db_instance.ms_token_data 
     
+    if current_ms_token_data and isinstance(current_ms_token_data, dict):
+        # Attempt to parse the stored data into TokenData Pydantic model
+        try:
+            stored_token_obj = TokenData(**current_ms_token_data)
+            is_expired = stored_token_obj.expires_at <= datetime.utcnow()
+            refresh_token_available = stored_token_obj.refresh_token
+        except Exception as parse_error:
+            logger.error(f"Failed to parse stored ms_token_data for user {user_id}: {parse_error}", exc_info=True)
+            is_expired = False # Cannot determine expiry if parsing fails
+            refresh_token_available = None
+
+        if is_expired and refresh_token_available:
+            logger.info(f"MS token for user '{user_id}' expired or expires soon. Attempting refresh.")
+            try:
+                # Use refresh token to get new access token
+                result = msal_app.acquire_token_by_refresh_token(
+                    refresh_token=refresh_token_available, # Use parsed refresh token
+                    scopes=settings.MS_SCOPE
+                )
+                
+                if "error" in result:
+                    raise Exception(f"Token refresh failed: {result.get('error_description')}")
+                
+                # Create new TokenData Pydantic model with refreshed info
+                new_token_data = TokenData(
+                    access_token=result.get("access_token"),
+                    # Use new refresh token if provided, otherwise keep the old one
+                    refresh_token=result.get("refresh_token", refresh_token_available), 
+                    expires_at=datetime.utcnow() + timedelta(seconds=result.get("expires_in", 3600)),
+                    scope=result.get("scope", [])
+                )
+
+                # --- Persist the updated token data back to the DB ---
+                update_data = {"ms_token_data": new_token_data.model_dump()} # Convert Pydantic model to dict for storage
+                updated_user = user_crud.update_user(db=db, user_id=user_id, update_data=update_data)
+                if updated_user:
+                    logger.info(f"Successfully refreshed and persisted MS token data for user {user_id}")
+                    # Update the user object in memory with the newly saved data
+                    user = User.model_validate(updated_user) 
+                else:
+                     # This case should ideally not happen if update_user works correctly
+                     logger.error(f"Failed to persist refreshed MS token data for user {user_id} (update returned None/False).")
+                     # Decide how to handle this: raise 500? proceed with in-memory token?
+                     # For now, proceed with the in-memory refreshed token but log error.
+                     user.ms_token_data = new_token_data # Keep the in-memory update at least
+
+            except Exception as e:
+                # ... (Refresh failure handling remains the same: raise 401) ...
+                logger.error(f"Failed to refresh MS token for user '{user_id}': {str(e)}", exc_info=True)
+                raise credentials_exception
+    elif current_ms_token_data:
+         logger.warning(f"User {user_id} ms_token_data is not a dictionary: {type(current_ms_token_data)}. Skipping refresh check.")
+
+    # Return the Pydantic User model (potentially updated with refreshed token)
     return user 

@@ -119,9 +119,9 @@ Return a JSON object with the following fields:
 # Updated function to accept user email AND DB session for key lookup
 async def generate_openai_rag_response(
     message: str, 
-    user: User, # User object
+    chat_history: List[Dict[str, str]], 
+    user: User,
     db: Session, # Database session
-    chat_history: Optional[List[Dict[str, str]]] = None
 ) -> str:
     """
     Generates a chat response using RAG and the USER'S OpenAI API key.
@@ -190,8 +190,8 @@ async def generate_openai_rag_response(
         logger.debug(f"RAG: Final context string being sent to LLM:\n---\n{context_str}\n---")
         # --- END ADDED LOG ---
 
-        # --- REVISED SYSTEM PROMPT V8 (More Detailed Fallback) ---
-        system_prompt = f"""You are a helpful AI assistant. Your primary goal is to answer the user's question based on the **provided RAG context** and the **ongoing conversation history**. Do not use prior knowledge outside of these.
+        # --- REVISED SYSTEM PROMPT V9 (Modified Fallback Instruction) ---
+        system_prompt = f"""You are a helpful AI assistant called Jarvis. Your primary goal is to answer the user's question based on the **provided RAG context** and the **ongoing conversation history**. Do not use prior knowledge outside of these.
 
 **Instructions (Follow in order):**
 
@@ -206,19 +206,17 @@ async def generate_openai_rag_response(
 3.  **Other Query - Direct Answer:** If the question is not about counting or a direct follow-up:
     *   Try to find and provide a direct answer from the RAG context. If successful, provide the answer and stop.
 
-4.  **Fallback - Detailed Summary/Refusal:** If you cannot provide a count, answer a follow-up, or find a direct answer:
-    *   **Response:** Start by stating you couldn't find the specific information requested (e.g., "I couldn't find specific information regarding [User's Topic/Query Terms] in the provided context.").
-    *   Then, **extract key details and relevant quotes from the first 3-5 most relevant context snippets** found (e.g., "However, the context includes the following points: [Detail/Quote from Snippet 1]. It also mentions: [Detail/Quote from Snippet 2]...").
+4.  **Fallback - Summarize Context:** If you cannot provide a count, answer a follow-up, or find a direct answer:
+    *   **Response:** Review the RAG context provided below. Extract and summarize the key details and relevant quotes from the most relevant context snippets (up to 3-5). Start your response directly with this summary (e.g., "Based on the context, here are some relevant points: [Detail/Quote 1]...").
+    *   **Only if no relevant details can be extracted from the provided context**, state that you couldn't find the specific information (e.g., "I couldn't find specific information regarding [User's Topic/Query Terms] in the provided context.").
     *   Conclude by asking if the user has other questions.
 
 --- START RAG CONTEXT ---
 {context_str}
 --- END RAG CONTEXT ---
 
-User Question: {message}
-
-Answer:"""
-        # --- END REVISED SYSTEM PROMPT V8 ---
+Answer:""" # End of system prompt
+        # --- END REVISED SYSTEM PROMPT V9 ---
         
         # --- START HISTORY HANDLING ---
         messages = []
@@ -229,20 +227,18 @@ Answer:"""
             # Take the last 5 entries (or fewer if history is shorter)
             history_to_use = chat_history[-5:]
             logger.debug(f"RAG: Adding {len(history_to_use)} messages from history to prompt.")
-            for entry in history_to_use:
-                role = entry.get("role")
-                content = entry.get("content")
-                if role and content:
-                    # Basic validation: Ensure role is 'user' or 'assistant'
-                    if role in ["user", "assistant"]:
-                         messages.append({"role": role, "content": content})
-                    else:
-                        logger.warning(f"RAG: Skipping history entry with invalid role: {role}")
-                else:
-                     logger.warning(f"RAG: Skipping history entry with missing role or content: {entry}")
+            # Basic validation of history items
+            validated_history = [
+                item for item in history_to_use
+                if isinstance(item, dict) and 'role' in item and 'content' in item and item['role'] in ["user", "assistant"]
+            ]
+            # Log skipped items
+            if len(validated_history) < len(history_to_use):
+                logger.warning(f"RAG: Skipped {len(history_to_use) - len(validated_history)} invalid history entries.")
+            messages.extend(validated_history)
 
-        # Add the *current* user message (it's already included IN the system prompt's {message})
-        # We don't add it separately here as it's part of the final instruction in the system prompt.
+        # Add the *current* user message AFTER the history
+        messages.append({"role": "user", "content": message})
         # --- END HISTORY HANDLING ---
 
         # 5. Call OpenAI using the USER-specific client
