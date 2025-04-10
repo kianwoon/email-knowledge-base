@@ -256,8 +256,13 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
     finally:
         # --- Close DB Session & Qdrant Client ---
         if db:
-            db.close()
-            logger.debug(f"Task {task_id}: Database session closed.")
+            try:
+                db.close()
+                logger.debug(f"Task {task_id}: Database session closed successfully.")
+            except Exception as close_err:
+                # Log the error but don't let it crash the task completion reporting
+                logger.error(f"Task {task_id}: Error closing database session: {close_err}", exc_info=True)
+        
         # Qdrant client closing might depend on how it's managed (e.g., context manager)
         # If get_qdrant_client provides a singleton or pooled client, closing might not be needed here.
         # if qdrant_client and hasattr(qdrant_client, 'close'):

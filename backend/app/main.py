@@ -104,17 +104,13 @@ app = FastAPI(
 # Middleware for logging requests
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url.path} {request.client.host}")
-    try:
-        response = await call_next(request)
-        logger.info(f"Response: {response.status_code}")
-        return response
-    except Exception as e:
-        logger.exception("Unhandled exception during request processing")
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Internal Server Error"}
-        )
+    # Log request details safely
+    client_host = request.client.host if request.client else "unknown_client"
+    logger.info(f"Request: {request.method} {request.url.path} {client_host}")
+    response = await call_next(request)
+    # Log response status code
+    logger.info(f"Response: {response.status_code}")
+    return response
 
 # CORS Middleware
 if settings.CORS_ALLOWED_ORIGINS:
