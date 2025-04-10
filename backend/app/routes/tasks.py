@@ -70,14 +70,14 @@ async def get_my_latest_kb_task_status(
 ):
     """Gets the status of the most recently dispatched knowledge base task for the current user, if active."""
     try:
-        # Fetch the UserDB object to get the stored task ID
-        db_user = db.query(UserDB).filter(UserDB.email == current_user.email).first()
+        # Fetch only the last_kb_task_id field for the user
+        task_id_result = db.query(UserDB.last_kb_task_id).filter(UserDB.email == current_user.email).first()
         
-        if not db_user or not db_user.last_kb_task_id:
+        if not task_id_result or not task_id_result[0]:
             # No task ID stored, so no active task to report
             return None # FastAPI handles Optional[Model] by returning null with 200 OK
 
-        task_id = db_user.last_kb_task_id
+        task_id = task_id_result[0]
         task_result = AsyncResult(task_id, app=celery_app)
         status = task_result.state
 

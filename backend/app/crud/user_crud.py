@@ -23,7 +23,7 @@ def get_user_full_instance(db: Session, email: str) -> UserDB | None:
                 UserDB.created_at, 
                 UserDB.last_login, 
                 UserDB.is_active, 
-                UserDB.preferences, 
+                UserDB.json_preferences, 
                 UserDB.photo_url, 
                 UserDB.organization,
                 UserDB.last_kb_task_id
@@ -128,7 +128,7 @@ def update_user_preferences(db: Session, user_email: str, preferences: Dict[str,
         statement = (
             update(UserDB)
             .where(UserDB.email == user_email)
-            .values(preferences=preferences)
+            .values(json_preferences=preferences)
         )
         result = db.execute(statement)
         if result.rowcount == 0:

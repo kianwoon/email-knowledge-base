@@ -18,8 +18,8 @@ class UserPreferenceDB(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Relationship to user
-    user = relationship("UserDB", back_populates="preferences_list")
+    # Relationship to user - REMOVED as the back reference is gone
+    # user: Mapped["UserDB"] = relationship("UserDB", back_populates="preferences_list")
 
 # Pydantic models for API
 class UserPreferenceBase(BaseModel):

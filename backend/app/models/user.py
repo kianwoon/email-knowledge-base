@@ -88,10 +88,10 @@ class UserDB(Base):
     last_login: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login: datetime = Column(DateTime(timezone=True), nullable=True)
     is_active: bool = Column(Boolean, default=True, nullable=False)
-    # Store preferences as JSON
-    preferences: Dict[str, Any] = Column(JSON, default=dict, nullable=False)
-    photo_url: str = Column(Text, nullable=True) # Use Text for potentially long URLs
-    organization: str = Column(String, nullable=True)
+    # Store preferences as JSON - maps to the 'preferences' column in the database
+    json_preferences: Mapped[Dict[str, Any]] = mapped_column("preferences", JSON, default=dict, nullable=False)
+    photo_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # Use Text for potentially long URLs
+    organization: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # Note: MS Token data is complex, consider if it needs to be stored in DB 
     # or just kept in memory/session. Storing refresh tokens requires encryption.
     # --- Reverted to String for Base64 Encoded Encrypted Token --- 
@@ -106,8 +106,13 @@ class UserDB(Base):
     # Relationship to API keys
     api_keys = relationship("APIKeyDB", back_populates="user", cascade="all, delete-orphan")
     
-    # Relationship to user preferences - use Mapped
-    preferences_list: Mapped[TypeList["UserPreferenceDB"]] = relationship("UserPreferenceDB", back_populates="user", cascade="all, delete-orphan")
+    # Relationship to user preferences - REMOVED to resolve mapper conflict
+    # preferences_list: Mapped[TypeList["UserPreferenceDB"]] = relationship(
+    #     "UserPreferenceDB", 
+    #     back_populates="user", 
+    #     cascade="all, delete-orphan",
+    #     lazy="selectin"  # Eager loading by default
+    # )
 
     def __repr__(self):
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"
