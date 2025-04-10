@@ -5,7 +5,8 @@ from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base_class import Base
+# Use the same Base as other models
+from .base import Base
 
 # SQLAlchemy model for database
 class UserPreferenceDB(Base):

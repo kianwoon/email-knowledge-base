@@ -260,72 +260,83 @@ const JarvisPage: React.FC = () => {
   };
 
   const loadApiKeys = async (isBackgroundRefresh = false) => {
-    // Prevent multiple rapid load attempts (debounce)
     const now = Date.now();
     if (!isRetry && !isBackgroundRefresh && now - lastLoadTime < 1000) {
       console.log("Throttling API key load requests");
       return;
     }
-    
     setLastLoadTime(now);
-    
+
     if (!isBackgroundRefresh) {
       setApiKeyLoading(true);
-      if (!isRetry) {
-        setApiKeyError(null);
-      }
+      if (!isRetry) setApiKeyError(null);
     }
-    
+
     try {
-      // Load all provider API keys
-      const newApiKeys: Record<string, string> = {};
-      let hasAnyKey = false;
+      // List of providers to check
+      const providersToCheck: ApiProvider[] = ['openai', 'anthropic', 'google'];
       
-      // Try loading API keys for all providers
-      for (const provider of ['openai', 'anthropic', 'google'] as ApiProvider[]) {
+      // Create an array of promises for fetching keys
+      const keyPromises = providersToCheck.map(async (provider) => {
         try {
           let apiKey: string | null = null;
-          
-          // For OpenAI, try both endpoints
+          // Special handling for OpenAI: try legacy endpoint first
           if (provider === 'openai') {
             try {
               apiKey = await getOpenAIApiKey();
-              console.log("OpenAI API key via legacy endpoint:", apiKey ? "Found" : "Not found");
-            } catch (error) {
-              console.warn("Error loading OpenAI API key via legacy endpoint:", error);
+              // If legacy returns null, still try the provider-specific one
+              if (apiKey === null) {
+                console.log("OpenAI legacy returned null, trying provider endpoint...");
+                apiKey = await getProviderApiKey(provider);
+              }
+            } catch (legacyError) {
+              console.warn("Error loading OpenAI key via legacy, trying provider endpoint...", legacyError);
+              // Fallback to provider-specific endpoint on error
+              apiKey = await getProviderApiKey(provider);
             }
-          }
-          
-          // If not found via legacy endpoint (for OpenAI) or for other providers
-          if (!apiKey) {
+          } else {
+            // For other providers, use the standard endpoint
             apiKey = await getProviderApiKey(provider);
-            console.log(`${provider} API key via provider endpoint:`, apiKey ? "Found" : "Not found");
           }
-          
-          if (apiKey) {
-            newApiKeys[provider] = apiKey;
-            hasAnyKey = true;
-          }
+          console.log(`${provider} fetch result: ${apiKey ? 'Found' : 'Not found'}`);
+          return { provider, apiKey }; // Return object with provider and key
         } catch (error) {
           console.error(`Error loading ${provider} API key:`, error);
+          // Return null key on error for this specific provider
+          return { provider, apiKey: null };
         }
-      }
+      });
+
+      // Wait for all promises to settle (either succeed or fail)
+      const results = await Promise.allSettled(keyPromises);
+
+      // Process the results
+      const newApiKeys: Record<string, string> = {};
+      let hasAnyKey = false;
       
-      console.log("Final API keys state:", newApiKeys);
-      
-      // Only update the state if we have any keys or if this is not a background refresh
-      if (hasAnyKey || !isBackgroundRefresh) {
-        setApiKeys(newApiKeys);
-        setHasApiKey(hasAnyKey);
-      }
-      
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.apiKey) {
+          newApiKeys[result.value.provider] = result.value.apiKey;
+          hasAnyKey = true;
+        }
+        // We don't need to do anything for 'rejected' status here 
+        // because the individual promises already catch errors and return apiKey: null
+      });
+
+      console.log("Final API keys state after parallel fetch:", newApiKeys);
+
+      // Update state
+      setApiKeys(newApiKeys);
+      setHasApiKey(hasAnyKey);
+
+      // Reset retry count on success
       if (hasAnyKey) {
-        setRetryCount(0); // Reset retry count on success
+        setRetryCount(0);
         localStorage.setItem('jarvis_had_api_key', 'true');
-      } else if (!isBackgroundRefresh) {
-        // Only show notifications if not a background refresh
+      } 
+      // Keep toast logic for non-background refreshes if no keys are found
+      else if (!isBackgroundRefresh) {
         const hadApiKey = localStorage.getItem('jarvis_had_api_key') === 'true';
-        
         if (hadApiKey && activeTab === 0) {
           toast({
             title: t('jarvis.apiKeyMissing', 'API Key Missing'),
@@ -334,7 +345,7 @@ const JarvisPage: React.FC = () => {
             duration: 8000,
             isClosable: true,
           });
-        } else if (activeTab === 0 && !hadApiKey) { 
+        } else if (activeTab === 0 && !hadApiKey) {
           toast({
             title: t('jarvis.noApiKey', 'API Key Required'),
             description: t('jarvis.apiKeyRequired', 'You need to provide your API key to use Jarvis. Please add it in the settings tab.'),
@@ -344,8 +355,9 @@ const JarvisPage: React.FC = () => {
           });
         }
       }
-    } catch (error) {
-      console.error("Failed to load API keys:", error);
+
+    } catch (error) { // Catch potential errors from Promise.allSettled or state updates
+      console.error("Failed to load API keys (outer catch):", error);
       if (!isBackgroundRefresh) {
         setApiKeyError("Failed to load saved API keys");
       }

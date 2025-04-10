@@ -10,7 +10,10 @@ from alembic import context
 # Ensure this path is correct for your project structure
 from app.db.base_class import Base 
 # +++ Import your models here so Base knows about them +++
-from app.models import user # Add other models if needed, e.g., token_models
+# Import individual models to ensure they are registered
+from app.models.user import UserDB
+from app.models.api_key import APIKeyDB
+from app.models.user_preference import UserPreferenceDB
 # --- End Imports ---
 
 # this is the Alembic Config object, which provides

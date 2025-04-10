@@ -9,6 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
+# +++ Explicitly import ALL SQLAlchemy Models +++
+# This forces SQLAlchemy to register them early
+from app.models.user import UserDB
+from app.models.api_key import APIKeyDB
+from app.models.user_preference import UserPreferenceDB
+# --- End Model Imports ---
+
 from app.config import settings
 # Import routers
 from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token, tasks 
