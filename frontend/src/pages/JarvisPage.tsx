@@ -78,6 +78,7 @@ const JarvisPage: React.FC = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [savingDefaultModel, setSavingDefaultModel] = useState(false);
+  const [lastKeyRefresh, setLastKeyRefresh] = useState(0);
 
   // Ref for the chat container
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -96,9 +97,19 @@ const JarvisPage: React.FC = () => {
   useEffect(() => {
     const loadDefaultModel = async () => {
       try {
+        // Check sessionStorage first
+        const cachedModel = sessionStorage.getItem('jarvis_default_model');
+        if (cachedModel) {
+          setSelectedModel(cachedModel);
+          setModelLoading(false);
+          return;
+        }
+
         setModelLoading(true);
         const model = await getDefaultModel();
         setSelectedModel(model);
+        // Cache the result
+        sessionStorage.setItem('jarvis_default_model', model);
       } catch (error) {
         console.error("Error loading default model:", error);
       } finally {
@@ -111,21 +122,32 @@ const JarvisPage: React.FC = () => {
 
   // Load saved API keys
   useEffect(() => {
-    // Small delay to allow page to render first
-    const timer = setTimeout(() => {
-      loadApiKeys(false);
+    const loadKeys = async () => {
+      // Check if we already loaded keys in this session
+      const sessionLoaded = sessionStorage.getItem('jarvis_keys_loaded');
+      if (sessionLoaded === 'true') {
+        return;
+      }
+
+      const timer = setTimeout(async () => {
+        await loadApiKeys(false);
+        // Mark as loaded in this session
+        sessionStorage.setItem('jarvis_keys_loaded', 'true');
+        
+        // Set up refresh interval
+        const refreshInterval = setInterval(() => {
+          loadApiKeys(true);
+        }, 30000);
+        
+        return () => {
+          clearInterval(refreshInterval);
+        };
+      }, 100);
       
-      // Also set up a refresh interval to check for API keys periodically
-      const refreshInterval = setInterval(() => {
-        loadApiKeys(true);
-      }, 30000); // Check every 30 seconds
-      
-      return () => {
-        clearInterval(refreshInterval);
-      };
-    }, 100);
-    
-    return () => clearTimeout(timer);
+      return () => clearTimeout(timer);
+    };
+
+    loadKeys();
   }, []);
 
   // Get unique providers from the models list - memoized
@@ -189,10 +211,8 @@ const JarvisPage: React.FC = () => {
   const handleDeleteApiKey = async (provider: string) => {
     try {
       if (provider === 'openai') {
-        // Use legacy endpoint for backward compatibility
         await deleteProviderApiKey('openai');
       } else {
-        // Use new provider-specific endpoint
         await deleteProviderApiKey(provider as ApiProvider);
       }
       
@@ -202,6 +222,10 @@ const JarvisPage: React.FC = () => {
         delete newKeys[provider];
         return newKeys;
       });
+
+      // Clear the cache to force a fresh load
+      localStorage.removeItem('jarvis_api_keys');
+      setLastKeyRefresh(0);
       
       toast({
         title: t('jarvis.apiKeyDeleted', 'API Key Deleted'),
@@ -213,7 +237,7 @@ const JarvisPage: React.FC = () => {
       
       // Check if we still have any keys
       setTimeout(() => {
-        loadApiKeys();
+        loadApiKeys(false);
       }, 500);
     } catch (error) {
       console.error(`Error deleting ${provider} API key:`, error);
@@ -265,11 +289,29 @@ const JarvisPage: React.FC = () => {
 
   const loadApiKeys = async (isBackgroundRefresh = false) => {
     const now = Date.now();
-    if (!isRetry && !isBackgroundRefresh && now - lastLoadTime < 1000) {
-      console.log("Throttling API key load requests");
-      return;
+    
+    // For background refresh, check if enough time has passed
+    if (isBackgroundRefresh) {
+      const lastRefresh = sessionStorage.getItem('jarvis_last_refresh');
+      if (lastRefresh && (now - parseInt(lastRefresh)) < 30000) {
+        return; // Skip if less than 30 seconds since last refresh
+      }
     }
-    setLastLoadTime(now);
+
+    // For initial load, check if we have cached keys
+    if (!isBackgroundRefresh) {
+      const cachedKeys = sessionStorage.getItem('jarvis_api_keys');
+      if (cachedKeys) {
+        try {
+          const parsed = JSON.parse(cachedKeys);
+          setApiKeys(parsed);
+          setHasApiKey(Object.keys(parsed).length > 0);
+          return;
+        } catch (e) {
+          console.error("Failed to parse cached API keys:", e);
+        }
+      }
+    }
 
     if (!isBackgroundRefresh) {
       setApiKeyLoading(true);
@@ -290,11 +332,9 @@ const JarvisPage: React.FC = () => {
               apiKey = await getOpenAIApiKey();
               // If legacy returns null, still try the provider-specific one
               if (apiKey === null) {
-                console.log("OpenAI legacy returned null, trying provider endpoint...");
                 apiKey = await getProviderApiKey(provider);
               }
             } catch (legacyError) {
-              console.warn("Error loading OpenAI key via legacy, trying provider endpoint...", legacyError);
               // Fallback to provider-specific endpoint on error
               apiKey = await getProviderApiKey(provider);
             }
@@ -302,19 +342,14 @@ const JarvisPage: React.FC = () => {
             // For other providers, use the standard endpoint
             apiKey = await getProviderApiKey(provider);
           }
-          console.log(`${provider} fetch result: ${apiKey ? 'Found' : 'Not found'}`);
-          return { provider, apiKey }; // Return object with provider and key
+          return { provider, apiKey };
         } catch (error) {
           console.error(`Error loading ${provider} API key:`, error);
-          // Return null key on error for this specific provider
           return { provider, apiKey: null };
         }
       });
 
-      // Wait for all promises to settle (either succeed or fail)
       const results = await Promise.allSettled(keyPromises);
-
-      // Process the results
       const newApiKeys: Record<string, string> = {};
       let hasAnyKey = false;
       
@@ -323,23 +358,18 @@ const JarvisPage: React.FC = () => {
           newApiKeys[result.value.provider] = result.value.apiKey;
           hasAnyKey = true;
         }
-        // We don't need to do anything for 'rejected' status here 
-        // because the individual promises already catch errors and return apiKey: null
       });
 
-      console.log("Final API keys state after parallel fetch:", newApiKeys);
-
-      // Update state
+      // Update state and cache
       setApiKeys(newApiKeys);
       setHasApiKey(hasAnyKey);
+      sessionStorage.setItem('jarvis_api_keys', JSON.stringify(newApiKeys));
+      sessionStorage.setItem('jarvis_last_refresh', now.toString());
 
-      // Reset retry count on success
       if (hasAnyKey) {
         setRetryCount(0);
         localStorage.setItem('jarvis_had_api_key', 'true');
-      } 
-      // Keep toast logic for non-background refreshes if no keys are found
-      else if (!isBackgroundRefresh) {
+      } else if (!isBackgroundRefresh) {
         const hadApiKey = localStorage.getItem('jarvis_had_api_key') === 'true';
         if (hadApiKey && activeTab === 0) {
           toast({
@@ -359,9 +389,8 @@ const JarvisPage: React.FC = () => {
           });
         }
       }
-
-    } catch (error) { // Catch potential errors from Promise.allSettled or state updates
-      console.error("Failed to load API keys (outer catch):", error);
+    } catch (error) {
+      console.error("Failed to load API keys:", error);
       if (!isBackgroundRefresh) {
         setApiKeyError("Failed to load saved API keys");
       }
