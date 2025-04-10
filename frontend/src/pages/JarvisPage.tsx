@@ -26,6 +26,7 @@ import {
   InputGroup,
   InputRightElement,
   Divider,
+  Icon,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser, FaSync } from 'react-icons/fa';
@@ -465,10 +466,24 @@ const JarvisPage: React.FC = () => {
                         borderRadius="lg"
                         boxShadow="sm"
                       >
-                        <Text whiteSpace="pre-wrap">{msg.content}</Text>
+                        <HStack align="flex-start">
+                          <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
+                          <Text whiteSpace="pre-wrap" flex="1">{msg.content}</Text>
+                        </HStack>
                       </Box>
                     </Flex>
                   ))}
+                  {/* Typing Indicator */} 
+                  {isLoading && (
+                    <Flex w="full" justify="flex-start" mb={3}>
+                      <Box maxW="80%" bg={assistantBg} color={textColor} px={4} py={2} borderRadius="lg" boxShadow="sm">
+                        <HStack>
+                          <Spinner size="xs" />
+                          <Text fontSize="sm" fontStyle="italic">{t('jarvis.thinking', 'Jarvis is thinking...')}</Text>
+                        </HStack>
+                      </Box>
+                    </Flex>
+                  )}
                   <Box flexGrow={1} />
                   {apiKeyLoading && (
                     <Flex justify="center" align="center" mt={2}>

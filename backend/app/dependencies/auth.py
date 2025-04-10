@@ -318,8 +318,13 @@ async def get_current_user_from_cookie(request: Request) -> User:
                 scope=result.get("scope", [])
             )
         except Exception as e:
-            print(f"Error refreshing token: {str(e)}")
+            logger.error(f"Failed to refresh MS token for user '{user_id}': {str(e)}", exc_info=True)
             # Don't raise an exception here, let the request proceed with the expired token
             # The Microsoft Graph API will return 401 if the token is invalid
+            # --- REVISED: Raise 401 on refresh failure --- 
+            logger.error(f"Failed to refresh MS token for user '{user_id}': {str(e)}", exc_info=True)
+            # Raise the credentials_exception (HTTP 401) to force re-login
+            raise credentials_exception
+            # --- END REVISION ---
     
     return user 

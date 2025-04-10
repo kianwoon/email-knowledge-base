@@ -141,7 +141,12 @@ async def generate_openai_rag_response(
         
         logger.debug(f"Using user's personal OpenAI key for {user.email}")
         # Initialize a client SPECIFICALLY with the user's key for this request
-        user_client = AsyncOpenAI(api_key=user_openai_key)
+        # --- Increased timeout to 30 seconds --- 
+        user_client = AsyncOpenAI(
+            api_key=user_openai_key, 
+            timeout=30.0 # Set timeout to 30 seconds
+        )
+        # --- End Timeout Increase ---
 
         # 2. Create embedding for the user message (can still use system key client? Let's use user key)
         # Potentially switch embedding to use user_client too if needed, or keep using global client
