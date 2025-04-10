@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
   Heading,
+  VStack,
   Text,
   Table,
   Thead,
@@ -11,253 +12,246 @@ import {
   Th,
   Td,
   Badge,
-  Spinner,
-  VStack,
-  HStack,
   Progress,
   useToast,
+  Spinner,
+  useColorModeValue,
+  HStack,
   Card,
+  CardHeader,
   CardBody,
+  CardFooter,
   Button,
-  IconButton,
-  Tooltip,
+  Divider,
+  SimpleGrid,
+  Icon,
+  Flex
 } from '@chakra-ui/react';
-import { FiRefreshCw } from 'react-icons/fi';
-import { getTaskStatus, getMyLatestKbTask } from '../api/tasks';
-import { TaskStatus } from '../api/tasks';
+import { FiRefreshCw, FiAlertCircle, FiCheckCircle, FiClock } from 'react-icons/fi';
 import { useTranslation } from 'react-i18next';
+import { getTaskStatus, getMyLatestKbTask, TaskStatus } from '../api/tasks';
+
+// Mock interfaces - replace with actual API types
+interface Task {
+  id: string;
+  type: string;
+  status: 'running' | 'completed' | 'failed';
+  progress: number;
+  startTime: string;
+  endTime?: string;
+  error?: string;
+  details: string;
+}
 
 const BackgroundTasksPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
-  const [isLoading, setIsLoading] = useState(true);
-  const [latestTask, setLatestTask] = useState<TaskStatus | null>(null);
-  const [activeTasks, setActiveTasks] = useState<TaskStatus[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  
+  const [activeTask, setActiveTask] = useState<TaskStatus | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
 
-  // Function to fetch latest knowledge base task
-  const fetchLatestKbTask = async () => {
+  // Function to fetch the latest active knowledge base task
+  const fetchLatestTask = useCallback(async () => {
     try {
       const task = await getMyLatestKbTask();
-      if (task) {
-        setLatestTask(task);
-        // If the task is active, also add it to active tasks list
-        if (['PENDING', 'STARTED', 'PROGRESS'].includes(task.status)) {
-          setActiveTasks(prev => {
-            // Check if task already exists in the list
-            const exists = prev.some(t => t.task_id === task.task_id);
-            if (!exists) {
-              return [...prev, task];
-            }
-            return prev.map(t => t.task_id === task.task_id ? task : t);
-          });
-        }
-      } else {
-        setLatestTask(null);
-      }
+      setActiveTask(task);
+      return task;
     } catch (error) {
-      console.error('Error fetching latest KB task:', error);
       toast({
-        title: t('errors.failed_to_fetch_tasks'),
+        title: t('common.error'),
+        description: t('tasks.fetchError'),
         status: 'error',
         duration: 5000,
         isClosable: true,
       });
-    }
-  };
-
-  // Function to refresh task statuses
-  const refreshTasks = async () => {
-    setRefreshing(true);
-    try {
-      // First get the latest KB task
-      await fetchLatestKbTask();
-      
-      // Then update all active tasks
-      const updatedTasks = await Promise.all(
-        activeTasks.map(async (task) => {
-          try {
-            return await getTaskStatus(task.task_id);
-          } catch (error) {
-            console.error(`Error updating task ${task.task_id}:`, error);
-            return task; // Return the original task if fetching fails
-          }
-        })
-      );
-      
-      // Filter out completed tasks after a while
-      setActiveTasks(updatedTasks.filter(
-        task => ['PENDING', 'STARTED', 'PROGRESS'].includes(task.status)
-      ));
-    } catch (error) {
-      console.error('Error refreshing tasks:', error);
-      toast({
-        title: t('errors.failed_to_refresh_tasks'),
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      return null;
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [toast, t]);
 
-  // Initial load
+  // Function to refresh tasks manually
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchLatestTask();
+  }, [fetchLatestTask]);
+
+  // Start polling for task updates when there's an active task
   useEffect(() => {
-    const loadInitialData = async () => {
-      setIsLoading(true);
-      try {
-        await fetchLatestKbTask();
-      } catch (error) {
-        console.error('Error loading initial task data:', error);
-      } finally {
-        setIsLoading(false);
+    const startPolling = async () => {
+      // Clear any existing interval
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+
+      // Check if there's an active task
+      const task = await fetchLatestTask();
+      
+      // If there's an active task, start polling for updates
+      if (task && ['PENDING', 'STARTED', 'PROGRESS', 'RECEIVED', 'RETRY'].includes(task.status)) {
+        const interval = setInterval(async () => {
+          try {
+            const updatedTask = await getTaskStatus(task.task_id);
+            setActiveTask(updatedTask);
+            
+            // If task is complete, stop polling
+            if (['SUCCESS', 'FAILURE', 'REVOKED'].includes(updatedTask.status)) {
+              if (pollingInterval) clearInterval(pollingInterval);
+              setPollingInterval(null);
+            }
+          } catch (error) {
+            console.error('Error polling task status:', error);
+            // Stop polling on error
+            if (pollingInterval) clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+        }, 3000); // Poll every 3 seconds
+        
+        setPollingInterval(interval);
+        
+        // Cleanup function
+        return () => {
+          if (interval) clearInterval(interval);
+        };
       }
     };
-
-    loadInitialData();
-  }, []);
-
-  // Periodically refresh active tasks
-  useEffect(() => {
-    // Only set interval if there are active tasks
-    if (activeTasks.length === 0) return;
-
-    const intervalId = setInterval(() => {
-      refreshTasks();
-    }, 5000); // Check every 5 seconds
-
-    return () => clearInterval(intervalId);
-  }, [activeTasks]);
-
-  // Helper function to render task status badge
-  const renderStatusBadge = (status: string) => {
-    let color = 'gray';
     
+    startPolling();
+    
+    // Cleanup when component unmounts
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [fetchLatestTask, pollingInterval]);
+
+  // Helper function to render the status badge
+  const renderStatusBadge = (status: string) => {
+    let colorScheme = 'blue';
+    let icon = FiClock;
+
     switch (status) {
       case 'SUCCESS':
-        color = 'green';
+        colorScheme = 'green';
+        icon = FiCheckCircle;
         break;
       case 'FAILURE':
-        color = 'red';
+      case 'REVOKED':
+        colorScheme = 'red';
+        icon = FiAlertCircle;
         break;
-      case 'STARTED':
       case 'PROGRESS':
-        color = 'blue';
-        break;
-      case 'PENDING':
-        color = 'yellow';
+        colorScheme = 'yellow';
+        icon = FiClock;
         break;
       default:
-        color = 'gray';
+        colorScheme = 'blue';
+        icon = FiClock;
     }
-    
-    return <Badge colorScheme={color}>{status}</Badge>;
+
+    return (
+      <Badge colorScheme={colorScheme} fontSize="sm" display="flex" alignItems="center" p={1} borderRadius="md">
+        <Icon as={icon} mr={1} />
+        {status}
+      </Badge>
+    );
   };
 
+  if (loading) {
+    return (
+      <Container maxW="container.xl" py={8}>
+        <Box textAlign="center" py={10}>
+          <Spinner size="xl" />
+        </Box>
+      </Container>
+    );
+  }
+
   return (
-    <Container maxW="container.xl" py={8}>
-      <VStack spacing={6} align="stretch">
-        <HStack justify="space-between">
-          <Heading size="lg">{t('tasks.background_tasks')}</Heading>
-          <Tooltip label={t('common.refresh')}>
-            <IconButton
-              aria-label={t('common.refresh')}
-              icon={<FiRefreshCw />}
-              onClick={refreshTasks}
-              isLoading={refreshing}
-            />
-          </Tooltip>
+    <Box p={5} maxW="1200px" mx="auto">
+      <VStack spacing={5} align="stretch">
+        <HStack justifyContent="space-between">
+          <Heading size="lg">{t('tasks.title', 'Background Tasks')}</Heading>
+          <Button 
+            leftIcon={<FiRefreshCw />} 
+            colorScheme="blue" 
+            variant="outline" 
+            onClick={handleRefresh}
+            isLoading={refreshing}
+            loadingText={t('common.refreshing')}
+          >
+            {t('common.refresh')}
+          </Button>
         </HStack>
-
-        {isLoading ? (
-          <Box textAlign="center" py={10}>
+        
+        <Divider />
+        
+        {loading ? (
+          <Flex justify="center" align="center" height="200px">
             <Spinner size="xl" />
-            <Text mt={4}>{t('common.loading')}</Text>
-          </Box>
+          </Flex>
+        ) : !activeTask ? (
+          <Card variant="outline">
+            <CardBody>
+              <Text align="center">{t('tasks.noActiveTasks', 'No active background tasks')}</Text>
+            </CardBody>
+          </Card>
         ) : (
-          <>
-            {/* Latest Knowledge Base Task */}
-            <Card>
-              <CardBody>
-                <Heading size="md" mb={4}>{t('tasks.latest_kb_task')}</Heading>
-                {latestTask ? (
-                  <VStack align="stretch" spacing={4}>
-                    <HStack justify="space-between">
-                      <Text fontWeight="bold">{t('tasks.task_id')}</Text>
-                      <Text>{latestTask.task_id}</Text>
-                    </HStack>
-                    <HStack justify="space-between">
-                      <Text fontWeight="bold">{t('tasks.status')}</Text>
-                      {renderStatusBadge(latestTask.status)}
-                    </HStack>
-                    {latestTask.status === 'PROGRESS' && (
-                      <VStack align="stretch" spacing={1}>
-                        <Text fontWeight="bold">{t('tasks.progress')}</Text>
-                        <Progress 
-                          value={latestTask.progress || 0} 
-                          size="sm" 
-                          colorScheme="blue"
-                        />
-                        <Text textAlign="right" fontSize="sm">
-                          {`${latestTask.progress || 0}%`}
-                        </Text>
-                      </VStack>
-                    )}
-                    {latestTask.details && (
-                      <VStack align="stretch" spacing={1}>
-                        <Text fontWeight="bold">{t('tasks.details')}</Text>
-                        <Text>{latestTask.details}</Text>
-                      </VStack>
-                    )}
-                  </VStack>
-                ) : (
-                  <Text>{t('tasks.no_active_tasks')}</Text>
+          <Card variant="outline">
+            <CardHeader>
+              <HStack justifyContent="space-between">
+                <Heading size="md">{t('tasks.taskId')}: {activeTask.task_id.substring(0, 8)}...</Heading>
+                {renderStatusBadge(activeTask.status)}
+              </HStack>
+            </CardHeader>
+            
+            <CardBody>
+              <VStack spacing={4} align="stretch">
+                <SimpleGrid columns={2} spacing={4}>
+                  <Box>
+                    <Text fontWeight="bold">{t('tasks.status')}:</Text>
+                    <Text>{activeTask.status}</Text>
+                  </Box>
+                  
+                  <Box>
+                    <Text fontWeight="bold">{t('tasks.type')}:</Text>
+                    <Text>{t('tasks.knowledgeBaseProcessing', 'Knowledge Base Processing')}</Text>
+                  </Box>
+                </SimpleGrid>
+                
+                {activeTask.progress !== null && activeTask.progress !== undefined && (
+                  <Box>
+                    <Text mb={1}>{t('tasks.progress')}: {Math.round(activeTask.progress * 100)}%</Text>
+                    <Progress value={activeTask.progress * 100} colorScheme="blue" size="sm" borderRadius="md" />
+                  </Box>
                 )}
-              </CardBody>
-            </Card>
-
-            {/* Active Tasks List */}
-            {activeTasks.length > 0 && (
-              <Box>
-                <Heading size="md" mb={4}>{t('tasks.active_tasks')}</Heading>
-                <Table variant="simple">
-                  <Thead>
-                    <Tr>
-                      <Th>{t('tasks.task_id')}</Th>
-                      <Th>{t('tasks.status')}</Th>
-                      <Th>{t('tasks.progress')}</Th>
-                      <Th>{t('tasks.details')}</Th>
-                    </Tr>
-                  </Thead>
-                  <Tbody>
-                    {activeTasks.map((task) => (
-                      <Tr key={task.task_id}>
-                        <Td>{task.task_id}</Td>
-                        <Td>{renderStatusBadge(task.status)}</Td>
-                        <Td>
-                          {task.status === 'PROGRESS' ? (
-                            <Progress 
-                              value={task.progress || 0} 
-                              size="xs" 
-                              width="100px" 
-                              colorScheme="blue"
-                            />
-                          ) : (
-                            '-'
-                          )}
-                        </Td>
-                        <Td>{task.details || '-'}</Td>
-                      </Tr>
-                    ))}
-                  </Tbody>
-                </Table>
-              </Box>
-            )}
-          </>
+                
+                {activeTask.details && (
+                  <Box>
+                    <Text fontWeight="bold">{t('tasks.details')}:</Text>
+                    <Text>{typeof activeTask.details === 'string' 
+                      ? activeTask.details 
+                      : JSON.stringify(activeTask.details, null, 2)}</Text>
+                  </Box>
+                )}
+              </VStack>
+            </CardBody>
+            
+            <CardFooter>
+              <Text fontSize="sm" color="gray.500">
+                {['SUCCESS', 'FAILURE', 'REVOKED'].includes(activeTask.status) 
+                  ? t('tasks.completed') 
+                  : t('tasks.inProgress')}
+              </Text>
+            </CardFooter>
+          </Card>
         )}
       </VStack>
-    </Container>
+    </Box>
   );
 };
 

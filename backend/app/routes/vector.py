@@ -13,7 +13,8 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from app.models.email import EmailVectorData, ReviewStatus, EmailFilter
 from app.models.user import User, UserDB
 from app.dependencies.auth import get_current_active_user
-from app.services.embedder import create_embedding, search_similar
+# Import only create_embedding, as search_similar was removed/renamed
+from app.services.embedder import create_embedding 
 from app.config import settings
 # Import Qdrant client functions
 from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
@@ -36,15 +37,15 @@ async def get_db() -> QdrantClient:
     client = get_qdrant_client()
     return client
 
-@router.post("/embed", response_model=Dict[str, Any]) # Return a simple status dict
+@router.post("/embed", response_model=Dict[str, Any])
 async def embed_email(
-    email_id: str, # Should be provided by the caller (e.g., from review step)
-    content: str, # Email body
-    metadata: Dict[str, Any], # Metadata from qdrant_email_knowledge_schema.md
+    email_id: str,
+    content: str,
+    metadata: Dict[str, Any],
     current_user: User = Depends(get_current_active_user),
     client: QdrantClient = Depends(get_db)
 ):
-    """Create embedding for approved email content and store in vector database"""
+    """Create embedding for approved email content and store in the user's embedding collection"""
     logger.info(f"Received request to embed email ID: {email_id} for owner: {current_user.email}")
 
     # Validate required metadata (as per schema doc)
@@ -72,7 +73,7 @@ async def embed_email(
 
     # Generate embedding
     try:
-        embedding = await create_embedding(content) # Use the existing embedder service
+        embedding = await create_embedding(content)
     except Exception as e:
         logger.error(f"Failed to create embedding for email ID {email_id}: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -84,25 +85,37 @@ async def embed_email(
     metadata['attachment_count'] = len(metadata.get('attachments', []))
 
     # Prepare point for Qdrant
-    point_id = str(uuid.uuid4()) # Generate a unique ID for the point
+    point_id = str(uuid.uuid4()) 
     point = PointStruct(
         id=point_id,
         vector=embedding,
-        payload=metadata # Use the updated metadata with count
+        payload=metadata
     )
 
-    # Upsert into Qdrant
+    # Determine user-specific collection name for embeddings
+    sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
+    target_collection_name = f"{sanitized_email}_email_knowledge" # Use correct embedding pattern
+    
+    # Ensure the user-specific collection exists
     try:
-        logger.info(f"Upserting point ID {point_id} into collection '{settings.QDRANT_COLLECTION_NAME}'")
+        ensure_collection_exists(client, target_collection_name, settings.EMBEDDING_DIMENSION)
+        logger.info(f"Ensured collection '{target_collection_name}' exists.")
+    except Exception as e:
+        logger.error(f"Failed to ensure collection '{target_collection_name}' exists: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to access vector collection: {str(e)}")
+
+    # Upsert into user-specific embedding Qdrant collection
+    try:
+        logger.info(f"Upserting point ID {point_id} into collection '{target_collection_name}'")
         client.upsert(
-            collection_name=settings.QDRANT_COLLECTION_NAME,
+            collection_name=target_collection_name, # Use correct user-specific name
             points=[point],
-            wait=True # Wait for operation to complete
+            wait=True
         )
-        logger.info(f"Successfully upserted point ID {point_id}")
+        logger.info(f"Successfully upserted point ID {point_id} into {target_collection_name}")
         return {"status": "success", "vector_id": point_id, "email_id": email_id}
     except Exception as e:
-        logger.error(f"Failed to upsert point ID {point_id} into Qdrant: {str(e)}", exc_info=True)
+        logger.error(f"Failed to upsert point ID {point_id} into Qdrant collection {target_collection_name}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to store vector in database: {str(e)}"
@@ -112,79 +125,72 @@ async def embed_email(
 async def search_vectors(
     query: str,
     limit: int = Query(10, ge=1, le=100),
-    # Add filters based on metadata schema
     folder: Optional[str] = None,
-    tags: Optional[List[str]] = Query(None), # Allow multiple tags
-    status_filter: Optional[str] = Query(None, alias="status"), # Use alias for reserved word
-    start_date: Optional[str] = None, # YYYY-MM-DD
-    end_date: Optional[str] = None, # YYYY-MM-DD
+    tags: Optional[List[str]] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
     client: QdrantClient = Depends(get_db)
 ):
-    """Search for similar vectors using semantic search with filtering."""
+    """Search for similar vectors within the user's specific RAG knowledge base collection."""
     logger.info(f"Received search request: '{query}' for owner: {current_user.email}")
     try:
-        # Construct the user-specific collection name
+        # *** CORRECTED: Target the knowledge_base collection for RAG search ***
         sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
-        target_collection_name = f"{sanitized_email}_email_knowledge_base" # Search the vector collection
-        logger.info(f"Targeting search in collection: {target_collection_name}")
+        target_collection_name = f"{sanitized_email}_knowledge_base" # Use knowledge_base pattern
+        logger.info(f"Targeting search in RAG collection: {target_collection_name}")
 
         # Generate embedding for the query
         query_embedding = await create_embedding(query)
 
-        # Build Qdrant filters based on query parameters (NO owner filter needed)
+        # Build Qdrant filters (logic remains the same)
+        # Ensure the filter keys (folder, tags, status, date) exist in the _knowledge_base payload
         qdrant_filter = models.Filter(must=[])
-
         if folder:
             qdrant_filter.must.append(models.FieldCondition(key="folder", match=models.MatchValue(value=folder)))
-        
         if tags:
-            # Assuming tags need to match ALL provided tags - use multiple conditions
             for tag in tags:
                  qdrant_filter.must.append(models.FieldCondition(key="tags", match=models.MatchValue(value=tag)))
-            # Alternative: Check if payload field contains ANY of the tags (might require different indexing/query)
-
         if status_filter:
              qdrant_filter.must.append(models.FieldCondition(key="status", match=models.MatchValue(value=status_filter)))
-
-        # Add date range filter if needed (requires date field to be indexed appropriately, e.g., as timestamp or string YYYY-MM-DD)
-        # Note: Qdrant range filter works best with numerical timestamps. 
-        # If using string dates, lexicographical comparison applies.
         range_conditions = {}
         if start_date:
-             # Assuming date is stored as YYYY-MM-DD string
              range_conditions['gte'] = start_date 
         if end_date:
              range_conditions['lte'] = end_date
         if range_conditions:
              qdrant_filter.must.append(models.FieldCondition(key="date", range=models.Range(**range_conditions)))
-             
-        logger.debug(f"Constructed Qdrant filter: {qdrant_filter.model_dump_json()}")
 
-        # Search Qdrant using user-specific collection name
+        # Search Qdrant using the RAG user-specific collection name
         search_result = client.search(
-            collection_name=target_collection_name, # Use user-specific name
+            collection_name=target_collection_name, # Use RAG name
             query_vector=query_embedding,
-            query_filter=qdrant_filter if qdrant_filter.must else None, # Pass filter only if it has conditions
+            query_filter=qdrant_filter if qdrant_filter.must else None,
             limit=limit,
-            with_payload=True # Include metadata in results
+            with_payload=True
         )
 
-        # Format results
+        # Format results (logic remains the same)
         formatted_results = [
             {
                 "id": hit.id,
                 "score": hit.score,
                 "metadata": hit.payload
-                # "content": hit.payload.get("raw_text", "") # Optionally include raw text
             }
             for hit in search_result
         ]
-        logger.info(f"Search completed. Found {len(formatted_results)} results.")
+        logger.info(f"Search completed in {target_collection_name}. Found {len(formatted_results)} results.")
         return formatted_results
 
     except Exception as e:
-        logger.error(f"Search failed: {str(e)}", exc_info=True)
+        # Include target collection name in error logging
+        target_collection_name_on_error = f"{current_user.email.replace('@', '_').replace('.', '_')}_knowledge_base"
+        logger.error(f"Search failed in collection {target_collection_name_on_error}: {str(e)}", exc_info=True)
+        # Check if collection not found specifically
+        if isinstance(e, UnexpectedResponse) and e.status_code == 404:
+             logger.warning(f"Collection '{target_collection_name_on_error}' not found during search.")
+             return [] # Return empty list if collection doesn't exist for the user
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Search failed: {str(e)}"

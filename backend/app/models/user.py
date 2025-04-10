@@ -47,8 +47,15 @@ class User(UserBase):
     organization: Optional[str] = None
     # Add field to temporarily hold MS token passed via JWT
     ms_access_token: Optional[str] = None 
+    # Add OpenAI API key field but mark it as excluded from model creation if not in database
+    openai_api_key: Optional[str] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        # Exclude these fields when creating from attributes if they don't exist
+        populate_by_name=True,
+        extra="ignore"  # Ignore extra fields to avoid errors
+    )
 
 
 class UserInDB(User):
@@ -96,6 +103,11 @@ class UserDB(Base):
     # +++ Add field for last KB task ID +++
     last_kb_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     # --- End Add --- 
+    
+    # +++ Add field for OpenAI API key +++
+    # We'll add this to the model but it might not exist in all environments yet
+    openai_api_key: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    # --- End Add ---
 
     def __repr__(self):
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"

@@ -149,9 +149,9 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
         outlook_service = OutlookService(access_token)
 
         # --- Define Target Qdrant Collection --- 
-        # Construct user-specific collection name (same logic as in vector.py)
+        # Construct the user-specific collection name for embeddings
         sanitized_email = user_id.replace('@', '_').replace('.', '_')
-        target_collection_name = f"{sanitized_email}_email_knowledge"
+        target_collection_name = f"{sanitized_email}_email_knowledge" # Reverted to original/correct name
         logger.info(f"Task {task_id}: Target Qdrant collection: {target_collection_name}")
 
         # --- Ensure Target Collection Exists --- 
@@ -197,7 +197,7 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
                 filter_criteria=filter_criteria,
                 outlook_service=outlook_service,
                 qdrant_client=qdrant_client, # Pass the client
-                target_collection_name=target_collection_name,
+                target_collection_name=target_collection_name, # Pass the correct name
                 update_state_func=update_progress # Pass the callback
             )
         )

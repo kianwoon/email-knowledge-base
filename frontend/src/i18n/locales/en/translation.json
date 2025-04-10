@@ -38,7 +38,8 @@
     "googleDrive": "Google Drive (Coming Soon)",
     "awsS3": "AWS S3 (Coming Soon)",
     "aiDataManagement": "AI Data Management",
-    "tokenManagement": "Token Management"
+    "tokenManagement": "Token Management",
+    "jarvis": "Jarvis"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -981,7 +982,8 @@
     "login": "Login",
     "logout": "Logout",
     "refresh": "Refresh Data",
-    "notAvailable": "N/A"
+    "notAvailable": "N/A",
+    "send": "Send"
   },
   "analysis": {
     "classification": {
@@ -1393,6 +1395,23 @@
       "deleteSuccessTitle": "Token Deleted",
       "deleteErrorTitle": "Deletion Failed",
       "deleteErrorDescription": "Could not delete token."
+    }
+  },
+  "jarvis": {
+    "title": "Jarvis",
+    "chat": "Chat",
+    "settings": "Settings",
+    "roles": {
+      "user": "User",
+      "assistant": "Assistant"
+    },
+    "messagePlaceholder": "Enter your message...",
+    "placeholderResponse": "This is a placeholder response. API integration pending.",
+    "settingsContent": {
+      "selectModel": "Select AI Model",
+      "selectModelPlaceholder": "Please select an AI model",
+      "apiKey": "{{provider}} API Key",
+      "apiKeyPlaceholder": "Enter API key"
     }
   }
 }

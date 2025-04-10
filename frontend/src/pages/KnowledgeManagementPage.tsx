@@ -31,6 +31,12 @@ import PageBanner from '../components/PageBanner';
 import { getKnowledgeBaseSummary, KnowledgeSummaryResponse } from '../api/knowledge';
 import { getUserTokens, Token } from '../api/token';
 import { getMyLatestKbTask, getTaskStatus, TaskStatus } from '../api/tasks';
+import { getCurrentUser } from '../api/auth';
+
+interface UserInfo {
+  email: string;
+  display_name?: string;
+}
 
 interface CombinedSummary {
   rawDataCount: number;
@@ -43,7 +49,9 @@ interface CombinedSummary {
 const KnowledgeManagementPage: React.FC = () => {
   const { t } = useTranslation();
   const [summaryData, setSummaryData] = useState<CombinedSummary | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTask, setActiveTask] = useState<TaskStatus | null>(null);
   const [isLoadingTaskStatus, setIsLoadingTaskStatus] = useState(true);
@@ -83,18 +91,21 @@ const KnowledgeManagementPage: React.FC = () => {
     taskPollingIntervalRef.current = setInterval(() => pollTaskStatus(taskId), 5000);
   }, [pollTaskStatus, stopTaskPolling]);
 
-  const fetchAllSummaries = useCallback(async () => {
+  const fetchInitialData = useCallback(async () => {
     setIsLoading(true);
+    setIsLoadingUser(true);
     setError(null);
-    console.log("Fetching all summaries...");
+    console.log("Fetching initial data (summaries and user)...");
     try {
-      const [knowledgeSummary, tokens] = await Promise.all([
+      const [knowledgeSummary, tokens, user] = await Promise.all([
         getKnowledgeBaseSummary(),
-        getUserTokens()
+        getUserTokens(),
+        getCurrentUser()
       ]);
       
       console.log("Knowledge Summary:", knowledgeSummary);
       console.log("Tokens:", tokens);
+      console.log("Current User:", user);
 
       const totalTokens = tokens.length;
       const activeTokens = tokens.filter((token: Token) => token.is_active).length;
@@ -106,14 +117,17 @@ const KnowledgeManagementPage: React.FC = () => {
         activeTokenCount: activeTokens,
         lastUpdated: knowledgeSummary.last_updated || null,
       });
-      console.log("Summaries fetched and processed.");
+      setCurrentUser(user);
+      console.log("Initial data fetched and processed.");
 
     } catch (err: any) {
-      console.error("Failed to fetch summaries:", err);
-      setError(t('knowledgeManagement.errors.loadFailed', 'Failed to load summary data. Please try again.'));
+      console.error("Failed to fetch initial data:", err);
+      setError(t('knowledgeManagement.errors.loadFailed', 'Failed to load page data. Please try again.'));
+      setCurrentUser(null);
     } finally {
       setIsLoading(false);
-      console.log("Finished fetching summaries.");
+      setIsLoadingUser(false);
+      console.log("Finished fetching initial data.");
     }
   }, [t]);
 
@@ -142,13 +156,13 @@ const KnowledgeManagementPage: React.FC = () => {
   }, [t, startTaskPolling, stopTaskPolling]);
 
   useEffect(() => {
-    fetchAllSummaries();
+    fetchInitialData();
     checkActiveTask();
 
     return () => {
       stopTaskPolling();
     };
-  }, [fetchAllSummaries, checkActiveTask, stopTaskPolling]);
+  }, [fetchInitialData, checkActiveTask, stopTaskPolling]);
 
   const formatDateTime = (isoString: string | null): string => {
     if (!isoString) return t('common.notAvailable', 'N/A');
@@ -173,6 +187,15 @@ const KnowledgeManagementPage: React.FC = () => {
     taskStatusMessage = t('knowledgeManagement.task.started', 'Task started...');
   }
 
+  // Calculate dynamic collection names for both cards
+  let rawCollectionNameDisplay = `{email}_email_knowledge`;
+  let vectorCollectionNameDisplay = `{email}_knowledge_base`;
+  if (currentUser && currentUser.email) {
+      const sanitizedEmail = currentUser.email.replace('@', '_').replace('.', '_');
+      rawCollectionNameDisplay = `${sanitizedEmail}_email_knowledge`;
+      vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base`;
+  }
+  
   return (
     <Box p={5}>
       <PageBanner title={t('knowledgeManagement.title', 'Knowledge Base Management')} />
@@ -190,14 +213,14 @@ const KnowledgeManagementPage: React.FC = () => {
             <IconButton
               aria-label={t('common.refresh', 'Refresh Data')}
               icon={<RepeatIcon />}
-              onClick={fetchAllSummaries}
-              isLoading={isLoading}
+              onClick={fetchInitialData}
+              isLoading={isLoading || isLoadingUser}
               variant="ghost"
             />
           </Tooltip>
         </HStack>
         
-        {isLoading && !summaryData && <Spinner size="xl" />}
+        {(isLoading || isLoadingUser) && !summaryData && <Center><Spinner size="xl" /></Center>}
         
         {error && (
             <Alert status="error" borderRadius="md">
@@ -212,7 +235,7 @@ const KnowledgeManagementPage: React.FC = () => {
               <Stat>
                 <StatLabel>{t('knowledgeManagement.summary.rawDataLabel', 'Raw Data Items')}</StatLabel>
                 <StatNumber>{summaryData.rawDataCount}</StatNumber>
-                <StatHelpText>{t('knowledgeManagement.summary.rawDataHelp', 'Source: ')}{`{email}_email_knowledge`}</StatHelpText>
+                <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
               </Stat>
             </Box>
 
@@ -220,7 +243,7 @@ const KnowledgeManagementPage: React.FC = () => {
               <Stat>
                 <StatLabel>{t('knowledgeManagement.summary.vectorDataLabel', 'Vector Data Items')}</StatLabel>
                 <StatNumber>{summaryData.vectorDataCount}</StatNumber>
-                <StatHelpText>{t('knowledgeManagement.summary.vectorDataHelp', 'Source: ')}{`{email}_email_knowledge_base`}</StatHelpText>
+                <StatHelpText>Source: {vectorCollectionNameDisplay}</StatHelpText>
               </Stat>
             </Box>
 

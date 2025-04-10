@@ -31,7 +31,10 @@
     "googleDrive": "Google Drive (即将推出)",
     "awsS3": "AWS S3 (即将推出)",
     "aiDataManagement": "AI 数据管理",
-    "tokenManagement": "令牌管理"
+    "tokenManagement": "令牌管理",
+    "jarvis": "贾维斯",
+    "chat": "对话",
+    "settings": "设置"
   },
   "features": {
     "title": "解锁隐藏的知识",
@@ -1068,6 +1071,23 @@
       "deleteSuccessTitle": "令牌已删除",
       "deleteErrorTitle": "删除失败",
       "deleteErrorDescription": "无法删除令牌。"
+    }
+  },
+  "jarvis": {
+    "title": "贾维斯",
+    "chat": "对话",
+    "settings": "设置",
+    "roles": {
+      "user": "用户",
+      "assistant": "助手"
+    },
+    "messagePlaceholder": "请输入您的消息...",
+    "placeholderResponse": "这是一个占位响应。API集成待实现。",
+    "settingsContent": {
+      "selectModel": "选择 AI 模型",
+      "selectModelPlaceholder": "请选择 AI 模型",
+      "apiKey": "{{provider}} API 密钥",
+      "apiKeyPlaceholder": "请输入 API 密钥"
     }
   }
 } 

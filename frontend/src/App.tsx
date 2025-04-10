@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Container, Spinner, Center, Text, useToast, useDisclosure, 
@@ -41,6 +41,13 @@ import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import
 // i18n
 import { useTranslation } from 'react-i18next';
 
+// Lazy load new page components
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const KnowledgeBaseListPage = lazy(() => import('@/pages/KnowledgeBaseListPage'));
+const KnowledgeBaseDetailPage = lazy(() => import('@/pages/KnowledgeBaseDetailPage'));
+const BackgroundTasksPage = lazy(() => import('@/pages/BackgroundTasksPage'));
+const JarvisPage = lazy(() => import('@/pages/JarvisPage'));
+
 // Loading Component (Re-defined inline for simplicity)
 const LoadingScreen = () => (
   <Center height="100vh">
@@ -77,6 +84,7 @@ const protectedPaths = [
   '/search',
   '/knowledge',
   '/tokens',
+  '/jarvis', // Added Jarvis path
 ];
 
 function App() {
@@ -280,6 +288,58 @@ function App() {
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <TokenManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route 
+            path="/jarvis"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <JarvisPage />
+                </React.Suspense>
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Add routes for lazy-loaded pages */}
+          <Route 
+            path="/dashboard"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <DashboardPage />
+                </React.Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route 
+            path="/knowledge-bases"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <KnowledgeBaseListPage />
+                </React.Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route 
+            path="/knowledge-bases/:id"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <KnowledgeBaseDetailPage />
+                </React.Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route 
+            path="/tasks"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <BackgroundTasksPage />
+                </React.Suspense>
               </ProtectedRoute>
             }
           />
