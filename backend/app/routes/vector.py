@@ -406,7 +406,7 @@ async def save_job_to_knowledge_base(
                     "has_attachments": has_attachments_bool, # Corrected: derived from attachments list
                     "folder": filter_criteria_obj.folder_id, 
                     "tags": tags_list,
-                    "analysis_status": "completed",
+                    "analysis_status": "pending",
                     "status": "reviewed", 
                     "source": "email",
                     "raw_text": email_content.body or "", # Corrected: body (already string)

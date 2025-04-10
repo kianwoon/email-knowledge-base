@@ -115,7 +115,7 @@ async def _process_and_store_emails(
                     "has_attachments": has_attachments_bool,
                     "folder": filter_criteria.folder_id, 
                     "tags": [], # Analysis/tags to be handled separately later if needed
-                    "analysis_status": "vectorized", # Status indicates embedding is done
+                    "analysis_status": "pending", # Status indicates embedding is done
                     "status": "processed", 
                     "source": "email",
                     "raw_text": email_content.body or "",
