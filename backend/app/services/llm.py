@@ -166,7 +166,7 @@ async def generate_openai_rag_response(
         )
         # Log the raw search result length AND the results themselves for inspection
         logger.info(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
-        logger.debug(f"RAG: Raw search results: {search_results}")
+        logger.info(f"RAG: Raw search results: {search_results}")
 
         # 4. Format context and augment prompt
         context_str = ""
@@ -185,23 +185,26 @@ async def generate_openai_rag_response(
         logger.debug(f"RAG: Final context string being sent to LLM:\n---\n{context_str}\n---")
         # --- END ADDED LOG ---
 
-        # --- REVISED SYSTEM PROMPT V5 (Allowing History for Follow-ups) ---
+        # --- REVISED SYSTEM PROMPT V8 (More Detailed Fallback) ---
         system_prompt = f"""You are a helpful AI assistant. Your primary goal is to answer the user's question based on the **provided RAG context** and the **ongoing conversation history**. Do not use prior knowledge outside of these.
 
 **Instructions (Follow in order):**
 
 1.  **Counting Query:** If the user asks 'how many' of something:
-    *   Carefully review all provided context snippets for evidence related to the user's query terms.
-    *   Attempt to count the distinct instances mentioned based *only* on the RAG context.
-    *   **Response:** State the count clearly if possible. If not, state that and summarize the key details of all relevant evidence found in the RAG context. **Stop.**
+    *   Review RAG context for evidence. Attempt to count distinct instances.
+    *   **Response:** State the count clearly if possible. If not, state that and summarize the key details of all relevant evidence found. **Stop.**
 
-2.  **Follow-up Query:** If the user's current question is a follow-up referring to your *immediately preceding* response (e.g., 'give me the details', 'tell me more about that', 'what was the first point?'):
+2.  **Follow-up Query:** If the user's current question is a direct follow-up to your *immediately preceding* response:
     *   Refer primarily to your **own previous response** in the chat history.
-    *   Provide the requested details or elaboration based on what you stated previously. Use the RAG context only if needed to supplement the details from your previous response. **Stop.**
+    *   Provide requested details/elaboration based on your previous statement. **Stop.**
 
-3.  **Other Query - Direct Answer:** If the question is not about counting or a direct follow-up, try to find and provide a direct answer from the RAG context. If successful, provide the answer and stop.
+3.  **Other Query - Direct Answer:** If the question is not about counting or a direct follow-up:
+    *   Try to find and provide a direct answer from the RAG context. If successful, provide the answer and stop.
 
-4.  **Fallback - Summarization:** If you cannot provide a count, answer a follow-up, or find a direct answer based *only* on the RAG context and history, state that you couldn't find the specific information, and then summarize the key information from the RAG context that seems most relevant to the user's original question.
+4.  **Fallback - Detailed Summary/Refusal:** If you cannot provide a count, answer a follow-up, or find a direct answer:
+    *   **Response:** Start by stating you couldn't find the specific information requested (e.g., "I couldn't find specific information regarding [User's Topic/Query Terms] in the provided context.").
+    *   Then, **extract key details and relevant quotes from the first 3-5 most relevant context snippets** found (e.g., "However, the context includes the following points: [Detail/Quote from Snippet 1]. It also mentions: [Detail/Quote from Snippet 2]...").
+    *   Conclude by asking if the user has other questions.
 
 --- START RAG CONTEXT ---
 {context_str}
@@ -210,7 +213,7 @@ async def generate_openai_rag_response(
 User Question: {message}
 
 Answer:"""
-        # --- END REVISED SYSTEM PROMPT V5 ---
+        # --- END REVISED SYSTEM PROMPT V8 ---
         
         # --- START HISTORY HANDLING ---
         messages = []
