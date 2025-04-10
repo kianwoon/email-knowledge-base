@@ -20,7 +20,7 @@ const LanguageSwitcher: React.FC = () => {
   };
   
   // Check if language is Chinese (either zh or cn)
-  const isChinese = i18n.language === 'zh' || i18n.language === 'cn';
+  const isChinese = i18n.language === 'cn';
 
   return (
     <Menu placement="bottom" gutter={0} closeOnSelect={true}>
@@ -46,14 +46,14 @@ const LanguageSwitcher: React.FC = () => {
           bg={i18n.language === 'en' ? (colorMode === 'dark' ? "whiteAlpha.200" : "gray.100") : "transparent"}
           _hover={{ bg: colorMode === 'dark' ? "whiteAlpha.200" : "gray.100" }}
         >
-          {t('settings.english')}
+          {t('language.english')}
         </MenuItem>
         <MenuItem 
           onClick={() => changeLanguage('cn')}
           bg={isChinese ? (colorMode === 'dark' ? "whiteAlpha.200" : "gray.100") : "transparent"}
           _hover={{ bg: colorMode === 'dark' ? "whiteAlpha.200" : "gray.100" }}
         >
-          {t('settings.chinese')}
+          {t('language.chinese')}
         </MenuItem>
       </MenuList>
     </Menu>

@@ -1,48 +1,49 @@
 {
   "app": {
-    "name": "邮件知识库",
-    "tagline": "人工智能驱动的邮件知识库"
+    "name": "电子邮件知识库",
+    "tagline": "人工智能驱动的电子邮件知识库"
   },
   "home": {
     "hero": {
-      "title": "从日常邮件任务中解放您的时间",
-      "description": "办公室工作人员将超过 50% 的时间用于重复性的邮件沟通。我们的平台从您的邮件中提取有价值的知识，使人工智能能够以个性化的语气和清晰度处理日常任务。"
+      "title": "从日常邮件任务中解放时间",
+      "description": "办公室工作人员将超过50%的时间花在重复性电子邮件通信上。我们的平台从您的邮件中提取有价值的知识，使人工智能能够以个性化的语调和清晰度处理日常任务。"
     },
     "cta": {
-      "signIn": "使用 Microsoft 登录",
+      "signIn": "使用微软账号登录",
       "learnMore": "了解更多",
       "getStartedNow": "立即开始"
     }
   },
   "navigation": {
     "home": "首页",
-    "filterEmails": "筛选邮件",
-    "review": "审查",
+    "filterEmails": "邮件过滤",
+    "review": "审核",
     "search": "搜索",
-    "knowledgeManagement": "知识库",
     "documentation": "文档",
     "support": "支持",
     "menu": "菜单",
     "toggleTheme": "切换主题",
+    "knowledgeManagement": "知识库管理",
+    "tokenManagement": "令牌管理",
+    "jarvis": "贾维斯",
+    "aiDataManagement": "AI 数据管理",
     "dataSource": "数据源",
     "sharepoint": "SharePoint (即将推出)",
     "confluence": "Confluence (即将推出)",
     "elasticsearch": "Elasticsearch (即将推出)",
     "googleDrive": "Google Drive (即将推出)",
     "awsS3": "AWS S3 (即将推出)",
-    "aiDataManagement": "AI 数据管理",
-    "tokenManagement": "令牌管理",
-    "jarvis": "贾维斯",
+    "aiAssistant": "贾维斯",
     "chat": "对话",
     "settings": "设置"
   },
   "features": {
-    "title": "解锁隐藏的知识",
-    "subtitle": "将邮件转化为知识",
+    "title": "解锁隐藏知识",
+    "subtitle": "将电子邮件转化为知识",
     "learnMore": "了解更多",
     "smartEmailProcessing": {
       "title": "智能邮件处理",
-      "description": "根据内容、发件人和重要性智能地筛选和处理邮件。"
+      "description": "根据内容、发件人和重要性智能过滤和处理电子邮件。"
     },
     "aiPoweredKnowledgeExtraction": {
       "title": "人工智能驱动的知识提取",
@@ -58,16 +59,16 @@
     },
     "aiAssistantTraining": {
       "title": "人工智能助手培训",
-      "description": "使用您的知识库培训人工智能助手，以有效地处理日常通信。"
+      "description": "用您的知识库培训人工智能助手，有效处理日常通信。"
     },
     "powerfulSearchCapabilities": {
       "title": "强大的搜索功能",
-      "description": "通过先进的语义搜索和筛选选项准确找到您需要的内容。"
+      "description": "通过高级语义搜索和过滤选项，找到您需要的确切内容。"
     },
-    "unlockHiddenKnowledge": "解锁隐藏的知识"
+    "unlockHiddenKnowledge": "解锁隐藏知识"
   },
   "useCases": {
-    "transformingWorkAcrossDepartments": "跨部门工作转型",
+    "transformingWorkAcrossDepartments": "改变各部门的工作方式",
     "seeHowTeamsBenefit": "了解团队如何受益",
     "hrDepartments": "人力资源部门",
     "administrativeTeams": "行政团队",
@@ -76,150 +77,145 @@
     "consultingAgencies": "咨询机构",
     "financialServices": "金融服务",
     "streamlinedEmployeeSupport": {
-      "title": "简化的员工支持",
-      "description": "自动回复常见的人力资源查询，并与员工保持一致的沟通。"
+      "title": "简化员工支持",
+      "description": "自动回应常见的人力资源咨询，并与员工保持一致的沟通。"
     },
     "efficientOfficeManagement": {
-      "title": "高效的办公室管理",
-      "description": "组织行政通信并自动化日常办公室管理任务。"
+      "title": "高效办公管理",
+      "description": "组织行政通信并自动化常规办公管理任务。"
     },
     "consistentFinancialCommunication": {
       "title": "一致的财务沟通",
-      "description": "确保在所有部门和利益相关者之间传递准确一致的财务信息。"
+      "description": "确保在所有部门和利益相关者之间准确一致的财务信息传递。"
     },
     "enhancedClientCommunication": {
-      "title": "增强的客户沟通",
-      "description": "通过个性化和及时的回复查询来改善客户关系。"
+      "title": "增强客户沟通",
+      "description": "通过个性化和及时的回应提高客户关系。"
     },
     "clientKnowledgePreservation": {
       "title": "客户知识保存",
-      "description": "即使团队成员更换角色，也要保存有关客户的机构知识。"
+      "description": "即使团队成员角色变化，也能保留关于客户的机构知识。"
     },
     "structuredDealRecords": {
-      "title": "结构化的交易记录",
-      "description": "维护金融交易和客户互动的全面记录。"
+      "title": "结构化交易记录",
+      "description": "维护全面的金融交易和客户互动记录。"
     }
   },
   "cta": {
-    "readyToFreeYourTeam": "准备好解放您的团队了吗？",
+    "readyToFreeYourTeam": "准备解放您的团队",
     "takeTheFirstStep": "迈出第一步",
     "getStartedNow": "立即开始"
   },
   "footer": {
-    "copyright": "邮件知识库。保留所有权利。",
+    "copyright": "电子邮件知识库。保留所有权利。",
     "documentation": "文档",
     "support": "支持",
     "privacyPolicy": "隐私政策",
     "termsOfService": "服务条款"
   },
   "stats": {
-    "officeTimeSpent": "办公室邮件处理时间占比",
+    "officeTimeSpent": "办公时间用于邮件",
     "productivityIncrease": "生产力提升",
-    "returnOnInvestment": "投资回报率"
+    "returnOnInvestment": "投资回报"
   },
   "documentation": {
     "title": "文档",
-    "description": "欢迎查阅邮件知识库文档...",
-    "exploreText": "探索我们平台的全面文档，涵盖从身份验证到知识导出的所有方面。",
+    "description": "欢迎来到电子邮件知识库文档。在这里，您将找到有关我们平台所有方面的详细信息。",
+    "exploreText": "探索涵盖我们平台所有方面的全面文档，从身份验证到知识导出。",
     "learnMore": "了解更多",
-    "additionalResources": "其他资源",
+    "additionalResources": "额外资源",
     "sections": {
       "authentication": {
         "title": "安全认证",
-        "description": "了解我们基于OAuth2的认证系统如何与Microsoft 365无缝集成。"
+        "description": "了解我们基于OAuth2的身份验证系统，它与Microsoft 365无缝集成。"
       },
       "filtering": {
         "title": "智能邮件处理",
-        "description": "基于内容、优先级和知识价值自动筛选和分类邮件。",
-        "header": "智能筛选",
-        "categories": "筛选类别",
-        "folder": "文件夹结构",
-        "folderDescription": "按部门、项目或类别层次组织内容",
-        "dateRange": "日期范围",
-        "dateRangeDescription": "按特定时间段筛选（上周、本月、自定义范围）",
-        "senderRecipient": "联系人筛选",
-        "senderRecipientDescription": "按特定联系人或域名筛选",
-        "keywordSearch": "关键词搜索",
-        "keywordSearchDescription": "查找包含特定术语或短语的邮件",
-        "attachmentType": "附件类型",
-        "attachmentTypeDescription": "按特定附件类型筛选邮件（.pdf、.docx等）",
-        "importance": "重要性",
-        "importanceDescription": "按优先级标志或重要性标记筛选",
-        "alert": "可以组合筛选器创建高度特定的查询，使您能够精确定位所需的内容。",
+        "description": "根据内容、优先级和知识价值自动过滤和分类电子邮件。",
+        "header": "智能过滤",
+        "categories": "过滤器类别",
+        "folder": "基于文件夹:",
+        "folderDescription": "针对特定的Outlook文件夹和子文件夹",
+        "dateRange": "日期范围:",
+        "dateRangeDescription": "按特定时间段过滤（上周、上月、自定义范围）",
+        "senderRecipient": "发件人/收件人:",
+        "senderRecipientDescription": "按特定联系人或域名过滤",
+        "keywordSearch": "关键词搜索:",
+        "keywordSearchDescription": "查找包含特定术语或短语的电子邮件",
+        "attachmentType": "附件类型:",
+        "attachmentTypeDescription": "按具有特定附件类型的电子邮件过滤（.pdf、.docx等）",
+        "importance": "重要性:",
+        "importanceDescription": "按优先级标志或重要性标记过滤",
+        "alert": "过滤器可以组合使用以创建高度特定的查询，使您能够精确定位所需的内容。",
         "advancedQuerySyntax": "高级查询语法",
-        "advancedQuerySyntaxDescription": "对于更复杂的搜索，您可以使用高级查询语法：",
-        "advancedQuerySyntaxExample": "folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
-        "advancedQuerySyntaxNote": "此示例搜索收件箱文件夹中来自john@example.com或主题包含\"important\"的邮件。",
-        "bestPractices": "最佳实践",
-        "bestPractice1": {
-          "title": "从特定文件夹开始：",
-          "description": "首先从相关项目或主题特定文件夹中筛选邮件。"
-        },
-        "bestPractice2": {
-          "title": "明智使用日期范围：",
-          "description": "将搜索范围缩小到与知识库主题相关的特定时间段。"
-        },
-        "bestPractice3": {
-          "title": "保存筛选模板：",
-          "description": "创建并保存常用筛选组合的模板以节省时间。"
-        },
-        "bestPractice4": {
-          "title": "批量处理：",
-          "description": "选择并一起处理相关邮件，以获得更连贯的知识提取。"
-        },
-        "bestPractice5": {
-          "title": "关注高重要性：",
-          "description": "从高重要性邮件开始，因为它们通常包含关键信息。"
-        },
-        "workflowSteps": "筛选工作流程",
-        "workflow": "筛选工作流程",
-        "workflowStep1": "选择筛选类别",
-        "workflowStep1Description": "选择与您的知识需求最相关的筛选类型",
-        "workflowStep2": "应用筛选器",
-        "workflowStep2Description": "使用所选筛选器缩小邮件集合范围",
-        "workflowStep3": "优化结果",
-        "workflowStep3Description": "分析初始结果并调整筛选器以提高精确度",
-        "workflowStep4": "保存筛选模板",
-        "workflowStep4Description": "将成功的筛选组合存储为模板，以便将来使用",
-        "useCases": "常见使用场景",
+        "optimization": "过滤器优化",
+        "performanceMetrics": "过滤器性能指标",
+        "filterType": "过滤器类型",
+        "processingSpeed": "处理速度",
+        "precision": "精确度",
+        "folderBased": "基于文件夹",
+        "veryFast": "非常快",
+        "fast": "快速",
+        "moderate": "适中",
+        "high": "高",
+        "medium": "中等",
+        "veryHigh": "非常高",
+        "varies": "不同",
+        "combinedFilters": "组合过滤器",
+        "startBroad": "从广泛开始，然后细化",
+        "startBroadDescription": "从更广泛的过滤器开始，然后逐渐缩小范围以获得最佳结果",
+        "combineFilterTypes": "组合过滤器类型",
+        "combineFilterTypesDescription": "同时使用多种过滤器类型可以获得更精确的结果",
+        "optimizeForSpeed": "优化处理速度",
+        "optimizeForSpeedDescription": "处理大型邮箱时，从最快的过滤器类型开始",
+        "workflow": "过滤工作流程",
+        "workflowStep1": "定义知识目标",
+        "workflowStep1Description": "确定您想从电子邮件中提取和保存的信息类型",
+        "workflowStep2": "设置初始过滤器",
+        "workflowStep2Description": "配置广泛的过滤器以捕获潜在相关内容",
+        "workflowStep3": "审查和优化",
+        "workflowStep3Description": "分析初步结果并调整过滤器以提高精确度",
+        "workflowStep4": "保存过滤器模板",
+        "workflowStep4Description": "将成功的过滤器组合存储为模板以供将来使用",
+        "useCases": "常见用例",
         "useCase1": "项目文档",
         "useCase1Description": "捕获所有与项目相关的通信，以供将来参考和入职培训",
         "useCase2": "客户知识库",
-        "useCase2Description": "建立客户偏好、历史和需求的综合档案",
+        "useCase2Description": "建立客户偏好、历史和需求的综合资料",
         "useCase3": "技术解决方案",
         "useCase3Description": "保存技术解决方案、变通方法和故障排除步骤",
-        "filterTip3Description": "限制搜索相关时间段以提高性能",
+        "filteringProcess": "过滤流程",
+        "filterTip1": "从广泛过滤开始",
+        "filterTip1Description": "从更宽泛的参数开始，逐步缩小搜索范围以获得最佳结果",
+        "filterTip2": "组合不同过滤器类型",
+        "filterTip2Description": "同时使用多种过滤器类型可提供更精确的结果",
+        "filterTip3": "战略性使用日期范围",
+        "filterTip3Description": "将搜索限制在相关时间段内以提高性能",
         "filterTip4": "关注关键联系人",
-        "filterTip4Description": "按重要发件人或收件人筛选，优先处理有价值的通信",
-        "knowledgeStructure": "筛选类别",
-        "fieldsLabel": "字段：",
-        "tagsLabel": "标签：",
-        "executive": "行政",
-        "management": "管理",
+        "filterTip4Description": "按重要发件人或收件人过滤，优先处理有价值的通信",
+        "knowledgeStructure": "过滤器类别",
+        "fieldsLabel": "字段:",
+        "tagsLabel": "标签:",
+        "executive": "执行层",
+        "management": "管理层",
         "reports": "报告",
+        "date": "日期",
+        "creationDate": "创建日期",
+        "modificationDate": "修改日期",
+        "sender": "发送者",
+        "recipient": "接收者",
+        "subject": "主题",
+        "content": "内容",
         "clientRelations": "客户关系",
         "sales": "销售",
         "support": "支持",
         "itSupport": "IT支持",
         "engineering": "工程",
-        "troubleshooting": "故障排除",
-        "date": "日期",
-        "creationDate": "创建日期",
-        "modificationDate": "修改日期",
-        "sender": "发件人",
-        "recipient": "收件人",
-        "subject": "主题",
-        "content": "内容",
-        "filteringProcess": "筛选流程",
-        "filterTip1": "组合多个筛选器",
-        "filterTip1Description": "组合使用多个筛选器，更精确地缩小结果范围",
-        "filterTip2": "使用基于标签的筛选",
-        "filterTip2Description": "按标签筛选，快速查找具有特定分类的内容",
-        "filterTip3": "应用日期约束"
+        "troubleshooting": "故障排除"
       },
       "analysis": {
         "title": "人工智能分析",
-        "description": "了解我们的人工智能如何分析和提取您通信中的知识。",
+        "description": "了解我们的人工智能如何分析和提取您的通信中的知识。",
         "header": "人工智能分析",
         "capabilities": {
           "title": "人工智能功能",
@@ -228,8 +224,8 @@
             "description": "自动按部门、主题和重要性对电子邮件进行分类"
           },
           "pii": {
-            "title": "个人信息检测",
-            "description": "识别并标记需要审查的个人身份信息"
+            "title": "个人身份信息检测",
+            "description": "识别并标记个人身份信息以供审核"
           },
           "summarization": {
             "title": "内容摘要",
@@ -244,7 +240,7 @@
             "description": "识别关键事实、决策和可操作的见解"
           }
         },
-        "info": "我们的人工智能模型专为商业通信而优化，可以根据您组织的特定术语和需求进行定制。",
+        "info": "我们的人工智能模型针对商业通信进行了微调，可以根据您组织的特定术语和需求进行定制。",
         "model": {
           "title": "人工智能模型规格",
           "base": "基础模型",
@@ -259,11 +255,11 @@
             "description": "处理电子邮件以提取文本、元数据和附件信息"
           },
           "step2": {
-            "title": "个人信息与敏感数据检测",
+            "title": "个人身份信息和敏感数据检测",
             "description": "人工智能识别个人信息、机密数据和合规性问题"
           },
           "step3": {
-            "title": "分类与标记",
+            "title": "分类和标记",
             "description": "按部门、主题、优先级和知识价值对内容进行分类"
           },
           "step4": {
@@ -275,12 +271,12 @@
             "description": "格式化结果以便高效的人工审核和批准"
           }
         },
-        "warning": "人工智能分析旨在辅助人工审核者，而非取代他们。所有人工智能生成的标签和分类都可以在审核过程中修改。",
+        "warning": "人工智能分析旨在协助人工审核者，而不是取代他们。所有人工智能生成的标签和分类都可以在审核过程中修改。",
         "classification": {
           "title": "分类类别",
           "department": {
             "title": "部门",
-            "description": "确定内容与哪个业务单元相关"
+            "description": "识别内容与哪个业务单位相关"
           },
           "type": {
             "title": "内容类型",
@@ -291,7 +287,8 @@
             "description": "标记需要特殊处理的内容"
           },
           "tags": {
-            "executive": "行政",
+            "executive": "高管",
+            "management": "管理层",
             "sales": "销售",
             "marketing": "市场营销",
             "finance": "财务",
@@ -319,35 +316,200 @@
           }
         },
         "pii": {
-          "title": "个人信息与敏感数据检测",
-          "description": "我们的人工智能系统自动识别并标记个人身份信息和敏感数据，以确保遵守隐私法规和公司政策。",
+          "title": "个人身份信息和敏感数据检测",
+          "description": "我们的人工智能系统自动识别并标记个人身份信息和敏感数据，以确保符合隐私法规和公司政策。",
           "names": "姓名",
           "emails": "电子邮件地址",
           "phoneNumbers": "电话号码",
           "addresses": "地址",
-          "ssn": "社会安全号码/身份证号",
+          "ssn": "社会安全号码/身份证号码",
           "financialData": "财务数据",
           "healthInformation": "健康信息",
           "credentials": "凭证",
-          "success": "所有标记的个人信息在处理前都会提交人工审核。您可以选择编辑、匿名化或批准每个实例。"
+          "success": "所有标记的个人身份信息在处理前都会提交给人工审核。您可以选择编辑、匿名化或批准每个实例。"
+        }
+      },
+      "emailProcessing": {
+        "title": "邮件处理",
+        "subtitle": "高效过滤、选择和处理电子邮件以构建知识库",
+        "overview": "概述",
+        "description": "邮件处理功能允许您智能地筛选电子邮件存档，选择相关消息，并处理它们以纳入您的知识库。这种流线型工作流程帮助您从电子邮件通信中提取有价值的信息，并将其转化为结构化知识。",
+        "infoAlert": "邮件处理是构建知识库的第一步。选择并处理电子邮件后，您可以在将提取的信息添加到知识库之前进行审核。",
+        "keyFeatures": "主要功能",
+        "feature1": {
+          "title": "高级过滤",
+          "description": "按文件夹、日期范围、发件人、关键词、重要性和附件类型过滤电子邮件，快速找到相关信息。"
+        },
+        "feature2": {
+          "title": "过滤器模板",
+          "description": "保存并重复使用过滤器配置作为模板，以便一致地处理类似类型的电子邮件。"
+        },
+        "feature3": {
+          "title": "智能搜索",
+          "description": "使用高级查询语法在电子邮件存档中执行复杂搜索。"
+        },
+        "feature4": {
+          "title": "重要性过滤",
+          "description": "通过基于重要性级别的过滤，专注于高优先级电子邮件。"
+        },
+        "feature5": {
+          "title": "附件处理",
+          "description": "按特定附件类型过滤电子邮件，或仅关注带有附件的电子邮件。"
+        },
+        "feature6": {
+          "title": "批量处理",
+          "description": "同时选择和处理多个电子邮件，以高效提取知识。"
+        },
+        "howItWorks": "工作原理",
+        "step1": {
+          "title": "设置过滤器",
+          "description": "配置过滤器，根据文件夹、日期范围、发件人、关键词等缩小电子邮件搜索范围。"
+        },
+        "step2": {
+          "title": "搜索电子邮件",
+          "description": "执行搜索以查找符合过滤条件的电子邮件。"
+        },
+        "step3": {
+          "title": "查看结果",
+          "description": "检查搜索结果并选择相关电子邮件。"
+        },
+        "step4": {
+          "title": "处理所选电子邮件",
+          "description": "提交所选电子邮件进行分析，提取关键信息并准备审核。"
+        },
+        "step5": {
+          "title": "审核提取的信息",
+          "description": "处理后，您将被引导到审核页面，可以验证和完善提取的信息。"
+        },
+        "filterOptions": "可用过滤选项",
+        "filterOption1": {
+          "title": "文件夹",
+          "description": "选择要在其中搜索的特定电子邮件文件夹"
+        },
+        "filterOption2": {
+          "title": "日期范围",
+          "description": "按开始和结束日期过滤电子邮件"
+        },
+        "filterOption3": {
+          "title": "发件人",
+          "description": "按特定电子邮件地址或域名过滤"
+        },
+        "filterOption4": {
+          "title": "关键词",
+          "description": "在电子邮件主题或正文中搜索特定词语"
+        },
+        "filterOption5": {
+          "title": "重要性",
+          "description": "按电子邮件重要性（高、正常、低）过滤"
+        },
+        "filterOption6": {
+          "title": "附件",
+          "description": "按附件存在与否或特定类型过滤"
+        },
+        "advancedQuerySyntax": "高级查询语法",
+        "advancedQuerySyntaxDescription": "对于更复杂的搜索，您可以使用高级查询语法：",
+        "advancedQuerySyntaxExample": "folder:\"收件箱\" AND (from:john@example.com OR subject:\"重要\")",
+        "advancedQuerySyntaxNote": "此示例搜索收件箱文件夹中来自john@example.com或主题中包含\"重要\"的电子邮件。示例使用了高级查询语法，包括文件夹、发件人和主题过滤。",
+        "bestPractices": "最佳实践",
+        "bestPractice1": {
+          "title": "从特定文件夹开始",
+          "description": "首先从相关项目或主题特定的文件夹中过滤电子邮件。"
+        },
+        "bestPractice2": {
+          "title": "明智使用日期范围",
+          "description": "将搜索范围缩小到与知识库主题相关的特定时间段。"
+        },
+        "bestPractice3": {
+          "title": "保存过滤器模板",
+          "description": "创建并保存常用过滤器组合的模板，以节省时间。"
+        },
+        "bestPractice4": {
+          "title": "批量处理",
+          "description": "一起选择和处理相关电子邮件，以获得更连贯的知识提取。"
+        },
+        "bestPractice5": {
+          "title": "关注高重要性",
+          "description": "从高重要性电子邮件开始，因为它们通常包含关键信息。"
+        },
+        "header": "邮件处理",
+        "categories": "邮件过滤类别",
+        "folder": "文件夹过滤器",
+        "folderDescription": "按电子邮件账户中的特定文件夹过滤邮件",
+        "dateRange": "日期范围",
+        "dateRangeDescription": "按特定时间段过滤邮件",
+        "senderRecipient": "发件人/收件人",
+        "senderRecipientDescription": "按邮件发送者或接收者过滤",
+        "keywordSearch": "关键词搜索",
+        "keywordSearchDescription": "搜索邮件内容中的特定术语",
+        "attachmentType": "附件类型",
+        "attachmentTypeDescription": "按附件存在与否或文件类型过滤",
+        "importance": "重要性级别",
+        "importanceDescription": "按邮件优先级标志过滤",
+        "alert": "为获得最佳结果，请结合多种过滤器类型来有效缩小搜索范围。",
+        "optimization": "性能优化",
+        "performanceMetrics": "过滤器性能指标",
+        "filterType": "过滤器类型",
+        "processingSpeed": "处理速度",
+        "precision": "精确度",
+        "folderBased": "基于文件夹",
+        "veryFast": "非常快",
+        "high": "高",
+        "fast": "快",
+        "moderate": "中等",
+        "medium": "中等",
+        "varies": "不同",
+        "veryHigh": "非常高",
+        "combinedFilters": "组合过滤器",
+        "startBroad": "从广泛过滤开始",
+        "startBroadDescription": "从更宽泛的参数开始，逐步缩小搜索范围以获得最佳结果",
+        "combineFilterTypes": "组合不同过滤器类型",
+        "combineFilterTypesDescription": "同时使用多种过滤器类型可提供更精确的结果",
+        "optimizeForSpeed": "优化处理速度",
+        "optimizeForSpeedDescription": "文件夹和日期过滤器比全文关键词搜索处理得更快",
+        "workflow": "邮件处理工作流程",
+        "workflowStep1": "配置过滤器",
+        "workflowStep1Description": "根据您的知识需求设置过滤条件",
+        "workflowStep2": "执行搜索",
+        "workflowStep2Description": "运行搜索以在您的存档中查找匹配的电子邮件",
+        "workflowStep3": "查看结果",
+        "workflowStep3Description": "检查搜索结果并选择相关电子邮件",
+        "workflowStep4": "处理所选电子邮件",
+        "workflowStep4Description": "提交所选电子邮件进行知识提取和分析",
+        "useCases": "常见用例",
+        "useCase1": "项目文档",
+        "useCase1Description": "收集所有与项目相关的电子邮件以创建全面的文档",
+        "useCase2": "客户沟通存档",
+        "useCase2Description": "建立客户互动的知识库，用于参考和培训",
+        "useCase3": "技术解决方案库",
+        "useCase3Description": "收集技术故障排除电子邮件以创建解决方案数据库",
+        "tags": {
+          "projectManagement": "项目管理",
+          "documentation": "文档",
+          "onboarding": "入职培训",
+          "clientRelations": "客户关系",
+          "sales": "销售",
+          "support": "支持",
+          "itSupport": "IT支持",
+          "engineering": "工程",
+          "troubleshooting": "故障排除"
         }
       },
       "knowledgeBase": {
         "title": "知识库",
-        "subtitle": "了解如何组织、搜索和利用您的组织知识",
-        "description": "了解如何搜索、管理和导出您组织的知识库。",
-        "fieldsTitle": "字段",
+        "subtitle": "强大的向量数据库，用于存储、搜索和导出组织的知识。",
+        "description": "学习如何搜索、管理和导出您组织的知识库。",
         "managementTitle": "知识管理",
-        "managementDescription": "我们的知识库结构设计用于高效地组织和检索您的组织知识。了解如何最大化其价值。",
+        "managementDescription": "我们的知识库为您组织的宝贵信息提供了结构化的存储库，使您能够轻松存储、搜索和导出从通信中提取的知识。",
         "knowledgeStructureTitle": "知识结构",
         "emailKnowledgeTitle": "邮件知识",
-        "emailKnowledgeDescription": "从邮件通信中提取的有价值信息",
+        "emailKnowledgeDescription": "从电子邮件通信中提取的信息",
         "documentKnowledgeTitle": "文档知识",
-        "documentKnowledgeDescription": "从文档和附件中获取的结构化内容",
+        "documentKnowledgeDescription": "从附件文档中提取的信息",
         "relationshipKnowledgeTitle": "关系知识",
-        "relationshipKnowledgeDescription": "实体间的连接和上下文关系",
-        "senderField": "发件人",
-        "recipientsField": "收件人",
+        "relationshipKnowledgeDescription": "人员、主题和内容之间的联系",
+        "fieldsTitle": "字段：",
+        "senderField": "发送者",
+        "recipientsField": "接收者",
         "dateField": "日期",
         "subjectField": "主题",
         "contentField": "内容",
@@ -365,104 +527,55 @@
         "relationshipTypeField": "关系类型",
         "strengthField": "强度",
         "contextField": "上下文",
-        "searchCapabilitiesTitle": "搜索能力",
+        "example": "示例",
+        "searchCapabilitiesTitle": "搜索功能",
         "semanticSearchTitle": "语义搜索",
-        "semanticSearchDescription": "基于含义而非关键词的搜索",
-        "semanticSearchExample": "示例：'客户不满意的事件'会找到相关通信，即使没有使用这些确切词语",
+        "semanticSearchDescription": "基于含义和上下文查找信息，而不仅仅是精确的关键词匹配",
+        "semanticSearchExample": "示例：显示所有关于第三季度预算规划的讨论",
         "relationshipSearchTitle": "关系搜索",
-        "relationshipSearchDescription": "探索实体间的连接和模式",
-        "relationshipSearchExample": "示例：'与ABC公司有关的所有项目文档'",
+        "relationshipSearchDescription": "发现人员和主题之间的联系",
+        "relationshipSearchExample": "示例：谁参与了网站重新设计项目？",
         "trendAnalysisTitle": "趋势分析",
-        "trendAnalysisDescription": "识别知识库中随时间变化的模式",
-        "trendAnalysisExample": "示例：'过去6个月中客户问题的频率'",
+        "trendAnalysisDescription": "识别随时间变化的模式和趋势",
+        "trendAnalysisExample": "示例：过去6个月客户反馈如何演变？",
         "permissionBasedAccessTitle": "基于权限的访问",
-        "permissionBasedAccessDescription": "根据角色和敏感度控制知识访问",
-        "permissionBasedAccessExample": "示例：只有HR可以访问员工相关的机密内容",
+        "permissionBasedAccessDescription": "根据用户权限过滤结果",
+        "permissionBasedAccessExample": "示例：仅显示我有权访问的部门的知识",
         "exportOptionsTitle": "导出选项",
-        "exportOptionsDescription": "我们的知识库支持多种格式导出，使您能够在各种平台和应用中利用您的组织知识。",
+        "exportOptionsDescription": "知识可以以多种格式导出，以便与其他系统集成或供离线参考。",
         "jsonExport": "JSON",
         "csvExport": "CSV",
         "pdfExport": "PDF",
         "htmlExport": "HTML",
         "markdownExport": "Markdown",
-        "customExportFormatsInfo": "可以配置自定义导出格式以满足您组织的特定需求。",
+        "customExportFormatsInfo": "可以为企业客户配置自定义导出格式，以匹配您现有的系统。",
         "apiAccessTitle": "API访问",
-        "apiAccessDescription": "利用我们的API将知识库与您的应用和工作流集成。",
+        "apiAccessDescription": "使用我们的综合API将知识库功能直接集成到您的应用程序中。",
         "restApiEndpointsTitle": "REST API端点",
-        "crudOperationsDescription": "对知识实体进行创建、读取、更新和删除操作",
-        "searchAcrossKnowledgeBaseDescription": "执行高级搜索和过滤",
-        "exportKnowledgeDescription": "以各种格式导出知识实体",
-        "knowledgeUsageAndTrendsDescription": "获取知识使用情况和趋势的分析数据",
-        "apiDocumentationInfo": "完整的API文档可在开发者门户获取。访问令牌可从管理员控制面板生成。"
-      },
-      "secureAuthentication": {
-        "title": "安全认证",
-        "subtitle": "了解我们的安全机制如何保护您的数据",
-        "heading": "安全认证和数据保护",
-        "description": "邮件知识库使用强大的安全协议来保护您的邮件数据和知识资产。我们通过最新的行业标准确保您的信息安全。",
-        "howItWorksTitle": "工作原理",
-        "oauth2Title": "OAuth 2.0安全流程",
-        "oauth2Description": "使用行业标准的OAuth 2.0安全协议实现安全透明的认证。",
-        "microsoftIdentityTitle": "Microsoft身份平台集成",
-        "microsoftIdentityDescription": "与微软身份平台无缝集成，确保统一的身份管理体验。",
-        "tokenBasedAuthenticationTitle": "基于令牌的认证",
-        "tokenBasedAuthenticationDescription": "使用安全令牌进行身份验证，无需存储您的微软凭据。",
-        "permissionScopingTitle": "权限范围界定",
-        "permissionScopingDescription": "严格限制请求的权限，只访问必要的数据。",
-        "authenticationInfo": "我们的认证系统确保除非您明确提供授权，否则永远不会访问您的数据。所有令牌都在您的设备上安全存储。",
-        "requestedPermissionsTitle": "请求的权限范围",
-        "mailReadDescription": "读取您的邮件以便进行分析和知识提取",
-        "mailReadBasicDescription": "访问基本邮件标题而非敏感内容",
-        "userReadDescription": "获取基本用户信息用于账户创建",
-        "offlineAccessDescription": "允许应用在您未登录时刷新令牌",
-        "securityFeaturesTitle": "安全特性",
-        "endToEndEncryptionTitle": "端到端加密",
-        "endToEndEncryptionDescription": "所有数据在传输和存储过程中都使用强加密保护。",
-        "tokenRefreshManagementTitle": "令牌刷新管理",
-        "tokenRefreshManagementDescription": "自动安全处理刷新令牌，最小化重新认证需求。",
-        "roleBasedAccessControlTitle": "基于角色的访问控制",
-        "roleBasedAccessControlDescription": "根据用户角色和权限精确控制系统访问。",
-        "automaticSessionTimeoutsTitle": "自动会话超时",
-        "automaticSessionTimeoutsDescription": "在一段不活动时间后自动终止会话以保护您的账户。",
-        "enterpriseDeploymentsInfo": "企业部署可以与Azure AD条件访问策略和多因素认证集成，加强安全性。",
-        "authenticationFlowTitle": "认证流程",
-        "user": "用户",
-        "ourApp": "我们的应用",
-        "microsoftIdentity": "Microsoft身份",
-        "authenticationFlowStep1": "1. 用户在应用中点击\"使用Microsoft登录\"按钮",
-        "authenticationFlowStep2": "2. 应用重定向至Microsoft身份平台进行认证",
-        "authenticationFlowStep3": "3. 用户使用Microsoft凭据登录并授权请求的权限",
-        "authenticationFlowStep4": "4. Microsoft返回授权码至应用",
-        "authenticationFlowStep5": "5. 应用使用授权码向Microsoft交换获取访问和刷新令牌",
-        "authenticationFlowStep6": "6. 应用使用令牌访问Microsoft Graph API获取邮件数据",
-        "faqTitle": "常见问题",
-        "faq1Title": "我的邮件数据是否安全？",
-        "faq1Description": "是的，您的邮件数据受到多层安全保护。我们仅在您授权的范围内访问数据，所有数据传输和存储都经过加密。",
-        "faq2Title": "您是否存储我的Microsoft密码？",
-        "faq2Description": "绝对不会。身份验证完全通过Microsoft身份平台处理，我们从不接触您的密码或凭据。",
-        "faq3Title": "为什么要求这些具体权限？",
-        "faq3Description": "我们请求的权限是知识提取所必需的最小范围，包括读取邮件内容、基本用户信息和令牌刷新功能。",
-        "faq4Title": "如何撤销应用的访问权限？",
-        "faq4Description": "您可以随时访问Microsoft账户的\"隐私与服务\"部分，在\"应用与服务\"下撤销对本应用的访问权限。"
+        "crudOperationsDescription": "知识项的CRUD操作",
+        "searchAcrossKnowledgeBaseDescription": "跨知识库搜索",
+        "exportKnowledgeDescription": "以各种格式导出知识",
+        "knowledgeUsageAndTrendsDescription": "知识使用情况和趋势",
+        "apiDocumentationInfo": "为开发人员提供全面的API文档，包括身份验证、速率限制和示例代码。"
       },
       "aiTraining": {
-        "header": "人工智能培训文档",
-        "subtitle": "了解如何使用您的邮件知识库有效地训练人工智能模型",
+        "header": "人工智能训练文档",
+        "subtitle": "学习如何使用您的电子邮件知识库有效训练人工智能模型",
         "overview": "概述",
-        "overviewDescription": "我们的人工智能培训系统允许您创建自定义人工智能模型，了解您组织的沟通模式和知识库。",
+        "overviewDescription": "我们的人工智能训练系统允许您创建理解贵组织通信模式和知识库的自定义人工智能模型。",
         "capabilities": {
-          "title": "主要功能",
+          "title": "核心功能",
           "capability1": {
             "title": "知识集成",
-            "description": "将提取的邮件知识无缝集成到人工智能训练数据集中"
+            "description": "将提取的电子邮件知识无缝集成到人工智能训练数据集中"
           },
           "capability2": {
-            "title": "自定义培训",
-            "description": "使用您组织特定的沟通风格和领域知识训练人工智能模型"
+            "title": "自定义训练",
+            "description": "使用贵组织特定的通信风格和领域知识训练人工智能模型"
           },
           "capability3": {
             "title": "多语言支持",
-            "description": "训练人工智能模型有效处理多种语言的通信"
+            "description": "训练人工智能模型以有效处理多语言通信"
           },
           "capability4": {
             "title": "性能分析",
@@ -470,18 +583,18 @@
           }
         },
         "trainingProcess": {
-          "title": "培训流程",
+          "title": "训练流程",
           "step1": {
             "title": "数据准备",
-            "description": "选择并准备相关邮件数据进行培训"
+            "description": "选择和准备相关的电子邮件数据用于训练"
           },
           "step2": {
             "title": "模型配置",
-            "description": "配置人工智能模型参数和培训目标"
+            "description": "配置人工智能模型参数和训练目标"
           },
           "step3": {
-            "title": "执行培训",
-            "description": "使用选定的数据集执行培训过程"
+            "title": "执行训练",
+            "description": "使用选定的数据集执行训练过程"
           },
           "step4": {
             "title": "性能评估",
@@ -489,37 +602,37 @@
           },
           "step5": {
             "title": "部署",
-            "description": "部署训练好的模型处理实时通信"
+            "description": "部署训练好的模型以处理实时通信"
           }
         },
         "useCases": {
           "title": "使用场景",
           "useCase1": {
             "title": "客户支持",
-            "description": "训练人工智能处理常见的客户查询和支持请求"
+            "description": "训练人工智能处理常见客户咨询和支持请求"
           },
           "useCase2": {
             "title": "内部沟通",
-            "description": "自动化常规内部沟通和知识共享"
+            "description": "自动化日常内部通信和知识共享"
           },
           "useCase3": {
             "title": "文档处理",
-            "description": "处理并分类接收的文档和附件"
+            "description": "处理和分类收到的文档和附件"
           },
           "useCase4": {
             "title": "知识分发",
-            "description": "将相关知识分发给适当的团队成员"
+            "description": "向相应团队成员分发相关知识"
           }
         },
         "bestPractices": {
           "title": "最佳实践",
           "practice1": {
             "title": "数据质量",
-            "description": "确保训练数据干净、相关且具有代表性"
+            "description": "确保训练数据清晰、相关且具有代表性"
           },
           "practice2": {
             "title": "定期更新",
-            "description": "不断用新知识和模式更新模型"
+            "description": "使用新知识和模式持续更新模型"
           },
           "practice3": {
             "title": "性能监控",
@@ -533,12 +646,12 @@
         "performance": {
           "title": "性能指标",
           "metric1": {
-            "title": "响应准确性",
-            "description": "人工智能模型正确解决的查询百分比"
+            "title": "响应准确率",
+            "description": "人工智能模型正确解决查询的百分比"
           },
           "metric2": {
             "title": "解决率",
-            "description": "无需人工干预即可解决的查询百分比"
+            "description": "无需人工干预即可完全解决的查询百分比"
           },
           "metric3": {
             "title": "平均响应时间",
@@ -546,13 +659,13 @@
           },
           "metric4": {
             "title": "用户满意度",
-            "description": "人工智能互动的用户反馈评级"
+            "description": "用户对人工智能互动的反馈评分"
           }
         },
         "integration": {
           "title": "集成选项",
           "option1": {
-            "title": "邮件集成",
+            "title": "电子邮件集成",
             "description": "将人工智能模型连接到电子邮件系统以处理传入消息"
           },
           "option2": {
@@ -569,15 +682,61 @@
           }
         }
       },
-      "emailProcessing": {
-        "title": "邮件筛选",
-        "subtitle": "高效筛选、选择和处理邮件以构建知识库"
+      "secureAuthentication": {
+        "title": "企业级安全",
+        "subtitle": "通过我们强大的安全基础设施和合规措施保护您的敏感信息。",
+        "heading": "安全认证",
+        "description": "我们的平台使用企业级安全协议，确保您的电子邮件数据受到保护，同时为授权用户提供无缝访问。",
+        "howItWorksTitle": "工作原理",
+        "oauth2Title": "OAuth 2.0 协议：",
+        "oauth2Description": "行业标准授权框架，无需共享密码即可实现安全访问。",
+        "microsoftIdentityTitle": "Microsoft 身份平台：",
+        "microsoftIdentityDescription": "与 Microsoft 的身份验证服务集成，用于 Outlook 访问。",
+        "tokenBasedAuthenticationTitle": "基于令牌的身份验证：",
+        "tokenBasedAuthenticationDescription": "使用生命周期有限的安全令牌，而不是持久凭据。",
+        "permissionScopingTitle": "权限范围：",
+        "permissionScopingDescription": "仅请求所需的特定权限（默认为只读）。",
+        "authenticationInfo": "所有身份验证都通过 Microsoft 的安全登录页面处理 - 我们永远不会看到或存储您的密码。",
+        "requestedPermissionsTitle": "请求的权限",
+        "mailReadDescription": "读取用户邮件",
+        "mailReadBasicDescription": "读取用户邮件",
+        "userReadDescription": "登录并读取用户资料",
+        "offlineAccessDescription": "维持访问权限",
+        "securityFeaturesTitle": "安全功能",
+        "endToEndEncryptionTitle": "端到端加密",
+        "endToEndEncryptionDescription": "所有数据在传输过程中使用 TLS 1.2+ 协议加密",
+        "tokenRefreshManagementTitle": "令牌刷新管理",
+        "tokenRefreshManagementDescription": "安全处理刷新令牌，自动轮换",
+        "roleBasedAccessControlTitle": "基于角色的访问控制",
+        "roleBasedAccessControlDescription": "基于组织内用户角色的细粒度权限",
+        "automaticSessionTimeoutsTitle": "自动会话超时",
+        "automaticSessionTimeoutsDescription": "会话在一段时间不活动后过期，提供额外安全保障",
+        "enterpriseDeploymentsInfo": "对于企业部署，我们支持自定义安全策略和 SSO 集成。",
+        "authenticationFlowTitle": "认证流程",
+        "user": "用户",
+        "ourApp": "我们的应用",
+        "microsoftIdentity": "Microsoft 身份",
+        "authenticationFlowStep1": "1. 用户发起登录 → 应用重定向到 Microsoft 登录页面",
+        "authenticationFlowStep2": "2. 用户使用 Microsoft 凭据进行身份验证",
+        "authenticationFlowStep3": "3. Microsoft 验证凭据并请求权限同意",
+        "authenticationFlowStep4": "4. 用户授予同意 → Microsoft 发布授权码",
+        "authenticationFlowStep5": "5. 应用将代码交换为访问令牌和刷新令牌",
+        "authenticationFlowStep6": "6. 应用使用访问令牌从 Microsoft Graph API 请求电子邮件数据",
+        "faqTitle": "常见问题",
+        "faq1Title": "应用程序能读取我所有的电子邮件吗？",
+        "faq1Description": "应用程序只访问符合您指定过滤条件的电子邮件。默认情况下，它只请求对您邮箱的只读权限。",
+        "faq2Title": "如果我撤销访问权限会发生什么？",
+        "faq2Description": "您可以随时通过 Microsoft 账户设置撤销访问权限。这将立即阻止应用程序访问任何新数据。",
+        "faq3Title": "应用程序会存储我的 Microsoft 密码吗？",
+        "faq3Description": "不会。身份验证完全由 Microsoft 的身份平台处理。我们永远不会看到、访问或存储您的密码。",
+        "faq4Title": "访问令牌的有效期有多长？",
+        "faq4Description": "访问令牌通常在 1 小时后过期。应用程序安全地管理刷新令牌，以维持访问而无需您再次登录。"
       }
     },
     "resources": {
       "api": {
         "title": "API文档",
-        "description": "为开发者提供与我们平台集成的完整API参考。"
+        "description": "为与我们平台集成的开发人员提供完整的API参考。"
       },
       "videos": {
         "title": "视频教程",
@@ -590,24 +749,24 @@
     },
     "support": {
       "title": "需要额外帮助？",
-      "description": "我们的支持团队随时为您解答任何问题。",
+      "description": "我们的支持团队可以帮助您解答任何问题。",
       "contactButton": "联系支持"
     }
   },
   "settings": {
     "language": "语言",
-    "english": "英语",
+    "english": "English",
     "chinese": "中文"
   },
   "signIn": {
-    "title": "登录邮件知识库",
-    "description": "输入您的电子邮件地址和密码以访问您的帐户",
-    "email": "电子邮件",
+    "title": "登录",
+    "description": "使用您的微软账号登录",
+    "username": "用户名",
     "password": "密码",
-    "forgotPassword": "忘记密码？",
-    "signIn": "登录",
-    "or": "或",
-    "signUp": "注册"
+    "login": "登录",
+    "forgotPassword": "忘记密码",
+    "dontHaveAccount": "没有账号？",
+    "createAccount": "创建账号"
   },
   "toast": {
     "loginSuccess": {
@@ -621,11 +780,57 @@
   },
   "support": {
     "title": "支持与联系",
-    "subtitle": "我们的支持团队随时准备提供帮助..."
+    "subtitle": "我们的支持团队随时准备帮助您充分利用我们的电子邮件知识库解决方案。",
+    "introduction": "对我们的电子邮件知识库平台有疑问或需要帮助？我们的支持团队随时准备帮助您充分利用我们的解决方案。",
+    "contactInformation": "联系信息",
+    "companyInfo": {
+      "title": "公司信息",
+      "name": "博彦科技新加坡",
+      "department": "BFSI交付服务，亚太业务集团"
+    },
+    "emailSupport": {
+      "title": "电子邮件支持",
+      "email": "BFSI_SG@beyondsoft.com",
+      "description": "用于技术支持、销售咨询和一般问题"
+    },
+    "officeLocation": {
+      "title": "办公地点",
+      "address1": "新加坡海滩路38号",
+      "address2": "南海滩大厦#20-11",
+      "address3": "新加坡189767"
+    },
+    "businessHours": {
+      "title": "营业时间",
+      "weekdays": "周一至周五：上午9:00 - 下午6:00（新加坡时间）",
+      "weekend": "周末：休息",
+      "email": "电子邮件支持全天候可用"
+    },
+    "supportOptions": {
+      "title": "支持选项",
+      "technicalSupport": {
+        "title": "技术支持",
+        "description": "获取安装、配置和故障排除方面的帮助。"
+      },
+      "productTraining": {
+        "title": "产品培训",
+        "description": "为您的团队安排培训课程，以最大限度地提高生产力。"
+      },
+      "customIntegration": {
+        "title": "自定义集成",
+        "description": "与我们的专家合作，将我们的解决方案与您现有的系统集成。"
+      }
+    },
+    "cta": {
+      "title": "准备开始使用？",
+      "description": "立即联系我们的团队，了解更多关于我们的电子邮件知识库解决方案的信息。",
+      "button": "联系我们"
+    }
   },
   "emailProcessing": {
+    "title": "选择要分析的邮件",
+    "subtitle": "过滤并选择要处理的邮件以添加到知识库",
     "filters": {
-      "title": "筛选器",
+      "title": "邮件过滤器",
       "folder": "文件夹",
       "selectFolder": "选择文件夹",
       "sender": "发件人",
@@ -633,100 +838,116 @@
       "dateRange": "日期范围",
       "startDate": "开始日期",
       "endDate": "结束日期",
-      "month": "月",
+      "month": "个月",
       "months": "个月",
       "keywords": "关键词",
-      "addKeywords": "添加关键词（按回车键）",
+      "addKeywords": "添加关键词",
       "importance": "重要性",
       "selectImportance": "选择重要性",
       "high": "高",
       "normal": "普通",
       "low": "低",
-      "hasAttachments": "附件",
+      "attachmentType": "附件类型",
+      "selectAttachmentType": "选择附件类型",
+      "hasAttachments": "包含附件",
       "withAttachments": "有附件",
       "withoutAttachments": "无附件",
       "any": "任意",
-      "attachmentType": "附件类型",
-      "selectAttachmentType": "选择附件类型",
+      "advancedQuery": "高级查询",
+      "enterQuery": "输入高级查询",
+      "templates": "过滤器模板",
+      "saveTemplate": "保存模板",
+      "loadTemplate": "加载模板",
+      "templateName": "模板名称",
+      "enterTemplateName": "输入模板名称",
       "wordDocument": "Word文档",
       "excelSpreadsheet": "Excel表格",
       "powerPoint": "PowerPoint",
       "image": "图片",
-      "archive": "压缩文件",
-      "advancedQuery": "高级查询",
-      "enterQuery": "输入高级查询（OData格式）",
-      "templates": "模板",
-      "saveTemplate": "保存模板",
-      "loadTemplate": "加载模板",
-      "saveTemplateTitle": "保存筛选模板",
-      "templateName": "模板名称",
-      "enterTemplateName": "输入模板名称",
-      "hideAdvanced": "隐藏高级选项",
-      "showAdvanced": "显示高级选项"
-    },
-    "tooltips": {
-      "folderHelp": "选择要在其中搜索的电子邮件文件夹。",
-      "senderHelp": "按发件人的电子邮件地址筛选电子邮件。",
-      "dateHelp": "按接收日期筛选电子邮件。选择开始日期以启用结束日期。",
-      "keywordsHelp": "输入电子邮件主题或正文中的关键词或短语。每个关键词后按Enter键。",
-      "importanceHelp": "根据重要性级别（高、正常、低）筛选电子邮件。",
-      "attachmentsHelp": "根据电子邮件是否包含附件进行筛选。",
-      "advancedQueryHelp": "使用OData筛选器语法输入高级搜索查询，以进行更复杂的筛选。",
-      "queryExample": "示例：contains(subject,'report') and importance eq 'high'",
-      "analyze": "分析经过筛选的电子邮件主题，以识别主题和群组。",
-      "proceedDirectSave": "处理筛选后的电子邮件并将其内容直接添加到知识库中。"
+      "archive": "压缩包",
+      "saveTemplateTitle": "保存过滤器模板",
+      "activeFilters": "已启用的筛选条件",
+      "clearAll": "清除全部",
+      "noFilters": "没有启用的筛选条件"
     },
     "actions": {
       "search": "搜索邮件",
       "searching": "正在搜索...",
       "analyze": "分析数据",
       "analyzing": "正在分析...",
-      "submitting": "正在提交...",
-      "saveToKB": "立即处理，生成知识库",
-      "saving": "正在保存...",
-      "proceedGenerateKB": "立即处理，生成知识库"
-    },
-    "buttons": {
-      "proceed": "立即处理，生成知识库",
-      "proceedNow": "立即处理，生成知识库",
-      "proceedGenerate": "立即处理，生成知识库",
-      "generateKB": "生成知识库"
+      "save": "保存",
+      "cancel": "取消",
+      "refresh": "刷新结果"
     },
     "results": {
-      "title": "结果",
+      "title": "搜索结果",
+      "noResults": "未找到符合条件的邮件",
+      "selected": "已选择",
       "sender": "发件人",
       "subject": "主题",
       "date": "日期",
-      "hasAttachments": "有附件",
+      "hasAttachments": "附件",
       "importance": "重要性",
-      "noResults": "未找到邮件",
-      "tryDifferentFilters": "请尝试调整筛选条件或选择其他文件夹。",
-      "showing": "显示 {{total}} 封邮件中的第 {{start}} - {{end}} 封",
-      "showingSome": "显示第 {{start}} - {{end}} 封邮件",
+      "page": "第 {{currentPage}} 页 / 共 {{totalPages}} 页",
+      "of": "/",
+      "showing": "显示 {{start}} - {{end}} 条 / 共 {{total}} 条邮件",
+      "showingSome": "显示 {{start}} - {{end}} 条",
       "moreAvailable": "更多可用",
-      "page": "第 {{currentPage}} 页，共 {{totalPages}} 页",
-      "found": "找到的邮件",
-      "showPerPage": "每页显示 {{count}} 封"
+      "found": "找到邮件",
+      "noEmails": "未找到邮件",
+      "tryDifferentFilters": "尝试调整您的筛选条件或搜索词",
+      "showPerPage": "显示 {{count}} 条"
     },
-    "analysis": {
-      "title": "分析结果",
-      "processingPrompt": "分析进行中，结果将在此显示...",
-      "completeTitle": "分析完成",
-      "failedTitle": "分析失败"
+    "tooltips": {
+      "folderHelp": "选择要搜索的邮件文件夹",
+      "senderHelp": "按发件人邮箱地址筛选",
+      "dateHelp": "按日期范围筛选邮件",
+      "keywordsHelp": "按主题或正文中的关键词筛选",
+      "importanceHelp": "按邮件重要性级别筛选",
+      "attachmentsHelp": "按附件存在与否筛选邮件",
+      "advancedQueryHelp": "使用高级查询语法进行复杂筛选",
+      "queryExample": "示例: folder:\"inbox\" AND (from:john@example.com OR subject:\"important\")",
+      "quickFiltersHelp": "应用预定义的筛选组合"
     },
     "notifications": {
+      "templateSaved": {
+        "title": "模板已保存",
+        "description": "您的过滤器模板已成功保存"
+      },
       "templateLoaded": {
         "title": "模板已加载",
-        "description": "已从模板加载筛选设置。"
+        "description": "过滤器模板已应用"
       },
-      "analysisSubmitted": {
-        "title": "分析已提交",
-        "description": "邮件分析任务已提交。"
+      "emailsSubmitted": {
+        "title": "邮件已提交",
+        "description": "所选邮件已提交进行分析"
       },
-      "knowledgeBaseSaveSubmitted": {
-        "title": "知识库更新已启动",
-        "description": "正在处理所选邮件以更新知识库。"
+      "noEmailsSelected": {
+        "title": "未选择邮件",
+        "description": "请至少选择一封邮件进行分析"
+      },
+      "templateError": {
+        "title": "模板错误",
+        "description": "请输入模板名称"
       }
+    },
+    "quickFilters": {
+      "title": "快速筛选",
+      "today": "今天的邮件",
+      "lastWeek": "最近7天",
+      "withAttachments": "带附件",
+      "highImportance": "高重要性"
+    },
+    "analysis": {
+      "title": "主题分析",
+      "prompt": "点击'分析数据'以查看主题分析结果。",
+      "errorLoading": "加载分析时出错：{{error}}",
+      "submittedTitle": "分析已提交",
+      "submittedDescription": "任务提交成功。ID: {{jobId}}",
+      "errorTitle": "分析出错",
+      "errorDescription": "{{error}}",
+      "completeTitle": "分析完成",
+      "failedTitle": "分析失败"
     }
   },
   "common": {
@@ -746,348 +967,125 @@
     "select": "选择",
     "submit": "提交",
     "reset": "重置",
-    "previous": "上一个",
-    "next": "下一个",
-    "add": "添加",
-    "previousPage": "上一页",
-    "nextPage": "下一页",
-    "departments": {
-      "hr": "人力资源",
-      "finance": "财务",
-      "it": "信息技术",
-      "sales": "销售",
-      "marketing": "市场营销",
-      "operations": "运营",
-      "legal": "法务",
-      "executive": "行政",
-      "support": "支持",
-      "engineering": "工程",
-      "general": "通用",
-      "product": "产品",
-      "other": "其他"
-    },
-    "sensitivityLevels": {
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "critical": "紧急"
-    },
-    "piiTypes": {
-      "name": "姓名",
-      "email": "电子邮件",
-      "phone": "电话",
-      "address": "地址",
-      "ssn": "社保/身份证号",
-      "financial": "财务信息",
-      "health": "健康信息",
-      "credentials": "凭证"
-    },
-    "recommendedActions": {
-      "store": "存储",
-      "exclude": "排除"
-    },
-    "tags": {
-      "knowledge": "知识",
-      "+1": "+1",
-      "tag0": "标签 0",
-      "tag1": "标签 1",
-      "tag2": "标签 2",
-      "tag3": "标签 3",
-      "tag4": "标签 4",
-      "tag5": "标签 5",
-      "tag6": "标签 6",
-      "tag7": "标签 7",
-      "tag8": "标签 8",
-      "tag9": "标签 9",
-      "important": "重要",
-      "routine": "常规"
-    },
+    "previous": "上一页",
+    "next": "下一页",
+    "send": "发送"
+  },
+  "buttons": {
+    "cancel": "取消",
     "confirm": "确认",
-    "close": "关闭",
-    "previousSlide": "上一张幻灯片",
-    "nextSlide": "下一张幻灯片",
-    "login": "登录",
-    "logout": "登出",
-    "saving": "保存中...",
-    "notAvailable": "不可用"
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "select": "选择",
+    "submit": "提交",
+    "reset": "重置"
   },
   "analysis": {
-    "classification": {},
-    "pii": {}
+    "classification": {
+      "tags": {
+        "executive": "高管",
+        "sales": "销售",
+        "marketing": "市场营销",
+        "finance": "财务",
+        "legal": "法务",
+        "hr": "人力资源",
+        "it": "信息技术",
+        "operations": "运营",
+        "customerSupport": "客户支持",
+        "policy": "政策",
+        "procedure": "流程",
+        "decision": "决策",
+        "report": "报告",
+        "analysis": "分析",
+        "discussion": "讨论",
+        "approval": "审批",
+        "request": "请求",
+        "notification": "通知",
+        "public": "公开",
+        "internal": "内部",
+        "confidential": "机密",
+        "restricted": "受限",
+        "pii": "个人信息",
+        "financial": "财务",
+        "strategic": "战略"
+      }
+    },
+    "pii": {
+      "types": {
+        "names": "姓名",
+        "emails": "电子邮件地址",
+        "phoneNumbers": "电话号码",
+        "addresses": "地址",
+        "ssn": "社会安全号码/身份证号码",
+        "financialData": "财务数据",
+        "healthInformation": "健康信息",
+        "credentials": "凭证"
+      }
+    },
+    "title": "主题分析",
+    "prompt": "点击'分析数据'以查看主题分析结果。",
+    "errorLoading": "加载分析时出错：{{error}}",
+    "submittedTitle": "分析已提交",
+    "submittedDescription": "任务提交成功。ID: {{jobId}}",
+    "errorTitle": "分析出错",
+    "errorDescription": "{{error}}",
+    "completeTitle": "分析完成",
+    "failedTitle": "分析失败"
   },
   "language": {
-    "english": "英语",
+    "english": "English",
     "chinese": "中文"
   },
   "userMenu": {
-    "account": "帐户",
-    "signOut": "登出"
+    "account": "账户",
+    "signOut": "退出登录"
   },
   "auth": {
-    "signIn": "登录",
-    "signOut": "登出",
-    "sessionExpiredTitle": "会话已过期",
-    "sessionExpiredMessage": "您的会话已过期。请重新登录以继续。"
-  },
-  "errors": {
-    "errorLoadingPreviews": "加载预览时出错",
-    "errorLoadingFolders": "加载文件夹时出错",
-    "errorSubmittingAnalysis": "提交分析时出错",
-    "errorSavingToKB": "保存到知识库时出错",
-    "unknownError": "发生未知错误。请重试。"
-  },
-  "emailReview": {
-    "pageTitle": "审阅已分析邮件",
-    "pageDescription": "审阅并批准邮件以纳入您的知识库",
-    "filters": {
-      "title": "筛选器",
-      "allDepartments": "所有部门",
-      "allSensitivityLevels": "所有敏感度级别",
-      "allPrivacyLevels": "所有隐私级别"
-    },
-    "privacy": {
-      "private": "私密",
-      "notPrivate": "非私密"
-    },
-    "table": {
-      "title": "待审阅",
-      "noResults": "没有符合筛选条件的待审阅邮件",
-      "subject": "主题",
-      "department": "部门",
-      "sensitivity": "敏感度",
-      "tags": "标签",
-      "private": "私密",
-      "actions": "操作"
-    },
-    "sampleEmails": {
-      "subject": "待审阅的示例邮件 {{number}}",
-      "body": "这是示例邮件 {{number}} 的完整内容。它包含了需要在添加到知识库之前进行审阅的信息。",
-      "summary": "这是由人工智能分析的邮件 {{number}} 的摘要。",
-      "keyPoint1": "邮件 {{number}} 的关键点 1",
-      "keyPoint2": "邮件 {{number}} 的关键点 2",
-      "keyPoint3": "邮件 {{number}} 的关键点 3"
-    },
-    "pagination": {
-      "showingRangeOfTotal": "显示 {{total}} 条中的 {{start}}-{{end}} 条",
-      "selectedCount": "已选择 {{count}} 条",
-      "pageInfo": "第 {{currentPage}} 页 / 共 {{totalPages}} 页"
-    },
-    "actions": {
-      "selectAll": "全选",
-      "deselectAll": "取消全选",
-      "approveSelected": "批准所选",
-      "rejectSelected": "拒绝所选",
-      "approve": "批准",
-      "reject": "拒绝",
-      "viewDetails": "查看详情"
-    },
-    "notes": {
-      "label": "所选邮件备注：",
-      "placeholder": "添加关于您决定的可选备注..."
-    },
-    "drawer": {
-      "title": "邮件详情",
-      "from": "发件人：{{sender}} ({{email}})",
-      "date": "日期：{{date}}",
-      "analysisTitle": "人工智能分析",
-      "containsPII": "包含 PII",
-      "summary": "摘要：",
-      "keyPoints": "关键点：",
-      "piiDetected": "检测到的 PII：",
-      "recommendedAction": "建议操作：",
-      "emailContent": "邮件内容",
-      "attachmentsCount": "附件 ({{count}})",
-      "attachmentType": "类型：{{type}}",
-      "attachmentSize": "大小：{{size}} KB"
-    },
-    "toast": {
-      "approvedSuccess": "邮件已批准",
-      "rejectedSuccess": "邮件已拒绝",
-      "updateErrorTitle": "更新审阅时出错",
-      "noSelectionTitle": "未选择邮件",
-      "noSelectionDescription": "请至少选择一封邮件",
-      "bulkApprovedSuccess": "{{count}} 封邮件已批准",
-      "bulkRejectedSuccess": "{{count}} 封邮件已拒绝",
-      "bulkUpdateErrorTitle": "批量更新审阅时出错",
-      "loadErrorTitle": "加载审阅时出错"
-    }
-  },
-  "search": {
-    "title": "搜索知识库",
-    "description": "从您已批准的邮件中查找信息",
-    "queryLabel": "搜索查询",
-    "placeholder": "输入搜索词...",
-    "helperText": "从您批准的邮件中搜索提取的知识",
-    "searching": "搜索中...",
-    "results": "搜索结果 ({{count}} 条，共 {{total}} 条)",
-    "noResults": "未找到结果",
-    "tryAgain": "请尝试使用不同的搜索词",
-    "from": "发件人",
-    "date": "日期",
-    "match": "匹配度",
-    "matchPercentage": "{{percentage}}% 匹配",
-    "viewDetails": "查看详情",
-    "knowledgeItem": "知识项",
-    "source": "来源",
-    "sender": "发件人",
-    "extractedDate": "添加到知识库日期",
-    "content": "内容",
-    "toast": {
-      "emptyQuery": "搜索查询为空",
-      "searchError": "搜索知识库时出错",
-      "loadError": "加载内容时出错"
-    }
-  },
-  "knowledgeManagement": {
-    "title": "知识库管理",
-    "itemCount": "项目计数",
-    "rawData": {
-      "title": "原始数据 (邮件知识)",
-      "description": "处理前存储的原始邮件数据。"
-    },
-    "vectorData": {
-      "title": "向量数据 (知识库)",
-      "description": "已处理并转换为向量以供搜索的邮件数据。"
-    },
-    "errors": {
-      "loadSummary": "加载集合摘要失败。"
-    },
-    "summaryTitle": "数据摘要",
-    "summary": {
-      "rawDataLabel": "原始数据项",
-      "rawDataHelp": "来源：{email}_email_knowledge",
-      "vectorDataLabel": "向量数据项",
-      "vectorDataHelp": "来源：{email}_email_knowledge_base",
-      "tokenLabel": "API 访问令牌",
-      "tokenHelp": "{{count}} 个活动",
-      "lastUpdated": "最后更新：{{time}}"
-    },
-    "actionsTitle": "管理操作",
-    "actionsPlaceholder": "可以在此处添加与知识库管理相关的进一步操作。",
-    "errors": {
-        "loadFailed": "加载摘要数据失败。请重试。"
-    }
-  },
-  "sessionExpired": {
-    "title": "会话已过期",
-    "message": "您的会话已过期。请重新登录以继续。",
-    "loginButton": "登录"
-  },
-  "sidebar": {
-    "dashboard": "仪表板",
-    "emailAnalysis": "邮件分析",
-    "knowledgeManagement": "知识库管理",
-    "apiTokenManagement": "API 令牌管理",
-    "reviewQueue": "审核队列",
-    "settings": "设置"
-  },
-  "tokenManagement": {
-    "title": "API 令牌管理",
-    "createTokenButton": "创建新令牌",
-    "noTokens": "未找到 API 令牌。",
-    "deleteConfirmTitle": "确认删除",
-    "deleteConfirmMessage": "您确定要删除令牌 \"{{tokenName}}\" 吗？此操作无法撤销。",
-    "deleteSuccessTitle": "令牌已删除",
-    "deleteSuccessMessage": "令牌 \"{{tokenName}}\" 已被删除。",
-    "deleteErrorTitle": "删除失败",
-    "errors": {
-      "loadTokensFailed": "加载令牌失败。请稍后再试。",
-      "deleteFailed": "删除令牌失败。请重试。"
-    }
-  },
-  "tokenModal": {
-    "createTitle": "创建新的 API 令牌",
-    "editTitle": "编辑 API 令牌",
-    "nameLabel": "名称",
-    "namePlaceholder": "例如：我的分析脚本",
-    "descriptionLabel": "描述",
-    "descriptionPlaceholder": "可选：描述此令牌的用途",
-    "sensitivityLabel": "敏感度级别",
-    "sensitivityLevels": {
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "critical": "关键"
-    },
-    "expiryLabel": "到期日期（可选）",
-    "editableLabel": "允许稍后编辑规则",
-    "tokenValueLabel": "令牌值",
-    "tokenValueNote": "此值仅在创建时显示一次。",
-    "inactiveNote": "令牌当前因过期而无效。",
-    "createButton": "创建令牌",
-    "updateButton": "更新令牌",
-    "createSuccessTitle": "令牌已创建",
-    "createSuccessDesc": "令牌 \"{{name}}\" 已成功创建。",
-    "updateSuccessTitle": "令牌已更新",
-    "updateSuccessDesc": "令牌 \"{{name}}\" 已成功更新。",
-    "validations": {
-      "nameRequired": "令牌名称是必需的。"
-    },
-    "errors": {
-      "createFailed": "创建令牌失败。请重试。",
-      "updateFailed": "更新令牌失败。请重试。",
-      "fetchFailed": "加载令牌详情失败。"
-    },
-    "rules": {
-        "title": "访问规则",
-        "fieldLabel": "规则字段",
-        "valuesLabel": "值（按 Enter 添加）",
-        "valuePlaceholder": "输入一个值",
-        "addAllow": "添加允许规则",
-        "addDeny": "添加拒绝规则",
-        "allowTitle": "允许规则",
-        "denyTitle": "拒绝规则",
-        "removeRuleTooltip": "移除此规则",
-        "removeRuleAriaLabel": "移除规则",
-        "errorTitle": "规则不完整",
-        "errorDescription": "请选择一个字段并添加至少一个值。",
-        "duplicateFieldTitle": "字段重复",
-        "duplicateFieldDescAllow": "字段 '{{field}}' 的允许规则已存在。请先移除现有规则以更改值。",
-        "duplicateFieldDescDeny": "字段 '{{field}}' 的拒绝规则已存在。请先移除现有规则以更改值。",
-        "allowPrefix": "允许",
-        "denyPrefix": "拒绝"
-    }
-  },
-  "tokenManagementPage": {
-    "subtitle": "创建和管理用于共享知识的访问令牌",
-    "createTokenButton": "创建令牌",
-    "existingTokensTitle": "现有令牌",
-    "noTokens": "未找到令牌。点击\"创建令牌\"开始。",
-    "table": {
-      "name": "名称",
-      "sensitivity": "敏感度",
-      "expiry": "到期时间",
-      "actions": "操作"
-    },
-    "actions": {
-      "edit": "编辑令牌",
-      "delete": "删除令牌"
-    },
-    "deleteDialog": {
-      "title": "删除令牌",
-      "message": "您确定要删除此令牌吗？此操作无法撤销。"
-    },
-    "toast": {
-      "deleteSuccessTitle": "令牌已删除",
-      "deleteErrorTitle": "删除失败",
-      "deleteErrorDescription": "无法删除令牌。"
-    }
+    "signInWithMicrosoft": "使用 Microsoft 登录"
   },
   "jarvis": {
-    "title": "贾维斯",
+    "title": "Jarvis - AI 助手",
     "chat": "对话",
     "settings": "设置",
+    "settingsTitle": "API 设置",
+    "apiKeyDescription": "要使用 Jarvis，您需要提供以下提供商的 API 密钥：",
     "roles": {
       "user": "用户",
       "assistant": "助手"
     },
     "messagePlaceholder": "请输入您的消息...",
-    "placeholderResponse": "这是一个占位响应。API集成待实现。",
+    "placeholderResponse": "这是一个占位响应。API 集成待实现。",
+    "welcomeMessage": "您好！我是 Jarvis，您的 AI 助手。今天我能为您做些什么？",
+    "apiKeySaved": "API 密钥已保存",
+    "apiKeySavedDesc": "您的 {{provider}} API 密钥已成功保存。",
+    "apiKeySaveError": "保存 API 密钥时出错",
+    "apiKeyDeleted": "API 密钥已删除",
+    "apiKeyDeletedDesc": "您的 {{provider}} API 密钥已被删除。",
+    "apiKeyMissing": "API 密钥缺失",
+    "apiKeyMissingAfterLogin": "登录后无法加载您的 API 密钥。请尝试刷新页面或重新输入您的 API 密钥。",
+    "noApiKey": "需要 API 密钥",
+    "apiKeyRequired": "您需要提供 API 密钥才能使用 Jarvis。请在设置选项卡中添加。",
+    "loadingApiKeys": "正在加载 API 密钥...",
+    "continueWithoutKeys": "您可以继续而不使用保存的 API 密钥。",
+    "apiKeySet": "✓ API 密钥已设置",
+    "delete": "删除",
+    "save": "保存",
+    "requiresKey": "需要 API 密钥",
+    "setAsDefault": "设为默认",
+    "defaultModelSaved": "默认模型已保存",
+    "defaultModelSavedDesc": "您的默认模型首选项已保存。",
+    "defaultModelError": "保存默认模型时出错",
     "settingsContent": {
-      "selectModel": "选择 AI 模型",
-      "selectModelPlaceholder": "请选择 AI 模型",
+      "apiKeyTitle": "API 密钥",
+      "openaiApiKeyDescription": "输入您的 OPENAI API 密钥以使用 OPENAI 模型。",
+      "anthropicApiKeyDescription": "输入您的 ANTHROPIC API 密钥以使用 ANTHROPIC 模型。",
+      "googleApiKeyDescription": "输入您的 GOOGLE API 密钥以使用 GOOGLE 模型。",
       "apiKey": "{{provider}} API 密钥",
-      "apiKeyPlaceholder": "请输入 API 密钥"
+      "apiKeyPlaceholder": "请输入 API 密钥",
+      "modelSelection": "模型选择",
+      "modelDescription": "选择用于对话的 AI 模型",
+      "model": "模型"
     }
   }
-} 
+}

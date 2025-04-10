@@ -1045,20 +1045,43 @@
     "signInWithMicrosoft": "使用 Microsoft 登录"
   },
   "jarvis": {
-    "title": "贾维斯",
+    "title": "Jarvis - AI 助手",
     "chat": "对话",
     "settings": "设置",
+    "settingsTitle": "API 设置",
+    "apiKeyDescription": "要使用 Jarvis，您需要提供以下提供商的 API 密钥：",
     "roles": {
       "user": "用户",
       "assistant": "助手"
     },
     "messagePlaceholder": "请输入您的消息...",
-    "placeholderResponse": "这是一个占位响应。API集成待实现。",
+    "placeholderResponse": "这是一个占位响应。API 集成待实现。",
+    "welcomeMessage": "您好！我是 Jarvis，您的 AI 助手。今天我能为您做些什么？",
+    "apiKeySaved": "API 密钥已保存",
+    "apiKeySavedDesc": "您的 {{provider}} API 密钥已成功保存。",
+    "apiKeySaveError": "保存 API 密钥时出错",
+    "apiKeyDeleted": "API 密钥已删除",
+    "apiKeyDeletedDesc": "您的 {{provider}} API 密钥已被删除。",
+    "apiKeyMissing": "API 密钥缺失",
+    "apiKeyMissingAfterLogin": "登录后无法加载您的 API 密钥。请尝试刷新页面或重新输入您的 API 密钥。",
+    "noApiKey": "需要 API 密钥",
+    "apiKeyRequired": "您需要提供 API 密钥才能使用 Jarvis。请在设置选项卡中添加。",
+    "loadingApiKeys": "正在加载 API 密钥...",
+    "continueWithoutKeys": "您可以继续而不使用保存的 API 密钥。",
+    "apiKeySet": "✓ API 密钥已设置",
+    "delete": "删除",
+    "save": "保存",
+    "requiresKey": "需要 API 密钥",
     "settingsContent": {
-      "selectModel": "选择 AI 模型",
-      "selectModelPlaceholder": "请选择 AI 模型",
+      "apiKeyTitle": "API 密钥",
+      "openaiApiKeyDescription": "输入您的 OPENAI API 密钥以使用 OPENAI 模型。",
+      "anthropicApiKeyDescription": "输入您的 ANTHROPIC API 密钥以使用 ANTHROPIC 模型。",
+      "googleApiKeyDescription": "输入您的 GOOGLE API 密钥以使用 GOOGLE 模型。",
       "apiKey": "{{provider}} API 密钥",
-      "apiKeyPlaceholder": "请输入 API 密钥"
+      "apiKeyPlaceholder": "请输入 API 密钥",
+      "modelSelection": "模型选择",
+      "modelDescription": "选择用于对话的 AI 模型",
+      "model": "模型"
     }
   }
 }

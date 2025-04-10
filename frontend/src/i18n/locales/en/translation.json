@@ -1407,11 +1407,22 @@
     },
     "messagePlaceholder": "Enter your message...",
     "placeholderResponse": "This is a placeholder response. API integration pending.",
+    "setAsDefault": "Set as Default",
+    "defaultModelSaved": "Default Model Saved",
+    "defaultModelSavedDesc": "Your default model preference has been saved.",
+    "defaultModelError": "Error Saving Default Model",
     "settingsContent": {
+      "apiKeyTitle": "API Key",
+      "openaiApiKeyDescription": "Enter your OPENAI API key to use OPENAI models.",
+      "anthropicApiKeyDescription": "Enter your ANTHROPIC API key to use ANTHROPIC models.",
+      "googleApiKeyDescription": "Enter your GOOGLE API key to use GOOGLE models.",
       "selectModel": "Select AI Model",
       "selectModelPlaceholder": "Please select an AI model",
       "apiKey": "{{provider}} API Key",
-      "apiKeyPlaceholder": "Enter API key"
+      "apiKeyPlaceholder": "Enter API key",
+      "modelSelection": "Model Selection",
+      "modelDescription": "Select the AI model to use for chat",
+      "model": "Model"
     }
   }
 }

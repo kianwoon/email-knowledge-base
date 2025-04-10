@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import LargeBinary # Import LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB # Import JSONB for PostgreSQL
 from sqlalchemy import func # Import func for server_default
+from typing import List as TypeList
 
 # --- Removed for Manual Encryption (Option A) ---
 # from sqlalchemy_utils import EncryptedType 
@@ -46,9 +47,7 @@ class User(UserBase):
     photo_url: Optional[str] = None
     organization: Optional[str] = None
     # Add field to temporarily hold MS token passed via JWT
-    ms_access_token: Optional[str] = None 
-    # Add OpenAI API key field but mark it as excluded from model creation if not in database
-    openai_api_key: Optional[str] = None
+    ms_access_token: Optional[str] = None
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -103,11 +102,12 @@ class UserDB(Base):
     # +++ Add field for last KB task ID +++
     last_kb_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     # --- End Add --- 
+
+    # Relationship to API keys
+    api_keys = relationship("APIKeyDB", back_populates="user", cascade="all, delete-orphan")
     
-    # +++ Add field for OpenAI API key +++
-    # We'll add this to the model but it might not exist in all environments yet
-    openai_api_key: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
-    # --- End Add ---
+    # Relationship to user preferences - use Mapped
+    preferences_list: Mapped[TypeList["UserPreferenceDB"]] = relationship("UserPreferenceDB", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"

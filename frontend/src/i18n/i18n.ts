@@ -4,8 +4,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 
 // Import translation files
 import enTranslation from './locales/en/translation.json';
-// import zhTranslation from './locales/zh/translation.json';
-import cnTranslation from './locales/cn/translation.json';
+import zhTranslation from './locales/cn/translation.json';
 
 // Initialize i18next
 i18n
@@ -17,6 +16,7 @@ i18n
   .init({
     // Default language
     fallbackLng: {
+      'zh-CN': ['cn', 'en'],
       'zh-TW': ['cn', 'en'],
       'zh-HK': ['cn', 'en'],
       'zh-Hant': ['cn', 'en'],
@@ -30,14 +30,8 @@ i18n
       en: {
         translation: enTranslation
       },
-      // Remove 'zh' resource entry
-      /*
-      zh: {
-        translation: zhTranslation
-      },
-      */
       cn: {
-        translation: cnTranslation
+        translation: zhTranslation
       }
     },
     // Detect and cache language on

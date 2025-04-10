@@ -12,42 +12,31 @@ logger = logging.getLogger(__name__)
 def get_user_full_instance(db: Session, email: str) -> UserDB | None:
     """Fetches the UserDB instance WITHOUT the refresh token field initially."""
     try:
-        # Check if openai_api_key column exists
-        has_openai_api_key = check_column_exists(db, 'users', 'openai_api_key')
-        
-        if has_openai_api_key:
-            # If column exists, we can load all columns
-            statement = (
-                select(UserDB)
-                .where(UserDB.email == email)
-            )
-        else:
-            # If column doesn't exist, explicitly load all columns EXCEPT ms_refresh_token and openai_api_key
-            statement = (
-                select(UserDB)
-                .where(UserDB.email == email)
-                .options(load_only(
-                    UserDB.email, 
-                    UserDB.id, 
-                    UserDB.display_name, 
-                    UserDB.created_at, 
-                    UserDB.last_login, 
-                    UserDB.is_active, 
-                    UserDB.preferences, 
-                    UserDB.photo_url, 
-                    UserDB.organization,
-                    UserDB.last_kb_task_id
-                    # Explicitly omitting UserDB.ms_refresh_token and UserDB.openai_api_key
-                ))
-            )
+        # If column doesn't exist, explicitly load all columns EXCEPT ms_refresh_token
+        statement = (
+            select(UserDB)
+            .where(UserDB.email == email)
+            .options(load_only(
+                UserDB.email, 
+                UserDB.id, 
+                UserDB.display_name, 
+                UserDB.created_at, 
+                UserDB.last_login, 
+                UserDB.is_active, 
+                UserDB.preferences, 
+                UserDB.photo_url, 
+                UserDB.organization,
+                UserDB.last_kb_task_id
+                # Explicitly omitting UserDB.ms_refresh_token
+            ))
+        )
         
         user_db = db.execute(statement).scalar_one_or_none()
         return user_db
     except Exception as e:
         # Catch potential errors during the fetch itself (like the type error)
         logger.error(f"Error fetching full user instance for {email}: {e}", exc_info=True)
-        # Re-raise or return None based on desired handling
-        # Returning None might hide the underlying issue, re-raising is often better
+        # Re-raise the exception to be handled by the caller (e.g., auth route)
         raise e
 
 def check_column_exists(db: Session, table_name: str, column_name: str) -> bool:
@@ -88,9 +77,6 @@ def create_or_update_user(db: Session, user_data: User) -> UserDB:
     the refresh token (if applicable) and committing.
     """
     try:
-        # Check if openai_api_key column exists
-        has_openai_api_key = check_column_exists(db, 'users', 'openai_api_key')
-        
         user_exists = does_user_exist(db, email=user_data.email)
 
         if user_exists:
@@ -109,10 +95,6 @@ def create_or_update_user(db: Session, user_data: User) -> UserDB:
             db_user.last_login = user_data.last_login
             db_user.photo_url = user_data.photo_url
             db_user.organization = user_data.organization
-            
-            # Only set openai_api_key if the column exists
-            if has_openai_api_key and hasattr(user_data, 'openai_api_key'):
-                db_user.openai_api_key = user_data.openai_api_key
                 
             # The instance is now 'dirty' but not committed.
             return db_user # Return the persistent instance with pending changes
@@ -131,10 +113,6 @@ def create_or_update_user(db: Session, user_data: User) -> UserDB:
                 'organization': user_data.organization,
                 # ms_refresh_token will be set by the caller before commit
             }
-            
-            # Only add openai_api_key if the column exists and user has it
-            if has_openai_api_key and hasattr(user_data, 'openai_api_key'):
-                user_attrs['openai_api_key'] = user_data.openai_api_key
                 
             db_user = UserDB(**user_attrs)
             return db_user # Return the transient instance

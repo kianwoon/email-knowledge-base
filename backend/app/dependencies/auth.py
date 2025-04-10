@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.crud import user_crud # Corrected import
 from app.crud import token_crud # Import the module directly
 from app.models.token_models import TokenDB # Import TokenDB for type hint
+from app.utils.security import decrypt_token # Import decrypt_token function
 
 # Create MSAL app for authentication
 msal_app = msal.ConfidentialClientApplication(
@@ -139,6 +140,24 @@ async def get_current_user(
     # Convert UserDB to Pydantic User model and ADD the ms_token
     user = User.model_validate(user_db)
     user.ms_access_token = ms_token # Attach the extracted token
+
+    # Check for API keys in the api_keys table, but don't set directly on user object
+    # since it no longer has an openai_api_key field
+    try:
+        from ..crud import api_key_crud
+        openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
+        if openai_key:
+            logger.debug(f"[DEBUG-KEY] User {user.email} has an OpenAI API key in the api_keys table")
+            # Log partial key for debugging
+            if len(openai_key) > 10:
+                masked_key = openai_key[:5] + '...' + openai_key[-5:]
+                logger.debug(f"[DEBUG-KEY] Successfully retrieved API key for user: {user.email}, key: {masked_key}")
+            else:
+                logger.debug(f"[DEBUG-KEY] Successfully retrieved API key for user: {user.email}")
+        else:
+            logger.debug(f"[DEBUG-KEY] User {user.email} has no OpenAI API key in the database")
+    except Exception as e:
+        logger.error(f"[DEBUG-KEY] Error retrieving API key for user {user.email}: {e}", exc_info=True)
 
     # +++ Log value right before returning +++
     logger.debug(f"Final user object ms_access_token present: {'Yes' if user.ms_access_token else 'No'}")
