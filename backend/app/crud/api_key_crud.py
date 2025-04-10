@@ -42,7 +42,9 @@ def get_api_key(db: Session, user_email: str, provider: str) -> Optional[APIKeyD
                APIKeyDB.provider == provider,
                APIKeyDB.is_active == True)
     )
-    return db.execute(statement).scalar_one_or_none()
+    result = db.execute(statement)
+    result = result.unique()
+    return result.scalar_one_or_none()
 
 def get_all_api_keys(db: Session, user_email: str) -> List[APIKeyDB]:
     """Get all API keys for a user."""
@@ -52,7 +54,9 @@ def get_all_api_keys(db: Session, user_email: str) -> List[APIKeyDB]:
         select(APIKeyDB)
         .where(APIKeyDB.user_email == user_email)
     )
-    return list(db.execute(statement).scalars().all())
+    result = db.execute(statement)
+    result = result.unique()
+    return list(result.scalars().all())
 
 def update_api_key(db: Session, user_email: str, provider: str, new_key: str) -> Optional[APIKeyDB]:
     """Update an existing API key."""

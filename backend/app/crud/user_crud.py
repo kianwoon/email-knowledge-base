@@ -31,7 +31,10 @@ def get_user_full_instance(db: Session, email: str) -> UserDB | None:
             ))
         )
         
-        user_db = db.execute(statement).scalar_one_or_none()
+        # Use unique() to handle the joined eager loads
+        result = db.execute(statement)
+        result = result.unique()
+        user_db = result.scalar_one_or_none()
         return user_db
     except Exception as e:
         # Catch potential errors during the fetch itself (like the type error)

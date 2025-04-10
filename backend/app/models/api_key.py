@@ -1,26 +1,38 @@
+"""API Key model definitions."""
+
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import Column, String, DateTime, ForeignKey, Boolean
-from sqlalchemy.sql import func
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean, func
 
-from app.db.base_class import Base
+from .base import Base
 
-# SQLAlchemy model for database
+# Remove TYPE_CHECKING and ForwardRef imports as we'll use string literals
+# if TYPE_CHECKING:
+#     from .user import UserDB
+
 class APIKeyDB(Base):
+    """SQLAlchemy model for API keys."""
     __tablename__ = "api_keys"
     
-    id: Mapped[str] = mapped_column(primary_key=True, index=True)
-    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), index=True)
-    provider: Mapped[str] = mapped_column(String, index=True)  # e.g., "openai", "anthropic"
-    encrypted_key: Mapped[str] = mapped_column(String(1024), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[str] = mapped_column(primary_key=True)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(nullable=False)
+    encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_used: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    
-    # Relationship to user
-    user = relationship("UserDB", back_populates="api_keys")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Use string literal for forward reference
+    user: Mapped["UserDB"] = relationship(
+        "UserDB",
+        back_populates="api_keys",
+        lazy="joined"
+    )
+
+    def __repr__(self) -> str:
+        return f"<APIKeyDB(id='{self.id}', user_email='{self.user_email}', provider='{self.provider}')>"
 
 # Pydantic models for API
 class APIKeyBase(BaseModel):

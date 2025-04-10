@@ -18,7 +18,8 @@ from typing import List as TypeList
 # --- End Removed ---
 
 # Import the Base class from your SQLAlchemy setup
-from app.db.base_class import Base 
+from .base import Base 
+from .api_key import APIKeyDB  # Import APIKeyDB for relationship
 
 
 class TokenData(BaseModel):
@@ -75,6 +76,7 @@ class AuthResponse(BaseModel):
 # --- NEW: SQLAlchemy DB Model --- 
 
 class UserDB(Base):
+    """SQLAlchemy model for users."""
     __tablename__ = "users"
 
     # Assuming email is the primary identifier used in MS Graph & JWT 'sub'
@@ -87,7 +89,7 @@ class UserDB(Base):
     # Use onupdate for last_login? Or set manually.
     last_login: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login: datetime = Column(DateTime(timezone=True), nullable=True)
-    is_active: bool = Column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Store preferences as JSON - maps to the 'preferences' column in the database
     json_preferences: Mapped[Dict[str, Any]] = mapped_column("preferences", JSON, default=dict, nullable=False)
     photo_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # Use Text for potentially long URLs
@@ -103,16 +105,13 @@ class UserDB(Base):
     last_kb_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     # --- End Add --- 
 
-    # Relationship to API keys
-    api_keys = relationship("APIKeyDB", back_populates="user", cascade="all, delete-orphan")
-    
-    # Relationship to user preferences - REMOVED to resolve mapper conflict
-    # preferences_list: Mapped[TypeList["UserPreferenceDB"]] = relationship(
-    #     "UserPreferenceDB", 
-    #     back_populates="user", 
-    #     cascade="all, delete-orphan",
-    #     lazy="selectin"  # Eager loading by default
-    # )
+    # Use string literal for forward reference
+    api_keys: Mapped[List["APIKeyDB"]] = relationship(
+        "APIKeyDB",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="joined"
+    )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"

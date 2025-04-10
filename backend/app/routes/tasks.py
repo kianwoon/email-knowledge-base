@@ -78,8 +78,14 @@ async def get_my_latest_kb_task_status(
             return None # FastAPI handles Optional[Model] by returning null with 200 OK
 
         task_id = task_id_result[0]
-        task_result = AsyncResult(task_id, app=celery_app)
-        status = task_result.state
+        
+        try:
+            task_result = AsyncResult(task_id, app=celery_app)
+            status = task_result.state
+        except Exception as task_error:
+            logger.error(f"Error retrieving task result for task_id {task_id}: {str(task_error)}")
+            # If we can't get the task status, assume it's no longer active
+            return None
 
         # Define active states (adjust as needed)
         active_states = {'PENDING', 'RECEIVED', 'STARTED', 'RETRY', 'PROGRESS'}
@@ -88,12 +94,18 @@ async def get_my_latest_kb_task_status(
             # Task is active, return its status using the same logic as /status/{task_id}
             details = None
             progress = None
-            if task_result.info and isinstance(task_result.info, dict):
-                 details = task_result.info.get('status', 'Processing...') 
-                 progress = task_result.info.get('progress')
-            elif task_result.info:
-                 details = str(task_result.info) # Fallback
-                 
+            
+            try:
+                if task_result.info:
+                    if isinstance(task_result.info, dict):
+                        details = task_result.info.get('status', 'Processing...') 
+                        progress = task_result.info.get('progress')
+                    else:
+                        details = str(task_result.info) # Fallback
+            except Exception as info_error:
+                logger.warning(f"Error retrieving task info for task_id {task_id}: {str(info_error)}")
+                details = "Processing..."
+                
             return {
                 "task_id": task_id,
                 "status": status,
@@ -105,8 +117,6 @@ async def get_my_latest_kb_task_status(
             return None # Return null as it's not active
             
     except Exception as e:
-        # Log the exception e.g., logger.error(...) 
-        # Consider specific exceptions (DB connection, Celery issues)
-        # Don't expose internal errors directly unless intended
+        logger.error(f"Error in get_my_latest_kb_task_status: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve latest task status.")
 # --- End New Endpoint --- 
