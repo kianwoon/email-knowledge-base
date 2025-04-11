@@ -1439,6 +1439,7 @@
     }
   },
   "sharepoint": {
+    "pageTitle": "SharePoint Data Source",
     "title": "SharePoint Data Source",
     "sites": "Sites",
     "drives": "Drives / Libraries",
@@ -1492,11 +1493,20 @@
     "emptyFolderDesc": "No files or subfolders found here.",
     "noSearchResults": "No items found matching your search criteria.",
     "tabs": {
-      "browse": "Browse Sites",
+      "browseSites": "Browse Sites",
       "quickAccess": "Quick Access",
-      "shared": "Shared With Me"
+      "myRecent": "My Recent"
     },
-    "drivesForSite": "Drives / Libraries for: {{siteName}}"
+    "drivesForSite": "Drives / Libraries for: {{siteName}}",
+    "filterByOwner": "Filter by Owner",
+    "modifiedBy": "Modified By",
+    "untitledItem": "Untitled",
+    "noMatchingItemsFilter": "No items match the current filter.",
+    "noRecentItems": "No recent items found in your OneDrive.",
+    "errors": {
+      "fetchRecentTitle": "Error Fetching Items"
+    },
+    "searchDrivePlaceholder": "Search this library..."
   },
   "quickAccess": {
     "title": "Quick Access",

@@ -5,6 +5,7 @@ import logging
 import base64
 from fastapi import HTTPException
 from pydantic import ValidationError
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -163,51 +164,47 @@ class SharePointService:
             logger.error(f"Error fetching quick access items: {e}", exc_info=True)
             return []
 
-    # +++ NEW Method for Recent Drive Items +++
+    # +++ Method updated to use /me/drive/root/children +++
     async def get_recent_drive_items(self, token: str, top: int = 50) -> list[RecentDriveItem]:
-        """Fetches recent drive items for the user from Microsoft Graph."""
-        # --- Reverted to Original Endpoint --- 
-        graph_url = f"{MS_GRAPH_ENDPOINT}/me/drive/recent"
+        """Fetches items from the user's OneDrive root, sorted by last modified date."""
+        # Use the /me/drive/root/children endpoint
+        graph_url = f"{MS_GRAPH_ENDPOINT}/me/drive/root/children"
         params = {
-            "$select": "id,name,webUrl,lastModifiedDateTime,lastModifiedBy,size,file,folder",
-            "$orderby": "lastModifiedDateTime desc",
+            "$select": "id,name,webUrl,lastModifiedDateTime,lastModifiedBy,size,file,folder", # Select fields for RecentDriveItem
+            "$orderby": "lastModifiedDateTime desc", # Order by modification date
             "$top": top
         }
-        # --- END REVERT ---
 
-        logger.info(f"Fetching recent drive items: {graph_url} with params {params}")
+        logger.info(f"Fetching OneDrive root items: {graph_url} with params {params}")
 
         try:
-            # Use the shared _make_graph_request or a direct client call if preferred
-            # Assuming direct client call based on previous edit
-            # Note: Need to ensure self.headers are used or passed correctly
             async with httpx.AsyncClient(headers=self.headers) as client: 
                 response = await client.get(graph_url, params=params)
                 response.raise_for_status()
                 data = response.json()
 
-            items = data.get("value", [])
-            logger.info(f"Found {len(items)} items from {graph_url}.")
+            items_data = data.get("value", [])
+            logger.info(f"Found {len(items_data)} items in OneDrive root.")
 
-            # Process items: Attempt to parse into RecentDriveItem 
+            # Directly process items into RecentDriveItem (structure should match)
             processed_items = []
-            for item_data in items:
+            for item_data in items_data:
                 try:
                     # Directly validate, assuming the response matches the model fields
                     processed_items.append(RecentDriveItem.model_validate(item_data))
                 except ValidationError as e:
                     # Log if validation fails, indicates API response mismatch or incomplete data
-                    logger.warning(f"Validation error for recent item {item_data.get('id')}: {e}. Raw: {item_data}")
-                    # Decide how to handle: skip, or add with nulls? Skipping for now.
+                    logger.warning(f"Validation error for OneDrive root item {item_data.get('id')}: {e}. Raw: {item_data}")
+                    # Skip invalid items
                     pass 
 
+            logger.info(f"Successfully processed {len(processed_items)} OneDrive items into RecentDriveItems.")
             return processed_items
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching from {graph_url}: {e.response.status_code} - {e.response.text}")
-            # Re-raise or return empty list based on desired error handling
-            raise HTTPException(status_code=e.response.status_code, detail=f"Error fetching recent items from Microsoft Graph: {e.response.text}")
+            raise HTTPException(status_code=e.response.status_code, detail=f"Error fetching OneDrive items from Microsoft Graph: {e.response.text}")
         except Exception as e:
             logger.error(f"Unexpected error fetching from {graph_url}: {e}")
-            raise HTTPException(status_code=500, detail=f"An unexpected error occurred while fetching recent items: {e}")
+            raise HTTPException(status_code=500, detail=f"An unexpected error occurred while fetching OneDrive items: {e}")
     # --- End New Method --- 

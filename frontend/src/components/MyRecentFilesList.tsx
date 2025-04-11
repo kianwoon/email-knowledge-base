@@ -21,7 +21,7 @@ import {
   Td,
   Input,
   InputGroup,
-  InputLeftElement,
+  InputRightElement,
   IconButton,
   Select,
   chakra
@@ -33,7 +33,15 @@ import {
   FaSortDown,
   FaSearch,
   FaFolder,
-  FaFile
+  FaFile,
+  FaFileWord,
+  FaFileExcel,
+  FaFilePowerpoint,
+  FaFilePdf,
+  FaFileImage,
+  FaFileAudio,
+  FaFileVideo,
+  FaFileArchive
 } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { getMyRecentFiles } from '../api/apiClient'; // Import the new API function
@@ -55,20 +63,32 @@ const formatDateTime = (dateTimeString?: string): string => {
   }
 };
 
+const formatFileSize = (bytes?: number): string => {
+  if (bytes === undefined || bytes === null || bytes < 0) return '-';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
 const getFileIcon = (item: RecentDriveItem) => {
   if (item.folder) {
     return FaFolder;
   }
-  // Add more specific icons based on mimeType later if needed
-  // const mimeType = item.file?.mimeType;
-  // if (mimeType?.includes('word')) return FaFileWord;
-  // if (mimeType?.includes('excel')) return FaFileExcel;
-  // if (mimeType?.includes('powerpoint')) return FaFilePowerpoint;
-  // if (mimeType?.includes('pdf')) return FaFilePdf;
+  const mimeType = item.file?.mimeType?.toLowerCase() || '';
+  if (mimeType.includes('word') || mimeType.includes('document')) return FaFileWord;
+  if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return FaFileExcel;
+  if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return FaFilePowerpoint;
+  if (mimeType.includes('pdf')) return FaFilePdf;
+  if (mimeType.includes('image')) return FaFileImage;
+  if (mimeType.includes('audio')) return FaFileAudio;
+  if (mimeType.includes('video')) return FaFileVideo;
+  if (mimeType.includes('archive') || mimeType.includes('zip')) return FaFileArchive;
   return FaFile; // Default file icon
 };
 
-type SortableColumns = 'name' | 'lastModifiedDateTime' | 'lastModifiedBy.user.displayName';
+type SortableColumns = 'name' | 'lastModifiedDateTime' | 'lastModifiedBy.user.displayName' | 'size';
 type SortDirection = 'asc' | 'desc';
 
 const MyRecentFilesList: React.FC = () => {
@@ -80,10 +100,10 @@ const MyRecentFilesList: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortableColumns>('lastModifiedDateTime');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  const tableBg = useColorModeValue('white', 'gray.700');
+  const tableBg = useColorModeValue('white', 'gray.800');
   const iconColor = useColorModeValue('gray.600', 'gray.400');
   const hoverBg = useColorModeValue('gray.50', 'whiteAlpha.100');
-  const headerColor = useColorModeValue('gray.600', 'gray.400');
+  const filterInputBg = useColorModeValue('white', 'gray.700');
 
   // Fetch Data
   useEffect(() => {
@@ -125,8 +145,9 @@ const MyRecentFilesList: React.FC = () => {
         aValue = a.lastModifiedBy?.user?.displayName || '';
         bValue = b.lastModifiedBy?.user?.displayName || '';
       } else {
-        aValue = a[sortBy] || '';
-        bValue = b[sortBy] || '';
+        // Handle potentially missing values for size (treat null/undefined as -1 for sorting)
+        aValue = sortBy === 'size' ? (a.size ?? -1) : (a[sortBy] || '');
+        bValue = sortBy === 'size' ? (b.size ?? -1) : (b[sortBy] || '');
       }
 
       // Handle date sorting
@@ -135,14 +156,17 @@ const MyRecentFilesList: React.FC = () => {
         bValue = b.lastModifiedDateTime ? new Date(b.lastModifiedDateTime).getTime() : 0;
       }
 
-      // Comparison logic
+      // Comparison logic (numbers or strings)
       let comparison = 0;
-      if (aValue < bValue) {
-        comparison = -1;
-      } else if (aValue > bValue) {
-        comparison = 1;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+         comparison = aValue - bValue;
+      } else {
+         // Ensure values are strings for localeCompare
+         const strA = String(aValue);
+         const strB = String(bValue);
+         comparison = strA.localeCompare(strB);
       }
-
+     
       return sortDirection === 'asc' ? comparison : comparison * -1;
     });
 
@@ -153,10 +177,9 @@ const MyRecentFilesList: React.FC = () => {
   const handleSort = useCallback((column: SortableColumns) => {
     setSortBy(prevSortBy => {
       if (prevSortBy === column) {
-        // If same column, toggle direction
         setSortDirection(prevDir => prevDir === 'asc' ? 'desc' : 'asc');
       } else {
-        // If new column, default to descending for date, ascending for others
+        // Default sorting direction: desc for date, asc for others
         setSortDirection(column === 'lastModifiedDateTime' ? 'desc' : 'asc');
       }
       return column;
@@ -194,18 +217,31 @@ const MyRecentFilesList: React.FC = () => {
 
   return (
     <VStack spacing={4} align="stretch">
-      {/* Filter Input */}
-      <InputGroup size="sm">
-        <InputLeftElement pointerEvents="none">
+      {/* Filter Input - Modified to match Browse Sites search bar structure */}
+      <InputGroup size="md">
+        {/* REMOVED InputLeftElement */}
+        {/* <InputLeftElement pointerEvents="none">
           <Icon as={FaSearch} color="gray.400" />
-        </InputLeftElement>
+        </InputLeftElement> */}
         <Input
           type="text"
-          placeholder={t('sharepoint.filterByOwner')}
+          placeholder={t('sharepoint.filterByOwner')} // Keep placeholder relevant to filtering
           value={ownerFilter}
           onChange={(e) => setOwnerFilter(e.target.value)}
-          bg={useColorModeValue('white', 'gray.600')}
+          bg={filterInputBg}
+          pr="3rem" // Changed padding to 3rem
         />
+        <InputRightElement width="3rem"> {/* Changed width to 3rem */}
+          <IconButton
+            h="1.75rem"
+            size="sm"
+            aria-label={t('common.filter') || 'Filter'}
+            icon={<Icon as={FaSearch} />}
+            onClick={() => {}} 
+            isDisabled={false} 
+            colorScheme="blue" // Changed variant from ghost to solid blue
+          />
+        </InputRightElement>
       </InputGroup>
 
       {/* Results Table */}
@@ -214,17 +250,18 @@ const MyRecentFilesList: React.FC = () => {
           <Table variant="simple" size="sm">
             <Thead>
               <Tr>
-                <Th cursor="pointer" onClick={() => handleSort('name')} color={headerColor}>
+                <Th cursor="pointer" onClick={() => handleSort('name')}>
                   <HStack spacing={1}>{t('sharepoint.name')} <SortIcon column="name" /></HStack>
                 </Th>
-                <Th cursor="pointer" onClick={() => handleSort('lastModifiedDateTime')} color={headerColor}>
+                <Th cursor="pointer" onClick={() => handleSort('lastModifiedDateTime')}>
                   <HStack spacing={1}>{t('sharepoint.modified')} <SortIcon column="lastModifiedDateTime" /></HStack>
                 </Th>
-                <Th cursor="pointer" onClick={() => handleSort('lastModifiedBy.user.displayName')} color={headerColor}>
+                <Th cursor="pointer" onClick={() => handleSort('lastModifiedBy.user.displayName')}>
                   <HStack spacing={1}>{t('sharepoint.modifiedBy')} <SortIcon column="lastModifiedBy.user.displayName" /></HStack>
                 </Th>
-                {/* Add Activity column later if data becomes available */}
-                {/* <Th>Activity</Th> */}
+                <Th cursor="pointer" onClick={() => handleSort('size')} isNumeric>
+                  <HStack spacing={1} justify="flex-end">{t('sharepoint.size')} <SortIcon column="size" /></HStack>
+                </Th>
               </Tr>
             </Thead>
             <Tbody>
@@ -240,9 +277,9 @@ const MyRecentFilesList: React.FC = () => {
                        </Link>
                      </HStack>
                   </Td>
-                  <Td fontSize="xs" whiteSpace="nowrap" py={2}>{formatDateTime(item.lastModifiedDateTime)}</Td>
-                  <Td fontSize="xs" whiteSpace="nowrap" py={2}>{item.lastModifiedBy?.user?.displayName || '-'}</Td>
-                  {/* <Td>{ item.activity || '-'}</Td> */}
+                  <Td whiteSpace="nowrap" py={2}>{formatDateTime(item.lastModifiedDateTime)}</Td>
+                  <Td whiteSpace="nowrap" py={2}>{item.lastModifiedBy?.user?.displayName || '-'}</Td>
+                  <Td whiteSpace="nowrap" py={2} isNumeric>{formatFileSize(item.size)}</Td>
                 </Tr>
               ))}
             </Tbody>

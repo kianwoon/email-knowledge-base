@@ -1435,9 +1435,9 @@
   },
   "sharepoint": {
     "tabs": {
-      "browse": "浏览站点",
+      "browseSites": "浏览站点",
       "quickAccess": "快速访问",
-      "shared": "与我共享"
+      "myRecent": "我的最近"
     },
     "drivesForSite": "驱动器 / 文档库 (站点: {{siteName}})",
     "title": "SharePoint 数据源",
@@ -1491,7 +1491,12 @@
     "downloadTaskProgressTitle": "文件处理任务",
     "emptyFolder": "此文件夹为空",
     "emptyFolderDesc": "此处未找到文件或子文件夹。",
-    "noSearchResults": "未找到符合您搜索条件的项。"
+    "noSearchResults": "未找到符合您搜索条件的项。",
+    "pageTitle": "SharePoint 数据源",
+    "errors": {
+      "fetchRecentTitle": "获取最近项目时出错"
+    },
+    "searchDrivePlaceholder": "搜索此文档库..."
   },
   "deleteConfirmation": "您确定要删除此项吗？",
   "deleteSuccess": "项目删除成功。",
