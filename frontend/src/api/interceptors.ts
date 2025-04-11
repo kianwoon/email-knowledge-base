@@ -2,10 +2,11 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { refreshToken } from './auth'; // Assuming refreshToken handles MSAL/backend communication
 
 // Get backend URL from environment variables
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+// const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'; // No longer needed for local dev proxy
 
 const apiClient = axios.create({
-  baseURL: `${BACKEND_URL}/api`, // Prepend /api for backend routes
+  // baseURL: `${BACKEND_URL}/api`, // REMOVE THIS LINE
+  baseURL: '/api', // USE THIS RELATIVE PATH for Vite proxy
   withCredentials: true, // Send cookies (like HttpOnly refresh token)
 });
 

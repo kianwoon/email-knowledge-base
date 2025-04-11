@@ -54,7 +54,15 @@ async def login():
         state = json.dumps(state_payload)
         logger.debug(f"Generated state: {state}")
         
-        auth_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        # Construct the correct base URL based on settings
+        if settings.MS_AUTH_BASE_URL.endswith('/common'):
+            auth_url_base = settings.MS_AUTH_BASE_URL
+        else:
+            # Fallback or specific tenant logic (ensure tenant ID is valid)
+            if not settings.MS_TENANT_ID:
+                raise ValueError("MS_TENANT_ID must be set for non-common auth base URL")
+            auth_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        
         auth_url_endpoint = f"{auth_url_base}/oauth2/v2.0/authorize"
         
         # --- Start Add Logging ---
@@ -124,7 +132,15 @@ async def auth_callback(
     token_result = None
     try:
         print(f"Exchanging code for tokens with redirect URI: {settings.MS_REDIRECT_URI}")
-        token_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        # Construct the correct token URL based on settings
+        if settings.MS_AUTH_BASE_URL.endswith('/common'):
+            token_url_base = settings.MS_AUTH_BASE_URL
+        else:
+            # Fallback or specific tenant logic
+            if not settings.MS_TENANT_ID:
+                raise ValueError("MS_TENANT_ID must be set for non-common auth base URL")
+            token_url_base = f"{settings.MS_AUTH_BASE_URL}/{settings.MS_TENANT_ID}"
+        
         token_url = f"{token_url_base}/oauth2/v2.0/token"
         token_data = {
             'client_id': settings.MS_CLIENT_ID,

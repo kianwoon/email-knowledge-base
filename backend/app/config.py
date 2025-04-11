@@ -68,8 +68,14 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def MS_AUTHORITY(self) -> str:
-        if not self.MS_AUTH_BASE_URL or not self.MS_TENANT_ID:
-             raise ValueError("Cannot compute MS_AUTHORITY: MS_AUTH_BASE_URL or MS_TENANT_ID not set")
+        if not self.MS_AUTH_BASE_URL:
+             raise ValueError("Cannot compute MS_AUTHORITY: MS_AUTH_BASE_URL not set")
+        # If using common endpoint, authority is just the base URL
+        if self.MS_AUTH_BASE_URL.endswith('/common'):
+            return self.MS_AUTH_BASE_URL
+        # Otherwise, for specific tenant, append the tenant ID
+        if not self.MS_TENANT_ID:
+             raise ValueError("Cannot compute MS_AUTHORITY: MS_TENANT_ID not set for non-common endpoint")
         return f"{self.MS_AUTH_BASE_URL}/{self.MS_TENANT_ID}"
 
     @computed_field
