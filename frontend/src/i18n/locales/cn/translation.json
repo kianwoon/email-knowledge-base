@@ -492,6 +492,9 @@
           "itSupport": "IT支持",
           "engineering": "工程",
           "troubleshooting": "故障排除"
+        },
+        "actions": {
+          "proceedGenerateKB": "立即生成知识库"
         }
       },
       "knowledgeBase": {
@@ -877,7 +880,8 @@
       "analyzing": "正在分析...",
       "save": "保存",
       "cancel": "取消",
-      "refresh": "刷新结果"
+      "refresh": "刷新结果",
+      "proceedGenerateKB": "立即生成知识库"
     },
     "results": {
       "title": "搜索结果",
@@ -969,7 +973,54 @@
     "reset": "重置",
     "previous": "上一页",
     "next": "下一页",
-    "send": "发送"
+    "send": "发送",
+    "refresh": "刷新数据",
+    "notAvailable": "暂无",
+    "active": "活跃",
+    "inactive": "非活跃",
+    "tags": {
+      "executive": "高管",
+      "sales": "销售",
+      "marketing": "市场营销",
+      "finance": "财务",
+      "legal": "法务",
+      "hr": "人力资源",
+      "it": "信息技术",
+      "operations": "运营",
+      "customerSupport": "客户支持",
+      "policy": "政策",
+      "procedure": "流程",
+      "decision": "决策",
+      "report": "报告",
+      "analysis": "分析",
+      "discussion": "讨论",
+      "approval": "审批",
+      "request": "请求",
+      "notification": "通知",
+      "public": "公开",
+      "internal": "内部",
+      "confidential": "机密",
+      "restricted": "受限",
+      "pii": "个人信息",
+      "financial": "财务",
+      "strategic": "战略",
+      "tag0": "标签0",
+      "tag1": "标签1",
+      "tag2": "标签2",
+      "tag3": "标签3",
+      "knowledge": "知识",
+      "important": "重要",
+      "routine": "常规"
+    },
+    "departments": {
+      "engineering": "工程部",
+      "product": "产品部",
+      "marketing": "市场部",
+      "sales": "销售部"
+    },
+    "actions": {
+      "proceedGenerateKnowledge": "立即生成知识库"
+    }
   },
   "buttons": {
     "cancel": "取消",
@@ -1086,6 +1137,291 @@
       "modelSelection": "模型选择",
       "modelDescription": "选择用于对话的 AI 模型",
       "model": "模型"
+    }
+  },
+  "knowledgeManagement": {
+    "title": "知识库管理",
+    "summaryTitle": "数据概览",
+    "summary": {
+      "lastUpdated": "最后更新时间：{{time}}",
+      "rawDataLabel": "原始数据项",
+      "vectorDataLabel": "向量数据项",
+      "tokenLabel": "API访问令牌",
+      "tokenHelp": "{{count}}个活跃"
+    },
+    "errors": {
+      "loadFailed": "加载页面数据失败。请重试。",
+      "taskCheckFailed": "检查活跃后台任务失败。"
+    },
+    "task": {
+      "title": "后台任务状态",
+      "calculating": "计算中...",
+      "pending": "任务等待中...",
+      "started": "任务已开始...",
+      "processing": "知识库更新进行中...",
+      "taskId": "任务ID：{{id}}"
+    },
+    "actionsTitle": "管理操作",
+    "actionsPlaceholder": "此处可添加更多知识库管理相关操作。"
+  },
+  "tokenManagement": {
+    "title": "管理API令牌"
+  },
+  "tokenManagementPage": {
+    "subtitle": "创建和管理用于共享知识的访问令牌",
+    "searchPlaceholder": "按名称或描述搜索...",
+    "createTokenButton": "创建令牌",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "sensitivity": "敏感度",
+      "status": "状态",
+      "expiry": "过期时间",
+      "actions": "操作"
+    },
+    "actions": {
+      "edit": "编辑令牌",
+      "delete": "删除令牌"
+    },
+    "tabs": {
+      "active": "活跃",
+      "inactive": "非活跃"
+    },
+    "noActiveTokens": "未找到活跃的令牌。",
+    "noActiveTokensSearch": "未找到匹配搜索的活跃令牌。",
+    "noInactiveTokens": "未找到非活跃的令牌。",
+    "noInactiveTokensSearch": "未找到匹配搜索的非活跃令牌。",
+    "deleteDialog": {
+      "title": "删除令牌",
+      "message": "您确定要删除此令牌吗？此操作无法撤消。"
+    },
+    "toast": {
+      "deleteSuccessTitle": "令牌已删除",
+      "deleteErrorTitle": "删除失败",
+      "deleteErrorDescription": "无法删除令牌。"
+    }
+  },
+  "editTokenModal": {
+    "title": "编辑令牌",
+    "errors": {
+      "fetchFailed": "加载令牌数据失败。请重试。"
+    },
+    "toast": {
+      "successTitle": "令牌已更新",
+      "successDescription": "令牌\"{{name}}\"已成功更新。",
+      "errorTitle": "更新失败",
+      "errorDescription": "无法更新令牌。"
+    },
+    "form": {
+      "name": {
+        "label": "令牌名称",
+        "placeholder": "例如：我的API密钥"
+      },
+      "description": {
+        "label": "描述",
+        "placeholder": "可选：描述此令牌的用途"
+      },
+      "sensitivity": {
+        "label": "敏感度级别",
+        "helper": "控制数据访问限制。"
+      },
+      "allowRules": {
+        "label": "允许规则",
+        "placeholder": "输入允许规则并按回车键",
+        "helper": "可选：列出允许访问的规则。"
+      },
+      "denyRules": {
+        "label": "拒绝规则",
+        "placeholder": "输入拒绝规则并按回车键",
+        "helper": "可选：列出拒绝访问的规则。"
+      },
+      "expiry": {
+        "label": "过期日期（可选）",
+        "helper": "令牌将在此日期后失效。"
+      },
+      "active": {
+        "label": "活跃状态",
+        "helper": "非活跃令牌无法使用。"
+      }
+    }
+  },
+  "search": {
+    "title": "知识库搜索",
+    "description": "搜索您组织的知识库",
+    "queryLabel": "搜索查询",
+    "placeholder": "输入关键词或短语进行搜索...",
+    "helperText": "使用关键词、短语或自然语言进行搜索。支持高级搜索语法。",
+    "searching": "正在搜索...",
+    "results": "找到 {{count}} 个结果，共 {{total}} 个",
+    "from": "来自",
+    "matchPercentage": "匹配度 {{percentage}}%",
+    "viewDetails": "查看详情",
+    "knowledgeItem": "知识项详情",
+    "source": "来源",
+    "sender": "发送者",
+    "date": "日期",
+    "extractedDate": "提取日期",
+    "content": "内容",
+    "toast": {
+      "emptyQuery": "请输入搜索内容",
+      "searchError": "搜索时出错",
+      "loadError": "加载内容时出错"
+    }
+  },
+  "filterSetup": {
+    "title": "邮件过滤设置",
+    "subtitle": "配置邮件过滤规则",
+    "emailTable": {
+      "loading": "正在加载邮件...",
+      "noEmails": "未找到邮件",
+      "subject": "主题",
+      "sender": "发件人",
+      "date": "日期",
+      "preview": "预览"
+    },
+    "filters": {
+      "templates": {
+        "title": "过滤器模板",
+        "save": "保存模板",
+        "load": "加载模板",
+        "name": "模板名称",
+        "placeholder": "输入模板名称"
+      },
+      "folder": {
+        "label": "选择文件夹",
+        "placeholder": "选择邮件文件夹"
+      },
+      "keywords": {
+        "label": "关键词",
+        "placeholder": "输入关键词",
+        "add": "添加关键词",
+        "remove": "移除关键词"
+      },
+      "date": {
+        "label": "日期范围",
+        "start": "开始日期",
+        "end": "结束日期"
+      },
+      "itemsPerPage": {
+        "label": "每页显示",
+        "items": "{{count}} 项"
+      }
+    },
+    "actions": {
+      "analyze": "分析邮件",
+      "saveToKnowledge": "保存到知识库",
+      "refresh": "刷新列表"
+    },
+    "pagination": {
+      "previous": "上一页",
+      "next": "下一页",
+      "page": "第 {{page}} 页",
+      "of": "共 {{total}} 页"
+    },
+    "toast": {
+      "templateSaved": {
+        "title": "模板已保存",
+        "description": "过滤器模板保存成功"
+      },
+      "templateLoaded": {
+        "title": "模板已加载",
+        "description": "过滤器模板加载成功"
+      },
+      "analyzeSuccess": {
+        "title": "分析已开始",
+        "description": "邮件分析任务已启动"
+      },
+      "analyzeError": {
+        "title": "分析失败",
+        "description": "启动邮件分析时出错"
+      },
+      "saveSuccess": {
+        "title": "保存成功",
+        "description": "已成功保存到知识库"
+      },
+      "saveError": {
+        "title": "保存失败",
+        "description": "保存到知识库时出错"
+      },
+      "loadError": {
+        "title": "加载失败",
+        "description": "加载邮件数据时出错"
+      }
+    }
+  },
+  "emailReview": {
+    "pageTitle": "邮件审核",
+    "pageDescription": "审核和批准要添加到知识库的邮件",
+    "sampleEmails": {
+      "subject": "示例邮件 #{{number}}",
+      "body": "这是示例邮件 #{{number}} 的内容。",
+      "summary": "示例邮件 #{{number}} 的摘要",
+      "keyPoint1": "关键点 1 - 邮件 #{{number}}",
+      "keyPoint2": "关键点 2 - 邮件 #{{number}}",
+      "keyPoint3": "关键点 3 - 邮件 #{{number}}"
+    },
+    "filters": {
+      "title": "筛选条件",
+      "allDepartments": "所有部门",
+      "allSensitivityLevels": "所有敏感度级别",
+      "allPrivacyLevels": "所有隐私级别"
+    },
+    "privacy": {
+      "private": "私密",
+      "notPrivate": "非私密"
+    },
+    "table": {
+      "title": "待审核邮件",
+      "noResults": "未找到符合条件的邮件",
+      "subject": "主题",
+      "department": "部门",
+      "sensitivity": "敏感度",
+      "tags": "标签",
+      "private": "私密性",
+      "actions": "操作"
+    },
+    "actions": {
+      "viewDetails": "查看详情",
+      "approve": "批准",
+      "reject": "拒绝",
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "approveSelected": "批准所选",
+      "rejectSelected": "拒绝所选"
+    },
+    "pagination": {
+      "showingRangeOfTotal": "显示 {{start}} - {{end}} 条，共 {{total}} 条",
+      "selectedCount": "已选择 {{count}} 条",
+      "pageInfo": "第 {{currentPage}} 页，共 {{totalPages}} 页"
+    },
+    "notes": {
+      "label": "审核备注",
+      "placeholder": "输入有关此审核决定的任何备注..."
+    },
+    "drawer": {
+      "title": "邮件详情",
+      "from": "发件人：{{sender}} <{{email}}>",
+      "date": "日期：{{date}}",
+      "analysisTitle": "分析结果",
+      "summary": "摘要",
+      "keyPoints": "关键点",
+      "piiDetected": "检测到的个人信息",
+      "recommendedAction": "建议操作",
+      "emailContent": "邮件内容",
+      "attachmentsCount": "附件 ({{count}})",
+      "attachmentType": "类型：{{type}}",
+      "attachmentSize": "大小：{{size}}"
+    },
+    "toast": {
+      "loadErrorTitle": "加载失败",
+      "updateErrorTitle": "更新失败",
+      "approvedSuccess": "邮件已批准",
+      "rejectedSuccess": "邮件已拒绝",
+      "bulkApprovedSuccess": "已批准 {{count}} 封邮件",
+      "bulkRejectedSuccess": "已拒绝 {{count}} 封邮件",
+      "bulkUpdateErrorTitle": "批量更新失败",
+      "noSelectionTitle": "未选择邮件",
+      "noSelectionDescription": "请至少选择一封邮件进行操作"
     }
   }
 }
