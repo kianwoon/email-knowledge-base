@@ -65,7 +65,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
       icon: FaDatabase,
       children: [
         { path: '/filter', label: t('navigation.filterEmails'), icon: FaFilter },
-        { path: '#sharepoint', label: t('navigation.sharepoint'), icon: FaShareSquare, disabled: true },
+        { path: '/sharepoint', label: t('navigation.sharepoint'), icon: FaShareSquare },
         { path: '#confluence', label: t('navigation.confluence'), icon: FaConfluence, disabled: true },
         { path: '#elastic', label: t('navigation.elasticsearch'), icon: FaServer, disabled: true },
         { path: '#gdrive', label: t('navigation.googleDrive'), icon: FaGoogleDrive, disabled: true },

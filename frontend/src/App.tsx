@@ -36,6 +36,8 @@ import Documentation from './pages/documentation/Documentation'; // <-- Import
 import KnowledgeBase from './pages/documentation/KnowledgeBase'; // <-- Import 
 import SecureAuthentication from './pages/documentation/SecureAuthentication'; // <-- Import 
 import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import 
+// Import the new SharePoint page
+import SharePointPage from './pages/SharePoint';
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
 
 // i18n
@@ -77,14 +79,19 @@ const SessionExpiredModalInline = ({ isOpen, onClose, onLogin, t }: any) => (
   </Modal>
 );
 
-// Define protected paths (Re-add this)
+// Define protected paths
 const protectedPaths = [
   '/filter',
   '/review',
   '/search',
   '/knowledge',
   '/tokens',
-  '/jarvis', // Added Jarvis path
+  '/jarvis',
+  '/sharepoint', // Added SharePoint
+  // Add other protected paths like dashboard, knowledge-bases, etc.
+  '/dashboard',
+  '/knowledge-bases',
+  '/tasks',
 ];
 
 function App() {
@@ -301,6 +308,16 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* --- Add SharePoint Route --- */}
+          <Route 
+            path="/sharepoint" 
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <SharePointPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* --- End SharePoint Route --- */}
           
           {/* Add routes for lazy-loaded pages */}
           <Route 

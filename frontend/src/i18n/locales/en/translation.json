@@ -32,7 +32,7 @@
     "signOut": "Sign Out",
     "userMenu": "User Menu",
     "dataSource": "Data Source",
-    "sharepoint": "SharePoint (Coming Soon)",
+    "sharepoint": "SharePoint",
     "confluence": "Confluence (Coming Soon)",
     "elasticsearch": "Elasticsearch (Coming Soon)",
     "googleDrive": "Google Drive (Coming Soon)",
@@ -1048,7 +1048,14 @@
     "errorLoadingFolders": "Error Loading Folders",
     "errorSubmittingAnalysis": "Error Submitting Analysis",
     "errorSavingToKB": "Error Saving to Knowledge Base",
-    "unknownError": "An unknown error occurred. Please try again."
+    "unknownError": "An unknown error occurred. Please try again.",
+    "unknown": "An unknown error occurred.",
+    "unauthorized": "Unauthorized. Please sign in again.",
+    "forbidden": "Forbidden. You do not have permission.",
+    "notFound": "Resource not found.",
+    "serverError": "Internal Server Error. Please try again later.",
+    "fetchCurrentUser": "Failed to fetch user information.",
+    "taskStatus": "Failed to get task status."
   },
   "emailReview": {
     "pageTitle": "Review Analyzed Emails",
@@ -1423,6 +1430,51 @@
       "modelSelection": "Model Selection",
       "modelDescription": "Select the AI model to use for chat",
       "model": "Model"
+    }
+  },
+  "sharepoint": {
+    "title": "SharePoint Data Source",
+    "sites": "Sites",
+    "drives": "Drives / Libraries",
+    "selectSitePrompt": "Select a SharePoint site to browse its drives.",
+    "selectSiteDesc": "Followed sites are shown. You can follow more sites directly in SharePoint.",
+    "selectDrivePrompt": "Select a drive (document library) to browse its contents.",
+    "selectDriveDesc": "Only document libraries are shown.",
+    "noSitesFound": "No followed sites found.",
+    "noDrivesFound": "No drives found for this site.",
+    "selectSiteFirst": "Please select a site first.",
+    "selectDriveFirst": "Please select a drive first.",
+    "items": "Files and Folders",
+    "name": "Name",
+    "modified": "Last Modified",
+    "size": "Size",
+    "actions": "Actions",
+    "searchPlaceholder": "Search this drive...",
+    "searchButton": "Search",
+    "downloadButton": "Download & Process",
+    "noItemsFound": "No items found in this location.",
+    "searchNoResults": "No items found matching your search.",
+    "loadingSites": "Loading sites...",
+    "loadingDrives": "Loading drives...",
+    "loadingItems": "Loading items...",
+    "searching": "Searching...",
+    "downloading": "Initiating download...",
+    "taskSubmitted": "File processing task submitted.",
+    "taskProgress": "Processing file...",
+    "taskComplete": "File processing complete.",
+    "taskFailed": "File processing failed.",
+    "errors": {
+      "fetchSitesTitle": "Error Fetching Sites",
+      "fetchDrivesTitle": "Error Fetching Drives",
+      "fetchItemsTitle": "Error Fetching Items",
+      "searchFailedTitle": "Search Failed",
+      "searchQueryMissing": "Please enter a search query.",
+      "downloadTitle": "Error Starting Download",
+      "taskStatusTitle": "Error Checking Task Status"
+    },
+    "tooltips": {
+      "download": "Download and process this file for the knowledge base",
+      "browseFolder": "Open folder"
     }
   }
 }

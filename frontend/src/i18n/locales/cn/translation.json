@@ -28,7 +28,7 @@
     "jarvis": "贾维斯",
     "aiDataManagement": "AI 数据管理",
     "dataSource": "数据源",
-    "sharepoint": "SharePoint (即将推出)",
+    "sharepoint": "SharePoint",
     "confluence": "Confluence (即将推出)",
     "elasticsearch": "Elasticsearch (即将推出)",
     "googleDrive": "Google Drive (即将推出)",
@@ -1422,6 +1422,60 @@
       "bulkUpdateErrorTitle": "批量更新失败",
       "noSelectionTitle": "未选择邮件",
       "noSelectionDescription": "请至少选择一封邮件进行操作"
+    }
+  },
+  "errors": {
+    "unknown": "发生未知错误。",
+    "unauthorized": "未授权。请重新登录。",
+    "forbidden": "禁止访问。您没有权限。",
+    "notFound": "未找到资源。",
+    "serverError": "内部服务器错误。请稍后重试。",
+    "fetchCurrentUser": "获取用户信息失败。",
+    "taskStatus": "获取任务状态失败。"
+  },
+  "sharepoint": {
+    "title": "SharePoint 数据源",
+    "sites": "站点",
+    "drives": "驱动器 / 文档库",
+    "selectSitePrompt": "选择一个 SharePoint 站点以浏览其驱动器。",
+    "selectSiteDesc": "显示已关注的站点。您可以直接在 SharePoint 中关注更多站点。",
+    "selectDrivePrompt": "选择一个驱动器（文档库）以浏览其内容。",
+    "selectDriveDesc": "仅显示文档库。",
+    "noSitesFound": "未找到已关注的站点。",
+    "noDrivesFound": "此站点未找到驱动器。",
+    "selectSiteFirst": "请先选择一个站点。",
+    "selectDriveFirst": "请先选择一个驱动器。",
+    "items": "文件和文件夹",
+    "name": "名称",
+    "modified": "上次修改时间",
+    "size": "大小",
+    "actions": "操作",
+    "searchPlaceholder": "搜索此驱动器...",
+    "searchButton": "搜索",
+    "downloadButton": "下载并处理",
+    "noItemsFound": "此位置未找到任何项目。",
+    "searchNoResults": "未找到与您的搜索匹配的项目。",
+    "loadingSites": "正在加载站点...",
+    "loadingDrives": "正在加载驱动器...",
+    "loadingItems": "正在加载项目...",
+    "searching": "正在搜索...",
+    "downloading": "正在开始下载...",
+    "taskSubmitted": "文件处理任务已提交。",
+    "taskProgress": "正在处理文件...",
+    "taskComplete": "文件处理完成。",
+    "taskFailed": "文件处理失败。",
+    "errors": {
+      "fetchSitesTitle": "获取站点时出错",
+      "fetchDrivesTitle": "获取驱动器时出错",
+      "fetchItemsTitle": "获取项目时出错",
+      "searchFailedTitle": "搜索失败",
+      "searchQueryMissing": "请输入搜索查询。",
+      "downloadTitle": "开始下载时出错",
+      "taskStatusTitle": "检查任务状态时出错"
+    },
+    "tooltips": {
+      "download": "下载并处理此文件以用于知识库",
+      "browseFolder": "打开文件夹"
     }
   }
 }
