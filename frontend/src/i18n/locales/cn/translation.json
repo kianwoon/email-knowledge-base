@@ -1203,14 +1203,14 @@
   },
   "editTokenModal": {
     "title": "编辑令牌",
-    "errors": {
-      "fetchFailed": "加载令牌数据失败。请重试。"
-    },
     "toast": {
       "successTitle": "令牌已更新",
       "successDescription": "令牌\"{{name}}\"已成功更新。",
       "errorTitle": "更新失败",
       "errorDescription": "无法更新令牌。"
+    },
+    "errors": {
+      "fetchFailed": "加载令牌数据失败，请重试"
     },
     "form": {
       "name": {

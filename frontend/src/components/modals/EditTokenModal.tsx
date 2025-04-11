@@ -118,8 +118,8 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
        // Ensure tokenId is passed as string if API expects it
       await updateToken(String(tokenId), tokenUpdateData);
       toast({
-        title: t('editTokenModal.toast.successTitle', 'Token Updated'),
-        description: t('editTokenModal.toast.successDescription', `Token "${name}" was successfully updated.`),
+        title: t('editTokenModal.toast.successTitle'),
+        description: t('editTokenModal.toast.successDescription', { name }),
         status: 'success',
         duration: 5000,
         isClosable: true,
@@ -129,8 +129,8 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
     } catch (error: any) {
       console.error(`Token update failed for ${tokenId}:`, error);
       toast({
-        title: t('editTokenModal.toast.errorTitle', 'Update Failed'),
-        description: error?.response?.data?.detail || error.message || t('editTokenModal.toast.errorDescription', 'Could not update token.'),
+        title: t('editTokenModal.toast.errorTitle'),
+        description: error?.response?.data?.detail || error.message || t('editTokenModal.toast.errorDescription'),
         status: 'error',
         duration: 9000,
         isClosable: true,
@@ -233,7 +233,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
 
         <ModalFooter>
             <Button variant="ghost" mr={3} onClick={onClose}>
-              {t('common.actions.cancel', 'Cancel')}
+              {t('buttons.cancel', '取消')}
             </Button>
             <Button
               colorScheme="blue"
@@ -241,7 +241,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
               isLoading={isLoading}
               isDisabled={isFetching || !!error}
             >
-              {t('common.actions.save', 'Save Changes')}
+              {t('buttons.save', '保存')}
             </Button>
           </ModalFooter>
       </ModalContent>
