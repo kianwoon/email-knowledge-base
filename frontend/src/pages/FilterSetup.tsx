@@ -259,54 +259,63 @@ const FilterSetup: React.FC = () => {
   // --- End Helper Function ---
 
   // Load previews
-  const loadPreviews = useCallback(async (options?: { size?: number }) => {
+  const loadPreviews = useCallback(async (options?: { size?: number; isFreshSearch?: boolean }) => {
     // Use the explicitly passed size, otherwise default to the current state
     const currentSize = options?.size ?? itemsPerPage;
-    console.log(`loadPreviews called. Effective size: ${currentSize}`);
+    const isFreshSearch = options?.isFreshSearch ?? false;
+    console.log(`loadPreviews called. Effective size: ${currentSize}, isFreshSearch: ${isFreshSearch}`);
 
-    if (isInitialLoad) {
-      setIsInitialLoad(false);
-    }
+    // Removed isInitialLoad check, handled by isFreshSearch logic now
+    // if (isInitialLoad) {
+    //   setIsInitialLoad(false);
+    // }
 
     setIsLoadingPreviews(true);
-    setSearchPerformedSuccessfully(false);
+    setSearchPerformedSuccessfully(false); // Reset this flag at the start of any load
     try {
-      // If using next_link, use it directly (size doesn't apply to next_link requests)
-      if (nextLink) {
-        // This block is typically hit during forward pagination handled by handlePageChange,
-        // but keeping it here for potential direct calls to loadPreviews with nextLink.
+      // Determine if we should use nextLink based on state AND isFreshSearch flag
+      const shouldUseNextLink = !isFreshSearch && !!nextLink;
+      console.log(`[loadPreviews] shouldUseNextLink determined as: ${shouldUseNextLink} (isFreshSearch: ${isFreshSearch}, nextLink exists: ${!!nextLink})`);
+
+      // --- Use next_link for pagination (only if NOT a fresh search) --- 
+      if (shouldUseNextLink) { 
         console.log('Using next_link for pagination:', nextLink);
         // Pass only the next_link, backend handles the rest
-        const previewData = await getEmailPreviews({ next_link: nextLink }); 
+        const previewData = await getEmailPreviews({ next_link: nextLink! }); // Use non-null assertion as we checked !!nextLink
         console.log('Next link response:', previewData);
         
         const currentPreviews = previewData.items || [];
         const currentNextLink = previewData.next_link ?? undefined;
 
         // Update Cache for the *next* page (currentPage + 1 because nextLink loads the next page)
+        // CAUTION: This assumes loadPreviews with nextLink is ONLY called by handlePageChange which manages currentPage correctly.
+        // If called elsewhere, currentPage might be wrong here.
+        const nextPageNumber = currentPage + 1;
         const cacheData: PageCacheEntry = { previews: currentPreviews, nextLink: currentNextLink };
-        setPageCache(prevCache => new Map(prevCache).set(currentPage + 1, cacheData));
+        setPageCache(prevCache => new Map(prevCache).set(nextPageNumber, cacheData));
+        console.log(`[loadPreviews - nextLink path] Cached data for potential next page ${nextPageNumber}`);
 
         // Update state
         setPreviews(currentPreviews);
-        setTotalEmails(previewData.total);
-        const totalPagesFromNextLink = previewData.total > 0 ? Math.ceil(previewData.total / currentSize) : 1;
-        setTotalPages(totalPagesFromNextLink); 
-        setNextLink(currentNextLink);
-        // setCurrentPage(currentPage + 1); // This should be handled by the caller (e.g., handlePageChange)
+        setTotalEmails(previewData.total ?? totalEmails); // Keep existing total if not provided
+        // Recalculate total pages based on potentially updated total
+        const effectiveTotal = previewData.total ?? totalEmails;
+        const newTotalPages = effectiveTotal > 0 ? Math.ceil(effectiveTotal / currentSize) : (currentNextLink ? currentPage + 1 : currentPage);
+        setTotalPages(newTotalPages);
+        setNextLink(currentNextLink); // Update standalone nextLink state
+        // setCurrentPage(currentPage + 1); // This must be handled by the caller (handlePageChange)
 
       } else {
-        // Initial Load / Non-pagination request (Search or first load)
-        // Resetting page to 1 and clearing cache should be done *before* calling loadPreviews
-        // setCurrentPage(1); // Reset to page 1 on new filter/search - MOVED TO CALLERS
-
-        // Prepare base parameters for the API call
+        // --- Initial Load / Fresh Search (isFreshSearch is true or no nextLink exists) --- 
+        console.log('[loadPreviews] Performing initial load or fresh search.');
+        // Prepare base parameters for the API call, EXCLUDING next_link
         const apiParams: any = {
           folder_id: filter.folder_id || undefined, 
           per_page: currentSize, // Use currentSize determined above
           start_date: filter.start_date || undefined,
           end_date: filter.end_date || undefined,
           keywords: filter.keywords && filter.keywords.length > 0 ? filter.keywords : undefined,
+          // DO NOT include filter.next_link here for a fresh search
         };
 
         // Clean parameters: remove undefined/null keys and empty arrays
@@ -314,16 +323,15 @@ const FilterSetup: React.FC = () => {
           .filter(([_, v]) => v !== undefined && v !== null && (!Array.isArray(v) || v.length > 0))
           .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
           
-        console.log('Sending request with filter (non-pagination):', cleanParams);
+        console.log('Sending request with filter (fresh search/initial):', cleanParams);
         const previewData = await getEmailPreviews(cleanParams as EmailFilter & { per_page?: number });
-        console.log('Received preview data (non-pagination):', previewData);
-        console.log(`[FilterSetup] Received ${previewData?.items?.length ?? 0} items from API (non-pagination).`);
+        console.log('Received preview data (fresh search/initial):', previewData);
+        console.log(`[FilterSetup] Received ${previewData?.items?.length ?? 0} items from API (fresh search/initial).`);
 
         const currentPreviews = previewData.items || [];
         const currentNextLink = previewData.next_link ?? undefined;
         
-        // +++ ADDED DETAILED LOGGING +++
-        console.log('[loadPreviews] Data received:', { 
+        console.log('[loadPreviews - fresh search] Data received:', { 
             numItems: currentPreviews.length,
             rawTotal: previewData.total, 
             rawNextLink: currentNextLink 
@@ -331,39 +339,36 @@ const FilterSetup: React.FC = () => {
 
         // Update Cache for page 1
         const cacheData: PageCacheEntry = { previews: currentPreviews, nextLink: currentNextLink };
-        setPageCache(new Map().set(1, cacheData)); // Reset cache and set page 1
-        console.log('[loadPreviews] Cache updated for page 1.');
+        // Clear previous cache and set page 1 data
+        setPageCache(new Map().set(1, cacheData)); 
+        console.log('[loadPreviews - fresh search] Cache reset and updated for page 1.');
 
         // Update state with data from API
         setPreviews(currentPreviews);
-        console.log('[loadPreviews] Previews state updated.');
+        console.log('[loadPreviews - fresh search] Previews state updated.');
         
         // Update totalEmails, handling null/undefined from API
         const newTotalEmails = (previewData.total === undefined || previewData.total === null) ? -1 : previewData.total;
         setTotalEmails(newTotalEmails);
-        console.log(`[loadPreviews] TotalEmails state updated to: ${newTotalEmails}`);
+        console.log(`[loadPreviews - fresh search] TotalEmails state updated to: ${newTotalEmails}`);
         
-        // Calculate totalPages based on the *newTotalEmails*
+        // Calculate totalPages based on the newTotalEmails
         const newTotalPages = newTotalEmails === -1
                                 ? (currentNextLink ? 2 : 1) // If total unknown, assume 2 pages if nextLink exists, else 1
                                 : (newTotalEmails > 0 ? Math.ceil(newTotalEmails / currentSize) : 1);
         setTotalPages(newTotalPages);
-        console.log(`[loadPreviews] TotalPages state updated to: ${newTotalPages}`);
+        console.log(`[loadPreviews - fresh search] TotalPages state updated to: ${newTotalPages}`);
         
-        // Update nextLink state AND the filter's next_link
+        // Update standalone nextLink state ONLY
         setNextLink(currentNextLink); 
-        // +++ ADD LOGGING BEFORE setting nextLink state +++
-        console.log(`[loadPreviews] Value received for next_link from API: ${currentNextLink}`);
-        // --- End Added Log ---
-        setFilter(prev => ({ ...prev, next_link: currentNextLink }));
-        console.log(`[loadPreviews] nextLink state and filter.next_link updated to: ${currentNextLink}`);
+        console.log(`[loadPreviews - fresh search] Standalone nextLink state updated to: ${currentNextLink}`);
+        // Do NOT update filter.next_link here, as this path represents the result of page 1
         
         setSearchPerformedSuccessfully(true);
-        // --- END ADDED LOGGING ---
 
-        console.log('Updated state (non-pagination):', {
+        console.log('Updated state (fresh search/initial):', {
           items: currentPreviews.length,
-          total: previewData.total,
+          total: newTotalEmails,
           pages: newTotalPages,
           nextLink: currentNextLink,
         } as any);
@@ -561,14 +566,16 @@ const FilterSetup: React.FC = () => {
 
   // Handle search
   const handleSearchClick = useCallback(async () => {
-    // Reset pagination state AND cache
+    // Reset pagination state AND cache AND filter's next_link
     setCurrentPage(1);
     setNextLink(undefined);
+    setFilter(prev => ({ ...prev, next_link: undefined }));
     setPageCache(new Map());
     setIsInitialLoad(false);
     setPreviews([]); // Clear existing previews before new search
     setTotalEmails(0); // Reset total count before new search
-    loadPreviews();
+    // Explicitly tell loadPreviews this is a fresh search
+    loadPreviews({ isFreshSearch: true }); 
   }, [loadPreviews]);
   
   // Handler for adding a keyword
