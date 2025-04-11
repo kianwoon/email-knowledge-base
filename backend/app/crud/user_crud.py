@@ -42,6 +42,23 @@ def get_user_full_instance(db: Session, email: str) -> UserDB | None:
         # Re-raise the exception to be handled by the caller (e.g., auth route)
         raise e
 
+def get_user_with_refresh_token(db: Session, email: str) -> UserDB | None:
+    """Fetches the UserDB instance INCLUDING the ms_refresh_token field."""
+    try:
+        # Fetch the user instance directly by email
+        statement = select(UserDB).where(UserDB.email == email)
+        result = db.execute(statement)
+        user_db = result.scalar_one_or_none()
+        # The ms_refresh_token field is loaded by default unless excluded
+        if user_db:
+            logger.debug(f"Fetched user {email} with refresh token field included.")
+        else:
+            logger.debug(f"User {email} not found when attempting to fetch with refresh token.")
+        return user_db
+    except Exception as e:
+        logger.error(f"Error fetching user {email} with refresh token: {e}", exc_info=True)
+        raise e
+
 def check_column_exists(db: Session, table_name: str, column_name: str) -> bool:
     """Check if a column exists in a table"""
     try:
@@ -123,6 +140,34 @@ def create_or_update_user(db: Session, user_data: User) -> UserDB:
     except Exception as e:
         logger.error(f"Error in create_or_update_user for {user_data.email}: {e}", exc_info=True)
         # Re-raise the exception to be handled by the caller (e.g., auth route)
+        raise e
+
+def update_user_refresh_token(db: Session, user_email: str, encrypted_refresh_token: str | None) -> bool:
+    """Updates the encrypted Microsoft refresh token for a user.
+    
+    Returns:
+        bool: True if update was successful (at least one row affected), False otherwise.
+    Raises:
+        Exception: If a database error occurs.
+    """
+    try:
+        statement = (
+            update(UserDB)
+            .where(UserDB.email == user_email)
+            .values(ms_refresh_token=encrypted_refresh_token) # Update the specific field
+        )
+        result = db.execute(statement)
+        if result.rowcount == 0:
+            logger.warning(f"Attempted to update refresh token for non-existent user: {user_email}")
+            # Return False, but don't raise an error here, the caller might handle it.
+            return False 
+        db.commit() # Commit the change
+        logger.info(f"Updated refresh token for user {user_email}")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating refresh token for {user_email}: {e}", exc_info=True)
+        # Re-raise the exception to let the caller handle the database failure
         raise e
 
 # Function to update specific fields if needed (example)

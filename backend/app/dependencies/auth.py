@@ -1,12 +1,13 @@
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, status, Request, Response
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import msal
 import logging
 from typing import Optional
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
+import requests
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -15,6 +16,8 @@ from app.crud import user_crud # Corrected import
 from app.crud import token_crud # Import the module directly
 from app.models.token_models import TokenDB # Import TokenDB for type hint
 from app.utils.security import decrypt_token # Import decrypt_token function
+from app.utils.auth_utils import create_access_token # Import the moved JWT creation helper
+from app.crud.user_crud import get_user_with_refresh_token, update_user_refresh_token # Import specific CRUD functions needed
 
 # Create MSAL app for authentication
 msal_app = msal.ConfidentialClientApplication(
@@ -38,6 +41,7 @@ api_key_header_scheme = APIKeyHeader(name="Authorization", auto_error=False)
 # REVISED get_current_user signature
 async def get_current_user(
     request: Request, 
+    response: Response,
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     # +++ Add Log +++
@@ -48,6 +52,11 @@ async def get_current_user(
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    refresh_failed_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not refresh token. Please log in again.",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
@@ -120,6 +129,7 @@ async def get_current_user(
         
     except JWTError as e:
         logger.error(f"JWT Error during token decode: {e}")
+        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
         raise credentials_exception from e
     except ValidationError as e: 
         logger.error(f"Unexpected Pydantic validation error: {e}")
@@ -130,55 +140,154 @@ async def get_current_user(
         logger.error("Email could not be extracted from JWT payload even after decode.")
         raise credentials_exception # Should not happen if JWTError didn't catch it
 
-    # Fetch UserDB object from database using the email directly
-    user_db = user_crud.get_user_full_instance(db, email=email)
+    # --- Validate MS Access Token & Attempt Refresh if Needed ---
+    validated_ms_token = None
+    graph_url = "https://graph.microsoft.com/v1.0/me?$select=id"
+    headers = {"Authorization": f"Bearer {ms_token}"}
     
-    if user_db is None:
-        logger.warning(f"User with email '{email}' (from JWT) not found in DB.")
-        return None 
-
-    # Convert UserDB to Pydantic User model and ADD the ms_token
-    user = User.model_validate(user_db)
-    user.ms_access_token = ms_token # Attach the extracted token
-
-    # Check for API keys in the api_keys table, but don't set directly on user object
-    # since it no longer has an openai_api_key field
     try:
-        from ..crud import api_key_crud
-        openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
-        if openai_key:
-            logger.debug(f"[DEBUG-KEY] User {user.email} has an OpenAI API key in the api_keys table")
-            # Log partial key for debugging
-            if len(openai_key) > 10:
-                masked_key = openai_key[:5] + '...' + openai_key[-5:]
-                logger.debug(f"[DEBUG-KEY] Successfully retrieved API key for user: {user.email}, key: {masked_key}")
-            else:
-                logger.debug(f"[DEBUG-KEY] Successfully retrieved API key for user: {user.email}")
-        else:
-            logger.debug(f"[DEBUG-KEY] User {user.email} has no OpenAI API key in the database")
-    except Exception as e:
-        logger.error(f"[DEBUG-KEY] Error retrieving API key for user {user.email}: {e}", exc_info=True)
+        logger.debug(f"Validating MS token for user {email} via GET /me")
+        graph_response = requests.get(graph_url, headers=headers)
 
-    # +++ Log value right before returning +++
-    logger.debug(f"Final user object ms_access_token present: {'Yes' if user.ms_access_token else 'No'}")
-    # --- End Log ---
+        if graph_response.status_code == 200:
+            logger.info(f"MS token for user {email} is valid.")
+            validated_ms_token = ms_token
+        
+        elif graph_response.status_code == 401:
+            logger.warning(f"MS token for user {email} is expired or invalid (401). Attempting refresh.")
+            
+            # --- Attempt Token Refresh --- 
+            user_db_for_refresh = get_user_with_refresh_token(db, email=email)
+            
+            if not user_db_for_refresh or not user_db_for_refresh.ms_refresh_token:
+                logger.error(f"Cannot refresh token: User {email} not found or no refresh token stored in DB.")
+                response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
+                raise refresh_failed_exception
+
+            encrypted_refresh_token = user_db_for_refresh.ms_refresh_token
+            decrypted_refresh_token = decrypt_token(encrypted_refresh_token)
+
+            if not decrypted_refresh_token:
+                logger.error(f"Failed to decrypt refresh token for user {email}. InvalidToken or other error.")
+                response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
+                raise refresh_failed_exception
+
+            try:
+                logger.info(f"Attempting MSAL refresh for user {email}")
+                # Use the stored refresh token to acquire a new access token
+                refresh_result = msal_app.acquire_token_by_refresh_token(
+                    decrypted_refresh_token,
+                    scopes=settings.MS_SCOPES.split() # Ensure scopes match initial request
+                )
+
+                if "access_token" in refresh_result:
+                    new_ms_access_token = refresh_result['access_token']
+                    validated_ms_token = new_ms_access_token # Use the new token
+                    logger.info(f"Successfully refreshed MS token for user {email}.")
+
+                    # Check if a new refresh token was issued
+                    if "refresh_token" in refresh_result:
+                        new_ms_refresh_token = refresh_result['refresh_token']
+                        logger.info(f"New MS refresh token received for user {email}. Updating database.")
+                        encrypted_new_refresh = encrypt_token(new_ms_refresh_token)
+                        if encrypted_new_refresh:
+                            try:
+                                update_success = update_user_refresh_token(db, user_email=email, encrypted_refresh_token=encrypted_new_refresh)
+                                if update_success:
+                                    logger.info(f"Successfully updated refresh token in DB for {email}.")
+                                else:
+                                    # Should not happen if rowcount check works, but log just in case
+                                    logger.warning(f"Update refresh token call returned False for user {email}, user might not exist? Inconsistency.")
+                            except Exception as db_update_err:
+                                logger.error(f"Failed to update new refresh token in DB for {email}: {db_update_err}", exc_info=True)
+                                # Log error but proceed with new access token
+                        else:
+                            logger.error(f"Failed to encrypt new refresh token for {email}. DB not updated.")
+
+                    # --- Create and Set New Internal JWT Cookie --- 
+                    # Use the correct user_id from the initial JWT decode
+                    internal_token_data = {
+                        "sub": user_id, 
+                        "email": email,
+                        "ms_token": new_ms_access_token, 
+                        "scopes": settings.MS_SCOPES.split(),
+                    }
+                    # Use the imported create_access_token function
+                    new_internal_token, expires_at = create_access_token(data=internal_token_data)
+
+                    response.set_cookie(
+                        key="access_token",
+                        value=new_internal_token,
+                        httponly=True,
+                        secure=True,
+                        samesite='Lax',
+                        path='/',
+                        expires=expires_at,
+                        domain=settings.COOKIE_DOMAIN
+                    )
+                    logger.info(f"New internal JWT cookie set for user {email} after token refresh.")
+
+                else: # MSAL refresh attempt failed
+                    error_details = refresh_result.get('error_description', 'Unknown MSAL error')
+                    logger.error(f"MSAL refresh token acquisition failed for user {email}: {error_details}")
+                    # If refresh fails permanently (e.g., invalid_grant), clear tokens and force re-login
+                    if refresh_result.get("error") == "invalid_grant":
+                        logger.warning(f"Refresh token for {email} is invalid or revoked. Clearing tokens.")
+                        try:
+                            update_user_refresh_token(db, user_email=email, encrypted_refresh_token=None) # Clear RT from DB
+                        except Exception as clear_err:
+                             logger.error(f"Failed to clear refresh token from DB for {email} after invalid_grant: {clear_err}", exc_info=True)
+                        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
+                    raise refresh_failed_exception
+
+            except Exception as msal_err:
+                logger.error(f"Unexpected error during MSAL refresh for {email}: {msal_err}", exc_info=True)
+                raise refresh_failed_exception
+
+        else: # Graph API returned non-200/401 status
+            logger.error(f"Unexpected error validating MS token for {email}. Status: {graph_response.status_code}, Body: {graph_response.text}")
+            raise credentials_exception
+
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"HTTP request error during MS token validation for {email}: {req_err}", exc_info=True)
+        raise credentials_exception
+
+    # --- Fetch User from DB and Return ---
+    if not validated_ms_token:
+         logger.error(f"Failed to obtain a validated MS token for {email} after validation/refresh attempts.")
+         # Ensure cookie is cleared if we end up here without a valid token
+         response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
+         raise credentials_exception
+         
+    # Fetch user details (excluding refresh token)
+    user_db = user_crud.get_user_full_instance(db, email=email)
+    if user_db is None:
+        logger.error(f"Consistency Error: User {email} not found in DB after token validation/refresh.")
+        raise credentials_exception
     
-    logger.debug(f"Successfully validated user: {user.email}")
+    user = User.model_validate(user_db)
+    user.ms_access_token = validated_ms_token # Attach the final validated/refreshed token
+    
+    logger.debug(f"get_current_user returning validated user: {user.email}")
     return user
 
 # REVISED get_current_active_user_or_token_owner signature
 async def get_current_active_user_or_token_owner(
-    # Depend directly on the result of get_current_user for session check
-    session_user: Optional[User] = Depends(get_current_user), 
-    # Keep dependency for API key header
-    api_key_header: Optional[str] = Depends(api_key_header_scheme),
-    # Add explicit DB dependency for token lookup path
-    db: Session = Depends(get_db) 
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    api_key_header: Optional[str] = Depends(api_key_header_scheme) 
 ) -> User:
+    # Pass request and response to get_current_user
+    session_user: Optional[User] = await get_current_user(request=request, response=response, db=db)
     
-    # 1. Check session user resolved by Depends(get_current_user)
+    # 1. Check session user resolved by get_current_user
     if session_user:
         logger.debug(f"Authenticated via session: {session_user.email}")
+        # Add is_active check here (moved from deprecated get_current_active_user)
+        if not session_user.is_active:
+             logger.warning(f"Inactive user authenticated via session: {session_user.email}")
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
         return session_user
 
     # 2. Check for Authorization: Bearer <token> header
@@ -209,7 +318,7 @@ async def get_current_active_user_or_token_owner(
             logger.warning("Authentication failed: Invalid Bearer token provided.")
             
     # 3. If neither session nor valid bearer token, raise 401
-    logger.warning("Authentication failed: No valid session or Bearer token found.")
+    logger.warning("Authentication failed: No valid session or API token found.")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",

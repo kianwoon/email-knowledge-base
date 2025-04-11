@@ -22,6 +22,7 @@ from app.crud import user_crud # Import the user CRUD function
 # --- Import for manual encryption --- 
 from app.utils.security import encrypt_token
 # --- End Import --- 
+from app.utils.auth_utils import create_access_token
 
 # Instantiate logger
 logger = logging.getLogger(__name__)
@@ -32,18 +33,6 @@ router = APIRouter()
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 # --- End Request Model --- 
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None) -> Tuple[str, datetime]:
-    to_encode = data.copy() # Use the data passed in
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        # Default expiration if not provided (e.g., 15 minutes)
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_DEFAULT_EXPIRATION_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    return encoded_jwt, expire # Return token and expiry datetime
-
 
 @router.get("/login")
 async def login():
