@@ -39,6 +39,7 @@ import apiClient from '../api/apiClient'; // Changed to default import
 import { getTaskStatus } from '../api/tasks'; // Import task API
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks'; // Import enum and interface
 import QuickAccessList from '../components/QuickAccessList'; // <-- Import the new component
+import MyRecentFilesList from '../components/MyRecentFilesList'; // Import the new component
 
 // Interfaces matching backend models
 interface SharePointSite {
@@ -582,9 +583,10 @@ const formatFileSize = (bytes?: number): string => {
 
         <Tabs variant="soft-rounded" colorScheme="blue">
           <TabList mb="1em">
-            <Tab>{t('sharepoint.tabs.browse')}</Tab> {/* Add translation */} 
-            <Tab>{t('sharepoint.tabs.quickAccess')}</Tab> {/* Add translation */} 
-            {/* <Tab>{t('sharepoint.tabs.shared')}</Tab> Placeholder for later */} 
+            <Tab>{t('sharepoint.tabs.browse')}</Tab> 
+            <Tab>{t('sharepoint.tabs.quickAccess')}</Tab> 
+            <Tab>{t('sharepoint.tabs.myRecent')}</Tab> {/* Add new tab title */} 
+            {/* <Tab>{t('sharepoint.tabs.shared')}</Tab> Placeholder for later */}
           </TabList>
           <TabPanels>
             <TabPanel p={0}> {/* Browse Tab */} 
@@ -882,6 +884,9 @@ const formatFileSize = (bytes?: number): string => {
             </TabPanel>
             <TabPanel p={0}> {/* Quick Access Tab */} 
               <QuickAccessList />
+            </TabPanel>
+            <TabPanel p={0}> {/* My Recent Files Tab */} 
+              <MyRecentFilesList /> {/* Render the new component */} 
             </TabPanel>
             {/* <TabPanel p={0}> Placeholder for Shared Tab </TabPanel> */} 
           </TabPanels>

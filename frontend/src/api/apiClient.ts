@@ -1,5 +1,6 @@
 import axios, { InternalAxiosRequestConfig, AxiosError } from 'axios';
 import { refreshToken } from './auth';
+import { SharePointSite, SharePointDrive, SharePointItem, UsedInsight, RecentDriveItem } from '../models/sharepoint';
 
 // Get backend URL from environment variables
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -95,21 +96,31 @@ export const setupInterceptors = () => {
 // Existing browse functions would go here if moved...
 
 // New function for Quick Access
-export const getQuickAccessItems = async () => {
-  console.log("API Client: Fetching Quick Access Items...");
+export const getQuickAccessItems = async (): Promise<UsedInsight[]> => {
   try {
     const response = await apiClient.get('/sharepoint/quick-access');
-    console.log("API Client: Quick Access Response:", response.data);
-    return response.data; // Assuming backend returns List[UsedInsight]
+    return response.data;
   } catch (error) {
-    console.error("API Client: Error fetching quick access items:", error);
-    // Handle error appropriately (e.g., re-throw, return specific error structure)
+    console.error("Error fetching quick access items:", error);
     throw error;
   }
 };
 
 // Placeholder for shared items function
 // export const getSharedItems = async () => { ... };
+
+// +++ Add Function for Recent Drive Items +++
+export const getMyRecentFiles = async (top: number = 25): Promise<RecentDriveItem[]> => {
+  try {
+    const response = await apiClient.get('/sharepoint/drive/recent', {
+      params: { top }
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching recent drive items:", error);
+    throw error;
+  }
+};
 
 // --- Other API Calls (User, Auth, Knowledge, etc.) ---
 

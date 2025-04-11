@@ -7,11 +7,12 @@ from app.models.sharepoint import (
     SharePointDrive,
     SharePointItem,
     SharePointDownloadRequest,
-    UsedInsight
+    UsedInsight,
+    RecentDriveItem
 )
 from app.models.user import User
 from app.models.tasks import TaskStatus, TaskType # Keep import for potential uncommenting
-from app.dependencies.auth import get_current_active_user
+from app.dependencies.auth import get_current_active_user_or_token_owner
 from app.services.sharepoint import SharePointService
 # Import TaskManager only if needed and uncommented
 # from app.services.task_manager import TaskManager, get_task_manager 
@@ -46,7 +47,7 @@ def _get_service_instance(current_user: User) -> SharePointService:
 async def list_sites(
     # Removed search query for simplicity, can be added back if needed
     # search: Optional[str] = Query(None, description="Optional search query to filter sites."),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     logger.info(f"Fetching SharePoint sites for user {current_user.id}")
     try:
@@ -70,7 +71,7 @@ async def list_sites(
 )
 async def list_drives(
     site_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     service = _get_service_instance(current_user)
     try:
@@ -91,7 +92,7 @@ async def list_drives(
 async def list_drive_items(
     drive_id: str,
     item_id: Optional[str] = Query(None, description="The ID of the parent folder. If omitted, lists root items."),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     service = _get_service_instance(current_user)
     try:
@@ -112,7 +113,7 @@ async def list_drive_items(
 async def search_drive(
     drive_id: str,
     query: str = Query(..., min_length=1, description="Search query string."),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     service = _get_service_instance(current_user)
     try:
@@ -168,7 +169,7 @@ async def search_drive(
 
 @router.get("/quick-access", response_model=List[UsedInsight], summary="Get Quick Access Items")
 async def get_quick_access(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     """Retrieves documents recently used by the signed-in user."""
     logger.info(f"Fetching quick access items for user {current_user.id}")
@@ -185,3 +186,24 @@ async def get_quick_access(
 
 # Placeholder for Shared Items route
 # @router.get("/shared-with-me", ...) ... 
+
+# +++ Add Route for Recent Drive Items +++
+@router.get("/drive/recent", response_model=List[RecentDriveItem])
+async def get_my_recent_files(
+    top: int = Query(25, ge=1, le=100, description="Number of items to return."), # Optional parameter
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    """Gets the user's most recently used/modified drive items."""
+    service = _get_service_instance(current_user) # Helper likely checks token
+    try:
+        # Changed from get_my_recent_drive_items to get_recent_drive_items
+        recent_items = await service.get_recent_drive_items(token=current_user.ms_access_token, top=top)
+        return recent_items
+    except HTTPException as e:
+        # Log detailed error before re-raising
+        logger.error(f"sharepoint.errors.fetchRecentTitleFailed to retrieve recent items: {e.detail}", exc_info=True)
+        raise HTTPException(status_code=e.status_code, detail="Failed to retrieve recent items.")
+    except Exception as e:
+        logger.error(f"sharepoint.errors.fetchRecentUnexpected unexpected error retrieving recent items: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching recent items.")
+# --- End New Route --- 

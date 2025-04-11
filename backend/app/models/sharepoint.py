@@ -53,32 +53,85 @@ class SharePointDownloadRequest(BaseModel):
     # Optional: Add knowledge base ID or other processing parameters if needed
     # knowledge_base_id: Optional[str] = None 
 
-# --- Models for Insights (Quick Access / Shared) ---
+# --- Models for Insights API (/insights/used) --- 
+# Note: Renamed classes for clarity vs. TypeScript interfaces
 
-class ResourceReference(BaseModel):
-    webUrl: Optional[HttpUrl] = None
+class InsightResourceReference(BaseModel):
+    """Reference to the resource associated with an insight."""
+    webUrl: Optional[str] = None
     id: Optional[str] = None
     type: Optional[str] = None
 
-class ResourceVisualization(BaseModel):
+class InsightResourceVisualization(BaseModel):
+    """How the insight resource should be visualized."""
     title: Optional[str] = None
-    type: Optional[str] = None # e.g., Word, Excel, PowerPoint, Pdf, etc.
-    previewImageUrl: Optional[HttpUrl] = None
-    # containerDisplayName: Optional[str] = None # Might be useful (e.g., Site name)
-    # containerType: Optional[str] = None # e.g., "Site"
-
-class LastUsedFacet(BaseModel):
-    lastAccessedDateTime: Optional[datetime] = None
-    lastModifiedDateTime: Optional[datetime] = None
+    type: Optional[str] = None # e.g., Word, Excel etc.
+    previewImageUrl: Optional[str] = None
 
 class UsedInsight(BaseModel):
+    """Represents an item returned by the /insights/used endpoint."""
     id: str
-    # lastUsed: Optional[LastUsedFacet] = None # Requires parsing lastUsed property which can be complex
-    resourceVisualization: Optional[ResourceVisualization] = None
-    resourceReference: Optional[ResourceReference] = None
+    resourceVisualization: Optional[InsightResourceVisualization] = None
+    resourceReference: Optional[InsightResourceReference] = None
+    # Add lastUsed fields if needed later
 
-class SharedInsight(BaseModel):
+# --- Models for /me/drive/recent Endpoint --- # (Corrected Syntax)
+
+class FileSystemInfo(BaseModel):
+    """Represents file system specific metadata."""
+    createdDateTime: Optional[datetime] = None
+    lastModifiedDateTime: Optional[datetime] = None
+
+class Identity(BaseModel):
+    """Represents an identity (user, application)."""
+    displayName: Optional[str] = None
+    # Add other fields like 'id' or 'email' if needed/available
+
+class IdentitySet(BaseModel):
+    """Represents a set of identities."""
+    user: Optional[Identity] = None
+    application: Optional[Identity] = None
+    device: Optional[Identity] = None
+    # Add group, etc. if needed
+
+class BaseItemInfo(BaseModel):
+    """Common properties for DriveItem."""
     id: str
-    # sharingHistory: Optional[List[Any]] = None # Complex, skip for now
-    resourceVisualization: Optional[ResourceVisualization] = None
-    resourceReference: Optional[ResourceReference] = None 
+    name: Optional[str] = None
+    webUrl: Optional[str] = Field(None, alias="webUrl") # Use alias for consistency
+    createdDateTime: Optional[datetime] = None
+    lastModifiedDateTime: Optional[datetime] = None
+    size: Optional[int] = None
+    lastModifiedBy: Optional[IdentitySet] = None # Contains the last modifier info
+
+    model_config = {
+        "populate_by_name": True,
+        "from_attributes": True,
+        "extra": "ignore"
+    }
+
+class FileInfo(BaseModel):
+    """Present on DriveItems that represent files."""
+    mimeType: Optional[str] = None
+
+class FolderInfo(BaseModel):
+    """Present on DriveItems that represent folders."""
+    childCount: Optional[int] = None
+
+class RecentDriveItem(BaseItemInfo):
+    """Represents a DriveItem specifically from the /recent endpoint."""
+    file: Optional[FileInfo] = None
+    folder: Optional[FolderInfo] = None
+
+    @property
+    def is_folder(self) -> bool:
+        return self.folder is not None
+
+    @property
+    def last_modifier_name(self) -> Optional[str]:
+        return self.lastModifiedBy.user.displayName if self.lastModifiedBy and self.lastModifiedBy.user else None
+
+# --- End Models for /me/drive/recent ---
+
+# Placeholder for SharedInsight model if needed later
+# class SharedInsight(BaseModel): ... 
