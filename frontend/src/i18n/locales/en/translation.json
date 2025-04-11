@@ -983,7 +983,13 @@
     "logout": "Logout",
     "refresh": "Refresh Data",
     "notAvailable": "N/A",
-    "send": "Send"
+    "send": "Send",
+    "deleteConfirmation": "Are you sure you want to delete this item?",
+    "deleteSuccess": "Item deleted successfully.",
+    "deleteError": "Error deleting item.",
+    "backToSites": "Back to Sites",
+    "all": "All",
+    "filterBy": "Filter by"
   },
   "analysis": {
     "classification": {
@@ -1475,6 +1481,26 @@
     "tooltips": {
       "download": "Download and process this file for the knowledge base",
       "browseFolder": "Open folder"
-    }
+    },
+    "noSitesFoundForFilter": "No sites found starting with '{{letter}}'",
+    "root": "Drive Root",
+    "searchResults": "Search Results",
+    "downloadFile": "Download and process this file",
+    "searchButtonLabel": "Search Drive",
+    "downloadTaskProgressTitle": "File Processing Task",
+    "emptyFolder": "This folder is empty",
+    "emptyFolderDesc": "No files or subfolders found here.",
+    "noSearchResults": "No items found matching your search criteria.",
+    "tabs": {
+      "browse": "Browse Sites",
+      "quickAccess": "Quick Access",
+      "shared": "Shared With Me"
+    },
+    "drivesForSite": "Drives / Libraries for: {{siteName}}"
+  },
+  "quickAccess": {
+    "title": "Quick Access",
+    "errorTitle": "Error loading Quick Access items",
+    "noItems": "No recently used items found."
   }
 }

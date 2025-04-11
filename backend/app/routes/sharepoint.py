@@ -6,7 +6,8 @@ from app.models.sharepoint import (
     SharePointSite,
     SharePointDrive,
     SharePointItem,
-    SharePointDownloadRequest # Even if endpoint is commented, model might be needed elsewhere
+    SharePointDownloadRequest,
+    UsedInsight
 )
 from app.models.user import User
 from app.models.tasks import TaskStatus, TaskType # Keep import for potential uncommenting
@@ -162,3 +163,25 @@ async def search_drive(
 #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 #             detail="Failed to initiate SharePoint file processing."
 #         ) 
+
+# --- Insight Routes (New) ---
+
+@router.get("/quick-access", response_model=List[UsedInsight], summary="Get Quick Access Items")
+async def get_quick_access(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Retrieves documents recently used by the signed-in user."""
+    logger.info(f"Fetching quick access items for user {current_user.id}")
+    service = _get_service_instance(current_user)
+    try:
+        items = await service.get_quick_access_items()
+        # Pydantic automatically converts datetime etc. for the response model
+        return items
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error fetching quick access items for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve quick access items.")
+
+# Placeholder for Shared Items route
+# @router.get("/shared-with-me", ...) ... 

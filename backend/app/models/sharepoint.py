@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 # Note: Aliases are used to map Pydantic fields to the camelCase keys
 # returned by the Microsoft Graph API.
@@ -52,3 +52,33 @@ class SharePointDownloadRequest(BaseModel):
     item_id: str = Field(..., description="ID of the SharePoint file item to download.")
     # Optional: Add knowledge base ID or other processing parameters if needed
     # knowledge_base_id: Optional[str] = None 
+
+# --- Models for Insights (Quick Access / Shared) ---
+
+class ResourceReference(BaseModel):
+    webUrl: Optional[HttpUrl] = None
+    id: Optional[str] = None
+    type: Optional[str] = None
+
+class ResourceVisualization(BaseModel):
+    title: Optional[str] = None
+    type: Optional[str] = None # e.g., Word, Excel, PowerPoint, Pdf, etc.
+    previewImageUrl: Optional[HttpUrl] = None
+    # containerDisplayName: Optional[str] = None # Might be useful (e.g., Site name)
+    # containerType: Optional[str] = None # e.g., "Site"
+
+class LastUsedFacet(BaseModel):
+    lastAccessedDateTime: Optional[datetime] = None
+    lastModifiedDateTime: Optional[datetime] = None
+
+class UsedInsight(BaseModel):
+    id: str
+    # lastUsed: Optional[LastUsedFacet] = None # Requires parsing lastUsed property which can be complex
+    resourceVisualization: Optional[ResourceVisualization] = None
+    resourceReference: Optional[ResourceReference] = None
+
+class SharedInsight(BaseModel):
+    id: str
+    # sharingHistory: Optional[List[Any]] = None # Complex, skip for now
+    resourceVisualization: Optional[ResourceVisualization] = None
+    resourceReference: Optional[ResourceReference] = None 

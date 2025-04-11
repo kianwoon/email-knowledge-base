@@ -90,4 +90,27 @@ export const setupInterceptors = () => {
   );
 };
 
+// --- SharePoint Specific API Calls (Consider moving to a sharepoint.ts file later) ---
+
+// Existing browse functions would go here if moved...
+
+// New function for Quick Access
+export const getQuickAccessItems = async () => {
+  console.log("API Client: Fetching Quick Access Items...");
+  try {
+    const response = await apiClient.get('/sharepoint/quick-access');
+    console.log("API Client: Quick Access Response:", response.data);
+    return response.data; // Assuming backend returns List[UsedInsight]
+  } catch (error) {
+    console.error("API Client: Error fetching quick access items:", error);
+    // Handle error appropriately (e.g., re-throw, return specific error structure)
+    throw error;
+  }
+};
+
+// Placeholder for shared items function
+// export const getSharedItems = async () => { ... };
+
+// --- Other API Calls (User, Auth, Knowledge, etc.) ---
+
 export default apiClient; 

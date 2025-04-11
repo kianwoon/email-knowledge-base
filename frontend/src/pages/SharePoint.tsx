@@ -28,13 +28,17 @@ import {
   IconButton,
   Skeleton,
   Tag,
-  Progress
+  Progress,
+  Card,
+  SimpleGrid,
+  Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
 import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import apiClient from '../api/apiClient'; // Changed to default import
 import { getTaskStatus } from '../api/tasks'; // Import task API
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks'; // Import enum and interface
+import QuickAccessList from '../components/QuickAccessList'; // <-- Import the new component
 
 // Interfaces matching backend models
 interface SharePointSite {
@@ -86,6 +90,16 @@ const ItemTableSkeleton = () => (
   </Table>
 );
 
+// Skeleton for Site Cards
+const SiteCardSkeleton = () => (
+  <Card><Skeleton height="80px" /></Card>
+);
+
+// Skeleton for Drive Cards (similar to Site)
+const DriveCardSkeleton = () => (
+    <Card minW="160px"><Skeleton height="60px" /></Card>
+);
+
 const SharePointPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -111,6 +125,9 @@ const SharePointPage: React.FC = () => {
   const [taskStatus, setTaskStatus] = useState<string | null>(null);
   const [taskDetails, setTaskDetails] = useState<any | null>(null);
   const pollingIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Add state for A-Z filter
+  const [selectedLetterFilter, setSelectedLetterFilter] = useState<string | null>(null);
 
   const folderColor = useColorModeValue('blue.500', 'blue.300');
   const fileColor = useColorModeValue('gray.600', 'gray.400');
@@ -153,8 +170,10 @@ const SharePointPage: React.FC = () => {
     setSearchPerformed(false);
     try {
       const response = await apiClient.get(`/sharepoint/sites/${siteId}/drives`);
-      setDrives(response.data || []);
-      console.log(`[SP Page] Fetched ${response.data?.length || 0} drives.`);
+      const fetchedDrives: SharePointDrive[] = response.data || []; // Store fetched data
+      setDrives(fetchedDrives);
+      console.log(`[SP Page] Fetched ${fetchedDrives.length} drives.`);
+
     } catch (error: any) {
       console.error(`[SP Page] Error fetching drives for site ${siteId}:`, error);
       toast({ title: t('sharepoint.errors.fetchDrivesTitle'), description: error.response?.data?.detail || error.message || t('errors.unknown'), status: 'error', duration: 5000, isClosable: true });
@@ -220,22 +239,54 @@ const SharePointPage: React.FC = () => {
   }, [t, toast]);
 
   // Event Handlers
-  const handleSiteChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const siteId = event.target.value;
+  const handleSiteSelect = (siteId: string) => {
+    if (!siteId || isLoadingSites || isLoadingDrives) return; // Prevent action while loading
     console.log(`[SP Page] Site selected: ${siteId}`);
+    // If the same site is clicked again, do nothing (or maybe toggle?) - current behavior: do nothing
+    if (siteId === selectedSite) return; 
+
     setSelectedSite(siteId);
-    // Trigger fetchDrives when site changes
+    // Removed setCurrentView('browse'); 
+    
+    // Reset drive/item state when selecting a new site
+    setSelectedDrive('');
+    setDrives([]);
+    setItems([]);
+    setCurrentBreadcrumbs([]);
+    setSearchQuery('');
+    setSearchPerformed(false);
+    // Stop polling if a task was running for the previous site/drive
+    stopPolling(); 
+    setIsDownloadTaskRunning(false);
+    setActiveTaskId(null);
+    setTaskStatus(null);
+    setTaskProgress(null);
+    setTaskDetails(null);
+
+    // Trigger fetchDrives when site is selected
     fetchDrives(siteId);
   };
 
-  const handleDriveChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const driveId = event.target.value;
+  const handleLetterFilterClick = (letter: string | null) => {
+      setSelectedLetterFilter(letter);
+  };
+
+  // Add handler for Drive Card click
+  const handleDriveSelect = (driveId: string) => {
+    if (!driveId || isLoadingDrives || isLoadingItems) return; // Prevent action while loading
     console.log(`[SP Page] Drive selected: ${driveId}`);
+    // If the same drive is clicked again, do nothing
+    if (driveId === selectedDrive) return;
+
     setSelectedDrive(driveId);
     // Trigger fetchItems for the root when drive changes
     fetchItems(driveId, null); 
-    // Reset breadcrumbs when drive changes
+    // Reset breadcrumbs and search when drive changes
     setCurrentBreadcrumbs([]);
+    setSearchQuery('');
+    setSearchPerformed(false);
+    // Stop polling if relevant to the previous drive/item?
+    // Consider if task polling should reset here or only on site change
   };
 
   const handleItemClick = (item: SharePointItem) => {
@@ -330,6 +381,24 @@ const SharePointPage: React.FC = () => {
     return () => stopPolling();
   }, [stopPolling]);
 
+  // --- Effect for Auto-Selecting Single Drive --- 
+  useEffect(() => {
+    // Run only after drives have loaded for a selected site, 
+    // and only if there's exactly one drive and it's not already selected.
+    if (!isLoadingDrives && selectedSite && drives.length === 1 && drives[0].id !== selectedDrive) {
+        const singleDriveId = drives[0].id;
+        if (singleDriveId) {
+            console.log(`[SP Page EFFECT] Auto-selecting single drive: ${singleDriveId}`);
+            setSelectedDrive(singleDriveId);
+            fetchItems(singleDriveId, null); 
+            setCurrentBreadcrumbs([]);
+            setSearchQuery('');
+            setSearchPerformed(false);
+        }
+    }
+    // Dependencies: run when loading finishes, or when drives/selected site change
+  }, [isLoadingDrives, drives, selectedSite, selectedDrive, fetchItems]); 
+
   const handleDownloadClick = async (item: SharePointItem) => {
     if (!item.isFile || !selectedDrive) return;
     console.log(`[SP Page] Download & Process clicked for item: ${item.name} (ID: ${item.id})`);
@@ -372,294 +441,451 @@ const SharePointPage: React.FC = () => {
     // Note: setIsDownloadTaskRunning(false) is NOT called here on success, polling handles it.
   };
 
-  // Effects
-  useEffect(() => {
-    fetchSites();
-  }, [fetchSites]); // Depend on the memoized callback
+  // Filtering and Sorting Sites for Display
+  const sortedSites = React.useMemo(() => {
+      return [...sites].sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [sites]);
 
-  // Rendering Helpers
-  const renderBreadcrumbs = () => {
-    const driveName = selectedDrive ? drives.find(d => d.id === selectedDrive)?.name || 'Selected Drive' : t('sharepoint.root');
-    return (
-        <Breadcrumb separator='/' my={{ base: 2, md: 0 }} fontSize="sm" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
-          <BreadcrumbItem>
-            <BreadcrumbLink 
-              onClick={() => !isLoadingItems && handleBreadcrumbClick(-1)} 
-              fontWeight={currentBreadcrumbs.length === 0 && !searchPerformed ? 'bold' : 'normal'}
-              aria-disabled={isLoadingItems || isSearching}
-              _disabled={{ opacity: 0.5, cursor: 'not-allowed' }}
-              style={{ pointerEvents: (isLoadingItems || isSearching) ? 'none' : 'auto' }}
-              title={driveName}
-            >
-              {/* Show Drive icon if possible */} 
-              <Icon as={FaDatabase} mr={1} verticalAlign="middle" />
-              {driveName}
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          {currentBreadcrumbs.map((breadcrumb, index) => (
-            <BreadcrumbItem key={index} isCurrentPage={index === currentBreadcrumbs.length - 1 && !searchPerformed}>
-              <BreadcrumbLink 
-                onClick={() => !isLoadingItems && handleBreadcrumbClick(index)}
-                fontWeight={index === currentBreadcrumbs.length - 1 && !searchPerformed ? 'bold' : 'normal'}
-                aria-disabled={isLoadingItems || isSearching}
-                _disabled={{ opacity: 0.5, cursor: 'not-allowed' }}
-                style={{ pointerEvents: (isLoadingItems || isSearching) ? 'none' : 'auto' }}
-                title={breadcrumb.name}
-              >
-                {breadcrumb.name}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-          ))}
-          {searchPerformed && (
-              <BreadcrumbItem isCurrentPage={true}>
-                  <Text fontWeight="bold">{t('sharepoint.searchResults')}</Text>
-              </BreadcrumbItem>
-          )}
-        </Breadcrumb>
-      );
-  };
-
-  const formatDateTime = (dateTimeString?: string): string => {
-    if (!dateTimeString) return '-';
-    try {
-        return new Date(dateTimeString).toLocaleString();
-    } catch {
-        return dateTimeString; // Return original string if parsing fails
+  const filteredSites = React.useMemo(() => {
+    if (!selectedLetterFilter) {
+      return sortedSites; // Show all if no filter
     }
-  };
+    return sortedSites.filter(site => 
+      site.displayName.toUpperCase().startsWith(selectedLetterFilter!)
+    );
+  }, [sortedSites, selectedLetterFilter]);
 
-  const formatFileSize = (bytes?: number): string => {
-    if (bytes === undefined || bytes === null) return '-';
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    // Show more precision for smaller files
-    const precision = i < 2 ? 1 : 0; 
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(precision)) + ' ' + sizes[i];
-  };
+  // Generate alphabet index letters based on available sites
+  const availableLetters = React.useMemo(() => {
+      const letters = new Set(sortedSites.map(site => site.displayName.charAt(0).toUpperCase()));
+      return Array.from(letters).sort();
+  }, [sortedSites]);
 
   // Combined Loading State
   const isAnythingLoading = isLoadingSites || isLoadingDrives || isLoadingItems || isSearching;
 
+  // --- A-Z Index Component ---
+  const AlphabetIndex = () => (
+      <HStack spacing={1} wrap="wrap" justify="center" mb={4}>
+        <Button 
+            size="xs" 
+            variant={selectedLetterFilter === null ? 'solid' : 'ghost'}
+            colorScheme="blue"
+            onClick={() => handleLetterFilterClick(null)}
+            aria-label={t('common.all')} 
+        >
+            {t('common.all')}
+        </Button>
+        {availableLetters.map(letter => (
+            <Button 
+                key={letter} 
+                size="xs" 
+                variant={selectedLetterFilter === letter ? 'solid' : 'ghost'}
+                onClick={() => handleLetterFilterClick(letter)}
+                aria-label={`${t('common.filterBy')} ${letter}`}
+            >
+                {letter}
+            </Button>
+        ))}
+      </HStack>
+  );
+
+  // --- Helper Functions (Moved outside component) ---
+
+const renderBreadcrumbs = ({ 
+  drives,
+  selectedDrive,
+  currentBreadcrumbs,
+  searchPerformed,
+  isLoadingItems,
+  isSearching,
+  handleBreadcrumbClick,
+  t
+}: {
+  drives: SharePointDrive[];
+  selectedDrive: string;
+  currentBreadcrumbs: { id: string; name: string }[];
+  searchPerformed: boolean;
+  isLoadingItems: boolean;
+  isSearching: boolean;
+  handleBreadcrumbClick: (index: number) => void;
+  t: (key: string) => string; // Adjust based on actual t function type if needed
+}) => {
+  const driveName = selectedDrive ? drives.find(d => d.id === selectedDrive)?.name || 'Selected Drive' : t('sharepoint.root');
+  return (
+    <Breadcrumb separator='/' my={{ base: 2, md: 0 }} fontSize="sm" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
+      <BreadcrumbItem>
+        <BreadcrumbLink
+          onClick={() => !isLoadingItems && handleBreadcrumbClick(-1)}
+          fontWeight={currentBreadcrumbs.length === 0 && !searchPerformed ? 'bold' : 'normal'}
+          aria-disabled={isLoadingItems || isSearching}
+          _disabled={{ opacity: 0.5, cursor: 'not-allowed' }}
+          style={{ pointerEvents: (isLoadingItems || isSearching) ? 'none' : 'auto' }}
+          title={driveName}
+        >
+          <Icon as={FaDatabase} mr={1} verticalAlign="middle" />
+          {driveName}
+        </BreadcrumbLink>
+      </BreadcrumbItem>
+      {currentBreadcrumbs.map((breadcrumb, index) => (
+        <BreadcrumbItem key={index} isCurrentPage={index === currentBreadcrumbs.length - 1 && !searchPerformed}>
+          <BreadcrumbLink
+            onClick={() => !isLoadingItems && handleBreadcrumbClick(index)}
+            fontWeight={index === currentBreadcrumbs.length - 1 && !searchPerformed ? 'bold' : 'normal'}
+            aria-disabled={isLoadingItems || isSearching}
+            _disabled={{ opacity: 0.5, cursor: 'not-allowed' }}
+            style={{ pointerEvents: (isLoadingItems || isSearching) ? 'none' : 'auto' }}
+            title={breadcrumb.name}
+          >
+            {breadcrumb.name}
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+      ))}
+      {searchPerformed && (
+        <BreadcrumbItem isCurrentPage={true}>
+          <Text fontWeight="bold">{t('sharepoint.searchResults')}</Text> {/* Add translation key if missing */} 
+        </BreadcrumbItem>
+      )}
+    </Breadcrumb>
+  );
+};
+
+const formatDateTime = (dateTimeString?: string): string => {
+  if (!dateTimeString) return '-';
+  try {
+    return new Date(dateTimeString).toLocaleString();
+  } catch {
+    return dateTimeString; // Return original string if parsing fails
+  }
+};
+
+const formatFileSize = (bytes?: number): string => {
+  if (bytes === undefined || bytes === null) return '-';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const precision = i < 2 ? 1 : 0;
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(precision)) + ' ' + sizes[i];
+};
+
+  // --- Add back the useEffect hook for initial site fetch --- 
+  useEffect(() => {
+    fetchSites();
+  }, [fetchSites]); // Depend on the memoized callback
+
   // Main Return
   return (
     <Container maxW="1400px" py={4}>
-      <VStack spacing={4} align="stretch">
-        <Heading size="lg" mb={4}>{t('sharepoint.title')}</Heading>
+      <VStack spacing={6} align="stretch">
+        <Heading size="lg" textAlign={{ base: 'center', md: 'left' }}>{t('sharepoint.title')}</Heading>
 
-        {/* Selection Area */} 
-        <HStack spacing={4} mb={4} flexWrap="wrap">
-          {/* Site Selection */} 
-          <Select
-            icon={isLoadingSites ? <Spinner size="xs" /> : undefined}
-            placeholder={sites.length > 0 ? t('sharepoint.selectSite') : (isLoadingSites ? t('sharepoint.loadingSites') : t('sharepoint.noSitesFound'))}
-            value={selectedSite}
-            onChange={handleSiteChange}
-            isDisabled={isLoadingSites || sites.length === 0}
-            minW="250px"
-            flexGrow={1}
-          >
-            {sites.map((site) => (
-              <option key={site.id} value={site.id} title={site.webUrl}>
-                {site.displayName} {site.name ? `(${site.name})` : ''}
-              </option>
-            ))}
-          </Select>
-          {/* Drive Selection */} 
-          <Select
-            icon={isLoadingDrives ? <Spinner size="xs" /> : undefined}
-            placeholder={
-                !selectedSite ? t('sharepoint.selectSiteFirst') : 
-                (drives.length > 0 ? t('sharepoint.selectDrive') : 
-                (isLoadingDrives ? t('sharepoint.loadingDrives') : t('sharepoint.noDrivesFound')))
-            }
-            value={selectedDrive}
-            onChange={handleDriveChange}
-            isDisabled={isAnythingLoading || !selectedSite}
-            minW="250px"
-            flexGrow={1}
-          >
-            {drives.map((drive) => (
-              <option key={drive.id} value={drive.id} title={drive.webUrl}>
-                {drive.name || 'Unnamed Drive'}
-              </option>
-            ))}
-          </Select>
-        </HStack>
-
-        {/* Search and Breadcrumbs Area */} 
-        {selectedDrive && (
-            <HStack 
-                justify="space-between" 
-                mb={4} 
-                flexWrap="wrap" 
-                alignItems="center" 
-                spacing={{ base: 2, md: 4 }}
-            >
-                {/* Breadcrumbs (Takes available space) */} 
-                <Box flex={1} minWidth="0" order={{ base: 2, md: 1 }}>
-                    {renderBreadcrumbs()}
+        <Tabs variant="soft-rounded" colorScheme="blue">
+          <TabList mb="1em">
+            <Tab>{t('sharepoint.tabs.browse')}</Tab> {/* Add translation */} 
+            <Tab>{t('sharepoint.tabs.quickAccess')}</Tab> {/* Add translation */} 
+            {/* <Tab>{t('sharepoint.tabs.shared')}</Tab> Placeholder for later */} 
+          </TabList>
+          <TabPanels>
+            <TabPanel p={0}> {/* Browse Tab */} 
+              <VStack spacing={6} align="stretch">
+                {/* --- Site Selection Area --- */}
+                <Box>
+                  <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePrompt')}</Text>
+                  <AlphabetIndex />
+                  {isLoadingSites ? (
+                      <HStack overflowX="auto" py={2} spacing={4}>
+                          {[...Array(8)].map((_, i) => <Card key={i} minW="180px"><Skeleton height="80px" /></Card>)}
+                      </HStack>
+                  ) : sites.length > 0 ? (
+                      filteredSites.length > 0 ? (
+                          <HStack 
+                              overflowX="auto" 
+                              spacing={4} 
+                              py={2} 
+                              px={1} // Add some padding for scrollbar visibility
+                              css={{ 
+                                  '&::-webkit-scrollbar': {
+                                      height: '8px',
+                                  },
+                                  '&::-webkit-scrollbar-thumb': {
+                                      background: useColorModeValue('gray.300', 'gray.600'),
+                                      borderRadius: '8px',
+                                  },
+                                  'scrollbarWidth': 'thin' // Firefox
+                              }}
+                          >
+                              {filteredSites.map((site) => (
+                                  <Card 
+                                      key={site.id} 
+                                      p={4} 
+                                      onClick={() => handleSiteSelect(site.id)}
+                                      cursor="pointer"
+                                      _hover={{ shadow: 'md', borderColor: 'blue.400' }}
+                                      borderWidth="2px" // Make border thicker for selection feedback
+                                      borderColor={selectedSite === site.id ? 'blue.400' : 'transparent'} // Highlight selected
+                                      transition="all 0.2s"
+                                      minHeight="80px" 
+                                      minWidth="180px" // Give cards a minimum width
+                                      display="flex"
+                                      alignItems="center" 
+                                      justifyContent="center" 
+                                      textAlign="center"
+                                      flexShrink={0} // Prevent cards from shrinking
+                                      title={`${site.displayName}\n${site.webUrl}`}
+                                  >
+                                      <Icon as={FaGlobeEurope} boxSize={5} mb={2} color="gray.500"/> 
+                                      <Text fontWeight="medium" noOfLines={2}>{site.displayName}</Text>
+                                  </Card>
+                              ))}
+                          </HStack>
+                      ) : ( // Filtered list is empty
+                          <Center h="100px">
+                              <Text color="gray.500">{t('sharepoint.noSitesFoundForFilter', { letter: selectedLetterFilter })}</Text> {/* Add translation */} 
+                          </Center>
+                      )
+                  ) : ( // Initial load resulted in no sites
+                    <Center h="100px">
+                      <Text color="gray.500">{t('sharepoint.noSitesFound')}</Text>
+                    </Center>
+                  )}
                 </Box>
-                {/* Search Input (Fixed width) */} 
-                <InputGroup size="md" width={{ base: '100%', md: '300px' }} order={{ base: 1, md: 2}}>
-                    <Input
-                        pr="3.5rem"
-                        type="search"
-                        placeholder={t('sharepoint.searchDrivePlaceholder')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleSearchKeyDown}
-                        isDisabled={isAnythingLoading || !selectedDrive}
-                    />
-                    <InputRightElement width="3.5rem">
-                        <IconButton 
-                            aria-label={t('sharepoint.searchButtonLabel')}
-                            h="1.75rem" 
-                            size="sm" 
-                            icon={isSearching ? <Spinner size="xs" /> : <Icon as={FaSearch} />}
-                            onClick={() => searchDrive(selectedDrive, searchQuery)}
-                            isDisabled={isAnythingLoading || !selectedDrive || !searchQuery.trim()}
-                        />
-                    </InputRightElement>
-                </InputGroup>
-            </HStack>
-        )}
 
-        {/* Task Progress Display (if task is running) */} 
-        {isDownloadTaskRunning && activeTaskId && (
-            <Box 
-              p={4} borderWidth="1px" borderRadius="md" 
-              borderColor={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? "red.300" : "blue.300"} 
-              bg={useColorModeValue("blue.50", "blue.900")} mb={4}
-            >
-                <VStack spacing={2} align="stretch">
-                  <HStack justify="space-between">
-                    <Text fontSize="sm" fontWeight="bold">{t('sharepoint.downloadTaskProgressTitle')}</Text>
-                    <Tag 
-                        size="sm"
-                        colorScheme={
-                          taskStatus === TaskStatusEnum.COMPLETED ? 'green' : 
-                          taskStatus === TaskStatusEnum.FAILED || taskStatus === 'POLLING_ERROR' ? 'red' : 
-                          'blue'
-                        }
+                {/* --- Browse Area (Conditional Rendering based on selectedSite) --- */}
+                {selectedSite && (
+                  <VStack spacing={4} align="stretch" mt={4} pt={4} borderTopWidth="1px"> {/* Add separator */} 
+                    {/* --- Add Header for Selected Site --- */}
+                    <Heading size="md" mb={2}> 
+                      {t('sharepoint.drivesForSite', { siteName: sites.find(s => s.id === selectedSite)?.displayName || selectedSite })}
+                    </Heading>
+
+                    {/* Drive Selection Row */} 
+                    <Box>
+                        {/* <Text fontSize="md" mb={2} fontWeight="medium">{t('sharepoint.drives')}</Text>  <-- Removed redundant/generic title */}
+                        {isLoadingDrives ? (
+                            <HStack overflowX="auto" py={2} spacing={4}>
+                                {[...Array(5)].map((_, i) => <DriveCardSkeleton key={i} />)}
+                            </HStack>
+                        ) : drives.length > 0 ? (
+                            <HStack 
+                                overflowX="auto" 
+                                spacing={4} 
+                                py={2} 
+                                px={1} 
+                                css={{ /* Scrollbar styles */ }}
+                            >
+                                {drives.map((drive) => (
+                                    <Card 
+                                        key={drive.id} 
+                                        p={3} // Slightly smaller padding
+                                        onClick={() => handleDriveSelect(drive.id)}
+                                        cursor="pointer"
+                                        _hover={{ shadow: 'md', borderColor: 'teal.400' }} // Use a different color? e.g., teal
+                                        borderWidth="2px"
+                                        borderColor={selectedDrive === drive.id ? 'teal.400' : 'transparent'} // Highlight selected drive
+                                        transition="all 0.2s"
+                                        minHeight="60px" 
+                                        minWidth="160px" // Slightly smaller cards
+                                        display="flex"
+                                        alignItems="center" 
+                                        justifyContent="center" 
+                                        textAlign="center"
+                                        flexShrink={0}
+                                        title={`${drive.name || 'Unnamed Drive'}\nType: ${drive.driveType || 'N/A'}\n${drive.webUrl}`}
+                                    >
+                                        {/* Icon can be added based on drive.driveType later */} 
+                                        <Text fontWeight="medium" fontSize="sm" noOfLines={2}>{drive.name || 'Unnamed Drive'}</Text>
+                                    </Card>
+                                ))}
+                            </HStack>
+                        ) : (
+                            <Center h="80px">
+                                <Text color="gray.500">{t('sharepoint.noDrivesFound')}</Text>
+                            </Center>
+                        )}
+                    </Box>
+
+                    {/* Search and Breadcrumbs Area (Only show if drive is selected) */}
+                    {selectedDrive && (
+                      <HStack
+                        justify="space-between"
+                        mb={4}
+                        flexWrap="wrap"
+                        alignItems="center"
+                        spacing={{ base: 2, md: 4 }}
                       >
-                        {taskStatus || 'Initializing...'}
-                      </Tag>
-                  </HStack>
-                  <Text fontSize="xs">{t('common.taskID', 'Task ID:')} {activeTaskId}</Text>
-                  {taskProgress !== null && (
-                    <Progress 
-                      value={taskProgress} size="xs" 
-                      colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
-                      isAnimated={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
-                      hasStripe={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
-                      borderRadius="full"
-                    />
-                  )}
-                  {taskDetails && (
-                      <Text fontSize="xs" color="gray.500" mt={1} noOfLines={1} title={typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}>
-                        {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
-                      </Text>
-                  )}
-                </VStack>
-            </Box>
-        )}
-
-        {/* Files and Folders Table Area */} 
-        <Box 
-            overflowX="auto" 
-            borderWidth={selectedDrive ? "1px" : "0px"} 
-            borderRadius="md"
-            borderColor={useColorModeValue('gray.200', 'gray.700')}
-            minHeight="300px" // Ensure minimum height
-            position="relative" // For potential absolute positioning of overlays
-        >
-          {(isLoadingItems || isSearching) ? (
-            <ItemTableSkeleton /> // Show skeleton loader
-          ) : selectedDrive ? (
-            items.length > 0 ? (
-                <Table variant="simple" size="sm">
-                <Thead>
-                    <Tr>
-                        <Th>{t('sharepoint.name')}</Th>
-                        <Th>{t('sharepoint.modified')}</Th>
-                        <Th isNumeric>{t('sharepoint.size')}</Th>
-                        <Th px={1}>{t('sharepoint.actions')}</Th> 
-                    </Tr>
-                </Thead>
-                <Tbody>
-                    {items.map((item) => (
-                    <Tr
-                        key={item.id}
-                        _hover={{ bg: useColorModeValue('gray.50', 'whiteAlpha.100') }}
-                    >
-                        <Td 
-                            cursor={item.isFolder ? 'pointer' : 'default'}
-                            onClick={() => handleItemClick(item)}
-                            title={item.name || 'Unnamed Item'}
-                            maxWidth="500px" // Adjust max width as needed
-                            overflow="hidden"
-                            textOverflow="ellipsis"
-                            whiteSpace="nowrap"
-                            py={2}
-                        >
-                        <HStack spacing={2}>
-                            <Icon 
-                                as={item.isFolder ? FaFolder : FaFile} 
-                                color={item.isFolder ? folderColor : fileColor} 
-                                flexShrink={0}
-                                boxSize="1.2em" // Slightly larger icon
+                        {/* Breadcrumbs (Takes available space) */}
+                        <Box flex={1} minWidth="0" order={{ base: 2, md: 1 }}>
+                            {renderBreadcrumbs({ 
+                              drives, 
+                              selectedDrive, 
+                              currentBreadcrumbs, 
+                              searchPerformed, 
+                              isLoadingItems, 
+                              isSearching, 
+                              handleBreadcrumbClick, 
+                              t 
+                            })} 
+                        </Box>
+                        {/* Search Input (Fixed width) */}
+                        <InputGroup size="md" width={{ base: '100%', md: '300px' }} order={{ base: 1, md: 2}}>
+                            <Input
+                                pr="3.5rem"
+                                type="search"
+                                placeholder={t('sharepoint.searchDrivePlaceholder')}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={handleSearchKeyDown}
+                                isDisabled={isAnythingLoading || !selectedDrive}
                             />
-                            <Text as="span" fontSize="sm">{item.name || 'Unnamed Item'}</Text>
-                        </HStack>
-                        </Td>
-                        <Td fontSize="sm" whiteSpace="nowrap">{formatDateTime(item.lastModifiedDateTime)}</Td>
-                        <Td fontSize="sm" isNumeric whiteSpace="nowrap">{formatFileSize(item.size)}</Td>
-                        <Td px={1} textAlign="center">
-                            {item.isFile && (
+                            <InputRightElement width="3.5rem">
                                 <IconButton
-                                    aria-label={t('sharepoint.downloadFile')}
-                                    icon={<Icon as={FaCloudDownloadAlt} />}
-                                    size="xs"
-                                    variant="ghost"
-                                    onClick={() => handleDownloadClick(item)}
-                                    // Disable if a task is already running for ANY item
-                                    isDisabled={isDownloadTaskRunning} 
-                                    title={isDownloadTaskRunning ? t('sharepoint.downloadTaskRunningDesc') : t('sharepoint.downloadFile')}
+                                    aria-label={t('sharepoint.searchButtonLabel')}
+                                    h="1.75rem"
+                                    size="sm"
+                                    icon={isSearching ? <Spinner size="xs" /> : <Icon as={FaSearch} />}
+                                    onClick={() => searchDrive(selectedDrive, searchQuery)}
+                                    isDisabled={isAnythingLoading || !selectedDrive || !searchQuery.trim()}
                                 />
-                            )}
-                        </Td>
-                    </Tr>
-                    ))}
-                </Tbody>
-                </Table>
-            ) : (
-                <Center py={8} minHeight="200px">
-                    <VStack spacing={3} color="gray.500">
-                        <Icon as={searchPerformed ? FaSearch : FaFolder} boxSize={8} />
-                        <Text fontSize="lg" fontWeight="medium">
-                            {searchPerformed ? t('sharepoint.noSearchResults') : t('sharepoint.emptyFolder')}
-                        </Text>
-                        {!searchPerformed && <Text fontSize="sm">{t('sharepoint.emptyFolderDesc')}</Text>} 
-                    </VStack>
-                </Center>
-            )
-          ) : (
-            <Center py={8} minHeight="200px">
-                <VStack spacing={3} color="gray.500">
-                    <Icon as={FaGlobeEurope} boxSize={8} />
-                    <Text fontSize="lg" fontWeight="medium">
-                        {selectedSite ? t('sharepoint.selectDrivePrompt') : t('sharepoint.selectSitePrompt')}
-                    </Text>
-                    <Text fontSize="sm">
-                        {selectedSite ? t('sharepoint.selectDriveDesc') : t('sharepoint.selectSiteDesc')}
-                    </Text>
-                </VStack>
-            </Center>
-          )}
-        </Box>
+                            </InputRightElement>
+                        </InputGroup>
+                      </HStack>
+                    )}
 
+                    {/* Task Progress Display */}
+                    {isDownloadTaskRunning && activeTaskId && (
+                      <Box 
+                        p={4} borderWidth="1px" borderRadius="md" 
+                        borderColor={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? "red.300" : "blue.300"} 
+                        bg={useColorModeValue("blue.50", "blue.900")} mb={4}
+                      >
+                          <VStack spacing={2} align="stretch">
+                            <HStack justify="space-between">
+                              <Text fontSize="sm" fontWeight="bold">{t('sharepoint.downloadTaskProgressTitle')}</Text>
+                              <Tag 
+                                  size="sm"
+                                  colorScheme={
+                                    taskStatus === TaskStatusEnum.COMPLETED ? 'green' : 
+                                    taskStatus === TaskStatusEnum.FAILED || taskStatus === 'POLLING_ERROR' ? 'red' : 
+                                    'blue'
+                                  }
+                                >
+                                  {taskStatus || 'Initializing...'}
+                                </Tag>
+                            </HStack>
+                            <Text fontSize="xs">{t('common.taskID', 'Task ID:')} {activeTaskId}</Text>
+                            {taskProgress !== null && (
+                              <Progress 
+                                value={taskProgress} size="xs" 
+                                colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
+                                isAnimated={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
+                                hasStripe={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
+                                borderRadius="full"
+                              />
+                            )}
+                            {taskDetails && (
+                                <Text fontSize="xs" color="gray.500" mt={1} noOfLines={1} title={typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}>
+                                  {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
+                                </Text>
+                            )}
+                          </VStack>
+                      </Box>
+                    )}
+
+                    {/* Files and Folders Table Area */}
+                    <Box
+                        overflowX="auto"
+                        borderWidth={selectedDrive ? "1px" : "0px"}
+                        borderRadius="md"
+                        borderColor={useColorModeValue('gray.200', 'gray.700')}
+                        minHeight="300px"
+                        position="relative"
+                    >
+                        {(isLoadingItems || isSearching) ? (
+                            <ItemTableSkeleton />
+                        ) : selectedDrive ? (
+                            items.length > 0 ? (
+                                <Table variant="simple" size="sm">
+                                  <Thead>
+                                      <Tr>
+                                          <Th>{t('sharepoint.name')}</Th>
+                                          <Th>{t('sharepoint.modified')}</Th>
+                                          <Th isNumeric>{t('sharepoint.size')}</Th>
+                                          <Th px={1}>{t('sharepoint.actions')}</Th> 
+                                      </Tr>
+                                  </Thead>
+                                  <Tbody>
+                                      {items.map((item) => (
+                                      <Tr
+                                          key={item.id}
+                                          _hover={{ bg: useColorModeValue('gray.50', 'whiteAlpha.100') }}
+                                      >
+                                          <Td 
+                                              cursor={item.isFolder ? 'pointer' : 'default'}
+                                              onClick={() => handleItemClick(item)}
+                                              title={item.name || 'Unnamed Item'}
+                                              maxWidth="500px" // Adjust max width as needed
+                                              overflow="hidden"
+                                              textOverflow="ellipsis"
+                                              whiteSpace="nowrap"
+                                              py={2}
+                                          >
+                                          <HStack spacing={2}>
+                                              <Icon 
+                                                  as={item.isFolder ? FaFolder : FaFile} 
+                                                  color={item.isFolder ? folderColor : fileColor} 
+                                                  flexShrink={0}
+                                                  boxSize="1.2em" // Slightly larger icon
+                                              />
+                                              <Text as="span" fontSize="sm">{item.name || 'Unnamed Item'}</Text>
+                                          </HStack>
+                                          </Td>
+                                          <Td fontSize="sm" whiteSpace="nowrap">{formatDateTime(item.lastModifiedDateTime)}</Td>
+                                          <Td fontSize="sm" isNumeric whiteSpace="nowrap">{formatFileSize(item.size)}</Td>
+                                          <Td px={1} textAlign="center">
+                                              {item.isFile && (
+                                                  <IconButton
+                                                      aria-label={t('sharepoint.downloadFile')}
+                                                      icon={<Icon as={FaCloudDownloadAlt} />}
+                                                      size="xs"
+                                                      variant="ghost"
+                                                      onClick={() => handleDownloadClick(item)}
+                                                      // Disable if a task is already running for ANY item
+                                                      isDisabled={isDownloadTaskRunning} 
+                                                      title={isDownloadTaskRunning ? t('sharepoint.downloadTaskRunningDesc') : t('sharepoint.downloadFile')}
+                                                  />
+                                              )}
+                                          </Td>
+                                      </Tr>
+                                      ))}
+                                  </Tbody>
+                                </Table>
+                            ) : (
+                                <Center py={8} minHeight="200px">
+                                   {/* ... Empty folder / No search results ... */}
+                                </Center>
+                            )
+                        ) : (
+                            <Center py={8} minHeight="200px">
+                                <VStack spacing={3} color="gray.500">
+                                    <Icon as={FaDatabase} boxSize={8} />
+                                    <Text fontSize="lg" fontWeight="medium">{t('sharepoint.selectDrivePrompt')}</Text>
+                                    <Text fontSize="sm">{t('sharepoint.selectDriveDesc')}</Text>
+                                </VStack>
+                            </Center>
+                        )
+                        }
+                    </Box>
+                  </VStack>
+                )}
+              </VStack>
+            </TabPanel>
+            <TabPanel p={0}> {/* Quick Access Tab */} 
+              <QuickAccessList />
+            </TabPanel>
+            {/* <TabPanel p={0}> Placeholder for Shared Tab </TabPanel> */} 
+          </TabPanels>
+        </Tabs>
       </VStack>
     </Container>
   );

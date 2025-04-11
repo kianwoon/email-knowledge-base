@@ -1434,6 +1434,12 @@
     "taskStatus": "获取任务状态失败。"
   },
   "sharepoint": {
+    "tabs": {
+      "browse": "浏览站点",
+      "quickAccess": "快速访问",
+      "shared": "与我共享"
+    },
+    "drivesForSite": "驱动器 / 文档库 (站点: {{siteName}})",
     "title": "SharePoint 数据源",
     "sites": "站点",
     "drives": "驱动器 / 文档库",
@@ -1476,6 +1482,26 @@
     "tooltips": {
       "download": "下载并处理此文件以用于知识库",
       "browseFolder": "打开文件夹"
-    }
+    },
+    "noSitesFoundForFilter": "未找到以 '{{letter}}' 开头的站点",
+    "root": "驱动器根目录",
+    "searchResults": "搜索结果",
+    "downloadFile": "下载并处理此文件",
+    "searchButtonLabel": "搜索驱动器",
+    "downloadTaskProgressTitle": "文件处理任务",
+    "emptyFolder": "此文件夹为空",
+    "emptyFolderDesc": "此处未找到文件或子文件夹。",
+    "noSearchResults": "未找到符合您搜索条件的项。"
+  },
+  "deleteConfirmation": "您确定要删除此项吗？",
+  "deleteSuccess": "项目删除成功。",
+  "deleteError": "删除项目时出错。",
+  "backToSites": "返回站点列表",
+  "all": "全部",
+  "filterBy": "按筛选",
+  "quickAccess": {
+    "title": "快速访问",
+    "errorTitle": "加载快速访问项目时出错",
+    "noItems": "未找到最近使用的项目。"
   }
 }

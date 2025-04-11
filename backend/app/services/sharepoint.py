@@ -1,6 +1,6 @@
 import httpx
 from typing import List, Dict, Any, Optional
-from app.models.sharepoint import SharePointSite, SharePointDrive, SharePointItem
+from app.models.sharepoint import SharePointSite, SharePointDrive, SharePointItem, UsedInsight
 import logging
 import base64
 
@@ -42,16 +42,15 @@ class SharePointService:
 
     async def search_accessible_sites(self) -> List[SharePointSite]:
         """Searches for SharePoint sites accessible by the signed-in user."""
-        # Changed endpoint from /me/followedSites to /sites?search=*
-        sites_url = f"{MS_GRAPH_ENDPOINT}/sites?search=*"
+        # Specify desired fields using $select
+        select_fields = "id,displayName,name,webUrl"
+        sites_url = f"{MS_GRAPH_ENDPOINT}/sites?search=*&$select={select_fields}"
         logger.info(f"Attempting to fetch accessible sites using: {sites_url}")
         try:
             response_data = await self._make_graph_request(sites_url)
             if response_data and "value" in response_data:
-                # The response structure for search might differ slightly, 
-                # but the SharePointSite model should handle common fields like id, name, displayName, webUrl.
-                # Log the raw response for debugging if needed.
-                # logger.debug(f"Raw site search response: {response_data['value']}")
+                # Log the first few raw site objects from the response for inspection
+                logger.info(f"Raw site data from Graph API (first 5): {response_data['value'][:5]}")
                 sites = [SharePointSite(**site) for site in response_data["value"]]
                 logger.info(f"Found {len(sites)} accessible sites.")
                 return sites
@@ -137,4 +136,27 @@ class SharePointService:
             # This will likely happen in a background task managed by TaskManager
             pass
         else:
-            logger.warning(f"Could not download content for file: {filename}") 
+            logger.warning(f"Could not download content for file: {filename}")
+
+    # --- Insight Methods --- 
+
+    async def get_quick_access_items(self) -> List[UsedInsight]:
+        """Retrieves items the user has recently used (viewed/modified)."""
+        # Select fields we need for the model
+        select_fields = "id,resourceVisualization,resourceReference"
+        # Top parameter limits the number of results (e.g., top 20)
+        quick_access_url = f"{MS_GRAPH_ENDPOINT}/me/insights/used?$select={select_fields}&$top=20"
+        logger.info(f"Fetching quick access items: {quick_access_url}")
+        try:
+            response_data = await self._make_graph_request(quick_access_url)
+            if response_data and "value" in response_data:
+                # Log raw response for debugging if needed
+                # logger.debug(f"Raw quick access response: {response_data['value']}")
+                items = [UsedInsight(**item) for item in response_data["value"]]
+                logger.info(f"Found {len(items)} quick access items.")
+                return items
+            logger.info("No quick access items found in the response.")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching quick access items: {e}", exc_info=True)
+            return [] 
