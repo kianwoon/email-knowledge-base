@@ -46,7 +46,10 @@ if DATABASE_URL is None:
 
 # Create the SQLAlchemy engine
 # Use check_same_thread=False only for SQLite
-engine_args = {}
+engine_args = {
+    "pool_pre_ping": True,
+    "pool_recycle": 3600,  # Recycle connections older than 1 hour
+}
 if DATABASE_URL.startswith("sqlite"):
     engine_args["connect_args"] = {"check_same_thread": False}
 
