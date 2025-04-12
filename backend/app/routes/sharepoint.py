@@ -316,44 +316,36 @@ async def process_sync_list(
     logger.info(f"User {user_id_str} initiating processing of sync list.")
     
     # 1. Get all items from the user's sync list
-    sync_items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str)
-    if not sync_items:
+    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str)
+    if not sync_items_db:
         logger.warning(f"Sync list is empty for user {user_id_str}. Nothing to process.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sync list is empty. Add items before processing."
-        )
-        
-    # 2. Prepare items for the Celery task (list of dictionaries)
-    items_to_process = [
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync list is empty.")
+
+    # 2. Format data for Celery task (include DB ID and necessary fields)
+    items_for_task = [
         {
+            "item_db_id": item.id, # <<< Include DB ID
             "sharepoint_item_id": item.sharepoint_item_id,
             "item_type": item.item_type,
             "sharepoint_drive_id": item.sharepoint_drive_id,
             "item_name": item.item_name
+            # Status is managed by the task itself
         }
-        for item in sync_items
+        for item in sync_items_db if item.status == 'pending' # Only process pending items
     ]
+    
+    if not items_for_task:
+        logger.info(f"No pending items in sync list for user {user_id_str}. Nothing to process.")
+        # Return 200 OK as there's nothing to queue
+        return {"message": "No pending items to process."} 
 
-    # 3. Submit the task directly using Celery
+    # 3. Submit batch processing task to Celery
     try:
-        task_result = process_sharepoint_batch_task.delay(
-            items_to_process=items_to_process, 
-            user_email=current_user.email
-        )
-        task_id = task_result.id
-        logger.info(f"Submitted SharePoint batch processing task {task_id} for user {user_id_str}.")
+        task = process_sharepoint_batch_task.delay(items_for_task, user_id_str)
+        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_id_str}.")
         
-        # 4. Optionally clear the sync list after successful submission
-        try:
-            crud_sharepoint_sync_item.clear_sync_list_for_user(db=db, user_id=user_id_str)
-            logger.info(f"Cleared sync list for user {user_id_str} after task submission.")
-        except Exception as clear_err:
-             logger.error(f"Failed to clear sync list for user {user_id_str} after task submission: {clear_err}", exc_info=True)
-             # Decide if this should cause the request to fail or just log a warning
-
-        # 5. Return an initial TaskStatus object
-        return TaskStatus(task_id=task_id, status=TaskStatusEnum.PENDING, message="Sync task submitted.") 
+        # Return a TaskStatus object conforming to the response_model
+        return TaskStatus(task_id=task.id, status=TaskStatusEnum.PENDING, message="Sync list processing submitted.")
 
     except Exception as e:
         logger.error(f"Failed to submit SharePoint sync list processing task for user {user_id_str}: {e}", exc_info=True)

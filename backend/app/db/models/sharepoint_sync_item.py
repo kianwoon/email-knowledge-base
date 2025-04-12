@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, UniqueConstraint, Index
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import Mapped
 from app.db.base_class import Base # Use the project's Base
 
 class SharePointSyncItem(Base):

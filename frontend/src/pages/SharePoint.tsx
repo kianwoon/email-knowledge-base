@@ -860,6 +860,25 @@ const formatFileSize = (bytes?: number): string => {
   };
   // +++ END Helper Function +++
 
+  // --- Effect to auto-select site if filter results in one ---
+  useEffect(() => {
+    // This calculation might already exist via useMemo, adjust if needed
+    const currentlyFilteredSites = selectedLetterFilter
+      ? sites.filter(site => site.displayName?.toUpperCase().startsWith(selectedLetterFilter))
+      : sites;
+
+    // Check if filter is active, resulted in one site, and no site is currently selected
+    if (currentlyFilteredSites.length === 1 && selectedLetterFilter !== null && !selectedSite) {
+      console.log(`[Auto-Select] Filter resulted in one site (${currentlyFilteredSites[0].displayName}), selecting it.`);
+      if (typeof handleSiteSelect === 'function') {
+          handleSiteSelect(currentlyFilteredSites[0].id);
+      } else {
+          console.error("[Auto-Select] handleSiteSelect function not found or not ready.");
+      }
+    }
+  // Dependencies need careful review based on actual implementation
+  }, [sites, selectedLetterFilter, selectedSite, handleSiteSelect]);
+
   // Main Return
   return (
     <Container maxW="container.xl" py={5}>
@@ -1108,7 +1127,9 @@ const formatFileSize = (bytes?: number): string => {
                                          cursor="pointer"
                                          _hover={{ bg: hoverBg }}
                                        >{t('common.size')} <BrowseSortIcon column="size" /></Th>
-                                       <Th>{t('common.actions')}</Th>{/* Action column */}
+                                       <Th>{t('common.modifiedBy')}</Th>
+                                       <Th>{t('common.modified')}</Th>
+                                       <Th>{t('common.actionsHeader')}</Th>{/* Action column */}
                                      </Tr>
                                    </Thead>
                                    <Tbody>

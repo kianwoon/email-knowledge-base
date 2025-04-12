@@ -1,25 +1,24 @@
 from pydantic import BaseModel
 from typing import Optional
 
-# Pydantic models for SharePoint Sync Items (Phase 1)
-
+# Pydantic model for the base data (used for creation and reading)
 class SharePointSyncItemBase(BaseModel):
-    """Base model with common fields for a SharePoint item to be synced."""
-    item_type: str  # e.g., 'file', 'folder'
+    item_type: str # 'file' or 'folder'
     sharepoint_item_id: str
     sharepoint_drive_id: str
     item_name: str
+    # Status is NOT part of the base/creation model
 
+# Pydantic model for creating an item (input)
+# Only inherits fields needed for creation
 class SharePointSyncItemCreate(SharePointSyncItemBase):
-    """Model used when adding a new item to the sync list via the API."""
-    # For Phase 1, user_id will be derived from the authenticated session
-    # in the CRUD layer, so it's not included here.
-    pass
+    pass # No extra fields needed for creation
 
+# Pydantic model for representing an item read from the DB (output)
 class SharePointSyncItem(SharePointSyncItemBase):
-    """Model representing a sync item retrieved from the database."""
-    id: int
-    user_id: str  # Assuming user_id stored in DB is the email string
+    id: int # Include the database ID
+    user_id: str # Include the user ID
+    status: str # <<< status field only needed for output
 
     class Config:
-        from_attributes = True  # Enable ORM mode 
+        from_attributes = True # Enable ORM mode 

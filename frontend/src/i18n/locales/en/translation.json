@@ -995,6 +995,7 @@
     "size": "Size",
     "modified": "Modified",
     "actions": "Actions",
+    "actionsHeader": "Actions",
     "noResultsFound": "No results found.",
     "taskCompleted": "Task completed successfully.",
     "taskFailed": "Task failed.",
@@ -1578,7 +1579,8 @@
     "syncListCount": "{{count}} items selected",
     "syncListEmpty": "Select files/folders from the browser to add them here.",
     "processSyncListButton": "Process Sync List",
-    "addToSyncList": "Add to Sync List"
+    "addToSyncList": "Add to Sync List",
+    "syncTaskProgressTitle": "Sync Task Progress"
   },
   "quickAccess": {
     "title": "Quick Access",

@@ -978,6 +978,11 @@
     "notAvailable": "暂无",
     "active": "活跃",
     "inactive": "非活跃",
+    "name": "名称",
+    "type": "类型",
+    "size": "大小",
+    "modified": "修改时间",
+    "modifiedBy": "修改者",
     "tags": {
       "executive": "高管",
       "sales": "销售",
@@ -1020,7 +1025,8 @@
     },
     "actions": {
       "proceedGenerateKnowledge": "立即生成知识库"
-    }
+    },
+    "actionsHeader": "操作"
   },
   "buttons": {
     "cancel": "取消",

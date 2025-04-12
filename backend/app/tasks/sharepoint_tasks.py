@@ -6,6 +6,7 @@ import uuid
 
 from celery import Task
 from celery.utils.log import get_task_logger
+from sqlalchemy.orm import Session
 
 from ..celery_app import celery_app
 from ..config import settings
@@ -14,6 +15,8 @@ from app.db.qdrant_client import get_qdrant_client
 from app.crud import user_crud # To get user tokens if needed indirectly
 from app.db.session import SessionLocal # For getting user tokens
 from app.utils.security import decrypt_token # For user tokens
+from app.crud import crud_sharepoint_sync_item # Import sync item CRUD and model
+from app.db.models.sharepoint_sync_item import SharePointSyncItem as SharePointSyncItemDBModel # Import SharePointSyncItem model
 
 # Qdrant imports
 from qdrant_client import QdrantClient, models
@@ -126,6 +129,7 @@ class SharePointProcessingTask(Task):
 
 async def _run_processing_logic(
     task_instance: Task, 
+    db_session: Session,
     sp_service: SharePointService,
     items_to_process: List[Dict[str, Any]],
     user_email: str
@@ -184,13 +188,43 @@ async def _run_processing_logic(
     total_failed_files = total_failed_discovery # Start with discovery failures
     current_file_num = 0
     
-    # Process files, potentially in chunks or concurrently if desired/safe
-    for initial_file_info in all_files_to_process:
+    for item_data_from_api in all_files_to_process: # Renamed for clarity
         current_file_num += 1
-        file_id = initial_file_info['sharepoint_item_id']
-        drive_id = initial_file_info['sharepoint_drive_id']
+        # Get SharePoint IDs from the data passed to the task
+        file_id = item_data_from_api['sharepoint_item_id']
+        drive_id = item_data_from_api['sharepoint_drive_id']
+        # Get the Database ID for status updates
+        item_db_id = item_data_from_api.get('item_db_id') # Use .get() for safety
         
-        # --- ADDED: Fetch full item details --- 
+        item_status = 'processing' # Default status before processing
+        db_sync_item = None # Variable to hold the DB object
+        
+        # --- MODIFIED: Get corresponding DB item using item_db_id --- 
+        if not item_db_id:
+            logger.error(f"Task {task_id}: Missing item_db_id for SP ID {file_id}. Cannot update status.")
+            total_failed_files += 1
+            continue # Skip if we don't have the DB ID
+            
+        try:
+            # Fetch the DB item using its primary key
+            db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
+            if db_sync_item:
+                db_sync_item.status = item_status
+                db_session.add(db_sync_item)
+                db_session.commit()
+                logger.debug(f"Task {task_id}: Set status to '{item_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
+            else:
+                 logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status. Skipping item.")
+                 total_failed_files += 1
+                 continue # Skip processing if DB item not found
+        except Exception as db_err:
+            logger.error(f"Task {task_id}: DB error updating status to '{item_status}' for DB ID {item_db_id}: {db_err}", exc_info=True)
+            db_session.rollback()
+            total_failed_files += 1
+            continue # Skip processing on DB error
+        # --- END MODIFIED --- 
+
+        # --- Fetch full item details --- 
         logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
         file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
         
@@ -248,21 +282,37 @@ async def _run_processing_logic(
             )
             points_to_upsert.append(point)
             total_processed_files += 1
+            item_status = 'completed' # Set status to completed on success
 
         except Exception as file_proc_err:
-            logger.error(f"Task {task_id}: Failed processing file {file_id}: {file_proc_err}", exc_info=True)
+            logger.error(f"Task {task_id}: Failed processing file {file_id} (DB ID: {item_db_id}): {file_proc_err}", exc_info=True)
             total_failed_files += 1
+            item_status = 'failed' # Set status to failed on error
             task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': progress_percent, 'status': f'Failed file {current_file_num}/{total_files}: {file_name[:30]}...'})
+        
+        # --- ADDED: Update final status in DB --- 
+        if db_sync_item: # Check if we have the DB object
+            try:
+                db_sync_item.status = item_status
+                db_session.add(db_sync_item)
+                db_session.commit()
+                logger.debug(f"Task {task_id}: Set final status to '{item_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
+            except Exception as db_err:
+                 logger.error(f"Task {task_id}: DB error updating final status to '{item_status}' for DB ID {item_db_id}: {db_err}", exc_info=True)
+                 db_session.rollback()
+                 # Note: The item might be partially processed but status update failed.
+        # --- END ADDED --- 
             
     return total_processed_files, total_failed_files, points_to_upsert
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')
-def process_sharepoint_batch_task(self: Task, items_to_process: List[Dict[str, Any]], user_email: str):
+def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str): # Renamed parameter
     task_id = self.request.id
-    logger.info(f"Starting SharePoint batch task {task_id} for user {user_email} ({len(items_to_process)} items).")
+    logger.info(f"Starting SharePoint batch task {task_id} for user {user_email} ({len(items_for_task)} items).")
     self.update_state(state='STARTED', meta={'user': user_email, 'progress': 0, 'status': 'Initializing...'})
 
     qdrant_client = self.qdrant_client
+    db_session = self.db # Get DB session from Task base class
     target_collection_name = generate_qdrant_collection_name(user_email)
     total_processed = 0
     total_failed = 0
@@ -289,12 +339,12 @@ def process_sharepoint_batch_task(self: Task, items_to_process: List[Dict[str, A
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10, 'status': 'Discovering files...'})
 
         # --- Run Async Logic --- 
-        # Use asyncio.run() to execute the async helper function
         total_processed, total_failed, points_to_upsert = asyncio.run(
             _run_processing_logic(
                 task_instance=self, 
+                db_session=db_session, 
                 sp_service=sp_service, 
-                items_to_process=items_to_process,
+                items_to_process=items_for_task, # Pass the correctly named list
                 user_email=user_email
             )
         )
