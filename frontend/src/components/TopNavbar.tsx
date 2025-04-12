@@ -92,7 +92,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
   };
 
   // Check if language is Chinese (use 'cn')
-  const isChinese = i18n.language === 'cn';
+  const isChinese = i18n.language === 'cn' || i18n.language.startsWith('zh');
 
   // User menu component
   const UserMenu = () => {
