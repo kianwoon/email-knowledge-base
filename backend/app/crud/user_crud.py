@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session, load_only # Import load_only
 from sqlalchemy import select, exists, update, text # Import exists, update, and text
 import sqlalchemy.exc
+from datetime import datetime # Ensure datetime is imported
 
 # Import BOTH the Pydantic User and the SQLAlchemy UserDB models
 from ..models.user import User, UserDB 
@@ -48,6 +49,7 @@ def get_user_with_refresh_token(db: Session, email: str) -> UserDB | None:
         # Fetch the user instance directly by email
         statement = select(UserDB).where(UserDB.email == email)
         result = db.execute(statement)
+        result = result.unique()
         user_db = result.scalar_one_or_none()
         # The ms_refresh_token field is loaded by default unless excluded
         if user_db:
@@ -188,6 +190,48 @@ def update_user_preferences(db: Session, user_email: str, preferences: Dict[str,
     except Exception as e:
         db.rollback()
         logger.error(f"Error updating preferences for {user_email}: {e}", exc_info=True)
+        raise e
+
+# +++ NEW Function to update all MS tokens +++
+def update_user_ms_tokens(db: Session, user_email: str, access_token: str, expiry: datetime, refresh_token: Optional[str] = None) -> bool:
+    """Updates the Microsoft access token, expiry, and optionally the refresh token.
+    
+    Args:
+        db: The database session.
+        user_email: The email of the user to update.
+        access_token: The new Microsoft access token.
+        expiry: The expiry datetime for the new access token.
+        refresh_token: The new refresh token, if provided by Microsoft.
+
+    Returns:
+        bool: True if update was successful, False if user not found.
+    Raises:
+        Exception: If a database error occurs.
+    """
+    try:
+        values_to_update = {
+            UserDB.ms_access_token: access_token,
+            UserDB.ms_token_expiry: expiry,
+        }
+        # Only include refresh token in the update if a new one was provided
+        if refresh_token is not None:
+            values_to_update[UserDB.ms_refresh_token] = refresh_token
+
+        statement = (
+            update(UserDB)
+            .where(UserDB.email == user_email)
+            .values(**values_to_update) # Use dictionary unpacking
+        )
+        result = db.execute(statement)
+        if result.rowcount == 0:
+            logger.warning(f"Attempted to update MS tokens for non-existent user: {user_email}")
+            return False
+        db.commit() # Commit the change
+        logger.info(f"Updated MS tokens for user {user_email}. New expiry: {expiry}")
+        return True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating MS tokens for {user_email}: {e}", exc_info=True)
         raise e
 
 # Add other user CRUD functions here as needed (e.g., create_user, update_user)

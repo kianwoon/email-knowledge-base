@@ -336,13 +336,22 @@ async def process_sync_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    user_id_str = str(current_user.id)
-    logger.info(f"User {user_id_str} initiating processing of sync list.")
+    user_email_str = current_user.email # Keep this for logging if needed
+    user_id_str = str(current_user.id) # Get the user ID as a string
+
+    if not user_email_str: # Keep email check for logging/potential future use
+        logger.error(f"User object for ID {user_id_str} is missing email address.")
+        # Consider if email is truly needed elsewhere; if not, this check might be less critical
+        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User email not available.")
+        
+    logger.info(f"User {user_email_str} (ID: {user_id_str}) initiating processing of sync list.")
     
-    # 1. Get all items from the user's sync list
-    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str)
+    # 1. Get all items from the user's sync list using the correct user ID
+    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str) # Use user_id_str
     if not sync_items_db:
-        logger.warning(f"Sync list is empty for user {user_id_str}. Nothing to process.")
+        logger.warning(f"Sync list is empty for user {user_email_str} (ID: {user_id_str}). Nothing to process.")
+        # OPTIONAL: Change the status code? 400 Bad Request might be more suitable than 404 Not Found if the list is just empty.
+        # For now, keeping 404 as per original logic, but flagging it.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync list is empty.")
 
     # 2. Format data for Celery task (include DB ID and necessary fields)
@@ -359,20 +368,20 @@ async def process_sync_list(
     ]
     
     if not items_for_task:
-        logger.info(f"No pending items in sync list for user {user_id_str}. Nothing to process.")
+        logger.info(f"No pending items in sync list for user {user_email_str} (ID: {user_id_str}). Nothing to process.")
         # Return 200 OK as there's nothing to queue
         return {"message": "No pending items to process."} 
 
     # 3. Submit batch processing task to Celery
     try:
-        task = process_sharepoint_batch_task.delay(items_for_task, user_id_str)
-        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_id_str}.")
+        task = process_sharepoint_batch_task.delay(items_for_task, user_email_str)
+        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_email_str} (ID: {user_id_str}).")
         
         # Return a TaskStatus object conforming to the response_model
         return TaskStatus(task_id=task.id, status=TaskStatusEnum.PENDING, message="Sync list processing submitted.")
 
     except Exception as e:
-        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_id_str}: {e}", exc_info=True)
+        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_email_str} (ID: {user_id_str}): {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate sync list processing."

@@ -47,9 +47,21 @@ async def get_task_status(task_id: str):
 
         # If task failed but info wasn't an Exception dict, result might hold exception
         if status == 'FAILURE' and details is None and task_result.result:
-             details = str(task_result.result)
-        elif status == 'SUCCESS' and details is None and task_result.result:
-             details = task_result.result # Use the actual result if available
+             details = f"Task failed: {str(task_result.result)}" # Include failure context
+        elif status == 'SUCCESS' and details is None:
+             # Don't return the raw result, just confirm success.
+             # If specific result info is needed, extract serializable parts carefully.
+             details = "Task completed successfully." # Simple success message
+             # Example if counts were needed (assuming result is a tuple like (succeeded, failed, ...)):
+             # try:
+             #     result_data = task_result.result
+             #     if isinstance(result_data, tuple) and len(result_data) >= 2:
+             #         details = f"Completed. Processed: {result_data[0]}, Failed: {result_data[1]}"
+             #     else:
+             #        details = "Task completed successfully."
+             # except Exception as e:
+             #     logger.warning(f"Could not parse successful task result for {task_id}: {e}")
+             #     details = "Task completed successfully."
 
         return {
             "task_id": task_id,

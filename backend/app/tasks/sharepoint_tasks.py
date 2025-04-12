@@ -3,6 +3,7 @@ import base64
 import asyncio
 from typing import List, Dict, Any, Tuple, Optional
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from celery import Task
 from celery.utils.log import get_task_logger
@@ -17,6 +18,7 @@ from app.db.session import SessionLocal # For getting user tokens
 from app.utils.security import decrypt_token # For user tokens
 from app.crud import crud_sharepoint_sync_item # Import sync item CRUD and model
 from app.db.models.sharepoint_sync_item import SharePointSyncItem as SharePointSyncItemDBModel # Import SharePointSyncItem model
+from .email_tasks import get_msal_app # CORRECTED Import from the sibling email_tasks module
 
 # Qdrant imports
 from qdrant_client import QdrantClient, models
@@ -105,26 +107,123 @@ class SharePointProcessingTask(Task):
         return self._qdrant_client
 
     def get_sharepoint_service(self, user_email: str) -> SharePointService:
-        """Gets or creates a SharePoint service instance, requires fetching user token."""
+        """Gets or creates a SharePoint service instance, handling token refresh."""
         if self._sharepoint_service is None:
             logger.debug(f"Task {self.request.id}: Initializing SharePoint service for {user_email}.")
-            # Fetch user token from DB - requires DB session
-            db_user = user_crud.get_user_full_instance(db=self.db, email=user_email)
-            if not db_user or not db_user.ms_access_token:
-                 # Note: Access token might be stale, refresh logic might be needed here or in SharePointService
-                 # For simplicity now, assume a valid access token is stored.
-                 # A better approach might involve storing and refreshing the refresh token.
-                 logger.error(f"Task {self.request.id}: Cannot get access token for user {user_email} to init SP service.")
-                 raise ValueError(f"Missing access token for user {user_email}.")
             
-            # Decrypting might not be needed if access token isn't encrypted
-            # access_token = decrypt_token(db_user.ms_access_token) if db_user.ms_access_token else None
-            access_token = db_user.ms_access_token # Assuming it's stored directly for now
+            # --- Fetch user with refresh token ---
+            db_user = user_crud.get_user_with_refresh_token(db=self.db, email=user_email)
+            if not db_user:
+                logger.error(f"Task {self.request.id}: User {user_email} not found in DB.")
+                raise ValueError(f"User {user_email} not found.")
+
+            access_token = db_user.ms_access_token
+            refresh_token = db_user.ms_refresh_token # Assuming stored directly for now
+            expiry_time = db_user.ms_token_expiry
             
+            # --- Decrypt refresh token if needed ---
+            # if refresh_token:
+            #     decrypted_refresh_token = decrypt_token(refresh_token)
+            # else:
+            #     decrypted_refresh_token = None
+            decrypted_refresh_token = refresh_token # Assuming not encrypted for now
+
+            if not decrypted_refresh_token:
+                logger.error(f"Task {self.request.id}: Missing refresh token for user {user_email}.")
+                raise ValueError(f"Missing refresh token for user {user_email}. Cannot proceed.")
+
+            # --- Check token expiry (allowing a buffer) ---
+            # Make expiry_time timezone-aware if it isn't already (assuming UTC)
+            tz_aware_expiry = None
+            if expiry_time:
+                if expiry_time.tzinfo is None:
+                     tz_aware_expiry = expiry_time.replace(tzinfo=timezone.utc)
+                else:
+                    tz_aware_expiry = expiry_time # Already timezone-aware
+            
+            current_time_utc = datetime.now(timezone.utc)
+            check_time = current_time_utc + timedelta(minutes=5)
+            
+            # +++ Add Detailed Logging +++
+            logger.info(f"Task {self.request.id}: Expiry Check - DB expiry_time: {expiry_time}")
+            logger.info(f"Task {self.request.id}: Expiry Check - Timezone-aware expiry: {tz_aware_expiry}")
+            logger.info(f"Task {self.request.id}: Expiry Check - Current UTC time: {current_time_utc}")
+            logger.info(f"Task {self.request.id}: Expiry Check - Comparison time (now + 5min): {check_time}")
+            # +++ End Detailed Logging +++
+            
+            # Check if token is missing, expired, or expires within the next 5 minutes
+            needs_refresh = False
+            if not access_token or not tz_aware_expiry:
+                needs_refresh = True
+                logger.info(f"Task {self.request.id}: Access token or expiry missing/invalid for {user_email}. Refresh required.")
+            elif tz_aware_expiry <= check_time:
+                needs_refresh = True
+                logger.info(f"Task {self.request.id}: Access token for {user_email} expired or expiring soon (Expiry: {tz_aware_expiry} <= Check Time: {check_time}). Refresh required.")
+            else:
+                 # +++ Add explicit log for valid token case +++
+                 logger.info(f"Task {self.request.id}: Expiry Check PASSED for {user_email} (Expiry: {tz_aware_expiry} > Check Time: {check_time}). Using existing token.")
+
+            # --- Attempt Refresh if Needed ---
+            if needs_refresh:
+                logger.info(f"Task {self.request.id}: Attempting token refresh for {user_email}.")
+                try:
+                    msal_instance = get_msal_app()
+                    # Ensure scopes match what's needed for SharePointService
+                    token_result = msal_instance.acquire_token_by_refresh_token(
+                        refresh_token=decrypted_refresh_token,
+                        scopes=settings.MS_SCOPES.split() 
+                    )
+
+                    if "access_token" in token_result and "expires_in" in token_result:
+                        new_access_token = token_result['access_token']
+                        new_expiry = datetime.now(timezone.utc) + timedelta(seconds=token_result['expires_in'])
+                        new_refresh_token = token_result.get('refresh_token') # Check if MS sent a new one
+                        
+                        # --- Encrypt new refresh token if needed ---
+                        # encrypted_new_refresh = encrypt_token(new_refresh_token) if new_refresh_token else None
+                        encrypted_new_refresh = new_refresh_token # Assuming not encrypted
+                        
+                        # --- Update DB ---
+                        logger.info(f"Task {self.request.id}: Token refresh successful for {user_email}. Updating DB.")
+                        # Use the new update function
+                        update_success = user_crud.update_user_ms_tokens(
+                            db=self.db, 
+                            user_email=user_email, 
+                            access_token=new_access_token, 
+                            expiry=new_expiry, 
+                            refresh_token=encrypted_new_refresh # Pass the potentially new refresh token
+                        )
+                        if not update_success:
+                             logger.error(f"Task {self.request.id}: Failed to update new tokens in DB for {user_email}.")
+                             # Decide how to handle: raise error or try using old token?
+                             # Raising error is safer to prevent using stale data
+                             raise ValueError("Failed to update refreshed tokens in database.")
+                             
+                        access_token = new_access_token # Use the new token for the service
+                        logger.info(f"Task {self.request.id}: Using newly refreshed access token for {user_email}.")
+
+                    elif "error_description" in token_result:
+                         logger.error(f"Task {self.request.id}: MSAL refresh error for {user_email}: {token_result.get('error')} - {token_result.get('error_description')}")
+                         raise ValueError(f"Token refresh failed: {token_result.get('error_description')}")
+                    else:
+                         logger.error(f"Task {self.request.id}: Unexpected MSAL refresh result for {user_email}: {token_result}")
+                         raise ValueError("Token refresh failed with unexpected result.")
+
+                except Exception as refresh_err:
+                    logger.error(f"Task {self.request.id}: Exception during token refresh for {user_email}: {refresh_err}", exc_info=True)
+                    # Re-raise or handle appropriately (e.g., mark task as failed)
+                    raise ValueError(f"Exception during token refresh: {refresh_err}")
+            else:
+                 logger.debug(f"Task {self.request.id}: Existing access token for {user_email} is still valid.")
+
+            # --- Initialize Service with Valid Token ---
             if not access_token:
-                raise ValueError(f"Access token unavailable for user {user_email}.")
-                
+                 # This should ideally not be reached if refresh logic is correct
+                 logger.error(f"Task {self.request.id}: Access token still unavailable for {user_email} after refresh attempt.")
+                 raise ValueError(f"Could not obtain valid access token for {user_email}.")
+                 
             self._sharepoint_service = SharePointService(access_token)
+            
         return self._sharepoint_service
 
 async def _run_processing_logic(
