@@ -1027,7 +1027,8 @@
       "proceedGenerateKnowledge": "立即生成知识库"
     },
     "actionsHeader": "操作",
-    "taskID": "任务ID"
+    "taskID": "任务ID",
+    "noResultsFound": "未找到结果。"
   },
   "buttons": {
     "cancel": "取消",
@@ -1440,7 +1441,9 @@
     "fetchCurrentUser": "获取用户信息失败。",
     "taskStatus": "获取任务状态失败。",
     "fetchSyncListError": "获取同步列表失败。",
-    "processSyncListError": "提交同步列表处理时出错"
+    "processSyncListError": "提交同步列表处理时出错",
+    "sessionExpiredTitle": "会话已过期",
+    "sessionExpiredMessage": "您的会话已过期。请重新登录以继续。"
   },
   "sharepoint": {
     "tabs": {
@@ -1480,6 +1483,10 @@
     "taskProgress": "正在处理文件...",
     "taskComplete": "文件处理完成。",
     "taskFailed": "文件处理失败。",
+    "filterByOwner": "按所有者筛选",
+    "noMatchingItemsFilter": "没有符合筛选条件的项目。",
+    "noRecentItems": "未找到最近的项目。",
+    "untitledItem": "无标题项目",
     "errors": {
       "fetchSitesTitle": "获取站点时出错",
       "fetchDrivesTitle": "获取驱动器时出错",
@@ -1583,5 +1590,10 @@
   },
   "syncListTitle": "同步列表",
   "syncListEmpty": "您的同步列表为空。请浏览 SharePoint 并添加文件/文件夹。",
-  "processSyncListButton": "处理同步列表"
+  "processSyncListButton": "处理同步列表",
+  "sessionExpired": {
+    "title": "会话已过期",
+    "message": "您的会话已过期。请重新登录以继续。",
+    "loginButton": "登录"
+  }
 }
