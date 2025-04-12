@@ -301,6 +301,30 @@ async def get_sync_list(
     items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=str(current_user.id))
     return items
 
+@router.get(
+    "/sync-history",
+    response_model=List[SharePointSyncItem],
+    summary="Get Completed Sync History",
+    description="Retrieves items that have been successfully processed (status='completed')."
+)
+async def get_sync_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    logger.info(f"Fetching completed sync history for user {current_user.id}")
+    try:
+        completed_items = crud_sharepoint_sync_item.get_completed_sync_items_for_user(
+            db=db,
+            user_id=str(current_user.id)
+        )
+        return completed_items
+    except Exception as e: # Generic catch-all for unexpected DB errors
+        logger.error(f"Error fetching sync history for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve sync history."
+        )
+
 @router.post(
     "/sync-list/process",
     response_model=TaskStatus,

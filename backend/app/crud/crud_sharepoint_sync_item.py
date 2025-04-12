@@ -103,4 +103,22 @@ def clear_sync_list_for_user(db: Session, *, user_id: str) -> int:
     except Exception as e:
         db.rollback()
         logger.error(f"Error clearing sync list for user {user_id}: {e}", exc_info=True)
-        raise 
+        raise
+
+def get_completed_sync_items_for_user(db: Session, *, user_id: str) -> list[SharePointSyncItem]:
+    """
+    Retrieves all sync items marked as 'completed' for a given user.
+
+    Args:
+        db: The database session.
+        user_id: The ID (email) of the user.
+
+    Returns:
+        A list of completed SharePointSyncItem objects for the user, ordered by item name.
+    """
+    # Assuming 'completed' is the string representation of the status in the database
+    # If using an enum, adjust the comparison
+    return db.query(SharePointSyncItem).filter(
+        SharePointSyncItem.user_id == user_id,
+        SharePointSyncItem.status == 'completed'
+    ).order_by(SharePointSyncItem.item_name.asc()).all() 

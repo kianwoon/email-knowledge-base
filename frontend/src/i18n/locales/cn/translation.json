@@ -1026,7 +1026,8 @@
     "actions": {
       "proceedGenerateKnowledge": "立即生成知识库"
     },
-    "actionsHeader": "操作"
+    "actionsHeader": "操作",
+    "taskID": "任务ID"
   },
   "buttons": {
     "cancel": "取消",
@@ -1437,13 +1438,16 @@
     "notFound": "未找到资源。",
     "serverError": "内部服务器错误。请稍后重试。",
     "fetchCurrentUser": "获取用户信息失败。",
-    "taskStatus": "获取任务状态失败。"
+    "taskStatus": "获取任务状态失败。",
+    "fetchSyncListError": "获取同步列表失败。",
+    "processSyncListError": "提交同步列表处理时出错"
   },
   "sharepoint": {
     "tabs": {
       "browseSites": "浏览站点",
       "quickAccess": "快速访问",
-      "myRecent": "我的最近"
+      "myRecent": "我的最近",
+      "history": "历史记录"
     },
     "drivesForSite": "驱动器 / 文档库 (站点: {{siteName}})",
     "title": "SharePoint 数据源",
@@ -1502,7 +1506,38 @@
     "errors": {
       "fetchRecentTitle": "获取最近项目时出错"
     },
-    "searchDrivePlaceholder": "搜索此文档库..."
+    "searchDrivePlaceholder": "搜索此文档库...",
+    "syncTaskProgressTitle": "同步任务进度",
+    "status": {
+      "pending": "待定",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "syncListCount": "已选择 {{count}} 个项目",
+    "selectSitePlaceholder": "请选择一个 SharePoint 站点",
+    "noSitesFoundForFilter": "未找到以 '{{letter}}' 开头的站点",
+    "searchDrive": "搜索此驱动器",
+    "history": {
+        "title": "已处理项目历史",
+        "empty": "历史记录中未找到已完成的项目。"
+    },
+    "itemType": {
+        "folder": "文件夹",
+        "file": "文件"
+    },
+    "alreadyInSyncList": "已在同步列表",
+    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表",
+    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除",
+    "syncListEmptyTitle": "同步列表为空",
+    "syncListEmptyDesc": "请添加项目以进行处理。",
+    "syncAlreadyInProgress": "同步处理正在进行中。",
+    "syncProcessStartedTitle": "同步处理已开始",
+    "syncProcessStartedDesc": "任务 ID: {{taskId}}。状态将自动更新。",
+    "addToSyncList": "添加到同步列表",
+    "syncListTitle": "同步列表",
+    "syncListEmpty": "您的同步列表为空。请浏览 SharePoint 并添加文件/文件夹。",
+    "processSyncListButton": "处理同步列表"
   },
   "deleteConfirmation": "您确定要删除此项吗？",
   "deleteSuccess": "项目删除成功。",
@@ -1514,5 +1549,39 @@
     "title": "快速访问",
     "errorTitle": "加载快速访问项目时出错",
     "noItems": "未找到最近使用的项目。"
-  }
+  },
+  "tabs": {
+    "browseSites": "浏览站点",
+    "quickAccess": "快速访问",
+    "myRecent": "最近文件",
+    "history": "历史记录"
+  },
+  "history": {
+    "title": "已处理项目历史",
+    "empty": "历史记录中未找到已完成的项目。"
+  },
+  "itemType": {
+    "folder": "文件夹",
+    "file": "文件"
+  },
+  "errors": {
+    "errorLoadingHistory": "加载历史记录时出错",
+    "errorPollingStatus": "轮询任务状态时出错",
+    "errorAddingItem": "添加到同步列表时出错",
+    "errorRemovingItem": "从同步列表移除时出错",
+    "errorClearingSyncList": "清空同步列表时出错",
+    "errorProcessingSyncList": "提交同步列表处理时出错",
+    "unknown": "发生未知错误",
+    "fetchSitesTitle": "获取站点时出错",
+    "fetchDrivesTitle": "获取文档库时出错",
+    "fetchItemsTitle": "获取项目时出错",
+    "searchQueryMissing": "搜索查询不能为空。",
+    "searchFailedTitle": "搜索失败",
+    "downloadFailedTitle": "下载失败",
+    "noDriveSelected": "未选择要从中添加项目的驱动器。",
+    "fetchSyncListError": "获取同步列表失败。"
+  },
+  "syncListTitle": "同步列表",
+  "syncListEmpty": "您的同步列表为空。请浏览 SharePoint 并添加文件/文件夹。",
+  "processSyncListButton": "处理同步列表"
 }

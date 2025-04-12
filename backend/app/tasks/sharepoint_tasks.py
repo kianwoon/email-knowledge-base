@@ -1,7 +1,7 @@
 import logging
 import base64
 import asyncio
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import uuid
 
 from celery import Task
@@ -128,7 +128,7 @@ class SharePointProcessingTask(Task):
         return self._sharepoint_service
 
 async def _run_processing_logic(
-    task_instance: Task, 
+    task_instance: Task,
     db_session: Session,
     sp_service: SharePointService,
     items_to_process: List[Dict[str, Any]],
@@ -140,14 +140,14 @@ async def _run_processing_logic(
     processed_item_ids = set() # Track all processed IDs (files and folders)
     total_failed_discovery = 0
 
-    # --- Expand Folders to Files (Async) --- 
+    # --- Expand Folders to Files (Async) ---
     logger.info(f"Task {task_id}: Expanding folders...")
     folder_expansion_tasks = []
     for item in items_to_process:
         item_id = item['sharepoint_item_id']
         if item_id in processed_item_ids:
             continue
-            
+
         if item.get('item_type') == 'folder':
             logger.info(f"Task {task_id}: Queuing expansion for folder '{item.get('item_name')}' (ID: {item_id})")
             folder_expansion_tasks.append(
@@ -187,7 +187,7 @@ async def _run_processing_logic(
     total_processed_files = 0
     total_failed_files = total_failed_discovery # Start with discovery failures
     current_file_num = 0
-    
+
     for item_data_from_api in all_files_to_process: # Renamed for clarity
         current_file_num += 1
         # Get SharePoint IDs from the data passed to the task
@@ -195,114 +195,133 @@ async def _run_processing_logic(
         drive_id = item_data_from_api['sharepoint_drive_id']
         # Get the Database ID for status updates
         item_db_id = item_data_from_api.get('item_db_id') # Use .get() for safety
-        
-        item_status = 'processing' # Default status before processing
-        db_sync_item = None # Variable to hold the DB object
-        
-        # --- MODIFIED: Get corresponding DB item using item_db_id --- 
+
+        # item_status = 'processing' # Default status before processing <-- REMOVE, set below
+        db_sync_item: Optional[SharePointSyncItemDBModel] = None # Define type hint
+
+        # --- Fetch and update status to 'processing' ---
         if not item_db_id:
             logger.error(f"Task {task_id}: Missing item_db_id for SP ID {file_id}. Cannot update status.")
             total_failed_files += 1
             continue # Skip if we don't have the DB ID
-            
+
         try:
             # Fetch the DB item using its primary key
             db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
             if db_sync_item:
-                db_sync_item.status = item_status
+                db_sync_item.status = 'processing' # Set status
                 db_session.add(db_sync_item)
                 db_session.commit()
-                logger.debug(f"Task {task_id}: Set status to '{item_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
+                logger.debug(f"Task {task_id}: Set status to 'processing' for DB item ID {item_db_id} (SP ID: {file_id})")
             else:
                  logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status. Skipping item.")
                  total_failed_files += 1
                  continue # Skip processing if DB item not found
         except Exception as db_err:
-            logger.error(f"Task {task_id}: DB error updating status to '{item_status}' for DB ID {item_db_id}: {db_err}", exc_info=True)
+            logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True)
             db_session.rollback()
             total_failed_files += 1
             continue # Skip processing on DB error
-        # --- END MODIFIED --- 
+        # --- End status update to 'processing' ---
 
-        # --- Fetch full item details --- 
+        # --- Fetch full item details ---
         logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
         file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
-        
+
         if not file_details:
             logger.warning(f"Task {task_id}: Could not fetch details for file {file_id}. Skipping.")
             total_failed_files += 1
+            # +++ Update status to 'failed' if details fetch fails +++
+            if db_sync_item:
+                try:
+                    db_sync_item.status = 'failed'
+                    db_session.add(db_sync_item)
+                    db_session.commit()
+                    logger.info(f"Task {task_id}: Set status to 'failed' for DB item ID {item_db_id} (SP ID: {file_id}) due to detail fetch error.")
+                except Exception as db_err_fail:
+                    logger.error(f"Task {task_id}: DB error updating status to 'failed' for DB ID {item_db_id}: {db_err_fail}", exc_info=True)
+                    db_session.rollback()
+            # +++ End Update status to 'failed' +++
             continue
         # Convert Pydantic model back to dict for consistent access
-        file_info = file_details.model_dump() 
+        file_info = file_details.model_dump()
         file_name = file_info.get('name', 'Unknown Name') # Use name from fetched details
-        # --- ADDED DEBUG LOG --- 
         logger.debug(f"Task {task_id}: file_info dict before payload creation: {file_info}")
-        # --- END ADDED DEBUG LOG ---
-        # --- END ADDED ---
-        
+
+        # --- Update task progress ---
         progress_percent = 10 + int(80 * (current_file_num / total_files))
-        logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}") # Use fetched name
+        logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}")
         task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': progress_percent, 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
 
         try:
-            # Await file download
+            # 1. Download file
             file_content_bytes = await sp_service.download_file_content(drive_id=drive_id, item_id=file_id)
-
             if file_content_bytes is None:
-                logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping.")
-                total_failed_files += 1
-                continue
-            
-            encoded_content = base64.b64encode(file_content_bytes).decode('utf-8')
-            
-            # Use file_info which now contains full details
+                 logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping point creation, marking as failed.")
+                 # Mark as failed if download yields no content but no exception was raised
+                 raise ValueError("File content was None") # Raise an error to trigger the except block
+
+            # 2. Process content (Placeholder)
+            # vector = await embed_content(file_content_bytes, file_name) # Your embedding function
+            vector_size = 1536 # Example dimension, adjust to your model
+            vector = [0.1] * vector_size # Placeholder vector
+            logger.debug(f"Task {task_id}: Placeholder processing complete for {file_name}.")
+
+            # 3. Construct Qdrant payload
             payload = {
-                "file_name": file_name,
-                "sharepoint_id": file_id,
-                "drive_id": drive_id,
-                "item_type": "file",
-                "content_b64": encoded_content,
-                "analysis_status": "pending",
-                "web_url": file_info.get("web_url"),
-                "created_at": file_info.get("created_datetime"),
-                "last_modified_at": file_info.get("last_modified_datetime"),
-                "size_bytes": file_info.get("size"),
-                "mime_type": file_info.get("mime_type")
+                "source": "sharepoint",
+                "document_type": "file",
+                "sharepoint_item_id": file_id,
+                "sharepoint_drive_id": drive_id,
+                "name": file_info.get("name"),
+                "webUrl": file_info.get("webUrl"),
+                "createdDateTime": file_info.get("createdDateTime"),
+                "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
+                "size": file_info.get("size"),
+                "mimeType": file_info.get("file", {}).get("mimeType"),
             }
-            
-            # --- ADD DUMMY VECTOR --- 
-            # TODO: Replace with actual parsing and embedding generation
-            dummy_vector = [0.0] * settings.EMBEDDING_DIMENSION
-            # --- END DUMMY VECTOR --- 
-            
+            payload = {k: v for k, v in payload.items() if v is not None}
+
+            # 4. Create Qdrant point
+            qdrant_point_id = generate_qdrant_point_id(file_id)
             point = models.PointStruct(
-                id=generate_qdrant_point_id(file_id),
-                payload=payload,
-                vector=dummy_vector
+                id=qdrant_point_id,
+                vector=vector,
+                payload=payload
             )
             points_to_upsert.append(point)
             total_processed_files += 1
-            item_status = 'completed' # Set status to completed on success
 
-        except Exception as file_proc_err:
-            logger.error(f"Task {task_id}: Failed processing file {file_id} (DB ID: {item_db_id}): {file_proc_err}", exc_info=True)
+            # 5. Update status to 'completed' in DB (on success)
+            if db_sync_item:
+                try:
+                    db_sync_item.status = 'completed'
+                    db_session.add(db_sync_item)
+                    db_session.commit()
+                    logger.info(f"Task {task_id}: Set status to 'completed' for DB item ID {item_db_id} (SP ID: {file_id})")
+                except Exception as db_err_complete:
+                    logger.error(f"Task {task_id}: DB error updating status to 'completed' for DB ID {item_db_id}: {db_err_complete}", exc_info=True)
+                    db_session.rollback()
+                    total_failed_files += 1
+                    if total_processed_files > 0: # Ensure not negative
+                      total_processed_files -= 1
+
+        except Exception as e: # Catch errors from download, processing, or the explicit raise above
+            logger.error(f"Task {task_id}: Failed to process file '{file_name}' (ID: {file_id}): {e}", exc_info=True)
             total_failed_files += 1
-            item_status = 'failed' # Set status to failed on error
-            task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': progress_percent, 'status': f'Failed file {current_file_num}/{total_files}: {file_name[:30]}...'})
-        
-        # --- ADDED: Update final status in DB --- 
-        if db_sync_item: # Check if we have the DB object
-            try:
-                db_sync_item.status = item_status
-                db_session.add(db_sync_item)
-                db_session.commit()
-                logger.debug(f"Task {task_id}: Set final status to '{item_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
-            except Exception as db_err:
-                 logger.error(f"Task {task_id}: DB error updating final status to '{item_status}' for DB ID {item_db_id}: {db_err}", exc_info=True)
-                 db_session.rollback()
-                 # Note: The item might be partially processed but status update failed.
-        # --- END ADDED --- 
-            
+            # 6. Update status to 'failed' in DB (on error)
+            if db_sync_item:
+                try:
+                    # Avoid overwriting if status was already set to failed (e.g. detail fetch error)
+                    if db_sync_item.status != 'failed':
+                        db_sync_item.status = 'failed'
+                        db_session.add(db_sync_item)
+                        db_session.commit()
+                        logger.info(f"Task {task_id}: Set status to 'failed' for DB item ID {item_db_id} (SP ID: {file_id}) due to processing error.")
+                except Exception as db_err_fail:
+                    logger.error(f"Task {task_id}: DB error updating status to 'failed' for DB ID {item_db_id}: {db_err_fail}", exc_info=True)
+                    db_session.rollback()
+
     return total_processed_files, total_failed_files, points_to_upsert
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')

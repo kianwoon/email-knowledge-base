@@ -176,6 +176,12 @@ const SharePointPage: React.FC = () => {
   const syncPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // +++ End Sync List State +++
 
+  // +++ Add History State +++
+  const [historyItems, setHistoryItems] = useState<SharePointSyncItem[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  // +++ End History State +++
+
   const folderColor = useColorModeValue('blue.500', 'blue.300');
   const fileColor = useColorModeValue('gray.600', 'gray.400');
   const tableBg = useColorModeValue('white', 'gray.800'); // Assuming gray.800 is preferred
@@ -879,23 +885,55 @@ const formatFileSize = (bytes?: number): string => {
   // Dependencies need careful review based on actual implementation
   }, [sites, selectedLetterFilter, selectedSite, handleSiteSelect]);
 
+  // +++ Add History Fetch Function +++
+  const fetchHistory = useCallback(async () => {
+      console.log('[SP History] Fetching completed items...');
+      setIsLoadingHistory(true);
+      setHistoryError(null);
+      try {
+          // Ensure apiClient is correctly imported and configured
+          const response = await apiClient.get<SharePointSyncItem[]>('/sharepoint/sync-history');
+          setHistoryItems(response.data || []); // Default to empty array if data is null/undefined
+          console.log(`[SP History] Fetched ${response.data?.length || 0} items.`);
+      } catch (error: any) {
+          console.error('[SP History] Error fetching history:', error);
+          const errorMsg = error.response?.data?.detail || error.message || 'Failed to load history';
+          setHistoryError(errorMsg);
+          toast({
+              title: t('errors.errorLoadingHistory'), // Need translation key
+              description: errorMsg,
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+          });
+      } finally {
+          setIsLoadingHistory(false);
+      }
+  }, [t, toast, apiClient]); // Add apiClient if it's a dependency, adjust others as needed
+  // +++ End History Fetch Function +++
+
   // Main Return
   return (
     <Container maxW="container.xl" py={5}>
       <VStack spacing={5} align="stretch">
         <Heading size="lg" textAlign={{ base: 'center', md: 'left' }}>{t('sharepoint.title')}</Heading>
 
-        <Tabs variant="soft-rounded" colorScheme="blue">
+        <Tabs variant="soft-rounded" colorScheme="blue" isLazy onChange={(index) => {
+          if (index === 3) {
+            fetchHistory();
+          }
+        }}>
           <TabList mb="1em">
             <Tab>{t('sharepoint.tabs.browseSites')}</Tab>
             <Tab>{t('sharepoint.tabs.quickAccess')}</Tab>
             <Tab>{t('sharepoint.tabs.myRecent')}</Tab>
+            <Tab>{t('sharepoint.tabs.history')}</Tab>
           </TabList>
           <TabPanels>
             <TabPanel p={0}>
               <VStack spacing={6} align="stretch">
                 <Box>
-                  <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePrompt')}</Text>
+                <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePlaceholder')}</Text>
                   <AlphabetIndex 
                     selectedLetterFilter={selectedLetterFilter}
                     handleLetterFilterClick={handleLetterFilterClick}
@@ -1178,6 +1216,45 @@ const formatFileSize = (bytes?: number): string => {
             </TabPanel>
             <TabPanel p={0}>
               <MyRecentFilesList />
+            </TabPanel>
+            <TabPanel p={0}>
+              <VStack spacing={4} align="stretch">
+                  <Heading size="md">{t('sharepoint.history.title')}</Heading>
+                  {isLoadingHistory && <Center><Spinner /></Center>}
+                  {historyError && <Text color="red.500">{historyError}</Text>}
+                  {!isLoadingHistory && !historyError && (
+                      historyItems.length === 0
+                      ? (<Text>{t('sharepoint.history.empty')}</Text>)
+                      : (
+                          <Box overflowY="auto" maxHeight="400px">
+                              <Table variant="simple" size="sm" bg={tableBg}>
+                                  <Thead>
+                                      <Tr>
+                                          <Th>{t('common.name')}</Th>
+                                          <Th>{t('common.type')}</Th>
+                                      </Tr>
+                                  </Thead>
+                                  <Tbody>
+                                      {historyItems.map((item) => (
+                                          <Tr key={item.id} _hover={{ bg: hoverBg }}>
+                                              <Td>
+                                                  <HStack>
+                                                      <Icon
+                                                          as={item.item_type === 'folder' ? FaFolder : FaFile}
+                                                          color={item.item_type === 'folder' ? folderColor : fileColor}
+                                                      />
+                                                      <Text>{item.item_name}</Text>
+                                                  </HStack>
+                                              </Td>
+                                              <Td>{t(`sharepoint.itemType.${item.item_type}`)}</Td>
+                                          </Tr>
+                                      ))}
+                                  </Tbody>
+                              </Table>
+                          </Box>
+                      )
+                  )}
+              </VStack>
             </TabPanel>
           </TabPanels>
         </Tabs>
