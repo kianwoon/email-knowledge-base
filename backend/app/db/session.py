@@ -48,7 +48,7 @@ if DATABASE_URL is None:
 # Use check_same_thread=False only for SQLite
 engine_args = {
     "pool_pre_ping": True,
-    "pool_recycle": 3600,  # Recycle connections older than 1 hour
+    "pool_recycle": 1800,  # Recycle connections older than 30 minutes
 }
 if DATABASE_URL.startswith("sqlite"):
     engine_args["connect_args"] = {"check_same_thread": False}
