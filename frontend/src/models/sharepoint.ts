@@ -20,8 +20,8 @@ export interface SharePointItem {
     size?: number;
     createdDateTime?: string;
     lastModifiedDateTime?: string;
-    isFolder: boolean;
-    isFile: boolean;
+    is_folder: boolean;
+    is_file: boolean;
 }
 
 // --- New Interfaces for Insights ---
@@ -110,6 +110,27 @@ export interface RecentDriveItem {
 }
 
 // --- End Interfaces for /me/drive/recent ---
+
+// --- Interfaces for SharePoint Sync List Feature (Phase 1) ---
+
+export interface SharePointSyncItem {
+    id: number; // DB primary key
+    user_id: string; // Email of the user who added it
+    item_type: 'file' | 'folder'; // Type of the item
+    sharepoint_item_id: string; // ID from SharePoint
+    sharepoint_drive_id: string; // Drive ID from SharePoint
+    item_name: string; // Name of the item from SharePoint
+}
+
+// Used when adding an item (id and user_id are handled by backend)
+export interface SharePointSyncItemCreate {
+    item_type: 'file' | 'folder';
+    sharepoint_item_id: string;
+    sharepoint_drive_id: string;
+    item_name: string;
+}
+
+// --- End Sync List Interfaces ---
 
 // Placeholder for SharedInsight
 export interface SharedInsight {

@@ -25,7 +25,8 @@ from sqlalchemy.orm import Session
 # --- End Import ---
 
 # --- Import Celery Task --- 
-from app.tasks import process_user_emails
+# from app.tasks import process_user_emails # OLD Import
+from app.tasks.email_tasks import process_user_emails # NEW Import from correct module
 # --- End Import --- 
 
 router = APIRouter()

@@ -94,8 +94,22 @@ class SharePointService:
             response_data = await self._make_graph_request(items_url, params=params)
 
             if response_data and "value" in response_data:
-                items = [SharePointItem(**item) for item in response_data["value"]]
-                return items
+                processed_items = []
+                for item in response_data["value"]:
+                    # Refined logic: Check for folder facet existence
+                    item_data = item
+                    is_folder = item_data.get("folder") is not None
+                    is_file = not is_folder # If not a folder, it's a file
+                    # Create the SharePointItem with the determined flags
+                    try:
+                        processed_items.append(SharePointItem(
+                            **item, # Pass existing fields
+                            is_folder=is_folder, 
+                            is_file=is_file
+                        ))
+                    except ValidationError as e:
+                        logger.warning(f"Validation error processing drive item {item.get('id')}: {e}. Raw: {item}")
+                return processed_items # Return the processed list
             return []
         except Exception as e:
             logger.error(f"Error listing items in drive {drive_id} (item: {item_id}): {e}")
@@ -208,3 +222,31 @@ class SharePointService:
             logger.error(f"Unexpected error fetching from {graph_url}: {e}")
             raise HTTPException(status_code=500, detail=f"An unexpected error occurred while fetching OneDrive items: {e}")
     # --- End New Method --- 
+
+    async def search_drive(self, drive_id: str, query: str) -> List[SharePointItem]:
+        """Searches for items within a specific drive."""
+        search_url = f"{MS_GRAPH_ENDPOINT}/drives/{drive_id}/root/search(q='{query}')"
+        params = {"$select": "id,name,webUrl,createdDateTime,lastModifiedDateTime,size,file,folder,parentReference"}
+        try:
+            response_data = await self._make_graph_request(search_url, params=params)
+            if response_data and "value" in response_data:
+                processed_items = []
+                for item in response_data["value"]:
+                    # Refined logic: Check for folder facet existence
+                    item_data = item
+                    is_folder = item_data.get("folder") is not None
+                    is_file = not is_folder # If not a folder, it's a file
+                    # Create the SharePointItem with the determined flags
+                    try:
+                        processed_items.append(SharePointItem(
+                            **item, # Pass existing fields
+                            is_folder=is_folder, 
+                            is_file=is_file
+                        ))
+                    except ValidationError as e:
+                        logger.warning(f"Validation error processing search result item {item.get('id')}: {e}. Raw: {item}")
+                return processed_items # Return the processed list
+            return []
+        except Exception as e:
+            logger.error(f"Error searching drive {drive_id}: {e}")
+            return []

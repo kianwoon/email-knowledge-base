@@ -1,6 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Path
+from typing import List, Optional, Dict, Any
 import logging
+
+# --- Correct DB Session Dependency Import ---
+from sqlalchemy.orm import Session
+from app.db.session import get_db # Corrected path
+# --- End Correction ---
 
 from app.models.sharepoint import (
     SharePointSite,
@@ -10,8 +15,18 @@ from app.models.sharepoint import (
     UsedInsight,
     RecentDriveItem
 )
+# +++ Add SyncList Models +++
+from app.models.sharepoint_sync import SharePointSyncItem, SharePointSyncItemCreate 
+
 from app.models.user import User
 from app.models.tasks import TaskStatus, TaskType # Keep import for potential uncommenting
+# +++ Add CRUD imports +++
+from app.crud import crud_sharepoint_sync_item
+# from app.services.task_manager import TaskManager, get_task_manager # REMOVE TaskManager import
+from app.tasks.sharepoint_tasks import process_sharepoint_batch_task # Import the Celery task
+# +++ Add TaskStatusEnum +++
+from app.models.tasks import TaskStatusEnum
+
 from app.dependencies.auth import get_current_active_user_or_token_owner
 from app.services.sharepoint import SharePointService
 # Import TaskManager only if needed and uncommented
@@ -207,3 +222,144 @@ async def get_my_recent_files(
         logger.error(f"sharepoint.errors.fetchRecentUnexpected unexpected error retrieving recent items: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching recent items.")
 # --- End New Route --- 
+
+# +++ Sync List Routes +++
+
+@router.post(
+    "/sync-list/add",
+    response_model=SharePointSyncItem,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Item to Sync List",
+    description="Adds a SharePoint file or folder to the user's sync list."
+)
+async def add_sync_list_item(
+    item_data: SharePointSyncItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    logger.info(f"User {current_user.id} adding item {item_data.sharepoint_item_id} ('{item_data.item_name}') to sync list.")
+    
+    try:
+        # Directly call the add_item CRUD function
+        created_item = crud_sharepoint_sync_item.add_item(db=db, item_in=item_data, user_id=str(current_user.id))
+        
+        # add_item returns None if it already existed (due to IntegrityError)
+        if created_item is None:
+             logger.warning(f"Item {item_data.sharepoint_item_id} already in sync list for user {current_user.id}. Add request ignored.")
+             # Return HTTP 409 Conflict to indicate it wasn't newly created
+             raise HTTPException(
+                 status_code=status.HTTP_409_CONFLICT,
+                 detail=f"Item '{item_data.item_name}' already exists in the sync list."
+             )
+        
+        logger.info(f"Successfully added item {created_item.id} to sync list for user {current_user.id}.")
+        return created_item
+    except HTTPException as http_exc: # Re-raise specific HTTP exceptions (like the 409)
+        raise http_exc
+    except Exception as e: # Catch other potential errors from add_item
+        logger.error(f"Failed to add item {item_data.sharepoint_item_id} to sync list for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add item '{item_data.item_name}' to sync list due to an internal error."
+        )
+
+@router.delete(
+    "/sync-list/remove/{sharepoint_item_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Remove Item from Sync List",
+    description="Removes a specific item from the user's sync list using its SharePoint ID."
+)
+async def remove_sync_list_item(
+    sharepoint_item_id: str = Path(..., description="The SharePoint ID of the item to remove."),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    logger.info(f"User {current_user.id} requesting removal of item {sharepoint_item_id} from sync list.")
+    deleted_item = crud_sharepoint_sync_item.remove_item(
+        db=db, user_id=str(current_user.id), sharepoint_item_id=sharepoint_item_id
+    )
+    if deleted_item is None:
+        logger.warning(f"Item {sharepoint_item_id} not found in sync list for user {current_user.id} or removal failed.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found in sync list."
+        )
+    logger.info(f"Successfully removed item {sharepoint_item_id} from sync list for user {current_user.id}.")
+    return {"message": "Item removed successfully"}
+
+@router.get(
+    "/sync-list",
+    response_model=List[SharePointSyncItem],
+    summary="Get User Sync List",
+    description="Retrieves all items currently in the user's sync list."
+)
+async def get_sync_list(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    logger.info(f"Fetching sync list for user {current_user.id}")
+    items = crud_sharepoint_sync_item.get_sync_items_by_user(db=db, user_id=str(current_user.id))
+    return items
+
+@router.post(
+    "/sync-list/process",
+    response_model=TaskStatus,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Process User Sync List",
+    description="Initiates a background task to process all items in the user's sync list."
+)
+async def process_sync_list(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user_or_token_owner)
+):
+    user_id_str = str(current_user.id)
+    logger.info(f"User {user_id_str} initiating processing of sync list.")
+    
+    # 1. Get all items from the user's sync list
+    sync_items = crud_sharepoint_sync_item.get_sync_items_by_user(db=db, user_id=user_id_str)
+    if not sync_items:
+        logger.warning(f"Sync list is empty for user {user_id_str}. Nothing to process.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sync list is empty. Add items before processing."
+        )
+        
+    # 2. Prepare items for the Celery task (list of dictionaries)
+    items_to_process = [
+        {
+            "sharepoint_item_id": item.sharepoint_item_id,
+            "item_type": item.item_type,
+            "sharepoint_drive_id": item.sharepoint_drive_id,
+            "item_name": item.item_name
+        }
+        for item in sync_items
+    ]
+
+    # 3. Submit the task directly using Celery
+    try:
+        task_result = process_sharepoint_batch_task.delay(
+            items_to_process=items_to_process, 
+            user_email=current_user.email
+        )
+        task_id = task_result.id
+        logger.info(f"Submitted SharePoint batch processing task {task_id} for user {user_id_str}.")
+        
+        # 4. Optionally clear the sync list after successful submission
+        try:
+            crud_sharepoint_sync_item.remove_all_sync_items_for_user(db=db, user_id=user_id_str)
+            logger.info(f"Cleared sync list for user {user_id_str} after task submission.")
+        except Exception as clear_err:
+             logger.error(f"Failed to clear sync list for user {user_id_str} after task submission: {clear_err}", exc_info=True)
+             # Decide if this should cause the request to fail or just log a warning
+
+        # 5. Return an initial TaskStatus object
+        return TaskStatus(task_id=task_id, status=TaskStatusEnum.PENDING, message="Sync task submitted.") 
+
+    except Exception as e:
+        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_id_str}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate sync list processing."
+        )
+
+# +++ End Sync List Routes +++ 

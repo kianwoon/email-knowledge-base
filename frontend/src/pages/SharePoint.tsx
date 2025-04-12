@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Container,
@@ -33,39 +33,28 @@ import {
   SimpleGrid,
   Tabs, TabList, TabPanels, Tab, TabPanel
 } from '@chakra-ui/react';
-import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown } from 'react-icons/fa';
+import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown, FaCheckCircle, FaPlusCircle } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import apiClient from '../api/apiClient'; // Changed to default import
 import { getTaskStatus } from '../api/tasks'; // Import task API
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks'; // Import enum and interface
 import QuickAccessList from '../components/QuickAccessList'; // <-- Import the new component
 import MyRecentFilesList from '../components/MyRecentFilesList'; // Import the new component
+import SyncListComponent from '../components/SyncListComponent'; // <-- Import the new component
+import {
+  SharePointSite, 
+  SharePointDrive, 
+  SharePointItem, 
+  SharePointSyncItem, 
+  SharePointSyncItemCreate,
+  RecentDriveItem,
+  UsedInsight
+} from '../models/sharepoint';
 
-// Interfaces matching backend models
-interface SharePointSite {
-  id: string;
-  name?: string; // Made optional as per backend model
-  displayName: string;
-  webUrl: string;
-}
-
-interface SharePointDrive {
-  id: string;
-  name?: string; // Made optional as per backend model
-  driveType?: string; // Made optional as per backend model
-  webUrl: string;
-}
-
-interface SharePointItem {
-  id: string;
-  name?: string; // Made optional as per backend model
-  webUrl: string;
-  size?: number;
-  createdDateTime?: string;
-  lastModifiedDateTime?: string;
-  isFolder: boolean;
-  isFile: boolean;
-}
+// Define allowed file extensions (lowercase)
+const ALLOWED_FILE_EXTENSIONS = [
+  '.docx', '.pdf', '.pptx', '.txt', '.xlsx', '.doc', '.ppt', '.xls', '.csv'
+];
 
 // Skeleton Loader for Table
 const ItemTableSkeleton = () => (
@@ -106,6 +95,42 @@ type BrowseSortableColumns = 'name' | 'lastModifiedDateTime' | 'size'; // Adjust
 type BrowseSortDirection = 'asc' | 'desc';
 // +++ End Sorting Types +++
 
+// --- A-Z Index Component ---
+const AlphabetIndex = ({ 
+    selectedLetterFilter, 
+    handleLetterFilterClick, 
+    availableLetters, 
+    t 
+}: {
+    selectedLetterFilter: string | null;
+    handleLetterFilterClick: (letter: string | null) => void;
+    availableLetters: string[];
+    t: (key: string) => string;
+}) => (
+    <HStack spacing={1} wrap="wrap" justify="center" mb={4}>
+      <Button 
+          size="xs" 
+          variant={selectedLetterFilter === null ? 'solid' : 'ghost'}
+          colorScheme="blue"
+          onClick={() => handleLetterFilterClick(null)}
+          aria-label={t('common.all')} 
+      >
+          {t('common.all')}
+      </Button>
+      {availableLetters.map(letter => (
+          <Button 
+              key={letter} 
+              size="xs" 
+              variant={selectedLetterFilter === letter ? 'solid' : 'ghost'}
+              onClick={() => handleLetterFilterClick(letter)}
+              aria-label={`${t('common.filterBy')} ${letter}`}
+          >
+              {letter}
+          </Button>
+      ))}
+    </HStack>
+);
+
 const SharePointPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -140,25 +165,38 @@ const SharePointPage: React.FC = () => {
   // Add state for A-Z filter
   const [selectedLetterFilter, setSelectedLetterFilter] = useState<string | null>(null);
 
+  // +++ State for Sync List Feature (MOVED HERE) +++
+  const [syncList, setSyncList] = useState<SharePointSyncItem[]>([]);
+  const [isSyncListLoading, setIsSyncListLoading] = useState(false);
+  const [syncListError, setSyncListError] = useState<string | null>(null);
+  const [processingTaskId, setProcessingTaskId] = useState<string | null>(null);
+  const [processingTaskStatus, setProcessingTaskStatus] = useState<TaskStatusInterface | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false); // Tracks if the *submission* is happening or polling is active
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const syncPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // +++ End Sync List State +++
+
   const folderColor = useColorModeValue('blue.500', 'blue.300');
   const fileColor = useColorModeValue('gray.600', 'gray.400');
   const tableBg = useColorModeValue('white', 'gray.800'); // Assuming gray.800 is preferred
   const hoverBg = useColorModeValue('gray.50', 'whiteAlpha.100');
+  const scrollbarThumbBg = useColorModeValue('gray.300', 'gray.600'); // Moved from JSX
+  const searchInputBg = useColorModeValue('white', 'gray.700'); // Moved from JSX
 
-  // --- Define polling functions FIRST --- 
-  const stopPolling = useCallback(() => {
+  // --- Legacy Polling Functions (Renamed for Clarity) --- 
+  const stopDownloadPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
-      console.log('[SP Polling] Stopping polling interval.');
+      console.log('[SP Download Polling] Stopping polling interval.');
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
   }, []);
 
-  const pollTaskStatus = useCallback(async (taskId: string) => {
-    console.log(`[SP Polling] Checking status for task ${taskId}...`);
+  const pollDownloadTaskStatus = useCallback(async (taskId: string) => {
+    console.log(`[SP Download Polling] Checking status for task ${taskId}...`);
     try {
       const statusResult: TaskStatusInterface = await getTaskStatus(taskId);
-      console.log(`[SP Polling] Status received:`, statusResult);
+      console.log(`[SP Download Polling] Status received:`, statusResult);
       
       setTaskStatus(statusResult.status);
       setTaskProgress(statusResult.progress ?? taskProgress);
@@ -166,8 +204,8 @@ const SharePointPage: React.FC = () => {
 
       const finalStates: string[] = [TaskStatusEnum.COMPLETED, TaskStatusEnum.FAILED, 'SUCCESS', 'FAILURE'];
       if (finalStates.includes(statusResult.status)) {
-        console.log(`[SP Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping polling.`);
-        stopPolling();
+        console.log(`[SP Download Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping polling.`);
+        stopDownloadPolling();
         setIsDownloadTaskRunning(false); 
         setActiveTaskId(null); 
         
@@ -181,28 +219,95 @@ const SharePointPage: React.FC = () => {
         });
       }
     } catch (error: any) {
-      console.error(`[SP Polling] Error fetching status for task ${taskId}:`, error);
+      console.error(`[SP Download Polling] Error fetching status for task ${taskId}:`, error);
       setTaskStatus(TaskStatusEnum.POLLING_ERROR);
       setTaskDetails(`Error polling status: ${error.message}`);
-      stopPolling(); 
+      stopDownloadPolling(); 
       setIsDownloadTaskRunning(false); 
       setActiveTaskId(null);
        toast({ title: t('errors.errorPollingStatus'), description: error.message, status: 'error', duration: 7000 });
     }
-  }, [stopPolling, toast, t, taskProgress]);
+  }, [stopDownloadPolling, toast, t, taskProgress]); // Removed getTaskStatus from here, it's stable
 
-  const startPolling = useCallback((taskId: string) => {
-    stopPolling(); 
-    console.log(`[SP Polling] Starting polling for task ${taskId}...`);
+  const startDownloadPolling = useCallback((taskId: string) => {
+    stopDownloadPolling(); 
+    console.log(`[SP Download Polling] Starting polling for task ${taskId}...`);
     setActiveTaskId(taskId);
     setIsDownloadTaskRunning(true);
     setTaskStatus(TaskStatusEnum.PENDING);
     setTaskProgress(0);
     setTaskDetails('Task submitted, waiting for worker...');
-    pollTaskStatus(taskId);
-    pollingIntervalRef.current = setInterval(() => pollTaskStatus(taskId), 3000); 
-  }, [stopPolling, pollTaskStatus]);
-  // --- End Polling Functions --- 
+    pollDownloadTaskStatus(taskId);
+    pollingIntervalRef.current = setInterval(() => pollDownloadTaskStatus(taskId), 3000); 
+  }, [stopDownloadPolling, pollDownloadTaskStatus]);
+  // --- End Download Polling Functions --- 
+
+  // --- NEW SYNC POLLING FUNCTIONS --- 
+  const stopSyncPolling = useCallback(() => {
+    if (syncPollingIntervalRef.current) {
+      console.log('[SP Sync Polling] Stopping polling.');
+      clearInterval(syncPollingIntervalRef.current);
+      syncPollingIntervalRef.current = null;
+    }
+  }, []);
+
+  const pollSyncTaskStatus = useCallback(async (taskId: string) => {
+    if (!taskId) return;
+    console.log(`[SP Sync Polling] Checking status for task ${taskId}...`);
+    try {
+      // Use the imported getTaskStatus function
+      const statusResult: TaskStatusInterface = await getTaskStatus(taskId); 
+      console.log('[SP Sync Polling] Status received:', statusResult);
+      setProcessingTaskStatus(statusResult);
+      setProcessingError(null);
+      
+      // Check if the task has reached a final state
+      const finalStates: string[] = [
+        TaskStatusEnum.COMPLETED, 
+        TaskStatusEnum.FAILED, 
+        'SUCCESS', // Include potentially legacy statuses 
+        'FAILURE' 
+      ];
+      if (finalStates.includes(statusResult.status)) {
+        console.log(`[SP Sync Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping.`);
+        stopSyncPolling();
+        setIsProcessing(false); // Polling finished, processing is no longer active
+        // Keep processingTaskId for potential display or retry?
+        // setProcessingTaskId(null); // Optional: Clear task ID once finished
+        
+        const isSuccess = statusResult.status === TaskStatusEnum.COMPLETED || statusResult.status === 'SUCCESS';
+        // Check for partial failure based on backend message/result if status is FAILED
+        const isPartial = statusResult.status === TaskStatusEnum.FAILED && statusResult.result && typeof statusResult.result === 'object'; 
+        let toastStatus: 'success' | 'error' | 'warning' = isSuccess ? 'success' : (isPartial ? 'warning' : 'error');
+        let toastTitle = isSuccess ? t('sharepoint.syncCompleteTitle') : (isPartial ? t('sharepoint.syncPartialFailureTitle') : t('sharepoint.syncFailedTitle'));
+        let toastDescription = statusResult.message || statusResult.result?.message || (isSuccess ? t('sharepoint.syncCompleteDesc') : (isPartial ? t('sharepoint.syncPartialFailureDesc') : t('sharepoint.syncFailedDesc')));
+
+        toast({ title: toastTitle, description: toastDescription, status: toastStatus, duration: 9000, isClosable: true });
+      }
+    } catch (error: any) {
+      console.error(`[SP Sync Polling] Error fetching status for task ${taskId}:`, error);
+      const errorMsg = `Polling failed: ${error.message}`;
+      setProcessingError(errorMsg);
+      // Update status to reflect polling error, keeping existing data if possible
+      setProcessingTaskStatus(prev => prev ? { ...prev, status: TaskStatusEnum.POLLING_ERROR } : { task_id: taskId, status: TaskStatusEnum.POLLING_ERROR, progress: null, message: errorMsg });
+      stopSyncPolling();
+      setIsProcessing(false); // Polling stopped due to error
+      toast({ title: t('errors.errorPollingStatus'), description: error.message, status: 'error' });
+    }
+  }, [stopSyncPolling, t, toast, setProcessingTaskStatus, setProcessingError, setIsProcessing]); // Add dependencies
+
+  const startSyncPolling = useCallback((taskId: string) => {
+    stopSyncPolling(); // Ensure any previous polling is stopped
+    console.log(`[SP Sync Polling] Starting polling for task ${taskId}...`);
+    setProcessingTaskId(taskId);
+    setIsProcessing(true); // Mark processing as active during polling
+    setProcessingError(null);
+    // Set initial status while waiting for the first poll result
+    setProcessingTaskStatus({ task_id: taskId, status: TaskStatusEnum.PENDING, progress: 0, message: 'Sync task submitted, starting...' }); 
+    pollSyncTaskStatus(taskId); // Poll immediately
+    syncPollingIntervalRef.current = setInterval(() => pollSyncTaskStatus(taskId), 5000); // Poll every 5 seconds
+  }, [stopSyncPolling, pollSyncTaskStatus, setProcessingTaskId, setIsProcessing, setProcessingError, setProcessingTaskStatus]);
+  // --- END NEW SYNC POLLING FUNCTIONS ---
 
   // Data Fetching Callbacks
   const fetchSites = useCallback(async () => {
@@ -217,6 +322,12 @@ const SharePointPage: React.FC = () => {
     setCurrentBreadcrumbs([]);
     setSearchQuery('');
     setSearchPerformed(false);
+    stopDownloadPolling(); // Use renamed function
+    setIsDownloadTaskRunning(false);
+    setActiveTaskId(null);
+    setTaskStatus(null);
+    setTaskProgress(null);
+    setTaskDetails(null);
     try {
       const response = await apiClient.get('/sharepoint/sites');
       setSites(response.data || []);
@@ -227,7 +338,7 @@ const SharePointPage: React.FC = () => {
     } finally {
       setIsLoadingSites(false);
     }
-  }, [t, toast]);
+  }, [t, toast, stopDownloadPolling]);
 
   const fetchDrives = useCallback(async (siteId: string) => {
     if (!siteId) return;
@@ -268,7 +379,15 @@ const SharePointPage: React.FC = () => {
         // Pass item_id query parameter if provided
         params: itemId ? { item_id: itemId } : {},
       });
-      setItems(response.data || []);
+      const fetchedItems = response.data || []; // Store data
+      // ADD THIS LOG: Check the keys of the first file-like item found
+      const firstFile = fetchedItems.find((item: any) => item.name?.includes('.')); // Heuristic to find a file
+      if (firstFile) {
+          console.log('[SP Page] Keys of first fetched file-like item:', Object.keys(firstFile));
+      } else {
+          console.log('[SP Page] No file-like items found in fetchItems response to check keys.');
+      }
+      setItems(fetchedItems);
       // currentBreadcrumbs is updated by the click handlers, not here directly
       console.log(`[SP Page] Fetched ${response.data?.length || 0} items for parent folder ID '${parentFolderId}'.`);
     } catch (error: any) {
@@ -322,14 +441,14 @@ const SharePointPage: React.FC = () => {
     setCurrentBreadcrumbs([]);
     setSearchQuery('');
     setSearchPerformed(false);
-    stopPolling(); 
+    stopDownloadPolling(); 
     setIsDownloadTaskRunning(false);
     setActiveTaskId(null);
     setTaskStatus(null);
     setTaskProgress(null);
     setTaskDetails(null);
     fetchDrives(siteId);
-  }, [fetchDrives, isLoadingSites, isLoadingDrives, selectedSite, stopPolling]);
+  }, [fetchDrives, isLoadingSites, isLoadingDrives, selectedSite, stopDownloadPolling]);
 
   const handleLetterFilterClick = (letter: string | null) => {
       setSelectedLetterFilter(letter);
@@ -353,7 +472,7 @@ const SharePointPage: React.FC = () => {
 
   const handleItemClick = useCallback((item: SharePointItem) => {
     if (isLoadingItems || isSearching) return; 
-    if (item.isFolder) {
+    if (item.is_folder) {
       console.log(`[SP Page] Folder clicked: ${item.name} (ID: ${item.id})`);
       fetchItems(selectedDrive, item.id); // Fetch items for the clicked folder
       // Add clicked folder to breadcrumbs
@@ -375,7 +494,6 @@ const SharePointPage: React.FC = () => {
     const newBreadcrumbs = currentBreadcrumbs.slice(0, index + 1);
     setCurrentBreadcrumbs(newBreadcrumbs);
     // Reset sorting when navigating folders
-    setBrowseSortBy('name');
     setBrowseSortDirection('asc');
   }, [fetchItems, isLoadingItems, isSearching, selectedDrive, currentBreadcrumbs]);
 
@@ -386,7 +504,7 @@ const SharePointPage: React.FC = () => {
   };
 
   const handleDownloadClick = useCallback(async (item: SharePointItem) => {
-    if (!item.isFile || !selectedDrive) return;
+    if (!item.is_file || !selectedDrive) return;
     console.log(`[SP Page] Download & Process clicked for item: ${item.name} (ID: ${item.id})`);
     
     // Prevent multiple concurrent downloads for simplicity
@@ -410,7 +528,7 @@ const SharePointPage: React.FC = () => {
         if (response.data && response.data.task_id) {
           toast({ title: t('sharepoint.downloadStartedTitle'), description: `${t('sharepoint.downloadStartedDesc')} ${item.name}. Task ID: ${response.data.task_id}`, status: 'info', duration: 5000 });
           // Start polling for the submitted task
-          startPolling(response.data.task_id);
+          startDownloadPolling(response.data.task_id); // Use renamed function
         } else {
           throw new Error("Invalid response received when submitting download task.");
         }
@@ -425,7 +543,7 @@ const SharePointPage: React.FC = () => {
         setTaskDetails(null);
     } 
     // Note: setIsDownloadTaskRunning(false) is NOT called here on success, polling handles it.
-  }, [selectedDrive, isDownloadTaskRunning, t, toast, startPolling]);
+  }, [selectedDrive, isDownloadTaskRunning, t, toast, startDownloadPolling]);
 
   // Filtering and Sorting Sites for Display
   const sortedSites = React.useMemo(() => {
@@ -449,32 +567,6 @@ const SharePointPage: React.FC = () => {
 
   // Combined Loading State
   const isAnythingLoading = isLoadingSites || isLoadingDrives || isLoadingItems || isSearching;
-
-  // --- A-Z Index Component ---
-  const AlphabetIndex = () => (
-      <HStack spacing={1} wrap="wrap" justify="center" mb={4}>
-        <Button 
-            size="xs" 
-            variant={selectedLetterFilter === null ? 'solid' : 'ghost'}
-            colorScheme="blue"
-            onClick={() => handleLetterFilterClick(null)}
-            aria-label={t('common.all')} 
-        >
-            {t('common.all')}
-        </Button>
-        {availableLetters.map(letter => (
-            <Button 
-                key={letter} 
-                size="xs" 
-                variant={selectedLetterFilter === letter ? 'solid' : 'ghost'}
-                onClick={() => handleLetterFilterClick(letter)}
-                aria-label={`${t('common.filterBy')} ${letter}`}
-            >
-                {letter}
-            </Button>
-        ))}
-      </HStack>
-  );
 
   // --- Helper Functions (Moved outside component) ---
 
@@ -584,7 +676,7 @@ const formatFileSize = (bytes?: number): string => {
   };
   // +++ End Sort Icon Helper +++
 
-  // +++ Create Memoized Sorted Items List +++
+  // --- Sorting logic ---
   const sortedAndFilteredItems = useMemo(() => {
     let processedItems = [...items]; // Start with the current items
 
@@ -612,8 +704,8 @@ const formatFileSize = (bytes?: number): string => {
          const strB = String(bValue);
          // Prioritize folders when sorting by name
          if (browseSortBy === 'name') {
-             if (a.isFolder && !b.isFolder) return -1;
-             if (!a.isFolder && b.isFolder) return 1;
+             if (a.is_folder && !b.is_folder) return -1;
+             if (!a.is_folder && b.is_folder) return 1;
          }
          comparison = strA.localeCompare(strB);
       }
@@ -622,7 +714,7 @@ const formatFileSize = (bytes?: number): string => {
     });
 
     return processedItems;
-  }, [items, browseSortBy, browseSortDirection]);
+  }, [items, browseSortBy, browseSortDirection, selectedLetterFilter]);
   // +++ End Memoized List +++
 
   // Effects
@@ -643,14 +735,135 @@ const formatFileSize = (bytes?: number): string => {
   }, [isLoadingDrives, drives, selectedSite, selectedDrive, fetchItems]); 
 
   useEffect(() => {
-    // Cleanup polling interval on unmount
-    return () => stopPolling();
-  }, [stopPolling]);
+    // Cleanup polling intervals on unmount
+    return () => {
+        stopDownloadPolling(); // Use renamed function
+        stopSyncPolling();     // Add sync polling cleanup
+    }
+  }, [stopDownloadPolling, stopSyncPolling]); // Add dependencies
+
+  // +++ SYNC LIST HANDLERS +++ (AFTER POLLING FUNCTIONS)
+  const handleAddSyncItem = useCallback(async (item: SharePointItem) => {
+    if (!selectedDrive) {
+      console.error("[SP Page] Cannot add item: No drive selected.");
+      toast({ title: t('errors.error'), description: t('sharepoint.errors.noDriveSelected'), status: 'warning' });
+      return;
+    }
+    if (syncList.some(syncItem => syncItem.sharepoint_item_id === item.id)) {
+        toast({ title: t('sharepoint.alreadyInSyncList'), status: 'info', duration: 2000});
+        return;
+    }
+    const itemData: SharePointSyncItemCreate = {
+      item_type: item.is_folder ? 'folder' : 'file',
+      sharepoint_item_id: item.id,
+      sharepoint_drive_id: selectedDrive,
+      item_name: item.name || 'Unnamed Item'
+    };
+    try {
+      console.log(`[SP Page] Adding item ${item.id} to sync list...`);
+      const addedItem = await apiClient.post('/sharepoint/sync-list/add', itemData).then(res => res.data);
+      setSyncList(prev => [...prev.filter(i => i.sharepoint_item_id !== item.id), addedItem]);
+      toast({ title: t('sharepoint.itemAddedToSync', { name: item.name }), status: 'success', duration: 2000 });
+    } catch (error: any) {
+      console.error(`[SP Page] Error adding item ${item.id} to sync list:`, error);
+      toast({ title: t('errors.errorAddingItem'), description: error.response?.data?.detail || error.message || t('errors.unknown'), status: 'error' });
+    }
+  }, [selectedDrive, t, toast, syncList, apiClient, setSyncList]);
+
+  const handleRemoveSyncItem = useCallback(async (sharepointItemId: string) => {
+    const itemToRemove = syncList.find(i => i.sharepoint_item_id === sharepointItemId);
+    if (!itemToRemove) return;
+    try {
+      console.log(`[SP Page] Removing item ${sharepointItemId} from sync list...`);
+      await apiClient.delete(`/sharepoint/sync-list/remove/${sharepointItemId}`);
+      setSyncList(prev => prev.filter(i => i.sharepoint_item_id !== sharepointItemId));
+      toast({ title: t('sharepoint.itemRemovedFromSync', { name: itemToRemove.item_name }), status: 'info', duration: 2000 });
+    } catch (error: any) {
+      console.error(`[SP Page] Error removing item ${sharepointItemId}:`, error);
+      toast({ title: t('errors.errorRemovingItem'), description: error.response?.data?.detail || error.message || t('errors.unknown'), status: 'error' });
+    }
+  }, [syncList, t, toast, apiClient, setSyncList]);
+
+  const handleProcessSyncList = useCallback(async () => {
+    if (syncList.length === 0) {
+      toast({ title: t('sharepoint.syncListEmptyTitle'), description: t('sharepoint.syncListEmptyDesc'), status: 'warning' });
+      return;
+    }
+    if (isProcessing) {
+       toast({ title: t('sharepoint.syncAlreadyInProgress'), status: 'info' });
+       return;
+    }
+    console.log("[SP Page] Initiating sync list processing...");
+    setIsProcessing(true);
+    setProcessingError(null);
+    setProcessingTaskStatus(null);
+    setProcessingTaskId(null); 
+    try {
+      const result = await apiClient.post('/sharepoint/sync-list/process').then(res => res.data);
+      const newTaskId = result.task_id;
+      setProcessingTaskId(newTaskId);
+      setSyncList([]); 
+      // Remove initial status set here, startSyncPolling will handle it
+      // setProcessingTaskStatus({ task_id: newTaskId, status: TaskStatusEnum.SUBMITTING }); 
+      toast({ title: t('sharepoint.syncProcessStartedTitle'), description: t('sharepoint.syncProcessStartedDesc', { taskId: newTaskId }), status: 'info' });
+      startSyncPolling(newTaskId); // Start polling the sync task
+    } catch (error: any) {
+      console.error("[SP Page] Error submitting sync list for processing:", error);
+      const errorMsg = error.response?.data?.detail || error.message || t('sharepoint.errors.processSyncListError');
+      setProcessingError(errorMsg);
+      setIsProcessing(false);
+      setProcessingTaskStatus({ task_id: 'error', status: TaskStatusEnum.FAILED_SUBMISSION });
+      toast({ title: t('errors.error'), description: errorMsg, status: 'error' });
+    }
+    // Dependencies include polling functions which are now defined above
+  }, [syncList, isProcessing, t, toast, startSyncPolling, apiClient, setSyncList, setIsProcessing, setProcessingError, setProcessingTaskStatus, setProcessingTaskId]); // Removed stop/poll from here, use startSyncPolling
+  // +++ END SYNC LIST HANDLERS +++
+
+  // +++ ADD BACK Helper Function for Action Button +++
+  const renderSyncActionButton = (item: SharePointItem, syncList: SharePointSyncItem[], isProcessing: boolean, handleAddSyncItem: (item: SharePointItem) => void, t: (key: string) => string) => {
+    // Check if the current item is in the sync list
+    const isInSyncList = syncList.some((syncItem: SharePointSyncItem) => syncItem.sharepoint_item_id === item.id);
+
+    let canAddItem = false;
+    if (item.is_folder) {
+        // Always allow adding folders
+        canAddItem = true;
+    } else if (item.is_file && item.name) {
+        // Check file extension if it's a file
+        const fileNameLower = item.name.toLowerCase();
+        const lastDotIndex = fileNameLower.lastIndexOf('.');
+        if (lastDotIndex !== -1) { // Ensure there is an extension
+          const fileExtension = fileNameLower.substring(lastDotIndex);
+          if (ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
+              canAddItem = true;
+          }
+        } 
+    }
+
+    // Render button only if the item type is allowed
+    if (canAddItem) {
+      return (
+        <IconButton
+          aria-label={isInSyncList ? t('sharepoint.alreadyInSyncList') : t('sharepoint.addToSyncList')}
+          icon={isInSyncList ? <FaCheckCircle color="green"/> : <FaPlusCircle />}
+          size="sm"
+          variant="ghost"
+          color={isInSyncList ? "green.500" : "blue.500"} 
+          onClick={() => !isInSyncList && handleAddSyncItem(item)} 
+          isDisabled={isProcessing || isInSyncList} 
+          title={isInSyncList ? t('sharepoint.alreadyInSyncList') : t('sharepoint.addToSyncList')}
+        />
+      );
+    } 
+
+    return null; // Don't render button for unsupported file types
+  };
+  // +++ END Helper Function +++
 
   // Main Return
   return (
-    <Container maxW="1400px" py={4}>
-      <VStack spacing={6} align="stretch">
+    <Container maxW="container.xl" py={5}>
+      <VStack spacing={5} align="stretch">
         <Heading size="lg" textAlign={{ base: 'center', md: 'left' }}>{t('sharepoint.title')}</Heading>
 
         <Tabs variant="soft-rounded" colorScheme="blue">
@@ -664,7 +877,12 @@ const formatFileSize = (bytes?: number): string => {
               <VStack spacing={6} align="stretch">
                 <Box>
                   <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePrompt')}</Text>
-                  <AlphabetIndex />
+                  <AlphabetIndex 
+                    selectedLetterFilter={selectedLetterFilter}
+                    handleLetterFilterClick={handleLetterFilterClick}
+                    availableLetters={availableLetters}
+                    t={t}
+                  />
                   {isLoadingSites ? (
                       <HStack overflowX="auto" py={2} spacing={4}>
                           {[...Array(8)].map((_, i) => <Card key={i} minW="180px"><Skeleton height="80px" /></Card>)}
@@ -681,7 +899,7 @@ const formatFileSize = (bytes?: number): string => {
                                       height: '8px',
                                   },
                                   '&::-webkit-scrollbar-thumb': {
-                                      background: useColorModeValue('gray.300', 'gray.600'),
+                                      background: scrollbarThumbBg,
                                       borderRadius: '8px',
                                   },
                                   'scrollbarWidth': 'thin'
@@ -782,7 +1000,7 @@ const formatFileSize = (bytes?: number): string => {
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={handleSearchKeyDown}
-                                bg={useColorModeValue('white', 'gray.700')}
+                                bg={searchInputBg}
                                 pr="3rem"
                                 isDisabled={isAnythingLoading || !selectedDrive}
                             />
@@ -867,78 +1085,65 @@ const formatFileSize = (bytes?: number): string => {
                             borderRadius="md"
                             borderWidth="1px"
                         >
-                           {isLoadingItems ? (
+                           {isLoadingItems || isSearching ? (
                                <ItemTableSkeleton />
-                           ) : sortedAndFilteredItems.length > 0 ? ( // <-- Use sorted list
-                               <Table variant="simple" size="sm"> {/* Use sm size */}
-                                 <Thead>
-                                   <Tr>
-                                     {/* Make headers sortable */}
-                                     <Th cursor="pointer" onClick={() => handleBrowseSort('name')}>
-                                        <HStack spacing={1}>{t('sharepoint.name')} <BrowseSortIcon column="name" /></HStack>
-                                     </Th>
-                                     <Th cursor="pointer" onClick={() => handleBrowseSort('lastModifiedDateTime')}>
-                                        <HStack spacing={1}>{t('sharepoint.modified')} <BrowseSortIcon column="lastModifiedDateTime" /></HStack>
-                                     </Th>
-                                     <Th cursor="pointer" onClick={() => handleBrowseSort('size')} isNumeric>
-                                        <HStack spacing={1} justify="flex-end">{t('sharepoint.size')} <BrowseSortIcon column="size" /></HStack>
-                                     </Th>
-                                     <Th>{t('sharepoint.actions')}</Th>
-                                   </Tr>
-                                 </Thead>
-                                 <Tbody>
-                                   {/* Map over sorted list */} 
-                                   {sortedAndFilteredItems.map((item) => (
-                                     <Tr key={item.id} _hover={{ bg: hoverBg }}> {/* Use consistent hover */}
-                                       <Td py={2}> {/* Use consistent padding */} 
-                                         <HStack spacing={2} alignItems="center">
-                                           <Icon 
-                                             as={item.isFolder ? FaFolder : FaFile} 
-                                             color={item.isFolder ? folderColor : fileColor} 
-                                             flexShrink={0}
-                                             boxSize="1.2em"
-                                           />
-                                           <Text 
-                                             as={item.isFolder ? 'button' : 'span'}
-                                             onClick={item.isFolder ? () => handleItemClick(item) : undefined}
-                                             cursor={item.isFolder ? 'pointer' : 'default'}
-                                             _hover={item.isFolder ? { textDecoration: 'underline' } : {}}
-                                             fontSize="sm" // Use sm size
-                                             title={item.name || 'Unnamed Item'}
-                                             maxWidth="500px" 
-                                             overflow="hidden"
-                                             textOverflow="ellipsis"
-                                             whiteSpace="nowrap"
-                                           >
-                                             {item.name || 'Unnamed Item'}
-                                           </Text>
-                                         </HStack>
-                                       </Td>
-                                       <Td whiteSpace="nowrap" py={2} fontSize="sm">{formatDateTime(item.lastModifiedDateTime)}</Td> {/* Use sm size */}
-                                       <Td whiteSpace="nowrap" py={2} isNumeric fontSize="sm">{formatFileSize(item.size)}</Td> {/* Use sm size */}
-                                       <Td py={2}>
-                                         {item.isFile && (
-                                           <IconButton
-                                             icon={<Icon as={FaCloudDownloadAlt} />} 
-                                             aria-label={t('sharepoint.downloadFile')}
-                                             size="xs"
-                                             variant="ghost"
-                                             onClick={() => handleDownloadClick(item)}
-                                             isDisabled={isDownloadTaskRunning} 
-                                             title={isDownloadTaskRunning ? t('sharepoint.downloadTaskRunningDesc') : t('sharepoint.downloadFile')}
-                                           />
-                                         )}
-                                       </Td>
-                                     </Tr>
-                                   ))}
-                                 </Tbody>
-                               </Table>
                            ) : (
-                             <Center py={8} minHeight="200px">
-                               <Text color="gray.500">
-                                 {searchPerformed ? t('sharepoint.noSearchResults') : t('sharepoint.emptyFolder')}
-                               </Text>
-                             </Center>
+                               <Box borderWidth="1px" borderRadius="lg" overflow="hidden">
+                                 <Table variant="simple" bg={tableBg}>
+                                   <Thead>
+                                     <Tr>
+                                       <Th 
+                                         onClick={() => handleBrowseSort('name')} 
+                                         cursor="pointer"
+                                         _hover={{ bg: hoverBg }}
+                                       >{t('common.name')} <BrowseSortIcon column="name" /></Th>
+                                       <Th 
+                                         onClick={() => handleBrowseSort('lastModifiedDateTime')} 
+                                         cursor="pointer"
+                                         _hover={{ bg: hoverBg }}
+                                       >{t('common.modified')} <BrowseSortIcon column="lastModifiedDateTime" /></Th>
+                                       <Th 
+                                         isNumeric 
+                                         onClick={() => handleBrowseSort('size')} 
+                                         cursor="pointer"
+                                         _hover={{ bg: hoverBg }}
+                                       >{t('common.size')} <BrowseSortIcon column="size" /></Th>
+                                       <Th>{t('common.actions')}</Th>{/* Action column */}
+                                     </Tr>
+                                   </Thead>
+                                   <Tbody>
+                                     {sortedAndFilteredItems.length > 0 ? (
+                                       sortedAndFilteredItems.map((item: SharePointItem) => (
+                                         <Tr key={item.id} _hover={{ bg: hoverBg }}>
+                                           <Td 
+                                             onClick={() => item.is_folder && handleItemClick(item)} 
+                                             cursor={item.is_folder ? 'pointer' : 'default'}
+                                             title={item.name}
+                                           >
+                                             <HStack>
+                                               <Icon 
+                                                 as={item.is_folder ? FaFolder : FaFile} 
+                                                 color={item.is_folder ? folderColor : fileColor}
+                                                 w={4} h={4}
+                                               />
+                                               <Text noOfLines={1}>{item.name || '-'}</Text>
+                                             </HStack>
+                                           </Td>
+                                           <Td>{formatDateTime(item.lastModifiedDateTime)}</Td>
+                                           <Td isNumeric>{formatFileSize(item.size)}</Td>
+                                           <Td>
+                                             {renderSyncActionButton(item, syncList, isProcessing, handleAddSyncItem, t)}
+                                           </Td>
+                                         </Tr>
+                                       ))
+                                     ) : (
+                                       <Tr>
+                                         <Td colSpan={4} textAlign="center">{searchPerformed ? t('common.noResultsFound') : t('sharepoint.noItemsFound')}</Td>
+                                       </Tr>
+                                     )}
+                                   </Tbody>
+                                 </Table>
+                               </Box>
                            )}
                         </Box>
                       </>
@@ -955,6 +1160,88 @@ const formatFileSize = (bytes?: number): string => {
             </TabPanel>
           </TabPanels>
         </Tabs>
+
+        {/* +++ Render the Sync List Component +++ */}
+        <Box mt={6}> {/* Add some margin top */} 
+          <SyncListComponent 
+            items={syncList} 
+            onRemoveItem={handleRemoveSyncItem}
+            onProcessList={handleProcessSyncList}
+            isProcessing={isProcessing}
+            isLoading={isSyncListLoading}
+            error={syncListError}
+          />
+        </Box>
+        {/* +++ End Sync List Component Rendering +++ */}
+
+        {/* +++ NEW: Sync Task Progress Display +++ */}
+        {(isProcessing || processingTaskStatus) && processingTaskId && (
+          <Box 
+            mt={4} p={4} borderWidth="1px" borderRadius="md" 
+            borderColor={
+              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                ? "red.300" 
+                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300")
+            } 
+            bg={useColorModeValue(
+              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                ? "red.50" 
+                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50"),
+              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                ? "red.900" 
+                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900")
+            )}
+            mb={4}
+          >
+              <VStack spacing={2} align="stretch">
+                <HStack justify="space-between">
+                  <Text fontSize="sm" fontWeight="bold">{t('sharepoint.syncTaskProgressTitle')}</Text>
+                  <Tag 
+                      size="sm"
+                      colorScheme={
+                        processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' :
+                        processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                        processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
+                        processingTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'gray' :
+                        'blue'
+                      }
+                    >
+                      {processingTaskStatus?.status || 'Initializing...'}
+                    </Tag>
+                </HStack>
+                <Text fontSize="xs">{t('common.taskID')} {processingTaskId}</Text>
+                {typeof processingTaskStatus?.progress === 'number' && (
+                  <Progress 
+                    value={processingTaskStatus.progress} size="xs" 
+                    colorScheme={
+                      processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                      processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
+                      (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' : 'blue')
+                    } 
+                    isAnimated={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
+                    hasStripe={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
+                    borderRadius="full"
+                  />
+                )}
+                {(processingTaskStatus?.message || processingError) && (
+                    <Text fontSize="xs" color={processingError ? "red.500" : "gray.500"} mt={1} noOfLines={2} title={processingError || processingTaskStatus?.message || undefined}>
+                      {processingError || processingTaskStatus?.message}
+                    </Text>
+                )}
+                 {/* Display results if available (e.g., partial failure details) */} 
+                 {processingTaskStatus?.result && typeof processingTaskStatus.result === 'object' && (
+                     <Text fontSize="xs" color="orange.500" mt={1}>
+                         Details: {JSON.stringify(processingTaskStatus.result)}
+                     </Text>
+                 )}
+              </VStack>
+          </Box>
+        )}
+        {/* +++ END Sync Task Progress Display +++ */}
+
       </VStack>
     </Container>
   );
