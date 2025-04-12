@@ -298,7 +298,7 @@ async def get_sync_list(
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     logger.info(f"Fetching sync list for user {current_user.id}")
-    items = crud_sharepoint_sync_item.get_sync_items_by_user(db=db, user_id=str(current_user.id))
+    items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=str(current_user.id))
     return items
 
 @router.post(
@@ -316,7 +316,7 @@ async def process_sync_list(
     logger.info(f"User {user_id_str} initiating processing of sync list.")
     
     # 1. Get all items from the user's sync list
-    sync_items = crud_sharepoint_sync_item.get_sync_items_by_user(db=db, user_id=user_id_str)
+    sync_items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str)
     if not sync_items:
         logger.warning(f"Sync list is empty for user {user_id_str}. Nothing to process.")
         raise HTTPException(
@@ -346,7 +346,7 @@ async def process_sync_list(
         
         # 4. Optionally clear the sync list after successful submission
         try:
-            crud_sharepoint_sync_item.remove_all_sync_items_for_user(db=db, user_id=user_id_str)
+            crud_sharepoint_sync_item.clear_sync_list_for_user(db=db, user_id=user_id_str)
             logger.info(f"Cleared sync list for user {user_id_str} after task submission.")
         except Exception as clear_err:
              logger.error(f"Failed to clear sync list for user {user_id_str} after task submission: {clear_err}", exc_info=True)

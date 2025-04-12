@@ -6,7 +6,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # Use the same Base as other models
-from .base import Base
+from app.db.base_class import Base
 
 # SQLAlchemy model for database
 class UserPreferenceDB(Base):

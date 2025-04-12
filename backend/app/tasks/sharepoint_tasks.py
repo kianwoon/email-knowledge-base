@@ -2,6 +2,7 @@ import logging
 import base64
 import asyncio
 from typing import List, Dict, Any, Tuple
+import uuid
 
 from celery import Task
 from celery.utils.log import get_task_logger
@@ -25,9 +26,12 @@ def generate_qdrant_collection_name(user_email: str) -> str:
     sanitized_email = user_email.replace('@', '_').replace('.', '_')
     return f"{sanitized_email}_sharepoint_knowledge"
 
+# Define a namespace for generating UUIDs
+SHAREPOINT_NAMESPACE_UUID = uuid.UUID('c7e9aab9-17e4-4f75-8559-40ac7d046c1c') # Example random namespace
+
 def generate_qdrant_point_id(sharepoint_item_id: str) -> str:
-    """Generates a deterministic Qdrant point ID from the SharePoint item ID."""
-    return f"sharepoint-{sharepoint_item_id}"
+    """Generates a deterministic Qdrant UUID point ID from the SharePoint item ID."""
+    return str(uuid.uuid5(SHAREPOINT_NAMESPACE_UUID, sharepoint_item_id))
 
 async def _recursively_get_files_from_folder(service: SharePointService, drive_id: str, folder_id: str, processed_ids: set) -> List[Dict[str, Any]]:
     """Helper to recursively fetch file items within a folder, avoiding cycles/duplicates."""
@@ -55,7 +59,11 @@ async def _recursively_get_files_from_folder(service: SharePointService, drive_i
                 files.append({
                     "sharepoint_item_id": item.id,
                     "item_name": item.name,
-                    "sharepoint_drive_id": drive_id
+                    "sharepoint_drive_id": drive_id,
+                    "webUrl": item.webUrl,
+                    "createdDateTime": item.createdDateTime,
+                    "lastModifiedDateTime": item.lastModifiedDateTime,
+                    "size": item.size
                 })
         
         # Process sub-folder results
@@ -177,18 +185,34 @@ async def _run_processing_logic(
     current_file_num = 0
     
     # Process files, potentially in chunks or concurrently if desired/safe
-    for file_info in all_files_to_process:
+    for initial_file_info in all_files_to_process:
         current_file_num += 1
-        file_id = file_info['sharepoint_item_id']
-        file_name = file_info.get('item_name', 'Unknown Name')
-        drive_id = file_info['sharepoint_drive_id']
+        file_id = initial_file_info['sharepoint_item_id']
+        drive_id = initial_file_info['sharepoint_drive_id']
+        
+        # --- ADDED: Fetch full item details --- 
+        logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
+        file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
+        
+        if not file_details:
+            logger.warning(f"Task {task_id}: Could not fetch details for file {file_id}. Skipping.")
+            total_failed_files += 1
+            continue
+        # Convert Pydantic model back to dict for consistent access
+        file_info = file_details.model_dump() 
+        file_name = file_info.get('name', 'Unknown Name') # Use name from fetched details
+        # --- ADDED DEBUG LOG --- 
+        logger.debug(f"Task {task_id}: file_info dict before payload creation: {file_info}")
+        # --- END ADDED DEBUG LOG ---
+        # --- END ADDED ---
+        
         progress_percent = 10 + int(80 * (current_file_num / total_files))
-        logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id})")
+        logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}") # Use fetched name
         task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': progress_percent, 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
 
         try:
             # Await file download
-            file_content_bytes = await sp_service.download_file(drive_id=drive_id, item_id=file_id)
+            file_content_bytes = await sp_service.download_file_content(drive_id=drive_id, item_id=file_id)
 
             if file_content_bytes is None:
                 logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping.")
@@ -197,18 +221,30 @@ async def _run_processing_logic(
             
             encoded_content = base64.b64encode(file_content_bytes).decode('utf-8')
             
+            # Use file_info which now contains full details
             payload = {
                 "file_name": file_name,
                 "sharepoint_id": file_id,
                 "drive_id": drive_id,
                 "item_type": "file",
                 "content_b64": encoded_content,
-                "analysis_status": "pending"
+                "analysis_status": "pending",
+                "web_url": file_info.get("web_url"),
+                "created_at": file_info.get("created_datetime"),
+                "last_modified_at": file_info.get("last_modified_datetime"),
+                "size_bytes": file_info.get("size"),
+                "mime_type": file_info.get("mime_type")
             }
+            
+            # --- ADD DUMMY VECTOR --- 
+            # TODO: Replace with actual parsing and embedding generation
+            dummy_vector = [0.0] * settings.EMBEDDING_DIMENSION
+            # --- END DUMMY VECTOR --- 
             
             point = models.PointStruct(
                 id=generate_qdrant_point_id(file_id),
                 payload=payload,
+                vector=dummy_vector
             )
             points_to_upsert.append(point)
             total_processed_files += 1

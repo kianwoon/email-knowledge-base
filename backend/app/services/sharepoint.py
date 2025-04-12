@@ -115,6 +115,31 @@ class SharePointService:
             logger.error(f"Error listing items in drive {drive_id} (item: {item_id}): {e}")
             return []
 
+    async def get_item_details(self, drive_id: str, item_id: str) -> Optional[SharePointItem]:
+        """Gets the metadata for a single drive item by its ID."""
+        item_url = f"{MS_GRAPH_ENDPOINT}/drives/{drive_id}/items/{item_id}"
+        params = {"$select": "id,name,webUrl,createdDateTime,lastModifiedDateTime,size,file,folder,parentReference"}
+        logger.info(f"Fetching details for item {item_id} in drive {drive_id}")
+        try:
+            item_data = await self._make_graph_request(item_url, params=params)
+            if item_data:
+                # Process into SharePointItem Pydantic model
+                is_folder = item_data.get("folder") is not None
+                is_file = not is_folder
+                try:
+                    return SharePointItem(
+                        **item_data, 
+                        is_folder=is_folder, 
+                        is_file=is_file
+                    )
+                except ValidationError as e:
+                    logger.warning(f"Validation error processing item details for {item_id}: {e}. Raw: {item_data}")
+                    return None # Or raise/handle differently?
+            return None
+        except Exception as e:
+            logger.error(f"Error getting details for item {item_id} in drive {drive_id}: {e}")
+            return None
+
     async def download_file_content(self, drive_id: str, item_id: str) -> Optional[bytes]:
         """Downloads the content of a file from a SharePoint drive."""
         download_url_endpoint = f"{MS_GRAPH_ENDPOINT}/drives/{drive_id}/items/{item_id}/content"

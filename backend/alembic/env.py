@@ -6,15 +6,17 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# +++ Import Base from your app's base_class +++
-# Ensure this path is correct for your project structure
-from app.db.base_class import Base 
-# +++ Import your models here so Base knows about them +++
-# Import individual models to ensure they are registered
+# +++ Import Base from the single source of truth +++
+from app.db.base_class import Base
+# from app.models.base import Base # <<< REMOVE THIS
+
+# +++ Import ALL SQLAlchemy models directly here +++
 from app.models.user import UserDB
 from app.models.api_key import APIKeyDB
 from app.models.user_preference import UserPreferenceDB
-# --- End Imports ---
+from app.db.models.sharepoint_sync_item import SharePointSyncItem
+from app.models.token_models import TokenDB
+# --- End Model Imports ---
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -35,7 +37,9 @@ else:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 # +++ Set target_metadata to your Base.metadata +++
+# Models MUST be imported before this line
 target_metadata = Base.metadata
+# print(f"DEBUG [env.py]: Metadata Tables Loaded: {list(target_metadata.tables.keys())}") # Can remove debug now
 # --- End Set ---
 
 # other values from the config, defined by the needs of env.py,

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, UniqueConstraint, Index
+from sqlalchemy.orm import mapped_column
 from app.db.base_class import Base # Use the project's Base
 
 class SharePointSyncItem(Base):
@@ -11,6 +12,7 @@ class SharePointSyncItem(Base):
     sharepoint_item_id = Column(String, nullable=False, index=True)
     sharepoint_drive_id = Column(String, nullable=False)
     item_name = Column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default='pending', index=True) # Added status field
 
     # Prevent adding the same item twice for the same user
     __table_args__ = (UniqueConstraint('user_id', 'sharepoint_item_id', name='uq_user_sharepoint_item'),

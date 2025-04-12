@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, DateTime, ForeignKey, Text, Boolean, func
 
-from .base import Base
+from app.db.base_class import Base
 
 # Remove TYPE_CHECKING and ForwardRef imports as we'll use string literals
 # if TYPE_CHECKING:

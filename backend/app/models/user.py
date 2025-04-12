@@ -18,7 +18,7 @@ from typing import List as TypeList
 # --- End Removed ---
 
 # Import the Base class from your SQLAlchemy setup
-from .base import Base 
+from app.db.base_class import Base # <<< CORRECTED IMPORT
 from .api_key import APIKeyDB  # Import APIKeyDB for relationship
 
 
@@ -98,6 +98,8 @@ class UserDB(Base):
     # or just kept in memory/session. Storing refresh tokens requires encryption.
     # --- Reverted to String for Base64 Encoded Encrypted Token --- 
     ms_refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True) # Store as Base64 Text
+    ms_access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True) # Store the access token
+    ms_token_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True) # Store expiry time
     # --- End Reverted ---
     # hashed_password: str = Column(String, nullable=True) # If using password auth later
     

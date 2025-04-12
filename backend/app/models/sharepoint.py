@@ -42,6 +42,9 @@ class SharePointItem(BaseModel):
     # These flags are added by the service layer, not from Graph directly
     is_folder: bool = Field(False, description="True if the item is a folder.") 
     is_file: bool = Field(False, description="True if the item is a file.")
+    # --- ADDED: Extract mimeType from 'file' facet --- 
+    mime_type: Optional[str] = Field(None, validation_alias='file.mimeType')
+    # --- END ADDED ---
 
     class Config:
         populate_by_name = True 

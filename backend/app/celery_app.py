@@ -35,7 +35,7 @@ celery_app = Celery(
     'app', # Main name of the application module package
     broker=broker_url,
     backend=backend_url,
-    include=['app.tasks'] # List of modules to import when the worker starts
+    include=['app.tasks.email_tasks', 'app.tasks.sharepoint_tasks'] # Explicitly include task modules
 )
 
 # Optional configuration settings

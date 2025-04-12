@@ -192,19 +192,39 @@ async def auth_callback(
         logger.info(f"User {db_user.email} created/updated in database.")
 
         # --- Store MS Refresh Token in DB (Step 0.4.3 - Manual Encryption) ---
+        # --- MODIFIED TO STORE ACCESS TOKEN AND EXPIRY AS WELL --- 
         if ms_refresh_token:
             logger.debug(f"Attempting to encrypt and save refresh token for user {db_user.email}.")
             encrypted_token_bytes = encrypt_token(ms_refresh_token)
             if encrypted_token_bytes:
-                db_user.ms_refresh_token = encrypted_token_bytes # Store the encrypted bytes
+                # Store the encrypted refresh token bytes
+                db_user.ms_refresh_token = encrypted_token_bytes 
+                
+                # --- ADDED: Store Access Token and Expiry --- 
+                if ms_access_token:
+                    db_user.ms_access_token = ms_access_token # Store plain access token
+                    logger.info(f"Storing access token for user {db_user.email}.")
+                else:
+                    logger.warning(f"No MS access token found in token result for {db_user.email} - cannot store.")
+                
+                # Calculate and store expiry time
+                expires_in_seconds = token_result.get("expires_in")
+                if isinstance(expires_in_seconds, (int, float)) and expires_in_seconds > 0:
+                    db_user.ms_token_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in_seconds))
+                    logger.info(f"Storing token expiry ({db_user.ms_token_expiry}) for user {db_user.email}.")
+                else:
+                    logger.warning(f"Could not determine token expiry from 'expires_in' ({expires_in_seconds}) for {db_user.email}. Expiry not stored.")
+                    db_user.ms_token_expiry = None # Ensure it's null if not calculable
+                # --- END ADDED ---
+                
                 try:
                     db.add(db_user) # Add the user object back to the session if needed
                     db.commit()
                     # db.refresh(db_user) # Refresh might still cause issues, let's skip for now
-                    logger.info(f"Successfully saved encrypted refresh token for user {db_user.email}.")
+                    logger.info(f"Successfully saved tokens for user {db_user.email}.")
                 except Exception as db_err:
                     db.rollback() # Important: Rollback on error
-                    logger.error(f"Database error saving refresh token for user {db_user.email}: {db_err}", exc_info=True)
+                    logger.error(f"Database error saving tokens for user {db_user.email}: {db_err}", exc_info=True)
                     # Decide if this should be a fatal error for the login process
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -220,7 +240,7 @@ async def auth_callback(
                 )
         else:
             logger.warning(f"No refresh token received from Microsoft for user {db_user.email}. Cannot save.")
-        # --- End Store MS Refresh Token ---
+        # --- End Store MS Tokens ---
 
         # Use db_user.id (MS Graph ID) or db_user.email for JWT subject?
         # Let's stick with email for consistency with get_current_user lookup
