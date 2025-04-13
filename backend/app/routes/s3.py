@@ -74,8 +74,12 @@ async def get_assumed_s3_session(
     current_user: UserDB = Depends(get_current_active_user_or_token_owner)
 ) -> boto3.Session:
     try:
-        role_arn = s3_service.get_user_aws_credentials(db=db, user_email=current_user.email)
-        session = s3_service.get_aws_session_for_user(role_arn=role_arn, user_email=current_user.email)
+        # Fetching role_arn here is no longer strictly necessary as get_aws_session_for_user does it,
+        # but it's useful for logging or potential checks if needed.
+        # role_arn = s3_service.get_user_aws_credentials(db=db, user_email=current_user.email)
+        
+        # Call the updated service function, passing db instead of role_arn
+        session = s3_service.get_aws_session_for_user(db=db, user_email=current_user.email)
         return session
     except HTTPException as e:
         # Re-raise HTTP exceptions from the service layer (config errors, STS errors)

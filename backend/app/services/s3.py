@@ -21,14 +21,19 @@ def get_user_aws_credentials(db: Session, user_email: str) -> str:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AWS Role ARN not configured for this user.")
     return user_cred.role_arn
 
-def get_aws_session_for_user(role_arn: str, user_email: str) -> boto3.Session:
+def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Session:
     """
-    Assumes the user's configured IAM role using the application's credentials
-    and returns a boto3 Session with temporary credentials.
+    Fetches the user's configured Role ARN from the DB, assumes the role using the 
+    application's credentials, and returns a boto3 Session with temporary credentials.
     """
     role_session_name = f"user_s3_session_{user_email.replace('@', '_').replace('.', '_')}" # Sanitize session name
 
     try:
+        # --- Fetch Role ARN from DB --- 
+        role_arn = get_user_aws_credentials(db, user_email)
+        logger.info(f"Retrieved Role ARN '{role_arn}' for user {user_email} from database.")
+        # --- End Fetch Role ARN --- 
+
         # Check if application credentials are configured in settings
         if not all([settings.APP_AWS_ACCESS_KEY_ID, settings.APP_AWS_SECRET_ACCESS_KEY, settings.AWS_REGION]):
              logger.error("Application AWS credentials (ID, Key, Region) are not configured in settings.")

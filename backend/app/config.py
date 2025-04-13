@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS")) # validated by pydantic & check_required
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION")) # validated by pydantic & check_required
 
+    # --- AWS Settings --- ADDED
+    APP_AWS_ACCESS_KEY_ID: str = os.getenv("APP_AWS_ACCESS_KEY_ID") # validated by check_required_env_vars
+    APP_AWS_SECRET_ACCESS_KEY: str = os.getenv("APP_AWS_SECRET_ACCESS_KEY") # validated by check_required_env_vars
+    AWS_REGION: str = os.getenv("AWS_REGION") # validated by check_required_env_vars
+    # --- End AWS Settings --- 
+
     # External Analysis Service URL
     EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL") # validated by check_required_env_vars
     EXTERNAL_ANALYSIS_API_KEY: str = os.getenv("EXTERNAL_ANALYSIS_API_KEY") # validated by check_required_env_vars
