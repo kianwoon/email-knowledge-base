@@ -454,9 +454,10 @@ def process_s3_ingestion_task(self: Task, user_email: str):
             logger.info(f"Task {task_id}: No points generated to upsert.")
 
         # 6. Final update and result
-        logger.info(f"Task {task_id}: Ingestion complete. Processed: {total_processed_count}, Failed: {total_failed_count}.")
-        self.update_state(state='SUCCESS', meta={'user': user_email, 'progress': 100, 'status': f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.", 'processed': total_processed, 'failed': total_failed})
-        return {'status': 'COMPLETED', 'message': f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.", 'processed': total_processed, 'failed': total_failed}
+        logger.info(f"Task {task_id}: Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.")
+        final_message = f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}."
+        self.update_state(state='SUCCESS', meta={'user': user_email, 'progress': 100, 'status': final_message, 'processed': total_processed, 'failed': total_failed})
+        return {'status': 'COMPLETED', 'message': final_message, 'processed': total_processed, 'failed': total_failed}
 
     except Exception as e:
         logger.error(f"Task {task_id} failed: {e}", exc_info=True)
