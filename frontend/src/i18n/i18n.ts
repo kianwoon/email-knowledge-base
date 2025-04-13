@@ -6,34 +6,30 @@ import { InitOptions } from 'i18next';
 // Import translation files
 import enTranslation from './locales/en/translation.json';
 import cnTranslation from './locales/cn/translation.json';
-import zhTranslation from './locales/zh/translation.json';
 
 // Configure i18next options
 const i18nOptions: InitOptions = {
-  // Default language fallbacks
+  // Default language fallbacks - ensure all Chinese variants map to 'cn'
   fallbackLng: {
-    'zh-CN': ['cn', 'zh', 'en'],
-    'zh-TW': ['cn', 'zh', 'en'],
-    'zh-HK': ['cn', 'zh', 'en'],
-    'zh-Hant': ['cn', 'zh', 'en'],
-    'zh-Hans': ['cn', 'zh', 'en'],
-    'zh-SG': ['cn', 'zh', 'en'],
-    'zh-MO': ['cn', 'zh', 'en'],
-    'zh': ['cn', 'zh', 'en'],
+    'zh-CN': ['cn', 'en'],
+    'zh-TW': ['cn', 'en'],
+    'zh-HK': ['cn', 'en'],
+    'zh-Hant': ['cn', 'en'],
+    'zh-Hans': ['cn', 'en'],
+    'zh-SG': ['cn', 'en'],
+    'zh-MO': ['cn', 'en'],
+    'zh': ['cn', 'en'],
     'default': ['en']
   },
   // Debug mode in development
   debug: process.env.NODE_ENV === 'development',
-  // Resources containing translations
+  // Resources containing translations - only 'en' and 'cn'
   resources: {
     en: {
       translation: enTranslation
     },
     cn: {
       translation: cnTranslation
-    },
-    zh: {
-      translation: zhTranslation
     }
   },
   // Detect and cache language on

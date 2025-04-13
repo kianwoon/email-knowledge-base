@@ -1083,5 +1083,21 @@
       "modelDescription": "选择用于对话的 AI 模型",
       "model": "模型"
     }
+  },
+  "knowledgeManagement": {
+    "title": "知識庫管理",
+    "summaryTitle": "數據摘要",
+    "summary": {
+      "lastUpdated": "最後更新時間：{{time}}",
+      "emailRawDataLabel": "郵件原始數據",
+      "sharepointRawDataLabel": "SharePoint 原始數據",
+      "s3RawDataLabel": "S3 原始數據",
+      "vectorDataLabel": "向量數據項",
+      "vectorDataSource": "來源：{{vectorCollection}}",
+      "tokenLabel": "API 訪問令牌"
+    },
+    "task": {
+      "title": "後台任務狀態"
+    }
   }
 }

@@ -1152,10 +1152,11 @@
     "summaryTitle": "数据摘要",
     "summary": {
       "lastUpdated": "最后更新时间：{{time}}",
-      "emailRawDataLabel": "邮件原始数据",
+      "emailRawDataLabel": "Outlook 原始数据",
       "sharepointRawDataLabel": "SharePoint 原始数据",
+      "s3RawDataLabel": "AWS S3 原始数据",
       "vectorDataLabel": "向量数据项",
-      "vectorDataSource": "来源: {{vectorCollection}}",
+      "vectorDataSource": "来源：{{vectorCollection}}",
       "tokenLabel": "API 访问令牌",
       "tokenHelp": "{{count}} 个活动"
     },

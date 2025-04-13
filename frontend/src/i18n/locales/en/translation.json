@@ -39,7 +39,8 @@
     "awsS3": "AWS S3",
     "aiDataManagement": "AI Data Management",
     "tokenManagement": "Token Management",
-    "jarvis": "Jarvis"
+    "jarvis": "Jarvis",
+    "dashboard": "Dashboard"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -1318,6 +1319,23 @@
     },
     "errors": {
       "loadSummary": "Failed to load collection summaries."
+    },
+    "summary": {
+      "rawDataLabel": "Outlook Raw Data",
+      "rawDataHelp": "Source: {email}_email_knowledge",
+      "vectorDataLabel": "Vector Data Items",
+      "vectorDataSource": "Source: {{vectorCollection}}",
+      "tokenLabel": "API Access Tokens",
+      "tokenHelp": "{{count}} active",
+      "lastUpdated": "Last updated: {{time}}",
+      "sharepointRawDataLabel": "SharePoint Raw Data",
+      "s3RawDataLabel": "AWS S3 Raw Data",
+      "vectorDataLabel": "Vector Data Items"
+    },
+    "actionsTitle": "Management Actions",
+    "actionsPlaceholder": "Further actions related to knowledge base management can be added here.",
+    "errors": {
+        "loadFailed": "Failed to load summary data. Please try again."
     }
   },
   "sessionExpired": {
@@ -1398,24 +1416,6 @@
         "duplicateFieldDescDeny": "A deny rule for the field '{{field}}' already exists. Remove the existing rule first to change values.",
         "allowPrefix": "ALLOW",
         "denyPrefix": "DENY"
-    }
-  },
-  "knowledgeManagement": {
-    "title": "Knowledge Base Management",
-    "summaryTitle": "Data Summary",
-    "summary": {
-      "rawDataLabel": "Raw Data Items",
-      "rawDataHelp": "Source: {email}_email_knowledge",
-      "vectorDataLabel": "Vector Data Items",
-      "vectorDataSource": "Source: {{vectorCollection}}",
-      "tokenLabel": "API Access Tokens",
-      "tokenHelp": "{{count}} active",
-      "lastUpdated": "Last updated: {{time}}"
-    },
-    "actionsTitle": "Management Actions",
-    "actionsPlaceholder": "Further actions related to knowledge base management can be added here.",
-    "errors": {
-        "loadFailed": "Failed to load summary data. Please try again."
     }
   },
   "tokenManagementPage": {
@@ -1564,33 +1564,6 @@
   },
   "dashboard": {
     "title": "Dashboard"
-  },
-  "knowledgeManagement": {
-    "title": "Knowledge Base Management",
-    "summaryTitle": "Data Summary",
-    "summary": {
-      "lastUpdated": "Last updated: {{time}}",
-      "emailRawDataLabel": "Email Raw Data",
-      "sharepointRawDataLabel": "SharePoint Raw Data",
-      "vectorDataLabel": "Vector Data Items",
-      "vectorDataSource": "Source: {{vectorCollection}}",
-      "tokenLabel": "API Access Tokens",
-      "tokenHelp": "{{count}} active"
-    },
-    "task": {
-      "title": "Background Task Status",
-      "processing": "Knowledge base update in progress...",
-      "taskId": "Task ID: {{id}}",
-      "calculating": "Calculating...",
-      "pending": "Task is pending...",
-      "started": "Task started..."
-    },
-    "actionsTitle": "Management Actions",
-    "actionsPlaceholder": "Further actions related to knowledge base management can be added here.",
-    "errors": {
-      "loadFailed": "Failed to load page data. Please try again.",
-      "taskCheckFailed": "Failed to check for active background tasks."
-    }
   },
   "fileManager": {
     "title": "File Manager"

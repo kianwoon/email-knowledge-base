@@ -26,6 +26,7 @@ class CollectionSummaryResponseModel(BaseModel):
 class KnowledgeSummaryResponseModel(BaseModel):
     raw_data_count: int # Email raw data
     sharepoint_raw_data_count: int # SharePoint raw data
+    s3_raw_data_count: int # S3 raw data
     vector_data_count: int
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -97,12 +98,17 @@ async def get_knowledge_summary_route(
     email_raw_collection_name = f"{sanitized_email}_email_knowledge"
     # Collection for SHAREPOINT raw data items
     sharepoint_raw_collection_name = f"{sanitized_email}_sharepoint_knowledge"
+    # Collection for S3 raw data items - Use corrected name
+    s3_raw_collection_name = f"{sanitized_email}_aws_s3_knowledge" # CORRECTED NAME
     # Collection for vector data (RAG)
     vector_collection_name = f"{sanitized_email}_knowledge_base"
-    logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {vector_collection_name}")
+    
+    # Log all collections being queried
+    logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {s3_raw_collection_name}, {vector_collection_name}")
 
     email_raw_count = 0
     sharepoint_raw_count = 0
+    s3_raw_count = 0 # Initialize S3 count
     vector_count = 0
     last_update_time = None # Placeholder for last update time if needed
 
@@ -113,7 +119,6 @@ async def get_knowledge_summary_route(
             count_result_raw = qdrant.count(collection_name=email_raw_collection_name, exact=True)
             email_raw_count = count_result_raw.count
             logger.debug(f"EMAIL raw data count for {email_raw_collection_name}: {email_raw_count}")
-            # Potentially get last update time here if Qdrant provides it easily
         except UnexpectedResponse as e:
             if e.status_code == 404:
                 logger.warning(f"EMAIL raw data collection '{email_raw_collection_name}' not found. Setting count to 0.")
@@ -128,7 +133,6 @@ async def get_knowledge_summary_route(
             count_result_sharepoint = qdrant.count(collection_name=sharepoint_raw_collection_name, exact=True)
             sharepoint_raw_count = count_result_sharepoint.count
             logger.debug(f"SHAREPOINT raw data count for {sharepoint_raw_collection_name}: {sharepoint_raw_count}")
-             # Potentially get last update time here too
         except UnexpectedResponse as e:
             if e.status_code == 404:
                 logger.warning(f"SHAREPOINT raw data collection '{sharepoint_raw_collection_name}' not found. Setting count to 0.")
@@ -136,6 +140,24 @@ async def get_knowledge_summary_route(
             else:
                 logger.error(f"Qdrant error counting {sharepoint_raw_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing SharePoint raw data storage.")
+
+        # Get S3 raw data count - NEW LOGIC
+        try:
+            logger.debug(f"Calling qdrant_client.count for S3 raw data collection: {s3_raw_collection_name}")
+            count_result_s3 = qdrant.count(collection_name=s3_raw_collection_name, exact=True)
+            s3_raw_count = count_result_s3.count
+            logger.debug(f"S3 raw data count for {s3_raw_collection_name}: {s3_raw_count}")
+        except UnexpectedResponse as e:
+            if e.status_code == 404:
+                logger.warning(f"S3 raw data collection '{s3_raw_collection_name}' not found. Setting count to 0.")
+                s3_raw_count = 0
+            else:
+                logger.error(f"Qdrant error counting {s3_raw_collection_name}: {e}")
+                # Don't necessarily fail the whole request, just log and return 0 for S3
+                s3_raw_count = 0 
+                logger.warning(f"Non-404 Qdrant error counting {s3_raw_collection_name}: {e}. Setting count to 0.")
+                # Optionally re-raise if S3 count is critical:
+                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing S3 raw data storage.")
 
         # Get vector data count
         try:
@@ -162,11 +184,12 @@ async def get_knowledge_summary_route(
                 logger.error(f"Qdrant error counting {vector_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.")
 
-        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, Vector={vector_count}")
-        # Return counts including SharePoint raw data
+        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, S3Raw={s3_raw_count}, Vector={vector_count}")
+        # Return counts including S3 raw data
         return KnowledgeSummaryResponseModel(
             raw_data_count=email_raw_count,
             sharepoint_raw_data_count=sharepoint_raw_count,
+            s3_raw_data_count=s3_raw_count,
             vector_data_count=vector_count,
             last_updated=last_update_time if last_update_time else datetime.now(timezone.utc) # Use fetched or default time
         )

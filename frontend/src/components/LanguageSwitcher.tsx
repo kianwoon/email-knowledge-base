@@ -20,7 +20,7 @@ const LanguageSwitcher: React.FC = () => {
   };
   
   // Check if language is any Chinese variant
-  const isChinese = i18n.language === 'cn' || i18n.language.startsWith('zh');
+  const isChinese = i18n.language === 'cn';
 
   return (
     <Menu placement="bottom" gutter={0} closeOnSelect={true}>

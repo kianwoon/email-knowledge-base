@@ -42,6 +42,7 @@ interface UserInfo {
 interface CombinedSummary {
   rawDataCount: number;
   sharepointRawDataCount: number;
+  s3RawDataCount: number;
   vectorDataCount: number;
   totalTokenCount: number;
   activeTokenCount: number;
@@ -97,7 +98,7 @@ const KnowledgeManagementPage: React.FC = () => {
     setIsLoading(true);
     setIsLoadingUser(true);
     setError(null);
-    console.log("Fetching initial data (summaries and user)...");
+    console.log("Fetching initial data (summaries and user)..." + new Date().toISOString());
     try {
       const [knowledgeSummary, tokens, user] = await Promise.all([
         getKnowledgeBaseSummary(),
@@ -115,13 +116,14 @@ const KnowledgeManagementPage: React.FC = () => {
       setSummaryData({
         rawDataCount: knowledgeSummary.raw_data_count ?? 0,
         sharepointRawDataCount: knowledgeSummary.sharepoint_raw_data_count ?? 0,
+        s3RawDataCount: knowledgeSummary.s3_raw_data_count ?? 0,
         vectorDataCount: knowledgeSummary.vector_data_count ?? 0,
         totalTokenCount: totalTokens,
         activeTokenCount: activeTokens,
         lastUpdated: knowledgeSummary.last_updated || null,
       });
       setCurrentUser(user);
-      console.log("Initial data fetched and processed.");
+      console.log("Initial data fetched and processed." + new Date().toISOString());
 
     } catch (err: any) {
       console.error("Failed to fetch initial data:", err);
@@ -190,14 +192,15 @@ const KnowledgeManagementPage: React.FC = () => {
     taskStatusMessage = t('knowledgeManagement.task.started', 'Task started...');
   }
 
-  // Calculate dynamic collection names for both cards
   let rawCollectionNameDisplay = `{email}_email_knowledge`;
   let sharepointRawCollectionNameDisplay = `{email}_sharepoint_knowledge`;
+  let s3RawCollectionNameDisplay = `{email}_aws_s3_knowledge`;
   let vectorCollectionNameDisplay = `{email}_knowledge_base`;
   if (currentUser && currentUser.email) {
-      const sanitizedEmail = currentUser.email.replace('@', '_').replace('.', '_');
+      const sanitizedEmail = currentUser.email.replace(/[@.]/g, '_');
       rawCollectionNameDisplay = `${sanitizedEmail}_email_knowledge`;
       sharepointRawCollectionNameDisplay = `${sanitizedEmail}_sharepoint_knowledge`;
+      s3RawCollectionNameDisplay = `${sanitizedEmail}_aws_s3_knowledge`;
       vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base`;
   }
   
@@ -245,27 +248,48 @@ const KnowledgeManagementPage: React.FC = () => {
             >
               {/* Raw Data Sources Group */}
               <VStack spacing={4} align="stretch" flexShrink={0}>
-                  {/* Email Raw Data Card - Always show if data available */}
-                  {summaryData && (
-                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-                        <Stat>
-                            <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Email Raw Data')}</StatLabel>
-                            <StatNumber>{summaryData.rawDataCount}</StatNumber>
-                            <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
-                        </Stat>
-                    </Box>
-                  )}
-
-                  {/* SharePoint Raw Data Card - Conditionally render */}
-                  {summaryData && summaryData.sharepointRawDataCount > 0 && (
-                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-                        <Stat>
-                            <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
-                            <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
-                            <StatHelpText>Source: {sharepointRawCollectionNameDisplay}</StatHelpText>
-                        </Stat>
-                    </Box>
-                  )}
+                {/* Email Raw Data Card - Always show if data available */}
+                {summaryData.rawDataCount > 0 && (
+                  <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Outlook Raw Data')}</StatLabel>
+                        <StatNumber>{summaryData.rawDataCount}</StatNumber>
+                        <StatHelpText fontSize="xs" noOfLines={1} title={rawCollectionNameDisplay}>
+                          Source: {rawCollectionNameDisplay}
+                        </StatHelpText>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                )}
+                {/* SharePoint Raw Data Card - Always show if data available */}
+                {summaryData.sharepointRawDataCount > 0 && (
+                  <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
+                        <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
+                        <StatHelpText fontSize="xs" noOfLines={1} title={sharepointRawCollectionNameDisplay}>
+                          Source: {sharepointRawCollectionNameDisplay}
+                        </StatHelpText>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                )}
+                {/* S3 Raw Data Card - Add this new card */}
+                {summaryData.s3RawDataCount > 0 && (
+                  <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('knowledgeManagement.summary.s3RawDataLabel', 'AWS S3 Raw Data')}</StatLabel>
+                        <StatNumber>{summaryData.s3RawDataCount}</StatNumber>
+                        <StatHelpText fontSize="xs" noOfLines={1} title={s3RawCollectionNameDisplay}>
+                          Source: {s3RawCollectionNameDisplay}
+                        </StatHelpText>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                )}
               </VStack>
 
               {/* Arrow Connector (Visible on larger screens) */}

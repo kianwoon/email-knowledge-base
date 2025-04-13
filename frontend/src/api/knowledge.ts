@@ -12,10 +12,11 @@ export type KnowledgeCollectionName = 'email_knowledge' | 'email_knowledge_base'
 
 // NEW: Define the expected response structure for the combined summary
 export interface KnowledgeSummaryResponse {
-  raw_data_count: number;
-  sharepoint_raw_data_count: number;
-  vector_data_count: number;
-  last_updated: string | null;
+  raw_data_count?: number;
+  sharepoint_raw_data_count?: number;
+  s3_raw_data_count?: number;
+  vector_data_count?: number;
+  last_updated?: string | null;
 }
 
 /**
