@@ -41,9 +41,10 @@ def generate_qdrant_point_id(sharepoint_item_id: str) -> str:
 async def _recursively_get_files_from_folder(service: SharePointService, drive_id: str, folder_id: str, processed_ids: set) -> List[Dict[str, Any]]:
     """Helper to recursively fetch file items within a folder, avoiding cycles/duplicates."""
     files = []
-    if folder_id in processed_ids: # Basic cycle detection
-        logger.warning(f"Skipping already processed folder ID: {folder_id}")
-        return files
+    # REMOVED entry guard check as the top-level list is already de-duplicated,
+    # and internal checks should handle cycles/duplicates within the expansion.
+    
+    # Add the current folder ID BEFORE listing children to prevent cycles
     processed_ids.add(folder_id)
 
     try:
@@ -53,22 +54,23 @@ async def _recursively_get_files_from_folder(service: SharePointService, drive_i
             if item.id in processed_ids:
                 continue
                 
-            if item.folder:
+            if item.is_folder:
                 # Recurse for sub-folders
                 tasks.append(
                     _recursively_get_files_from_folder(service, drive_id, item.id, processed_ids)
                 )
-            elif item.file:
+            elif item.is_file:
                 # Add file details
                 processed_ids.add(item.id)
                 files.append({
                     "sharepoint_item_id": item.id,
                     "item_name": item.name,
                     "sharepoint_drive_id": drive_id,
-                    "webUrl": item.webUrl,
-                    "createdDateTime": item.createdDateTime,
-                    "lastModifiedDateTime": item.lastModifiedDateTime,
-                    "size": item.size
+                    "webUrl": item.web_url,
+                    "createdDateTime": item.created_datetime.isoformat() if item.created_datetime else None,
+                    "lastModifiedDateTime": item.last_modified_datetime.isoformat() if item.last_modified_datetime else None,
+                    "size": item.size,
+                    "item_type": "file"
                 })
         
         # Process sub-folder results
@@ -78,7 +80,10 @@ async def _recursively_get_files_from_folder(service: SharePointService, drive_i
                 files.extend(sub_files)
 
     except Exception as e:
-        logger.error(f"Error listing items in folder {folder_id} of drive {drive_id}: {e}", exc_info=True)
+        # +++ LOG THE SPECIFIC ERROR before re-raising +++
+        logger.error(f"_recursively_get_files: Caught exception processing folder {folder_id}: {e}", exc_info=True)
+        # Re-raise the exception so the caller knows the expansion failed for this branch
+        raise 
     return files
 
 class SharePointProcessingTask(Task):
@@ -268,11 +273,11 @@ async def _run_processing_logic(
                 logger.error(f"Task {task_id}: Folder expansion failed: {result}", exc_info=result)
                 total_failed_discovery += 1 # Count failure
             elif isinstance(result, list):
-                # Add successfully retrieved file details
+                # Add successfully retrieved file details from the recursive call
+                # The recursive call already handles its internal duplicates.
+                # The final dict-based deduplication will handle any duplicates across top-level calls.
                 for file_detail in result:
-                     if file_detail['sharepoint_item_id'] not in processed_item_ids:
-                         all_files_to_process.append(file_detail)
-                         processed_item_ids.add(file_detail['sharepoint_item_id'])
+                     all_files_to_process.append(file_detail)
             else:
                  logger.warning(f"Task {task_id}: Unexpected result type from folder expansion: {type(result)}")
 
@@ -281,13 +286,27 @@ async def _run_processing_logic(
     if total_files == 0:
         return 0, total_failed_discovery, [] # Processed, Failed, Points
 
+    # --- De-duplicate the FINAL list of files before processing ---
+    # +++ Add Logging: Inspect list before de-duplication +++
+    logger.debug(f"Task {task_id}: Content of all_files_to_process before de-duplication (first 2 items): {all_files_to_process[:2]}")
+    
+    unique_files_dict: Dict[str, Dict[str, Any]] = {}
+    for file_item in all_files_to_process:
+        file_id = file_item.get('sharepoint_item_id')
+        if file_id and file_id not in unique_files_dict:
+            unique_files_dict[file_id] = file_item
+        elif not file_id:
+            logger.warning(f"Task {task_id}: Found file item without 'sharepoint_item_id' after expansion: {file_item}")
+
+    final_files_to_process = list(unique_files_dict.values())
+
     # --- Process Each File (Async Downloads) --- 
     points_to_upsert: List[models.PointStruct] = []
     total_processed_files = 0
     total_failed_files = total_failed_discovery # Start with discovery failures
     current_file_num = 0
 
-    for item_data_from_api in all_files_to_process: # Renamed for clarity
+    for item_data_from_api in final_files_to_process: # Renamed for clarity
         current_file_num += 1
         # Get SharePoint IDs from the data passed to the task
         file_id = item_data_from_api['sharepoint_item_id']
@@ -298,39 +317,39 @@ async def _run_processing_logic(
         # item_status = 'processing' # Default status before processing <-- REMOVE, set below
         db_sync_item: Optional[SharePointSyncItemDBModel] = None # Define type hint
 
-        # --- Fetch and update status to 'processing' ---
-        if not item_db_id:
-            logger.error(f"Task {task_id}: Missing item_db_id for SP ID {file_id}. Cannot update status.")
-            total_failed_files += 1
-            continue # Skip if we don't have the DB ID
+        # --- Attempt to fetch DB item and update status ONLY if item_db_id exists --- 
+        if item_db_id:
+            try:
+                db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
+                if db_sync_item:
+                    db_sync_item.status = 'processing'
+                    db_session.add(db_sync_item)
+                    db_session.commit()
+                    logger.debug(f"Task {task_id}: Set status to 'processing' for DB item ID {item_db_id} (SP ID: {file_id})")
+                else:
+                    logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status. Status update skipped.")
+                    # Don't skip the whole file, just the status update
+            except Exception as db_err:
+                logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True)
+                db_session.rollback()
+                # Don't skip the whole file, try processing anyway but log DB error
+        else:
+            logger.debug(f"Task {task_id}: No item_db_id for discovered file SP ID {file_id}. Skipping DB status updates.")
+        # --- End status update attempt ---
 
-        try:
-            # Fetch the DB item using its primary key
-            db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
-            if db_sync_item:
-                db_sync_item.status = 'processing' # Set status
-                db_session.add(db_sync_item)
-                db_session.commit()
-                logger.debug(f"Task {task_id}: Set status to 'processing' for DB item ID {item_db_id} (SP ID: {file_id})")
-            else:
-                 logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status. Skipping item.")
-                 total_failed_files += 1
-                 continue # Skip processing if DB item not found
-        except Exception as db_err:
-            logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True)
-            db_session.rollback()
-            total_failed_files += 1
-            continue # Skip processing on DB error
-        # --- End status update to 'processing' ---
-
-        # --- Fetch full item details ---
+        # --- Fetch full item details (Always attempt this) ---
         logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
-        file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
+        file_details = None
+        try:
+            file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
+        except Exception as detail_err:
+             logger.error(f"Task {task_id}: Error fetching details for file '{item_data_from_api.get('item_name', 'Unknown')}' (ID: {file_id}): {detail_err}", exc_info=True)
+             # No details, cannot proceed with this file
 
         if not file_details:
-            logger.warning(f"Task {task_id}: Could not fetch details for file {file_id}. Skipping.")
+            logger.warning(f"Task {task_id}: Could not fetch details for file '{item_data_from_api.get('item_name', 'Unknown')}' (ID: {file_id}). Skipping file processing.")
             total_failed_files += 1
-            # +++ Update status to 'failed' if details fetch fails +++
+            # Update status to 'failed' only if we had a DB item
             if db_sync_item:
                 try:
                     db_sync_item.status = 'failed'
@@ -340,11 +359,10 @@ async def _run_processing_logic(
                 except Exception as db_err_fail:
                     logger.error(f"Task {task_id}: DB error updating status to 'failed' for DB ID {item_db_id}: {db_err_fail}", exc_info=True)
                     db_session.rollback()
-            # +++ End Update status to 'failed' +++
-            continue
-        # Convert Pydantic model back to dict for consistent access
+            continue # Go to next file if details failed
+        
         file_info = file_details.model_dump()
-        file_name = file_info.get('name', 'Unknown Name') # Use name from fetched details
+        file_name = file_info.get('name', item_data_from_api.get('item_name', 'Unknown')) # Prefer fetched name
         logger.debug(f"Task {task_id}: file_info dict before payload creation: {file_info}")
 
         # --- Update task progress ---
@@ -357,12 +375,11 @@ async def _run_processing_logic(
             file_content_bytes = await sp_service.download_file_content(drive_id=drive_id, item_id=file_id)
             if file_content_bytes is None:
                  logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping point creation, marking as failed.")
-                 # Mark as failed if download yields no content but no exception was raised
-                 raise ValueError("File content was None") # Raise an error to trigger the except block
+                 raise ValueError("File content was None") 
 
-            # 2. Process content (Placeholder)
-            # vector = await embed_content(file_content_bytes, file_name) # Your embedding function
-            vector_size = 1536 # Example dimension, adjust to your model
+            # 2. Process content (Placeholder for embedding)
+            # vector = await embed_content(file_content_bytes, file_name) 
+            vector_size = settings.EMBEDDING_DIMENSION # Use setting
             vector = [0.1] * vector_size # Placeholder vector
             logger.debug(f"Task {task_id}: Placeholder processing complete for {file_name}.")
 
@@ -391,7 +408,7 @@ async def _run_processing_logic(
             points_to_upsert.append(point)
             total_processed_files += 1
 
-            # 5. Update status to 'completed' in DB (on success)
+            # 5. Update status to 'completed' in DB (only if db_sync_item exists)
             if db_sync_item:
                 try:
                     db_sync_item.status = 'completed'
@@ -401,18 +418,18 @@ async def _run_processing_logic(
                 except Exception as db_err_complete:
                     logger.error(f"Task {task_id}: DB error updating status to 'completed' for DB ID {item_db_id}: {db_err_complete}", exc_info=True)
                     db_session.rollback()
+                    # If DB update fails, count as failure even if point was created
                     total_failed_files += 1
-                    if total_processed_files > 0: # Ensure not negative
+                    if total_processed_files > 0: 
                       total_processed_files -= 1
 
-        except Exception as e: # Catch errors from download, processing, or the explicit raise above
+        except Exception as e: 
             logger.error(f"Task {task_id}: Failed to process file '{file_name}' (ID: {file_id}): {e}", exc_info=True)
             total_failed_files += 1
-            # 6. Update status to 'failed' in DB (on error)
+            # 6. Update status to 'failed' in DB (only if db_sync_item exists)
             if db_sync_item:
                 try:
-                    # Avoid overwriting if status was already set to failed (e.g. detail fetch error)
-                    if db_sync_item.status != 'failed':
+                    if db_sync_item.status != 'failed': # Avoid re-updating if already failed
                         db_sync_item.status = 'failed'
                         db_session.add(db_sync_item)
                         db_session.commit()

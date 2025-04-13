@@ -95,21 +95,31 @@ class SharePointService:
 
             if response_data and "value" in response_data:
                 processed_items = []
+                # +++ Add Logging: Log raw items from API +++
+                logger.debug(f"list_drive_items raw response for drive {drive_id}, folder {item_id} (first 5): {response_data['value'][:5]}")
+                
                 for item in response_data["value"]:
-                    # Refined logic: Check for folder facet existence
                     item_data = item
+                    # Log each raw item being processed
+                    logger.debug(f"list_drive_items processing raw item: {item_data}")
+                    
                     is_folder = item_data.get("folder") is not None
-                    is_file = not is_folder # If not a folder, it's a file
-                    # Create the SharePointItem with the determined flags
+                    is_file = item_data.get("file") is not None 
+                    # +++ Add Logging: Show determined flags +++
+                    logger.debug(f"list_drive_items determined flags for item {item_data.get('id')}: is_folder={is_folder}, is_file={is_file}")
+                    
                     try:
                         processed_items.append(SharePointItem(
-                            **item, # Pass existing fields
+                            **item, 
                             is_folder=is_folder, 
                             is_file=is_file
                         ))
                     except ValidationError as e:
                         logger.warning(f"Validation error processing drive item {item.get('id')}: {e}. Raw: {item}")
-                return processed_items # Return the processed list
+                return processed_items
+            else:
+                # Log if no 'value' key is found
+                logger.debug(f"list_drive_items response for drive {drive_id}, folder {item_id} contained no 'value' key or was empty.")
             return []
         except Exception as e:
             logger.error(f"Error listing items in drive {drive_id} (item: {item_id}): {e}")
@@ -123,9 +133,9 @@ class SharePointService:
         try:
             item_data = await self._make_graph_request(item_url, params=params)
             if item_data:
-                # Process into SharePointItem Pydantic model
+                # CORRECTED: Explicitly check for folder and file facets
                 is_folder = item_data.get("folder") is not None
-                is_file = not is_folder
+                is_file = item_data.get("file") is not None
                 try:
                     return SharePointItem(
                         **item_data, 
@@ -134,7 +144,7 @@ class SharePointService:
                     )
                 except ValidationError as e:
                     logger.warning(f"Validation error processing item details for {item_id}: {e}. Raw: {item_data}")
-                    return None # Or raise/handle differently?
+                    return None
             return None
         except Exception as e:
             logger.error(f"Error getting details for item {item_id} in drive {drive_id}: {e}")
