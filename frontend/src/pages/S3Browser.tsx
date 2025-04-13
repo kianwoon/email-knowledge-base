@@ -81,17 +81,19 @@ const ItemTableSkeleton = () => (
     <Table variant="simple">
       <Thead>
         <Tr>
-          <Th><Skeleton height="20px" /></Th>
-          <Th><Skeleton height="20px" /></Th>
-          <Th isNumeric><Skeleton height="20px" /></Th>
+          <Th width="40%" textAlign="left"><Skeleton height="20px" /></Th>
+          <Th width="30%" textAlign="left"><Skeleton height="20px" /></Th>
+          <Th isNumeric width="15%"><Skeleton height="20px" /></Th>
+           <Th width="15%" textAlign="center"><Skeleton height="20px" /></Th>
         </Tr>
       </Thead>
       <Tbody>
         {[...Array(5)].map((_, index) => (
           <Tr key={index}>
-            <Td><Skeleton height="20px" width="80%" /></Td>
-            <Td><Skeleton height="20px" width="60%" /></Td>
-            <Td isNumeric><Skeleton height="20px" width="40px" /></Td>
+            <Td width="40%" textAlign="left"><Skeleton height="20px" width="80%" /></Td>
+            <Td width="30%" textAlign="left"><Skeleton height="20px" width="60%" /></Td>
+            <Td isNumeric width="15%"><Skeleton height="20px" width="40px" /></Td>
+            <Td width="15%" textAlign="center"><Skeleton height="20px" width="40px" /></Td>
           </Tr>
         ))}
       </Tbody>
@@ -99,10 +101,9 @@ const ItemTableSkeleton = () => (
   </TableContainer>
 );
 
-// +++ Add Sync List Component (Simplified version for now) +++
 interface SyncListComponentProps {
   items: S3SyncItem[];
-  onRemoveItem: (itemId: number) => Promise<void>; // Use DB ID for removal
+  onRemoveItem: (itemId: number) => Promise<void>;
   onProcessList: () => void;
   isProcessing: boolean;
   isLoading: boolean;
@@ -203,7 +204,6 @@ const S3SyncListComponent: React.FC<SyncListComponentProps> = ({
   );
 };
 
-// +++ Create S3HistoryListComponent +++
 interface HistoryListComponentProps {
   items: S3SyncItem[];
   isLoading: boolean;
@@ -284,7 +284,7 @@ const S3HistoryListComponent: React.FC<HistoryListComponentProps> = ({
         <HStack justify="space-between" p={4} borderBottomWidth="1px">
           <Heading size="md">{t('s3Browser.historyListTitle', 'Processing History')}</Heading>
         </HStack>
-        <Box maxHeight="300px" overflowY="auto">
+        <Box maxHeight="400px" overflowY="auto">
            {renderContent()}
         </Box>
       </VStack>
@@ -316,24 +316,21 @@ const S3Browser: React.FC = () => {
   const [syncListError, setSyncListError] = useState<string | null>(null);
   const [isProcessingSyncList, setIsProcessingSyncList] = useState<boolean>(false);
 
-  // +++ State for Ingestion Task Polling +++
   const [ingestionTaskId, setIngestionTaskId] = useState<string | null>(null);
   const [isIngestionPolling, setIsIngestionPolling] = useState<boolean>(false);
   const [ingestionTaskStatus, setIngestionTaskStatus] = useState<TaskStatusInterface | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
   const ingestionPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // +++ Filter syncList for different views +++
   const pendingSyncItems = React.useMemo(() => 
     syncList.filter(item => item.status === 'pending'), 
   [syncList]);
 
   const historySyncItems = React.useMemo(() => 
     syncList.filter(item => item.status === 'completed' || item.status === 'failed')
-    .sort((a, b) => b.id - a.id), // Show newest first
+    .sort((a, b) => b.id - a.id), 
   [syncList]);
 
-  // +++ Moved Fetch Sync List function UP +++
   const fetchS3SyncList = useCallback(async () => {
     setIsLoadingSyncList(true);
     setSyncListError(null);
@@ -357,7 +354,7 @@ const S3Browser: React.FC = () => {
         const configured = !!config && !!config.role_arn;
         setIsConfigured(configured);
         if (configured) {
-          fetchS3SyncList(); // <<< Now defined before call
+          fetchS3SyncList(); 
         }
       } catch (err) {
         console.error("Error checking S3 config:", err);
@@ -368,7 +365,7 @@ const S3Browser: React.FC = () => {
       }
     };
     checkConfig();
-  }, [t, fetchS3SyncList]); // Keep dependency
+  }, [t, fetchS3SyncList]); 
 
   const fetchBuckets = useCallback(async () => {
     if (!isConfigured) return;
@@ -425,17 +422,8 @@ const S3Browser: React.FC = () => {
   }, [selectedBucket]);
 
   useEffect(() => {
-    if (selectedBucket && currentPrefix !== '') {
-      fetchObjects();
-    }
-  }, [currentPrefix, fetchObjects]);
-
-  useEffect(() => {
     if (selectedBucket) {
-      const initialFetchDone = objects.length > 0 || !isLoadingObjects;
-      if (initialFetchDone) {
-        fetchObjects();
-      }
+      fetchObjects();
     }
   }, [currentPrefix]);
 
@@ -452,7 +440,6 @@ const S3Browser: React.FC = () => {
     setCurrentPrefix(newPrefix);
   };
 
-  // +++ Polling Functions +++
   const stopIngestionPolling = useCallback(() => {
     console.log('[S3 Polling] stopIngestionPolling called.');
     if (ingestionPollingIntervalRef.current) {
@@ -477,10 +464,6 @@ const S3Browser: React.FC = () => {
       if (finalStates.includes(statusResult.status)) {
         console.log(`[S3 Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping.`);
         stopIngestionPolling();
-        // No need to set isIngestionPolling here, stopIngestionPolling does it
-        // Polling finished
-        // Consider clearing ingestionTaskId here or leave it for display?
-        // setIngestionTaskId(null);
 
         const isSuccess = statusResult.status === TaskStatusEnum.COMPLETED || statusResult.status === 'SUCCESS';
         toast({
@@ -490,7 +473,6 @@ const S3Browser: React.FC = () => {
           duration: 7000,
           isClosable: true,
         });
-        // <<< Refresh the sync list after task completes/fails >>>
         fetchS3SyncList(); 
       }
     } catch (error: any) {
@@ -499,37 +481,31 @@ const S3Browser: React.FC = () => {
       setIngestionError(errorMsg);
       setIngestionTaskStatus(prev => prev ? { ...prev, status: TaskStatusEnum.POLLING_ERROR } : { task_id: taskId, status: TaskStatusEnum.POLLING_ERROR, progress: null, message: errorMsg });
       stopIngestionPolling();
-      // No need to set isIngestionPolling here, stopIngestionPolling does it
       toast({ title: t('errors.errorPollingStatus'), description: error.message, status: 'error' });
     }
-  }, [stopIngestionPolling, t, toast, fetchS3SyncList]); // <<< Add fetchS3SyncList dependency
+  }, [stopIngestionPolling, t, toast, fetchS3SyncList]); 
 
   const startIngestionPolling = useCallback((taskId: string) => {
-    stopIngestionPolling(); // Ensure no previous polling is running
+    stopIngestionPolling();
     console.log(`[S3 Polling] Starting polling for task ${taskId}...`);
     setIngestionTaskId(taskId);
     setIsIngestionPolling(true);
-    setIsProcessingSyncList(true); // <<< Ensure this is set when polling starts
+    setIsProcessingSyncList(true);
     setIngestionError(null);
-    // Set initial status while waiting for first poll
     setIngestionTaskStatus({ task_id: taskId, status: TaskStatusEnum.PENDING, progress: 0, message: 'Ingestion task submitted, starting...' });
-    pollIngestionTaskStatus(taskId); // Poll immediately
-    ingestionPollingIntervalRef.current = setInterval(() => pollIngestionTaskStatus(taskId), 5000); // Poll every 5 seconds
+    pollIngestionTaskStatus(taskId);
+    ingestionPollingIntervalRef.current = setInterval(() => pollIngestionTaskStatus(taskId), 5000);
   }, [stopIngestionPolling, pollIngestionTaskStatus]);
 
-  // Cleanup polling on unmount
   useEffect(() => {
       return () => {
           stopIngestionPolling();
       };
   }, [stopIngestionPolling]);
 
-  // --- Update Action Handlers ---
-
   const handleAddSyncItem = useCallback(async (s3Object: S3Object) => {
-    if (!selectedBucket) return; // Should have a bucket selected
+    if (!selectedBucket) return;
 
-    // Extract item name (basename for files, last part of prefix for folders)
     let itemName = s3Object.key.split('/').filter(Boolean).pop() || s3Object.key;
     if (s3Object.is_folder && !itemName.endsWith('/')) {
         itemName += '/';
@@ -544,7 +520,6 @@ const S3Browser: React.FC = () => {
 
     try {
       const addedItem = await addS3SyncItem(itemData);
-      // Add to local state only if it's truly new (check ID? Backend returns existing if duplicate)
       setSyncList(prev => {
           const exists = prev.some(item => item.id === addedItem.id);
           return exists ? prev : [...prev, addedItem];
@@ -555,9 +530,6 @@ const S3Browser: React.FC = () => {
           duration: 2000 
       });
     } catch (error: any) {
-        // Check if the error indicates it already exists (backend returns 200 OK with existing item)
-        // The API client might need adjustment to handle this or check error status/message
-        // For now, assume any error is a real failure.
         console.error(`Error adding item ${s3Object.key} to sync list:`, error);
         toast({ 
             title: t('errors.errorAddingItem'), 
@@ -598,7 +570,6 @@ const S3Browser: React.FC = () => {
              toast({ title: t('s3Browser.syncProcessStartedTitle'), description: response.message, status: 'info', duration: 5000 });
              startIngestionPolling(response.task_id);
           } else {
-             // Handle NO_OP case (no pending items)
              toast({ title: t('s3Browser.syncListEmptyTitle'), description: response.message, status: 'warning', duration: 3000 });
              setIsProcessingSyncList(false);
           }
@@ -608,10 +579,8 @@ const S3Browser: React.FC = () => {
           setIsProcessingSyncList(false);
           setIngestionError(error.response?.data?.detail || error.message || 'Failed to start task');
       }
-      // Note: setIsProcessingSyncList will be set back to false inside the polling logic when task finishes/fails
   }, [t, toast, startIngestionPolling]);
 
-  // Helper function to check if an S3 object is in the sync list
   const isInSyncList = useCallback((s3ObjectKey: string) => {
       return syncList.some(item => item.s3_bucket === selectedBucket && item.s3_key === s3ObjectKey);
   }, [syncList, selectedBucket]);
@@ -667,207 +636,204 @@ const S3Browser: React.FC = () => {
 
   return (
     <Container maxW="container.xl" py={5} bg={bgColor}>
-      <VStack spacing={4} align="stretch">
-        <Heading as="h1" size="lg" mb={2}>
-          {t('s3Browser.title', 'S3 Browser')}
-        </Heading>
+      <Heading as="h1" size="lg" mb={4}>
+        {t('s3Browser.title', 'S3 Browser')}
+      </Heading>
 
-        <HStack spacing={4}>
-          <Icon as={FaAws} boxSize="1.8em" color="orange.400" />
-          <Select
-            placeholder={t('s3Browser.selectBucketPlaceholder', 'Select a Bucket...')}
-            value={selectedBucket}
-            onChange={(e) => setSelectedBucket(e.target.value)}
-            isDisabled={isLoadingBuckets || buckets.length === 0}
-            maxW={{ base: "100%", md: "400px" }}
-            bg={useColorModeValue('white', 'gray.700')}
-          >
-            {buckets.map((bucket) => (
-              <option key={bucket.name} value={bucket.name}>
-                {bucket.name}
-              </option>
-            ))}
-          </Select>
-          {isLoadingBuckets && <Spinner size="sm" />}
-        </HStack>
+      <Tabs isLazy variant='soft-rounded' colorScheme='orange'>
+        <TabList mb='1em'>
+          <Tab>{t('s3Browser.tabs.browseAndSync', 'Browse & Sync')}</Tab>
+          <Tab>{t('s3Browser.tabs.history', 'History')}</Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel p={0}>
+            <VStack spacing={4} align="stretch">
+              <HStack spacing={4}>
+                <Icon as={FaAws} boxSize="1.8em" color="orange.400" />
+                <Select
+                  placeholder={t('s3Browser.selectBucketPlaceholder', 'Select a Bucket...')}
+                  value={selectedBucket}
+                  onChange={(e) => setSelectedBucket(e.target.value)}
+                  isDisabled={isLoadingBuckets || buckets.length === 0}
+                  maxW={{ base: "100%", md: "400px" }}
+                  bg={useColorModeValue('white', 'gray.700')}
+                >
+                  {buckets.map((bucket) => (
+                    <option key={bucket.name} value={bucket.name}>
+                      {bucket.name}
+                    </option>
+                  ))}
+                </Select>
+                {isLoadingBuckets && <Spinner size="sm" />}
+              </HStack>
 
-        <Divider />
+              <Divider />
 
-        {selectedBucket && (
-          <VStack spacing={4} align="stretch">
-            <Breadcrumb spacing='8px' separator={<ChevronRightIcon color='gray.500' />} fontSize="sm" width="100%" textAlign="left">
-              <BreadcrumbItem>
-                <BreadcrumbLink onClick={() => handleBreadcrumbClick(0)} isCurrentPage={currentPrefix === ''} fontWeight={currentPrefix === '' ? 'bold' : 'normal'} textAlign="left">
-                  {selectedBucket}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              {currentPrefix.split('/').filter(p => p).map((part, index, arr) => (
-                <BreadcrumbItem key={index} isCurrentPage={index === arr.length - 1}>
-                  <BreadcrumbLink onClick={() => handleBreadcrumbClick(index + 1)} fontWeight={index === arr.length - 1 ? 'bold' : 'normal'} textAlign="left">
-                    {part}
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-              ))}
-            </Breadcrumb>
+              {selectedBucket && (
+                <VStack spacing={4} align="stretch">
+                  <Breadcrumb spacing='8px' separator={<ChevronRightIcon color='gray.500' />} fontSize="sm" width="100%" textAlign="left">
+                    <BreadcrumbItem>
+                      <BreadcrumbLink onClick={() => handleBreadcrumbClick(0)} isCurrentPage={currentPrefix === ''} fontWeight={currentPrefix === '' ? 'bold' : 'normal'} textAlign="left">
+                        {selectedBucket}
+                      </BreadcrumbLink>
+                    </BreadcrumbItem>
+                    {currentPrefix.split('/').filter(p => p).map((part, index, arr) => (
+                      <BreadcrumbItem key={index} isCurrentPage={index === arr.length - 1}>
+                        <BreadcrumbLink onClick={() => handleBreadcrumbClick(index + 1)} fontWeight={index === arr.length - 1 ? 'bold' : 'normal'} textAlign="left">
+                          {part}
+                        </BreadcrumbLink>
+                      </BreadcrumbItem>
+                    ))}
+                  </Breadcrumb>
 
-            <Box borderWidth="1px" borderRadius="lg" overflow="hidden">
-              {isLoadingObjects ? (
-                <ItemTableSkeleton />
-              ) : (
-                <TableContainer>
-                  <Table variant='simple'>
-                    <Thead>
-                      <Tr>
-                        <Th width="40%" textAlign="left">{t('common.name', 'Name')}</Th>
-                        <Th width="30%" textAlign="left">{t('common.lastModified', 'Last Modified')}</Th>
-                        <Th isNumeric width="15%">{t('common.size', 'Size')}</Th>
-                        <Th width="15%" textAlign="center">{t('s3Browser.syncAction', 'Sync')}</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      {objects.length === 0 && (
-                        <Tr>
-                          <Td colSpan={4} textAlign="center">
-                            <Text width="100%" textAlign="center">{t('s3Browser.emptyFolder', 'This location is empty.')}</Text>
-                          </Td>
-                        </Tr>
-                      )}
-                      {objects.map((obj) => {
-                        const alreadyInList = isInSyncList(obj.key);
-                        const currentlyDisabled = alreadyInList || isProcessingSyncList;
-                        console.log(`Rendering button for ${obj.key.split('/').pop()}: alreadyInList=${alreadyInList}, isProcessingSyncList=${isProcessingSyncList}, isDisabled=${currentlyDisabled}`);
-                        return (
-                          <Tr key={obj.key} _hover={{ bg: tableHoverBg }}>
-                            <Td
-                              onClick={() => obj.is_folder && handleNavigate(obj.key)}
-                              cursor={obj.is_folder ? 'pointer' : 'default'}
-                              title={obj.key.substring(currentPrefix.length)}
-                              textAlign="left"
-                              width="40%"
-                            >
-                              <HStack spacing={2} width="100%">
-                                <Icon
-                                  as={obj.is_folder ? FaFolder : FaFileAlt}
-                                  color={obj.is_folder ? folderColor : fileColor}
-                                  boxSize="1.2em"
-                                  flexShrink={0}
-                                />
-                                <Text noOfLines={1} textAlign="left" width="100%">
-                                  {obj.key.substring(currentPrefix.length) || (obj.is_folder ? obj.key : obj.key.split('/').pop())}
-                                </Text>
-                              </HStack>
-                            </Td>
-                            <Td textAlign="left" width="30%">{formatDateTime(obj.last_modified)}</Td>
-                            <Td isNumeric width="15%">{formatFileSize(obj.size)}</Td>
-                            <Td width="15%" textAlign="center">
-                              <IconButton
-                                aria-label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
-                                icon={alreadyInList ? <Icon as={FaCheckCircle} color="green.500" /> : <Icon as={FaPlusCircle} />}
-                                size="sm"
-                                variant="ghost"
-                                colorScheme={alreadyInList ? "green" : "blue"}
-                                onClick={() => !alreadyInList && handleAddSyncItem(obj)}
-                                isDisabled={currentlyDisabled}
-                                title={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
-                              />
-                            </Td>
-                          </Tr>
-                        );
-                      })}
-                    </Tbody>
-                  </Table>
-                </TableContainer>
+                  <Box borderWidth="1px" borderRadius="lg" overflow="hidden">
+                    {isLoadingObjects ? (
+                      <ItemTableSkeleton />
+                    ) : (
+                      <TableContainer>
+                        <Table variant='simple'>
+                          <Thead>
+                            <Tr>
+                              <Th width="40%" textAlign="left">{t('common.name', 'Name')}</Th>
+                              <Th width="30%" textAlign="left">{t('common.lastModified', 'Last Modified')}</Th>
+                              <Th isNumeric width="15%">{t('common.size', 'Size')}</Th>
+                              <Th width="15%" textAlign="center">{t('s3Browser.syncAction', 'Sync')}</Th>
+                            </Tr>
+                          </Thead>
+                          <Tbody>
+                            {objects.length === 0 && (
+                              <Tr>
+                                <Td colSpan={4} textAlign="center">
+                                  <Text width="100%" textAlign="center">{t('s3Browser.emptyFolder', 'This location is empty.')}</Text>
+                                </Td>
+                              </Tr>
+                            )}
+                            {objects.map((obj) => {
+                              const alreadyInList = isInSyncList(obj.key);
+                              const currentlyDisabled = alreadyInList || isProcessingSyncList;
+                              return (
+                                <Tr key={obj.key} _hover={{ bg: tableHoverBg }}>
+                                  <Td
+                                    onClick={() => obj.is_folder && handleNavigate(obj.key)}
+                                    cursor={obj.is_folder ? 'pointer' : 'default'}
+                                    title={obj.key.substring(currentPrefix.length)}
+                                    textAlign="left"
+                                    width="40%"
+                                  >
+                                    <HStack spacing={2} width="100%">
+                                      <Icon
+                                        as={obj.is_folder ? FaFolder : FaFileAlt}
+                                        color={obj.is_folder ? folderColor : fileColor}
+                                        boxSize="1.2em"
+                                        flexShrink={0}
+                                      />
+                                      <Text noOfLines={1} textAlign="left" width="100%">
+                                        {obj.key.substring(currentPrefix.length) || (obj.is_folder ? obj.key : obj.key.split('/').pop())}
+                                      </Text>
+                                    </HStack>
+                                  </Td>
+                                  <Td textAlign="left" width="30%">{formatDateTime(obj.last_modified)}</Td>
+                                  <Td isNumeric width="15%">{formatFileSize(obj.size)}</Td>
+                                  <Td width="15%" textAlign="center">
+                                    <IconButton
+                                      aria-label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
+                                      icon={alreadyInList ? <Icon as={FaCheckCircle} color="green.500" /> : <Icon as={FaPlusCircle} />}
+                                      size="sm"
+                                      variant="ghost"
+                                      colorScheme={alreadyInList ? "green" : "blue"}
+                                      onClick={() => !alreadyInList && handleAddSyncItem(obj)}
+                                      isDisabled={currentlyDisabled}
+                                      title={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
+                                    />
+                                  </Td>
+                                </Tr>
+                              );
+                            })}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+                    )}
+                  </Box>
+                </VStack>
               )}
-            </Box>
-          </VStack>
-        )}
 
-        {!selectedBucket && !isLoadingBuckets && (
-          <Text color="gray.500" mt={4} textAlign="center" width="100%">{t('s3Browser.selectBucketPrompt', 'Please select a bucket above to view its contents.')}</Text>
-        )}
+              {!selectedBucket && !isLoadingBuckets && (
+                <Text color="gray.500" mt={4} textAlign="center" width="100%">{t('s3Browser.selectBucketPrompt', 'Please select a bucket above to view its contents.')}</Text>
+              )}
 
-        {(isIngestionPolling || ingestionTaskStatus) && ingestionTaskId && (
-          <Box 
-            mt={4} p={4} borderWidth="1px" borderRadius="md" 
-            borderColor={
-               ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.300" : 
-               ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300"
-            } 
-            bg={useColorModeValue(
-               ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.50" : 
-               ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50", 
-               ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.900" : 
-               ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900"
-            )}
-            mb={4}
-          >
-              <VStack spacing={2} align="stretch">
-                <HStack justify="space-between">
-                  <Text fontSize="sm" fontWeight="bold">{t('s3Browser.ingestionTaskProgressTitle', 'S3 Ingestion Task')}</Text>
-                  <Tag 
-                      size="sm"
-                      colorScheme={
-                        ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' :
-                        ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'red' : 
-                        'blue'
-                      }
-                    >
-                      {ingestionTaskStatus?.status || 'Initializing...'}
-                    </Tag>
-                </HStack>
-                <Text fontSize="xs">{t('common.taskID')} {ingestionTaskId}</Text>
-                {typeof ingestionTaskStatus?.progress === 'number' && (
-                  <Progress 
-                    value={ingestionTaskStatus.progress} size="xs" 
-                    colorScheme={
-                       ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'red' : 
-                       ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' : 'blue'
-                    } 
-                    isAnimated={ingestionTaskStatus?.status === TaskStatusEnum.RUNNING || ingestionTaskStatus?.status === TaskStatusEnum.PENDING}
-                    hasStripe={ingestionTaskStatus?.status === TaskStatusEnum.RUNNING || ingestionTaskStatus?.status === TaskStatusEnum.PENDING}
-                    borderRadius="full"
-                  />
-                )}
-                {(ingestionTaskStatus?.message || ingestionError) && (
-                    <Text fontSize="xs" color={ingestionError ? "red.500" : "gray.500"} mt={1} noOfLines={2} title={ingestionError || ingestionTaskStatus?.message || undefined}>
-                      {ingestionError || ingestionTaskStatus?.message}
-                    </Text>
-                )}
-              </VStack>
-          </Box>
-        )}
-
-        {/* +++ Tabbed View for Sync List and History +++ */}
-        <Tabs isLazy variant='soft-rounded' colorScheme='blue' mt={6}>
-          <TabList mb='1em'>
-            <Tab>{t('s3Browser.tabs.syncList', 'Sync List')}</Tab>
-            <Tab>{t('s3Browser.tabs.history', 'History')}</Tab>
-          </TabList>
-          <TabPanels>
-            <TabPanel p={0}>
-              {/* Pass only pending items to Sync List Component */}
+              {(isIngestionPolling || ingestionTaskStatus) && ingestionTaskId && (
+                <Box 
+                  mt={4} p={4} borderWidth="1px" borderRadius="md" 
+                  borderColor={
+                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.300" : 
+                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300"
+                  } 
+                  bg={useColorModeValue(
+                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.50" : 
+                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50", 
+                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.900" : 
+                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900"
+                  )}
+                  mb={4}
+                >
+                  <VStack spacing={2} align="stretch">
+                    <HStack justify="space-between">
+                      <Text fontSize="sm" fontWeight="bold">{t('s3Browser.ingestionTaskProgressTitle', 'S3 Ingestion Task')}</Text>
+                      <Tag 
+                          size="sm"
+                          colorScheme={
+                            ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' :
+                            ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'red' : 
+                            'blue'
+                          }
+                        >
+                          {t(`s3Browser.status.${ingestionTaskStatus?.status?.toLowerCase() || 'pending'}`, ingestionTaskStatus?.status || 'Initializing...')}
+                        </Tag>
+                    </HStack>
+                    <Text fontSize="xs">{t('common.taskID')} {ingestionTaskId}</Text>
+                    {typeof ingestionTaskStatus?.progress === 'number' && (
+                      <Progress 
+                        value={ingestionTaskStatus.progress} size="xs" 
+                        colorScheme={
+                          ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'red' : 
+                          ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' : 'blue'
+                        } 
+                        isAnimated={ingestionTaskStatus?.status === TaskStatusEnum.RUNNING || ingestionTaskStatus?.status === TaskStatusEnum.PENDING}
+                        hasStripe={ingestionTaskStatus?.status === TaskStatusEnum.RUNNING || ingestionTaskStatus?.status === TaskStatusEnum.PENDING}
+                        borderRadius="full"
+                      />
+                    )}
+                    {(ingestionTaskStatus?.message || ingestionError) && (
+                        <Text fontSize="xs" color={ingestionError ? "red.500" : "gray.500"} mt={1} noOfLines={2} title={ingestionError || ingestionTaskStatus?.message || undefined}>
+                          {ingestionError || ingestionTaskStatus?.message}
+                        </Text>
+                    )}
+                  </VStack>
+                </Box>
+              )}
+              
               <S3SyncListComponent
                 items={pendingSyncItems}
                 onRemoveItem={handleRemoveSyncItem}
                 onProcessList={handleProcessSyncList}
                 isProcessing={isProcessingSyncList}
-                isLoading={isLoadingSyncList} // Loading applies to fetching the whole list
-                error={syncListError} // Error applies to fetching the whole list
-                t={t}
-              />
-            </TabPanel>
-            <TabPanel p={0}>
-              {/* Pass completed/failed items to History Component */}
-              <S3HistoryListComponent
-                items={historySyncItems}
                 isLoading={isLoadingSyncList}
                 error={syncListError}
                 t={t}
               />
-            </TabPanel>
-          </TabPanels>
-        </Tabs>
-      </VStack>
+            </VStack>
+          </TabPanel>
+
+          <TabPanel p={0}>
+            <S3HistoryListComponent
+              items={historySyncItems}
+              isLoading={isLoadingSyncList} 
+              error={syncListError} 
+              t={t}
+            />
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
     </Container>
   );
 };

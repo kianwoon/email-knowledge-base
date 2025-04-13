@@ -32,7 +32,7 @@
     "confluence": "Confluence (即将推出)",
     "elasticsearch": "Elasticsearch (即将推出)",
     "googleDrive": "Google Drive (即将推出)",
-    "awsS3": "AWS S3 (即将推出)",
+    "awsS3": "AWS S3",
     "aiAssistant": "贾维斯",
     "chat": "对话",
     "settings": "设置"
@@ -1217,7 +1217,8 @@
     },
     "tabs": {
       "syncList": "同步列表",
-      "history": "历史记录"
+      "history": "历史记录",
+      "browseAndSync": "浏览与同步"
     }
   },
   "tokenManagement": {

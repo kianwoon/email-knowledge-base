@@ -33,10 +33,10 @@
     "userMenu": "User Menu",
     "dataSource": "Data Source",
     "sharepoint": "SharePoint",
-    "confluence": "Confluence (Coming Soon)",
-    "elasticsearch": "Elasticsearch (Coming Soon)",
-    "googleDrive": "Google Drive (Coming Soon)",
-    "awsS3": "AWS S3 (Coming Soon)",
+    "confluence": "Confluence",
+    "elasticsearch": "Elasticsearch",
+    "googleDrive": "Google Drive",
+    "awsS3": "AWS S3",
     "aiDataManagement": "AI Data Management",
     "tokenManagement": "Token Management",
     "jarvis": "Jarvis"
@@ -1507,7 +1507,8 @@
       "browseSites": "Browse Sites",
       "quickAccess": "Quick Access",
       "myRecent": "My Recent",
-      "history": "History"
+      "history": "History",
+      "browseAndSync": "Browse & Sync"
     },
     "history": {
       "title": "Processed Items History",
@@ -1634,7 +1635,8 @@
     },
     "tabs": {
       "syncList": "Sync List",
-      "history": "History"
+      "history": "History",
+      "browseAndSync": "Browse & Sync"
     }
   }
 }
