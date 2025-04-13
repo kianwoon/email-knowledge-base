@@ -1407,7 +1407,7 @@
       "rawDataLabel": "Raw Data Items",
       "rawDataHelp": "Source: {email}_email_knowledge",
       "vectorDataLabel": "Vector Data Items",
-      "vectorDataHelp": "Source: {email}_email_knowledge_base",
+      "vectorDataSource": "Source: {{vectorCollection}}",
       "tokenLabel": "API Access Tokens",
       "tokenHelp": "{{count}} active",
       "lastUpdated": "Last updated: {{time}}"
@@ -1560,5 +1560,38 @@
   "itemType": {
     "folder": "Folder",
     "file": "File"
+  },
+  "dashboard": {
+    "title": "Dashboard"
+  },
+  "knowledgeManagement": {
+    "title": "Knowledge Base Management",
+    "summaryTitle": "Data Summary",
+    "summary": {
+      "lastUpdated": "Last updated: {{time}}",
+      "emailRawDataLabel": "Email Raw Data",
+      "sharepointRawDataLabel": "SharePoint Raw Data",
+      "vectorDataLabel": "Vector Data Items",
+      "vectorDataSource": "Source: {{vectorCollection}}",
+      "tokenLabel": "API Access Tokens",
+      "tokenHelp": "{{count}} active"
+    },
+    "task": {
+      "title": "Background Task Status",
+      "processing": "Knowledge base update in progress...",
+      "taskId": "Task ID: {{id}}",
+      "calculating": "Calculating...",
+      "pending": "Task is pending...",
+      "started": "Task started..."
+    },
+    "actionsTitle": "Management Actions",
+    "actionsPlaceholder": "Further actions related to knowledge base management can be added here.",
+    "errors": {
+      "loadFailed": "Failed to load page data. Please try again.",
+      "taskCheckFailed": "Failed to check for active background tasks."
+    }
+  },
+  "fileManager": {
+    "title": "File Manager"
   }
 }

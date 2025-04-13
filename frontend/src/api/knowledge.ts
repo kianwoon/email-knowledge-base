@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import axios from 'axios';
 
 // Define the expected response structure for the summary
 export interface CollectionSummaryResponse {
@@ -12,8 +13,9 @@ export type KnowledgeCollectionName = 'email_knowledge' | 'email_knowledge_base'
 // NEW: Define the expected response structure for the combined summary
 export interface KnowledgeSummaryResponse {
   raw_data_count: number;
+  sharepoint_raw_data_count: number;
   vector_data_count: number;
-  last_updated: string;
+  last_updated: string | null;
 }
 
 /**
@@ -51,17 +53,17 @@ export const getCollectionSummary = async (
 export const getKnowledgeBaseSummary = async (): Promise<KnowledgeSummaryResponse> => {
   console.log(`[api/knowledge] Fetching combined knowledge base summary...`);
   try {
-    // Endpoint path matches the assumed backend route
-    const response = await apiClient.get<KnowledgeSummaryResponse>(
-      `/knowledge/summary` // Assumes this endpoint returns { raw_data_count, vector_data_count }
-    );
-    console.log(`[api/knowledge] Received combined summary:`, response.data);
+    const response = await axios.get<KnowledgeSummaryResponse>('/api/v1/knowledge/summary');
     return response.data;
   } catch (error: any) {
     console.error(`[api/knowledge] Error fetching combined summary:`, error.response?.data || error.message);
-    throw new Error(
-      error.response?.data?.detail ||
-      `Failed to fetch combined knowledge base summary`
-    );
+    // Provide default values or re-throw a more specific error
+    // Ensure the returned object matches the KnowledgeSummaryResponse structure even on error
+    return {
+      raw_data_count: 0,
+      sharepoint_raw_data_count: 0,
+      vector_data_count: 0,
+      last_updated: null,
+    };
   }
 }; 

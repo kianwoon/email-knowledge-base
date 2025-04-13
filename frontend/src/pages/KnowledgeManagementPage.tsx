@@ -24,8 +24,9 @@ import {
   Tooltip,
   Progress,
   AlertDescription,
+  Flex,
 } from '@chakra-ui/react';
-import { RepeatIcon } from '@chakra-ui/icons';
+import { RepeatIcon, ArrowForwardIcon, ArrowDownIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
 import { getKnowledgeBaseSummary, KnowledgeSummaryResponse } from '../api/knowledge';
@@ -40,6 +41,7 @@ interface UserInfo {
 
 interface CombinedSummary {
   rawDataCount: number;
+  sharepointRawDataCount: number;
   vectorDataCount: number;
   totalTokenCount: number;
   activeTokenCount: number;
@@ -112,6 +114,7 @@ const KnowledgeManagementPage: React.FC = () => {
       
       setSummaryData({
         rawDataCount: knowledgeSummary.raw_data_count ?? 0,
+        sharepointRawDataCount: knowledgeSummary.sharepoint_raw_data_count ?? 0,
         vectorDataCount: knowledgeSummary.vector_data_count ?? 0,
         totalTokenCount: totalTokens,
         activeTokenCount: activeTokens,
@@ -189,10 +192,12 @@ const KnowledgeManagementPage: React.FC = () => {
 
   // Calculate dynamic collection names for both cards
   let rawCollectionNameDisplay = `{email}_email_knowledge`;
+  let sharepointRawCollectionNameDisplay = `{email}_sharepoint_knowledge`;
   let vectorCollectionNameDisplay = `{email}_knowledge_base`;
   if (currentUser && currentUser.email) {
       const sanitizedEmail = currentUser.email.replace('@', '_').replace('.', '_');
       rawCollectionNameDisplay = `${sanitizedEmail}_email_knowledge`;
+      sharepointRawCollectionNameDisplay = `${sanitizedEmail}_sharepoint_knowledge`;
       vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base`;
   }
   
@@ -230,31 +235,76 @@ const KnowledgeManagementPage: React.FC = () => {
         )}
 
         {!isLoading && !error && summaryData && (
-          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6} opacity={isLoading ? 0.5 : 1}>
-            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-              <Stat>
-                <StatLabel>{t('knowledgeManagement.summary.rawDataLabel', 'Raw Data Items')}</StatLabel>
-                <StatNumber>{summaryData.rawDataCount}</StatNumber>
-                <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
-              </Stat>
-            </Box>
+          <>
+            {/* Data Flow Diagram Section */}
+            <Flex 
+              direction={{ base: 'column', lg: 'row' }} 
+              align={{ base: 'stretch', lg: 'center' }} 
+              gap={{ base: 4, lg: 6 }}
+              mb={6}
+            >
+              {/* Raw Data Sources Group */}
+              <VStack spacing={4} align="stretch" flexShrink={0}>
+                  {/* Email Raw Data Card */}
+                  <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+                      <Stat>
+                          <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Email Raw Data')}</StatLabel>
+                          <StatNumber>{summaryData.rawDataCount}</StatNumber>
+                          <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
+                      </Stat>
+                  </Box>
 
-            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-              <Stat>
-                <StatLabel>{t('knowledgeManagement.summary.vectorDataLabel', 'Vector Data Items')}</StatLabel>
-                <StatNumber>{summaryData.vectorDataCount}</StatNumber>
-                <StatHelpText>Source: {vectorCollectionNameDisplay}</StatHelpText>
-              </Stat>
-            </Box>
+                  {/* SharePoint Raw Data Card */}
+                  <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+                      <Stat>
+                          <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
+                          <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
+                          <StatHelpText>Source: {sharepointRawCollectionNameDisplay}</StatHelpText>
+                      </Stat>
+                  </Box>
+              </VStack>
 
-            <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-              <Stat>
-                <StatLabel>{t('knowledgeManagement.summary.tokenLabel', 'API Access Tokens')}</StatLabel>
-                <StatNumber>{summaryData.totalTokenCount}</StatNumber>
-                <StatHelpText>{t('knowledgeManagement.summary.tokenHelp', '{count} active', { count: summaryData.activeTokenCount })}</StatHelpText>
-              </Stat>
-            </Box>
-          </SimpleGrid>
+              {/* Arrow Connector (Visible on larger screens) */}
+              <Center flexShrink={0} display={{ base: 'none', lg: 'flex' }} >
+                  <ArrowForwardIcon boxSize="30px" color="gray.400" />
+              </Center>
+              {/* Down Arrow Connector (Visible on smaller screens) */}
+              <Center flexShrink={0} display={{ base: 'flex', lg: 'none' }} >
+                  <ArrowDownIcon boxSize="24px" color="gray.400" />
+              </Center>
+
+              {/* Vector Data Card */}
+              <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder} flexGrow={1} minW="200px">
+                  <Stat>
+                      <StatLabel>{t('knowledgeManagement.summary.vectorDataLabel', 'Vector Data Items')}</StatLabel>
+                      <StatNumber>{summaryData.vectorDataCount}</StatNumber>
+                      <StatHelpText fontSize="xs">
+                          {t('knowledgeManagement.summary.vectorDataSource', 
+                             'Source: {{vectorCollection}}', 
+                             { vectorCollection: vectorCollectionNameDisplay }
+                          )}
+                      </StatHelpText>
+                  </Stat>
+              </Box>
+            </Flex>
+
+            {/* Other Stats (Tokens) - Kept separate */}
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={6} opacity={isLoading ? 0.5 : 1}>
+                {/* Empty Boxes to push Tokens card to the right in a 4-col grid if needed */}
+                <Box /> 
+                <Box /> 
+                <Box /> 
+                
+                {/* API Access Tokens Card */}
+                <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+                    <Stat>
+                        <StatLabel>{t('knowledgeManagement.summary.tokenLabel', 'API Access Tokens')}</StatLabel>
+                        <StatNumber>{summaryData.totalTokenCount}</StatNumber>
+                        <StatHelpText>{t('knowledgeManagement.summary.tokenHelp', '{count} active', { count: summaryData.activeTokenCount })}</StatHelpText>
+                    </Stat>
+                </Box>
+            </SimpleGrid>
+          </>
         )}
 
         {(isLoadingTaskStatus || isTaskRunning) && (

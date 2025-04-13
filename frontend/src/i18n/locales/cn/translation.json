@@ -1149,28 +1149,33 @@
   },
   "knowledgeManagement": {
     "title": "知识库管理",
-    "summaryTitle": "数据概览",
+    "summaryTitle": "数据摘要",
     "summary": {
       "lastUpdated": "最后更新时间：{{time}}",
-      "rawDataLabel": "原始数据项",
+      "emailRawDataLabel": "邮件原始数据",
+      "sharepointRawDataLabel": "SharePoint 原始数据",
       "vectorDataLabel": "向量数据项",
-      "tokenLabel": "API访问令牌",
-      "tokenHelp": "{{count}}个活跃"
-    },
-    "errors": {
-      "loadFailed": "加载页面数据失败。请重试。",
-      "taskCheckFailed": "检查活跃后台任务失败。"
+      "vectorDataSource": "来源: {{vectorCollection}}",
+      "tokenLabel": "API 访问令牌",
+      "tokenHelp": "{{count}} 个活动"
     },
     "task": {
       "title": "后台任务状态",
-      "calculating": "计算中...",
-      "pending": "任务等待中...",
-      "started": "任务已开始...",
       "processing": "知识库更新进行中...",
-      "taskId": "任务ID：{{id}}"
+      "taskId": "任务 ID：{{id}}",
+      "calculating": "计算中...",
+      "pending": "任务待处理...",
+      "started": "任务已开始..."
     },
     "actionsTitle": "管理操作",
-    "actionsPlaceholder": "此处可添加更多知识库管理相关操作。"
+    "actionsPlaceholder": "知识库管理的其他相关操作可在此处添加。",
+    "errors": {
+      "loadFailed": "加载页面数据失败。请重试。",
+      "taskCheckFailed": "检查活动后台任务失败。"
+    }
+  },
+  "fileManager": {
+    "title": "文件管理器"
   },
   "tokenManagement": {
     "title": "管理API令牌"
