@@ -141,10 +141,13 @@ async def _run_s3_processing_logic(
     logger.info(f"Task {task_id}: Getting AWS credentials for user {user_email}")
     task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 5, 'status': 'Authenticating with AWS...'})
     try:
-        role_arn = s3_service.get_user_aws_credentials(db=db_session, user_email=user_email)
-        aws_session = s3_service.get_aws_session_for_user(role_arn=role_arn, user_email=user_email)
+        # Role ARN is no longer fetched here directly
+        # role_arn = s3_service.get_user_aws_credentials(db=db_session, user_email=user_email)
+        
+        # Call the updated service function, passing the db session
+        aws_session = s3_service.get_aws_session_for_user(db=db_session, user_email=user_email)
         s3_client = aws_session.client('s3')
-        logger.info(f"Task {task_id}: Successfully assumed role {role_arn}")
+        logger.info(f"Task {task_id}: Successfully obtained assumed role session for user {user_email}")
     except Exception as e:
         logger.error(f"Task {task_id}: Failed to assume role or get credentials: {e}", exc_info=True)
         # Fail all pending items if auth fails
