@@ -245,23 +245,27 @@ const KnowledgeManagementPage: React.FC = () => {
             >
               {/* Raw Data Sources Group */}
               <VStack spacing={4} align="stretch" flexShrink={0}>
-                  {/* Email Raw Data Card */}
-                  <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-                      <Stat>
-                          <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Email Raw Data')}</StatLabel>
-                          <StatNumber>{summaryData.rawDataCount}</StatNumber>
-                          <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
-                      </Stat>
-                  </Box>
+                  {/* Email Raw Data Card - Always show if data available */}
+                  {summaryData && (
+                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+                        <Stat>
+                            <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Email Raw Data')}</StatLabel>
+                            <StatNumber>{summaryData.rawDataCount}</StatNumber>
+                            <StatHelpText>Source: {rawCollectionNameDisplay}</StatHelpText>
+                        </Stat>
+                    </Box>
+                  )}
 
-                  {/* SharePoint Raw Data Card */}
-                  <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
-                      <Stat>
-                          <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
-                          <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
-                          <StatHelpText>Source: {sharepointRawCollectionNameDisplay}</StatHelpText>
-                      </Stat>
-                  </Box>
+                  {/* SharePoint Raw Data Card - Conditionally render */}
+                  {summaryData && summaryData.sharepointRawDataCount > 0 && (
+                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg} borderColor={cardBorder}>
+                        <Stat>
+                            <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
+                            <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
+                            <StatHelpText>Source: {sharepointRawCollectionNameDisplay}</StatHelpText>
+                        </Stat>
+                    </Box>
+                  )}
               </VStack>
 
               {/* Arrow Connector (Visible on larger screens) */}
