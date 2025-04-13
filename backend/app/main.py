@@ -27,6 +27,8 @@ from app.routes import chat
 from app.routes import user
 # Import the new SharePoint router
 from app.routes import sharepoint 
+# Import the new S3 router
+from app.routes import s3 as s3_router
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -152,6 +154,14 @@ app.include_router(
     sharepoint.router, 
     prefix=f"{settings.API_PREFIX}/sharepoint", 
     tags=["SharePoint"]
+)
+# --- End Include ---
+
+# --- Include S3 Router ---
+app.include_router(
+    s3_router.router, 
+    prefix=f"{settings.API_PREFIX}/s3", # Set the prefix for S3 routes
+    tags=["S3"] # Tag for API docs
 )
 # --- End Include ---
 

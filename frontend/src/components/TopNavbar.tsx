@@ -69,7 +69,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
         { path: '#confluence', label: t('navigation.confluence'), icon: FaConfluence, disabled: true },
         { path: '#elastic', label: t('navigation.elasticsearch'), icon: FaServer, disabled: true },
         { path: '#gdrive', label: t('navigation.googleDrive'), icon: FaGoogleDrive, disabled: true },
-        { path: '#s3', label: t('navigation.awsS3'), icon: FaAws, disabled: true },
+        { path: '/s3', label: t('navigation.awsS3'), icon: FaAws, disabled: false },
       ]
     },
     { path: '/review', label: t('navigation.review'), icon: FaClipboardCheck },

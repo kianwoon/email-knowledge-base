@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import {
-  Box, Container, Spinner, Center, Text, useToast, useDisclosure, 
-  VStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Button 
+  Box, Container, Spinner, Center, Text, useToast, useDisclosure,
+  VStack, Modal, ModalOverlay, ModalContent, ModalHeader, ModalFooter, ModalBody, ModalCloseButton, Button
 } from '@chakra-ui/react';
 
 // Context & Auth
 // Assuming context provides these, or adjust imports if needed
-// import { AuthProvider, AuthConsumer, useAuth } from './context/AuthContext'; 
+// import { AuthProvider, AuthConsumer, useAuth } from './context/AuthContext';
 
 // API
 import { getCurrentUser, logout as logoutApi, getLoginUrl } from './api/auth';
@@ -17,7 +17,7 @@ import { setupInterceptors } from './api/apiClient';
 import TopNavbar from './components/TopNavbar';
 import ProtectedRoute from './components/ProtectedRoute';
 // Removed: import LoadingScreen from './components/LoadingScreen';
-// Removed: import SessionExpiredModal from './components/SessionExpiredModal'; 
+// Removed: import SessionExpiredModal from './components/SessionExpiredModal';
 
 // Pages (Using actual filenames)
 import SignIn from './pages/SignIn'; // Assuming this acts as home/login
@@ -28,16 +28,18 @@ import Search from './pages/Search'; // Corrected name
 // Removed: import DocumentationPage from './pages/DocumentationPage'; // No such file
 import Support from './pages/Support'; // Corrected name
 // Removed: import NotFoundPage from './pages/NotFoundPage'; // Use catch-all redirect instead
-import KnowledgeManagementPage from '@/pages/KnowledgeManagementPage'; 
-import TokenManagementPage from './pages/TokenManagementPage'; 
+import KnowledgeManagementPage from '@/pages/KnowledgeManagementPage';
+import TokenManagementPage from './pages/TokenManagementPage';
 import AITraining from './pages/documentation/AITraining'; // <-- Import Doc Page
-import AIAnalysis from './pages/documentation/AIAnalysis'; // <-- Import 
-import Documentation from './pages/documentation/Documentation'; // <-- Import 
-import KnowledgeBase from './pages/documentation/KnowledgeBase'; // <-- Import 
-import SecureAuthentication from './pages/documentation/SecureAuthentication'; // <-- Import 
-import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import 
+import AIAnalysis from './pages/documentation/AIAnalysis'; // <-- Import
+import Documentation from './pages/documentation/Documentation'; // <-- Import
+import KnowledgeBase from './pages/documentation/KnowledgeBase'; // <-- Import
+import SecureAuthentication from './pages/documentation/SecureAuthentication'; // <-- Import
+import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import
 // Import the new SharePoint page
 import SharePointPage from './pages/SharePoint';
+import S3Browser from '@/pages/S3Browser'; // <<< RE-ADDED S3 Browser import
+import S3ConfigurationPage from '@/pages/S3ConfigurationPage'; // <<< Added S3 Config Page import
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
 
 // i18n
@@ -71,7 +73,7 @@ const SessionExpiredModalInline = ({ isOpen, onClose, onLogin, t }: any) => (
         <Text>{t('sessionExpired.message')}</Text>
       </ModalBody>
       <ModalFooter>
-        <Button colorScheme="blue" onClick={onLogin}> {/* Use onLogin prop */} 
+        <Button colorScheme="blue" onClick={onLogin}> {/* Use onLogin prop */}
           {t('sessionExpired.loginButton')}
         </Button>
       </ModalFooter>
@@ -88,6 +90,8 @@ const protectedPaths = [
   '/tokens',
   '/jarvis',
   '/sharepoint', // Added SharePoint
+  '/s3', // <<< RE-ADDED S3 path
+  '/settings/s3', // <<< Added S3 Settings path
   // Add other protected paths like dashboard, knowledge-bases, etc.
   '/dashboard',
   '/knowledge-bases',
@@ -107,7 +111,7 @@ function App() {
   useEffect(() => {
     setupInterceptors();
     console.log('[App useEffect] Interceptors set up.');
-  }, []); 
+  }, []);
 
   // --- Login Redirect Handler ---
   const redirectToLogin = useCallback(async () => {
@@ -183,13 +187,13 @@ function App() {
   // Auth Initialization Check (Restored)
   useEffect(() => {
     const initializeAuth = async () => {
-      console.log("--- App useEffect running initializeAuth (Cookie Based) ---"); 
+      console.log("--- App useEffect running initializeAuth (Cookie Based) ---");
       setIsLoading(true);
       let userDetails = null;
       let initialAuth = false;
       try {
          console.log("Attempting to verify session with backend via /auth/me...");
-         userDetails = await getCurrentUser(); 
+         userDetails = await getCurrentUser();
          console.log("Session verified. User details fetched:", userDetails);
          initialAuth = true;
          if (userDetails?.ms_token_data?.refresh_token) {
@@ -206,7 +210,7 @@ function App() {
       } finally {
          console.log(`Setting final state: isAuthenticated=${initialAuth}, user=${!!userDetails}`);
          setAuth({ isAuthenticated: initialAuth, user: userDetails });
-         setIsLoading(false); 
+         setIsLoading(false);
          console.log("initializeAuth finished. Loading set to false.");
       }
     };
@@ -216,7 +220,7 @@ function App() {
   // Close Session Modal Handler (Restored)
   const handleCloseSessionExpiredModal = () => {
     onSessionExpiredModalClose();
-    navigate('/', { replace: true }); 
+    navigate('/', { replace: true });
   };
 
   // Function to update auth state (takes no args now)
@@ -238,9 +242,9 @@ function App() {
   return (
     // Assuming Router is handled outside this component if needed
     <Box minH="100vh">
-      <TopNavbar 
-        onLogout={handleLogout} 
-        isAuthenticated={auth.isAuthenticated} 
+      <TopNavbar
+        onLogout={handleLogout}
+        isAuthenticated={auth.isAuthenticated}
         user={auth.user}
       />
       <Container maxW="1400px" py={4}>
@@ -249,56 +253,56 @@ function App() {
           <Route path="/" element={<SignIn onLogin={handleSuccessfulLogin} isAuthenticated={auth.isAuthenticated} />} />
           <Route path="/support" element={<Support />} />
           <Route path="/docs" element={<Documentation />} /> {/* Main docs page */}
-          <Route path="/docs/ai-training" element={<AITraining />} /> 
-          <Route path="/docs/ai-analysis" element={<AIAnalysis />} /> 
-          <Route path="/docs/knowledge-base" element={<KnowledgeBase />} /> 
-          <Route path="/docs/secure-authentication" element={<SecureAuthentication />} /> 
-          <Route path="/docs/smart-filtering" element={<SmartFiltering />} /> 
+          <Route path="/docs/ai-training" element={<AITraining />} />
+          <Route path="/docs/ai-analysis" element={<AIAnalysis />} />
+          <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
+          <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
+          <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
           {/* Add route for Email Processing doc if it exists */}
           {/* <Route path="/docs/email-processing" element={<EmailProcessing />} /> */} {/* <-- Comment out or remove this line */}
 
           {/* Protected Routes - Use ProtectedRoute Component */}
-          <Route 
-            path="/filter" 
+          <Route
+            path="/filter"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <FilterSetup />
               </ProtectedRoute>
             }
           />
-          <Route 
-            path="/review" 
+          <Route
+            path="/review"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <EmailReview />
               </ProtectedRoute>
             }
           />
-          <Route 
-            path="/search" 
+          <Route
+            path="/search"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <Search />
               </ProtectedRoute>
             }
           />
-          <Route 
-            path="/knowledge" 
+          <Route
+            path="/knowledge"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <KnowledgeManagementPage />
               </ProtectedRoute>
             }
           />
-          <Route 
-            path="/tokens" 
+          <Route
+            path="/tokens"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <TokenManagementPage />
               </ProtectedRoute>
             }
           />
-          <Route 
+          <Route
             path="/jarvis"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
@@ -308,9 +312,9 @@ function App() {
               </ProtectedRoute>
             }
           />
-          {/* --- Add SharePoint Route --- */}
-          <Route 
-            path="/sharepoint" 
+          {/* --- SharePoint Route --- */}
+          <Route
+            path="/sharepoint"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <SharePointPage />
@@ -318,9 +322,29 @@ function App() {
             }
           />
           {/* --- End SharePoint Route --- */}
-          
+          {/* --- Start S3 Browser Route --- RE-ADDED */}
+          <Route
+            path="/s3"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <S3Browser />
+              </ProtectedRoute>
+            }
+          />
+          {/* --- End S3 Browser Route --- */}
+          {/* --- Start S3 Configuration Route --- */}
+          <Route
+            path="/settings/s3"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <S3ConfigurationPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* --- End S3 Configuration Route --- */}
+
           {/* Add routes for lazy-loaded pages */}
-          <Route 
+          <Route
             path="/dashboard"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
@@ -330,7 +354,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route 
+          <Route
             path="/knowledge-bases"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
@@ -340,7 +364,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route 
+          <Route
             path="/knowledge-bases/:id"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
@@ -350,7 +374,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route 
+          <Route
             path="/tasks"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
@@ -360,7 +384,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          
+
           {/* Catch-all Route - Added back */}
           <Route path="*" element={<Navigate to={auth.isAuthenticated ? "/filter" : "/"} replace />} />
         </Routes>

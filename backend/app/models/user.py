@@ -1,3 +1,4 @@
+import typing # <<< Added import
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -20,6 +21,13 @@ from typing import List as TypeList
 # Import the Base class from your SQLAlchemy setup
 from app.db.base_class import Base # <<< CORRECTED IMPORT
 from .api_key import APIKeyDB  # Import APIKeyDB for relationship
+
+# +++ Add TYPE_CHECKING block for circular imports +++
+if typing.TYPE_CHECKING:
+    from .aws_credential import AwsCredential
+    # Keep APIKeyDB import here if needed for other type hints
+    # from .api_key import APIKeyDB 
+# --- End TYPE_CHECKING block ---
 
 
 class TokenData(BaseModel):
@@ -114,6 +122,15 @@ class UserDB(Base):
         cascade="all, delete-orphan",
         lazy="joined"
     )
+
+    # +++ Add Relationship to AwsCredential using String Literals +++
+    aws_credential: Mapped[Optional["AwsCredential"]] = relationship(
+        "AwsCredential",
+        back_populates="user", # This points to the 'user' attribute in AwsCredential
+        uselist=False,         # One-to-one relationship
+        cascade="all, delete-orphan" # Optional: Delete AwsCredential if UserDB is deleted
+    )
+    # --- End Add ---
 
     def __repr__(self) -> str:
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"
