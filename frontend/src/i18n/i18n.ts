@@ -5,20 +5,21 @@ import { InitOptions } from 'i18next';
 
 // Import translation files
 import enTranslation from './locales/en/translation.json';
-import zhTranslation from './locales/cn/translation.json';
+import cnTranslation from './locales/cn/translation.json';
+import zhTranslation from './locales/zh/translation.json';
 
 // Configure i18next options
 const i18nOptions: InitOptions = {
   // Default language fallbacks
   fallbackLng: {
-    'zh-CN': ['cn', 'en'],
-    'zh-TW': ['cn', 'en'],
-    'zh-HK': ['cn', 'en'],
-    'zh-Hant': ['cn', 'en'],
-    'zh-Hans': ['cn', 'en'],
-    'zh-SG': ['cn', 'en'],
-    'zh-MO': ['cn', 'en'],
-    'zh': ['cn', 'en'],
+    'zh-CN': ['cn', 'zh', 'en'],
+    'zh-TW': ['cn', 'zh', 'en'],
+    'zh-HK': ['cn', 'zh', 'en'],
+    'zh-Hant': ['cn', 'zh', 'en'],
+    'zh-Hans': ['cn', 'zh', 'en'],
+    'zh-SG': ['cn', 'zh', 'en'],
+    'zh-MO': ['cn', 'zh', 'en'],
+    'zh': ['cn', 'zh', 'en'],
     'default': ['en']
   },
   // Debug mode in development
@@ -29,6 +30,9 @@ const i18nOptions: InitOptions = {
       translation: enTranslation
     },
     cn: {
+      translation: cnTranslation
+    },
+    zh: {
       translation: zhTranslation
     }
   },
@@ -54,15 +58,14 @@ i18n
   // Initialize i18next
   .init(i18nOptions);
 
-// Handle language detection - remap all Chinese variants to 'cn'
+// Handle language detection - default Chinese variants to 'cn'
 const originalLanguageDetector = i18n.services.languageDetector;
 if (originalLanguageDetector) {
   const originalDetect = originalLanguageDetector.detect;
   originalLanguageDetector.detect = () => {
     const detectedLanguage = originalDetect.call(originalLanguageDetector);
     // If it's any Chinese variant, return 'cn'
-    if (typeof detectedLanguage === 'string' && 
-        (detectedLanguage.startsWith('zh') || detectedLanguage === 'cn')) {
+    if (typeof detectedLanguage === 'string' && detectedLanguage.startsWith('zh')) {
       return 'cn';
     }
     return detectedLanguage;

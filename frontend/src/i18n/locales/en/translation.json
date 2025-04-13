@@ -1593,5 +1593,48 @@
   },
   "fileManager": {
     "title": "File Manager"
+  },
+  "s3Browser": {
+    "title": "S3 Browser",
+    "loadingConfig": "Checking S3 Configuration...",
+    "notConfigured": "AWS S3 integration is not configured. Please provide your IAM Role ARN.",
+    "configureButton": "Configure S3",
+    "selectBucketPlaceholder": "Select a Bucket...",
+    "selectBucketPrompt": "Please select a bucket above to view its contents.",
+    "emptyFolder": "This location is empty.",
+    "syncAction": "Sync",
+    "addToSyncList": "Add to sync list",
+    "alreadyInSyncList": "Already in sync list",
+    "itemAddedToSync": "Item '{{name}}' added to sync list.",
+    "itemRemovedFromSync": "Item '{{name}}' removed from sync list.",
+    "syncListTitle": "S3 Sync List",
+    "pendingCount": "{{count}} pending",
+    "syncListEmpty": "Your sync list is empty. Browse S3 and add files/folders.",
+    "processSyncListButton": "Process Sync List",
+    "ingestingButton": "Processing...",
+    "historyListTitle": "Processing History",
+    "historyEmpty": "No processed items found in history.",
+    "syncProcessStartedTitle": "S3 sync process started",
+    "syncListEmptyTitle": "Sync list is empty",
+    "ingestionTaskProgressTitle": "S3 Ingestion Task",
+    "status": {
+      "pending": "Pending",
+      "completed": "Completed",
+      "failed": "Failed",
+      "processing": "Processing",
+      "running": "Running",
+      "polling_error": "Polling Error"
+    },
+    "errors": {
+      "loadSyncListError": "Error loading sync list",
+      "loadHistoryError": "Error loading history",
+      "configCheckFailed": "Failed to check S3 configuration. Please ensure you are logged in and the backend is running.",
+      "loadBucketsFailed": "Failed to load S3 buckets. Check permissions or configuration.",
+      "loadObjectsFailed": "Failed to load objects. Check permissions or try again."
+    },
+    "tabs": {
+      "syncList": "Sync List",
+      "history": "History"
+    }
   }
 }

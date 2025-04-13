@@ -26,6 +26,33 @@ export interface IngestResponse {
   task_id?: string; // Optional task ID if backend returns it
 }
 
+// Interface for the response from the trigger ingest endpoint
+export interface TriggerIngestResponse {
+  message: string;
+  task_id: string | null; // Task ID is null if no pending items
+  status: string; // e.g., PENDING, NO_OP
+}
+
+// +++ Add S3 Sync Item Interface +++
+export interface S3SyncItem {
+  id: number; // DB primary key
+  user_id: string;
+  item_type: 'file' | 'prefix';
+  s3_bucket: string;
+  s3_key: string;
+  item_name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed'; // Status from DB
+}
+
+// +++ Add S3 Sync Item Create Interface +++
+// Used when adding an item (id, user_id, status handled by backend)
+export interface S3SyncItemCreate {
+  item_type: 'file' | 'prefix';
+  s3_bucket: string;
+  s3_key: string;
+  item_name: string;
+}
+
 // Fetch S3 configuration for the user
 export const getS3Config = async (): Promise<S3Config> => {
   const response = await apiClient.get<S3Config>('/s3/configure');
@@ -52,9 +79,16 @@ export const listS3Objects = async (bucket: string, prefix: string = ''): Promis
 // Start the ingestion process for selected S3 objects
 export const ingestS3Objects = async (bucket: string, keys: string[]): Promise<IngestResponse> => {
   const response = await apiClient.post<IngestResponse>('/s3/ingest', {
-    bucket_name: bucket,
-    object_keys: keys
+    bucket: bucket,
+    keys: keys
   });
+  return response.data;
+};
+
+// Trigger the ingestion process for pending S3 sync items
+export const triggerS3Ingestion = async (): Promise<TriggerIngestResponse> => {
+  // No body needed for this POST request anymore
+  const response = await apiClient.post<TriggerIngestResponse>('/s3/ingest');
   return response.data;
 };
 
@@ -64,4 +98,47 @@ export const configureS3 = async (roleArn: string): Promise<S3Config> => {
     role_arn: roleArn
   });
   return response.data;
+};
+
+// --- S3 Sync List API Calls ---
+
+/**
+ * Fetches the current list of S3 items in the sync list for the user.
+ */
+export const getS3SyncList = async (): Promise<S3SyncItem[]> => {
+  try {
+    const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list');
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching S3 sync list:", error);
+    throw error; // Re-throw to be handled by the calling component
+  }
+};
+
+/**
+ * Adds an S3 item (file or prefix) to the user's sync list.
+ * @param itemData The details of the item to add.
+ */
+export const addS3SyncItem = async (itemData: S3SyncItemCreate): Promise<S3SyncItem> => {
+  try {
+    const response = await apiClient.post<S3SyncItem>('/s3/sync-list/add', itemData);
+    return response.data;
+  } catch (error) {
+    console.error("Error adding item to S3 sync list:", error);
+    throw error;
+  }
+};
+
+/**
+ * Removes an item from the user's S3 sync list by its database ID.
+ * @param itemId The database ID of the sync item to remove.
+ */
+export const removeS3SyncItem = async (itemId: number): Promise<S3SyncItem> => {
+  try {
+    const response = await apiClient.delete<S3SyncItem>(`/s3/sync-list/remove/${itemId}`);
+    return response.data; // Returns the removed item data
+  } catch (error) {
+    console.error("Error removing item from S3 sync list:", error);
+    throw error;
+  }
 }; 

@@ -34,4 +34,24 @@ class S3Object(BaseModel):
 
 class S3IngestRequest(BaseModel):
     bucket: str
-    keys: List[str] = Field(..., description="List of specific object keys or prefixes (folders) to ingest") 
+    keys: List[str] = Field(..., description="List of specific object keys or prefixes (folders) to ingest")
+
+
+# --- S3 Sync Item Schemas (Similar to SharePoint) ---
+
+class S3SyncItemBase(BaseModel):
+    item_type: str = Field(..., description="Type of the item: 'file' or 'prefix'")
+    s3_bucket: str = Field(..., description="Name of the S3 bucket")
+    s3_key: str = Field(..., description="Full S3 key of the object or prefix")
+    item_name: str = Field(..., description="Base name of the file/prefix")
+
+class S3SyncItemCreate(S3SyncItemBase):
+    pass # No extra fields needed for creation
+
+class S3SyncItem(S3SyncItemBase):
+    id: int # Database primary key
+    user_id: str # User identifier (e.g., email)
+    status: str = Field(..., description="Current status: pending, processing, completed, failed")
+
+    class Config:
+        from_attributes = True # Enable ORM mode 

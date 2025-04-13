@@ -1177,6 +1177,49 @@
   "fileManager": {
     "title": "文件管理器"
   },
+  "s3Browser": {
+    "title": "S3 浏览器",
+    "loadingConfig": "正在检查 S3 配置...",
+    "notConfigured": "AWS S3 集成未配置。请提供您的 IAM 角色 ARN。",
+    "configureButton": "配置 S3",
+    "selectBucketPlaceholder": "选择一个存储桶...",
+    "selectBucketPrompt": "请在上方选择一个存储桶以查看其内容。",
+    "emptyFolder": "此位置为空。",
+    "syncAction": "同步",
+    "addToSyncList": "添加到同步列表",
+    "alreadyInSyncList": "已在同步列表",
+    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表。",
+    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除。",
+    "syncListTitle": "S3 同步列表",
+    "pendingCount": "{{count}} 个待处理",
+    "syncListEmpty": "您的同步列表为空。请浏览 S3 并添加文件/文件夹。",
+    "processSyncListButton": "处理同步列表",
+    "ingestingButton": "处理中...",
+    "historyListTitle": "处理历史",
+    "historyEmpty": "历史记录中未找到已处理的项目。",
+    "syncProcessStartedTitle": "S3 同步处理已开始",
+    "syncListEmptyTitle": "同步列表为空",
+    "ingestionTaskProgressTitle": "S3 提取任务",
+    "status": {
+      "pending": "待处理",
+      "completed": "已完成",
+      "failed": "失败",
+      "processing": "处理中",
+      "running": "运行中",
+      "polling_error": "轮询错误"
+    },
+    "errors": {
+      "loadSyncListError": "加载同步列表时出错",
+      "loadHistoryError": "加载历史记录时出错",
+      "configCheckFailed": "检查 S3 配置失败。请确保您已登录且后端正在运行。",
+      "loadBucketsFailed": "加载 S3 存储桶失败。请检查权限或配置。",
+      "loadObjectsFailed": "加载对象失败。请检查权限或重试。"
+    },
+    "tabs": {
+      "syncList": "同步列表",
+      "history": "历史记录"
+    }
+  },
   "tokenManagement": {
     "title": "管理API令牌"
   },

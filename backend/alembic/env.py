@@ -8,14 +8,15 @@ from alembic import context
 
 # +++ Import Base from the single source of truth +++
 from app.db.base_class import Base
-# from app.models.base import Base # <<< REMOVE THIS
 
-# +++ Import ALL SQLAlchemy models directly here +++
+# +++ RE-ADD Explicit Model Imports for Alembic ONLY +++
 from app.models.user import UserDB
 from app.models.api_key import APIKeyDB
 from app.models.user_preference import UserPreferenceDB
 from app.db.models.sharepoint_sync_item import SharePointSyncItem
 from app.models.token_models import TokenDB
+from app.db.models.aws_credential import AwsCredential
+from app.db.models.s3_sync_item import S3SyncItem
 # --- End Model Imports ---
 
 # this is the Alembic Config object, which provides
@@ -37,7 +38,7 @@ else:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 # +++ Set target_metadata to your Base.metadata +++
-# Models MUST be imported before this line
+# Models are now imported explicitly above for Alembic's use
 target_metadata = Base.metadata
 # print(f"DEBUG [env.py]: Metadata Tables Loaded: {list(target_metadata.tables.keys())}") # Can remove debug now
 # --- End Set ---
