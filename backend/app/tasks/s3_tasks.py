@@ -389,18 +389,34 @@ def process_s3_ingestion_task(self: Task, user_email: str):
         logger.info(f"Task {task_id}: Ensuring collection '{collection_name}'.")
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 3, 'status': 'Preparing knowledge base...'})
         try:
-            qdrant_client.recreate_collection(
+            # Try to create the collection
+            qdrant_client.create_collection(
                 collection_name=collection_name,
                 vectors_config=models.VectorParams(size=settings.EMBEDDING_DIMENSION, distance=models.Distance.COSINE)
             )
-            logger.info(f"Task {task_id}: Collection '{collection_name}' created/recreated.")
+            logger.info(f"Task {task_id}: Collection '{collection_name}' created.")
         except (UnexpectedResponse, Exception) as e:
-            logger.error(f"Task {task_id}: Failed to create/recreate Qdrant collection '{collection_name}': {e}", exc_info=True)
-            # Mark items back to failed?
-            for item_id in processed_ids_for_status_update:
-                item = db.query(S3SyncItem).get(item_id)
-                if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
-            raise Exception(f"Qdrant collection setup failed: {e}")
+            # Check if the error is because it already exists (common pattern)
+            already_exists = False
+            if isinstance(e, UnexpectedResponse):
+                 # Qdrant < 1.8 might return 400, >= 1.8 might return 409
+                if e.status_code == 400 and "already exists" in str(e.content).lower():
+                    already_exists = True
+                elif e.status_code == 409:
+                     already_exists = True
+            elif "already exists" in str(e).lower(): # Generic check
+                 already_exists = True
+                 
+            if already_exists:
+                logger.warning(f"Task {task_id}: Collection '{collection_name}' already exists. Proceeding.")
+            else:
+                # If it's a different error, log and fail
+                logger.error(f"Task {task_id}: Failed to ensure Qdrant collection '{collection_name}': {e}", exc_info=True)
+                # Mark items back to failed?
+                for item_id in processed_ids_for_status_update:
+                    item = db.query(S3SyncItem).get(item_id)
+                    if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
+                raise Exception(f"Qdrant collection setup failed: {e}")
 
         # 4. Run the main processing logic (async part)
         # Use asyncio.run() to execute the async helper from the sync task function
@@ -413,32 +429,34 @@ def process_s3_ingestion_task(self: Task, user_email: str):
             )
         )
         
-        # 5. Upsert points to Qdrant (if any)
+        # 5. Upsert points to Qdrant
         if points_to_upsert:
             logger.info(f"Task {task_id}: Upserting {len(points_to_upsert)} points to '{collection_name}'.")
-            self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 95, 'status': f'Saving {len(points_to_upsert)} items to knowledge base...'})
+            # +++ ADD LOGGING FOR POINT IDs +++
+            point_ids_to_log = [p.id for p in points_to_upsert]
+            logger.debug(f"Task {task_id}: Point IDs being upserted: {point_ids_to_log}")
+            # --- END LOGGING --- 
             try:
                 qdrant_client.upsert(
                     collection_name=collection_name,
                     points=points_to_upsert,
-                    wait=True # Wait for operation to complete
+                    wait=True
                 )
                 logger.info(f"Task {task_id}: Successfully upserted points.")
-            except Exception as e:
-                logger.error(f"Task {task_id}: Failed to upsert points to Qdrant collection '{collection_name}': {e}", exc_info=True)
-                # Mark all successfully processed items as failed because upsert failed?
-                # This is tricky. For now, log error, but report counts as processed.
-                # The status in the DB reflects file processing success/failure.
-                # Mark task as failed overall?
-                raise Exception(f"Qdrant upsert failed: {e}") # Fail task
+            except Exception as q_err:
+                logger.error(f"Task {task_id}: Failed to upsert points to Qdrant collection '{collection_name}': {q_err}", exc_info=True)
+                # Mark processed items as failed if upsert fails
+                for item_id in processed_ids_for_status_update:
+                    item = db.query(S3SyncItem).get(item_id)
+                    if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
+                raise Exception(f"Qdrant upsert failed: {q_err}")
         else:
-            logger.info(f"Task {task_id}: No points to upsert.")
+            logger.info(f"Task {task_id}: No points generated to upsert.")
 
-        # 6. Final status update
-        final_message = f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}."
-        logger.info(f"Task {task_id}: {final_message}")
-        self.update_state(state='SUCCESS', meta={'user': user_email, 'progress': 100, 'status': final_message, 'processed': total_processed, 'failed': total_failed})
-        return {'status': 'COMPLETED', 'message': final_message, 'processed': total_processed, 'failed': total_failed}
+        # 6. Final update and result
+        logger.info(f"Task {task_id}: Ingestion complete. Processed: {total_processed_count}, Failed: {total_failed_count}.")
+        self.update_state(state='SUCCESS', meta={'user': user_email, 'progress': 100, 'status': f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.", 'processed': total_processed, 'failed': total_failed})
+        return {'status': 'COMPLETED', 'message': f"Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.", 'processed': total_processed, 'failed': total_failed}
 
     except Exception as e:
         logger.error(f"Task {task_id} failed: {e}", exc_info=True)
