@@ -29,11 +29,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# --- Add Request Model for Refresh Token --- 
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-# --- End Request Model --- 
-
 @router.get("/login")
 async def login():
     """Generate Microsoft OAuth login URL"""
@@ -322,101 +317,6 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     """Get current authenticated user information"""
     return current_user
 
-
-@router.post("/refresh", response_model=Token)
-async def refresh_token(token_request: RefreshTokenRequest):
-    """Refresh Microsoft access token using the provided MS refresh token."""
-    logger.info("Attempting token refresh using provided MS refresh token.")
-    
-    if not token_request.refresh_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No refresh token provided in request body"
-        )
-        
-    # Use provided refresh token to get new access token from Microsoft
-    try:
-        result = msal_app.acquire_token_by_refresh_token(
-            refresh_token=token_request.refresh_token,
-            scopes=settings.MS_SCOPE
-        )
-    except Exception as msal_err:
-        # Catch potential errors during the MSAL call itself
-        logger.error(f"Error calling MSAL acquire_token_by_refresh_token: {msal_err}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"MSAL token acquisition failed: {msal_err}"
-        )
-
-    if "error" in result:
-        logger.error(f"Microsoft token refresh failed: {result.get('error')}, Description: {result.get('error_description')}")
-        # If refresh fails (e.g., token revoked/expired), force re-login
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token refresh failed: {result.get('error_description')}"
-        )
-    
-    # --- Fetch User Info with NEW MS Token --- 
-    new_ms_access_token = result.get("access_token")
-    if not new_ms_access_token:
-         logger.error("MSAL refresh result missing new access token.")
-         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Token refresh succeeded but did not return a new access token."
-        )
-        
-    try:
-        logger.info("Fetching user info with new MS access token.")
-        outlook_service = OutlookService(new_ms_access_token)
-        user_info = await outlook_service.get_user_info()
-        user_id = user_info.get("id")
-        user_email = user_info.get("mail")
-        if not user_id or not user_email:
-            logger.error("Could not retrieve user ID or email using new MS access token.")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve user details after token refresh."
-            )
-        logger.info(f"Successfully fetched info for user {user_email} (ID: {user_id}).")
-    except Exception as fetch_err:
-        logger.error(f"Error fetching user info after token refresh: {fetch_err}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve user details after token refresh: {fetch_err}"
-        )
-    # --- End Fetch User Info --- 
-        
-    # Create new internal JWT access token using the fetched user info
-    logger.info(f"Creating new internal JWT for user {user_email}.")
-    new_internal_access_token, new_expires_at = create_access_token(
-        data={"sub": user_id, "email": user_email}
-    )
-    
-    # --- SET HttpOnly Cookie --- 
-    response = Response(status_code=status.HTTP_200_OK)
-    secure_cookie = settings.IS_PRODUCTION
-    max_age_seconds = max(0, int((new_expires_at - datetime.now(timezone.utc)).total_seconds()))
-    logger.info(f"Setting new access_token cookie. Max-Age: {max_age_seconds}, Secure: {secure_cookie}")
-    response.set_cookie(
-        key="access_token",
-        value=new_internal_access_token,
-        httponly=True,
-        secure=secure_cookie,
-        samesite="lax", # Match callback settings
-        max_age=max_age_seconds,
-        path="/"
-    )
-    # --- End SET Cookie --- 
-
-    # Return a success indicator or minimal info, token is in the cookie
-    # The old return type `Token` might no longer be accurate if we don't return the token here.
-    # Let's return a simple dict for now. Frontend interceptor doesn't strictly need the token in body anymore.
-    return {
-        "status": "success",
-        "message": "Token refreshed successfully."
-        # Optionally include user_id or email if needed by frontend immediately after refresh,
-        # but primary token transport is the cookie.
-    }
 
 @router.post("/logout")
 async def logout(response: Response):

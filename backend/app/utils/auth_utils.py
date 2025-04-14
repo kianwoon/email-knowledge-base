@@ -15,7 +15,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     Args:
         data: Dictionary payload to include in the token.
         expires_delta: Optional timedelta for token expiration.
-                     Defaults to ACCESS_TOKEN_EXPIRE_MINUTES from settings.
+                     Defaults to JWT_EXPIRATION seconds from settings.
 
     Returns:
         A tuple containing the encoded JWT string and the expiry datetime.
@@ -25,7 +25,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = now + expires_delta
     else:
-        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(seconds=settings.JWT_EXPIRATION)
     
     to_encode.update({"exp": expire, "iat": now})
     

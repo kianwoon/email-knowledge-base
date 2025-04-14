@@ -1,5 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { refreshToken } from './auth'; // Assuming refreshToken handles MSAL/backend communication
+// import { refreshToken } from './auth'; // Remove this import
 
 // Get backend URL from environment variables
 // const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'; // No longer needed for local dev proxy
@@ -58,37 +58,26 @@ export const setupInterceptors = () => {
       }
 
       // Handle 401 Unauthorized (likely expired token)
-      // Ensure originalRequest exists before accessing _retry
-      if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
-        originalRequest._retry = true; // Mark to prevent infinite loops
-        console.log('[Interceptor] Attempting token refresh...');
+      // Ensure originalRequest exists
+      if (error.response?.status === 401 && originalRequest) { 
+        console.log('[Interceptor] Detected 401 Unauthorized. Treating as session expired.');
 
-        try {
-          // --- Restore logic to get refresh token and pass it --- 
-          const msRefreshToken = localStorage.getItem('refresh_token');
-          if (!msRefreshToken) {
-            throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
-          }
-          // Pass the refresh token string to the function
-          const refreshResponse = await refreshToken(msRefreshToken);
-          console.log('[Interceptor] Token refresh successful (expecting cookie to be set).');
-          // --- End Restore --- 
-          
-          // No need to manually set Authorization header if using HttpOnly cookies
-          // Just retry the original request; the browser should send the new cookie
-          console.log('[Interceptor] Retrying original request (expecting new cookie).');
-          return apiClient(originalRequest); // Retry original request
-        } catch (refreshError) {
-          console.error('[Interceptor] Token refresh failed:', refreshError);
-          // Clear tokens 
-          localStorage.removeItem('token'); 
-          localStorage.removeItem('expires');
-          localStorage.removeItem('refresh_token');
-          // Dispatch an event instead of redirecting immediately
-          console.log('[Interceptor] Dispatching session-expired event due to refresh failure.');
-          window.dispatchEvent(new CustomEvent('session-expired'));
-          return Promise.reject(refreshError); // Reject the promise after dispatching
-        }
+        // Clear potentially stale refresh token from local storage
+        console.log('[Interceptor] Clearing local storage tokens due to 401.');
+        localStorage.removeItem('refresh_token');
+        // --- Keep the old token removal just in case ---
+        localStorage.removeItem('token'); 
+        localStorage.removeItem('expires');
+        // --- End keep ---
+        
+        // Dispatch an event instead of redirecting immediately
+        console.log('[Interceptor] Dispatching session-expired event due to 401.');
+        window.dispatchEvent(new CustomEvent('session-expired'));
+
+        // After handling the 401 side-effects (clearing storage, dispatching event),
+        // reject the promise with the original error. The calling code might
+        // still want to know the request failed.
+        return Promise.reject(error); 
       }
 
       // For any other errors, just reject the promise

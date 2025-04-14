@@ -1561,7 +1561,10 @@
     "modified": "Modified",
     "modifiedBy": "Modified By",
     "size": "Size",
-    "root": "Drive Root"
+    "root": "Drive Root",
+    "errors": {
+      "fetchSitesTitle": "Error Fetching Sites"
+    }
   },
   "quickAccess": {
     "title": "Quick Access",

@@ -131,6 +131,27 @@ const AlphabetIndex = ({
     </HStack>
 );
 
+// +++ Restore formatDateTime and formatFileSize +++
+const formatDateTime = (dateTimeString?: string): string => {
+  if (!dateTimeString) return '-';
+  try {
+    return new Date(dateTimeString).toLocaleString();
+  } catch {
+    return dateTimeString; // Return original string if parsing fails
+  }
+};
+
+const formatFileSize = (bytes?: number): string => {
+  if (bytes === undefined || bytes === null) return '-';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const precision = i < 2 ? 1 : 0;
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(precision)) + ' ' + sizes[i];
+};
+// +++ End Restore +++
+
 const SharePointPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -634,25 +655,6 @@ const renderBreadcrumbs = ({
   );
 };
 
-const formatDateTime = (dateTimeString?: string): string => {
-  if (!dateTimeString) return '-';
-  try {
-    return new Date(dateTimeString).toLocaleString();
-  } catch {
-    return dateTimeString; // Return original string if parsing fails
-  }
-};
-
-const formatFileSize = (bytes?: number): string => {
-  if (bytes === undefined || bytes === null) return '-';
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const precision = i < 2 ? 1 : 0;
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(precision)) + ' ' + sizes[i];
-};
-
   // --- Add back the useEffect hook for initial site fetch --- 
   useEffect(() => {
     fetchSites();
@@ -1034,9 +1036,9 @@ const formatFileSize = (bytes?: number): string => {
                                         justifyContent="center" 
                                         textAlign="center"
                                         flexShrink={0}
-                                        title={`${drive.name || 'Unnamed Drive'}\nType: ${drive.driveType || 'N/A'}\n${drive.webUrl}`}
+                                        title={`${drive.name || t('common.unnamedDrive', 'Unnamed Drive')}\n${t('common.type', 'Type')}: ${drive.driveType || t('common.notApplicable', 'N/A')}\n${drive.webUrl}`}
                                     >
-                                        <Text fontWeight="medium" fontSize="sm" noOfLines={2}>{drive.name || 'Unnamed Drive'}</Text>
+                                        <Text fontWeight="medium" fontSize="sm" noOfLines={2}>{drive.name || t('common.unnamedDrive', 'Unnamed Drive')}</Text>
                                     </Card>
                                 ))}
                             </HStack>

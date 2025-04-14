@@ -97,15 +97,17 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
     try {
       // Get the Microsoft login URL from our backend
       console.log("Attempting to get login URL from backend...");
-      const response = await getLoginUrl();
+      const authUrl = await getLoginUrl(); // Returns string directly
       
-      console.log("Login URL response:", response);
+      console.log("Login URL response:", authUrl);
       
-      if (response && response.auth_url) {
+      if (authUrl) { // Check if the string URL is truthy
         // Redirect to Microsoft login page
-        console.log("Redirecting to auth URL:", response.auth_url);
-        window.location.href = response.auth_url;
+        console.log("Redirecting to auth URL:", authUrl);
+        window.location.href = authUrl; // Use the string directly
       } else {
+        // This case should ideally not happen if getLoginUrl throws an error on failure
+        console.error("Failed to get login URL (empty string received).")
         throw new Error('Failed to get login URL');
       }
     } catch (error) {

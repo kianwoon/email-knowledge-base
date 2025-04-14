@@ -121,15 +121,17 @@ function App() {
     try {
       // Get the Microsoft login URL from our backend
       console.log("Attempting to get login URL from backend...");
-      const response = await getLoginUrl();
-      console.log("Login URL response:", response);
-      if (response && response.auth_url) {
+      const authUrl = await getLoginUrl(); // Returns string directly
+      console.log("Login URL response:", authUrl);
+      // --- CORRECTED USAGE ---
+      if (authUrl) { // Check if the string URL is truthy
         // Redirect to Microsoft login page
-        console.log("Redirecting to auth URL:", response.auth_url);
-        window.location.href = response.auth_url;
+        console.log("Redirecting to auth URL:", authUrl);
+        window.location.href = authUrl; // Use the string directly
       } else {
-        throw new Error('Failed to get login URL from backend');
+        throw new Error('Failed to get login URL from backend (empty string received)'); // More specific error
       }
+      // --- END CORRECTION ---
     } catch (error) {
       console.error('Login redirection error:', error);
       toast({
@@ -196,17 +198,10 @@ function App() {
          userDetails = await getCurrentUser();
          console.log("Session verified. User details fetched:", userDetails);
          initialAuth = true;
-         if (userDetails?.ms_token_data?.refresh_token) {
-             console.log('[App] MS Refresh Token available from /me endpoint. Storing in localStorage.');
-             localStorage.setItem('refresh_token', userDetails.ms_token_data.refresh_token);
-         } else {
-             console.warn('[App] MS Refresh Token not found in /me response.');
-         }
       } catch (error: any) {
          console.log("Session verification failed (likely no valid cookie):", error?.response?.data || error.message);
          initialAuth = false;
          userDetails = null;
-         localStorage.removeItem('refresh_token');
       } finally {
          console.log(`Setting final state: isAuthenticated=${initialAuth}, user=${!!userDetails}`);
          setAuth({ isAuthenticated: initialAuth, user: userDetails });
@@ -232,6 +227,25 @@ function App() {
      // For now, simply update the state based on redirect handling in SignIn.tsx
      setAuth(prev => ({ ...prev, isAuthenticated: true })); // Assume SignIn redirect handles user details
   }, []);
+
+  const handleLogin = async () => {
+    console.log('handleLogin called');
+    try {
+      const authUrl = await getLoginUrl(); // Returns string directly
+      // --- CORRECTED USAGE ---
+      if (authUrl) { // Check if the string URL is truthy
+        console.log('Redirecting to MS login:', authUrl);
+        window.location.href = authUrl; // Use the string directly
+      } else {
+        // This case should ideally not happen if getLoginUrl throws an error on failure
+        console.error('Login failed: Empty Auth URL received from backend.');
+      }
+      // --- END CORRECTION ---
+    } catch (error) {
+      console.error('Login error:', error);
+      // Handle error appropriately
+    }
+  };
 
   // Loading Screen (Restored)
   if (isLoading) {

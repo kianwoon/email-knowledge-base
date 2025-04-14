@@ -16,6 +16,7 @@ from app.crud import user_crud # Corrected import
 from app.crud import token_crud # Import the module directly
 from app.models.token_models import TokenDB # Import TokenDB for type hint
 from app.utils.security import decrypt_token # Import decrypt_token function
+from app.utils.security import encrypt_token # Import encrypt_token function
 from app.utils.auth_utils import create_access_token # Import the moved JWT creation helper
 from app.crud.user_crud import get_user_with_refresh_token, update_user_refresh_token # Import specific CRUD functions needed
 
@@ -174,10 +175,16 @@ async def get_current_user(
 
             try:
                 logger.info(f"Attempting MSAL refresh for user {email}")
+                # Filter out reserved OIDC scopes before requesting refresh
+                all_scopes = settings.MS_SCOPE_STR.split()
+                reserved_scopes = {'openid', 'profile', 'offline_access'}
+                resource_scopes = [s for s in all_scopes if s not in reserved_scopes]
+                logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
+                
                 # Use the stored refresh token to acquire a new access token
                 refresh_result = msal_app.acquire_token_by_refresh_token(
                     decrypted_refresh_token,
-                    scopes=settings.MS_SCOPES.split() # Ensure scopes match initial request
+                    scopes=resource_scopes # Pass the filtered list
                 )
 
                 if "access_token" in refresh_result:
@@ -210,7 +217,7 @@ async def get_current_user(
                         "sub": user_id, 
                         "email": email,
                         "ms_token": new_ms_access_token, 
-                        "scopes": settings.MS_SCOPES.split(),
+                        "scopes": resource_scopes, # Embed filtered scopes in new JWT
                     }
                     # Use the imported create_access_token function
                     new_internal_token, expires_at = create_access_token(data=internal_token_data)
@@ -223,7 +230,6 @@ async def get_current_user(
                         samesite='Lax',
                         path='/',
                         expires=expires_at,
-                        domain=settings.COOKIE_DOMAIN
                     )
                     logger.info(f"New internal JWT cookie set for user {email} after token refresh.")
 

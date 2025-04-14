@@ -1,5 +1,5 @@
 import axios, { InternalAxiosRequestConfig, AxiosError } from 'axios';
-import { refreshToken } from './auth';
+// import { refreshToken } from './auth'; // Remove this import
 import { SharePointSite, SharePointDrive, SharePointItem, UsedInsight, RecentDriveItem, SharePointSyncItem, SharePointSyncItemCreate } from '../models/sharepoint';
 import { TaskStatus } from '../models/tasks';
 
@@ -36,7 +36,7 @@ export const setupInterceptors = () => {
   apiClient.interceptors.response.use(
     (response) => response, 
     async (error: AxiosError<any>) => { 
-      const originalRequest = error.config as InternalAxiosRequestConfig<any> & { _retry?: boolean };
+      // const originalRequest = error.config as InternalAxiosRequestConfig<any> & { _retry?: boolean }; // No longer needed
       
       // --- RE-ADD DEBUG LOGGING --- 
       console.log('[Interceptor] Error Handler Triggered.');
@@ -45,48 +45,52 @@ export const setupInterceptors = () => {
       console.log('[Interceptor] error.response?.data?.detail:', error.response?.data?.detail);
       // --- END DEBUG LOGGING --- 
 
-      // Check if it's the specific "User not found" 404 error
-      if (
-        error.response?.status === 404 && 
-        error.response?.data?.detail === "User not found"
-      ) {
-          console.warn('[Interceptor] Detected User Not Found (404). Treating as session invalid.');
-          // ... (clear tokens, dispatch event)
-          localStorage.removeItem('token'); 
-          localStorage.removeItem('expires');
-          localStorage.removeItem('refresh_token');
-          console.log('[Interceptor] Dispatching session-expired event due to User Not Found 404.');
-          window.dispatchEvent(new CustomEvent('session-expired'));
-          return Promise.reject(error); 
-      }
+      // --- REMOVE ALL 401 and 404 HANDLING LOGIC FROM HERE --- 
+      // The session-expired event logic in App.tsx now handles 401 consequences.
+      // // Check if it's the specific "User not found" 404 error
+      // if (
+      //   error.response?.status === 404 && 
+      //   error.response?.data?.detail === "User not found"
+      // ) {
+      //     console.warn('[Interceptor] Detected User Not Found (404). Treating as session invalid.');
+      //     // ... (clear tokens, dispatch event)
+      //     localStorage.removeItem('token'); 
+      //     localStorage.removeItem('expires');
+      //     localStorage.removeItem('refresh_token');
+      //     console.log('[Interceptor] Dispatching session-expired event due to User Not Found 404.');
+      //     window.dispatchEvent(new CustomEvent('session-expired'));
+      //     return Promise.reject(error); 
+      // }
 
-      // Handle 401 Unauthorized (likely expired token)
-      if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
-         originalRequest._retry = true; 
-         console.log('[Interceptor] Attempting token refresh...');
+      // // Handle 401 Unauthorized (likely expired token)
+      // if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      //    originalRequest._retry = true; 
+      //    console.log('[Interceptor] Attempting token refresh...');
+      //
+      //    try {
+      //      const msRefreshToken = localStorage.getItem('refresh_token');
+      //      if (!msRefreshToken) {
+      //        throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
+      //      }
+      //      await refreshToken(msRefreshToken); // <--- This was the remaining call
+      //      console.log('[Interceptor] Token refresh successful (expecting cookie to be set).');
+      //      console.log('[Interceptor] Retrying original request (expecting new cookie).');
+      //      return apiClient(originalRequest);
+      //    } catch (refreshError) {
+      //      console.error('[Interceptor] Token refresh failed:', refreshError);
+      //      // ... (clear tokens, dispatch event)
+      //      localStorage.removeItem('token'); 
+      //      localStorage.removeItem('expires');
+      //      localStorage.removeItem('refresh_token');
+      //      console.log('[Interceptor] Dispatching session-expired event due to refresh failure.');
+      //      window.dispatchEvent(new CustomEvent('session-expired'));
+      //      return Promise.reject(refreshError);
+      //    }
+      // }
+      // --- END REMOVAL --- 
 
-         try {
-           const msRefreshToken = localStorage.getItem('refresh_token');
-           if (!msRefreshToken) {
-             throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
-           }
-           await refreshToken(msRefreshToken);
-           console.log('[Interceptor] Token refresh successful (expecting cookie to be set).');
-           console.log('[Interceptor] Retrying original request (expecting new cookie).');
-           return apiClient(originalRequest);
-         } catch (refreshError) {
-           console.error('[Interceptor] Token refresh failed:', refreshError);
-           // ... (clear tokens, dispatch event)
-           localStorage.removeItem('token'); 
-           localStorage.removeItem('expires');
-           localStorage.removeItem('refresh_token');
-           console.log('[Interceptor] Dispatching session-expired event due to refresh failure.');
-           window.dispatchEvent(new CustomEvent('session-expired'));
-           return Promise.reject(refreshError);
-         }
-      }
-
-      // For any other errors, just reject the promise
+      // For ALL errors, just reject the promise
+      // The App.tsx event listener will handle the session-expired event if triggered by a 401
       return Promise.reject(error);
     }
   );
