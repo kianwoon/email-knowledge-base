@@ -67,6 +67,26 @@ async def get_s3_configuration(
         return None # Return null/empty body for not configured
     return S3ConfigResponse.model_validate(aws_cred)
 
+@router.delete(
+    "/configure",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Clear AWS S3 Configuration",
+    description="Removes the AWS IAM Role ARN configuration for the current user."
+)
+async def clear_s3_configuration(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_active_user_or_token_owner)
+):
+    logger.info(f"User {current_user.email} attempting to clear AWS Role ARN configuration.")
+    removed_cred = crud_aws_credential.remove_aws_credential(db=db, user_email=current_user.email)
+    if not removed_cred:
+        # If no credential existed, it's not an error, just log it.
+        logger.info(f"No AWS configuration found for user {current_user.email} to clear.")
+    else:
+        logger.info(f"Successfully cleared AWS Role ARN for user {current_user.email}.")
+    # Return No Content on success (or if it was already clear)
+    return
+
 # --- Helper Dependency for Getting Assumed Role Session --- 
 # This avoids repeating the logic in multiple endpoints
 async def get_assumed_s3_session(

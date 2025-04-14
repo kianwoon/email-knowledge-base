@@ -33,7 +33,19 @@ import {
   List,
   ListItem,
   Progress,
-  Tabs, TabList, Tab, TabPanels, TabPanel
+  Tabs, TabList, Tab, TabPanels, TabPanel,
+  Input, 
+  FormControl, 
+  FormLabel, 
+  FormHelperText,
+  Stack,
+  useDisclosure,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { Link as RouterLink } from 'react-router-dom';
@@ -50,7 +62,9 @@ import {
   addS3SyncItem,
   removeS3SyncItem,
   S3SyncItem,
-  S3SyncItemCreate
+  S3SyncItemCreate,
+  configureS3,
+  clearS3Config
 } from '../api/s3';
 import { getTaskStatus } from '../api/tasks';
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks';
@@ -322,6 +336,15 @@ const S3Browser: React.FC = () => {
   const [ingestionError, setIngestionError] = useState<string | null>(null);
   const ingestionPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [config, setConfig] = useState<S3Config | null>(null);
+  const [currentRoleArn, setCurrentRoleArn] = useState<string>('');
+  const [inputRoleArn, setInputRoleArn] = useState<string>('');
+  const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  const { isOpen: isClearConfirmOpen, onOpen: onClearConfirmOpen, onClose: onClearConfirmClose } = useDisclosure();
+  const cancelRef = React.useRef<HTMLButtonElement>(null);
+
   const pendingSyncItems = React.useMemo(() => 
     syncList.filter(item => item.status === 'pending'), 
   [syncList]);
@@ -345,27 +368,42 @@ const S3Browser: React.FC = () => {
     }
   }, [t]);
 
+  const checkConfig = useCallback(async () => {
+    console.log("Checking S3 config...");
+    setIsLoadingConfig(true);
+    setConfigError(null);
+    try {
+      const fetchedConfig = await getS3Config();
+      setConfig(fetchedConfig);
+      const arn = fetchedConfig?.role_arn ?? '';
+      setCurrentRoleArn(arn);
+      setInputRoleArn(arn);
+      console.log("S3 Config fetched:", fetchedConfig);
+    } catch (err: any) {
+      console.error("Failed to check S3 config:", err);
+      const errorDetail = err.response?.data?.detail || err.message || 'Unknown error';
+      setConfigError(t('s3Browser.errors.configCheckFailed', `Failed to check S3 configuration: ${errorDetail}` ));
+      setConfig(null);
+      setCurrentRoleArn('');
+      setInputRoleArn('');
+    } finally {
+      setIsLoadingConfig(false);
+    }
+  }, [t]);
+
   useEffect(() => {
-    const checkConfig = async () => {
-      setIsLoadingConfig(true);
-      setError(null);
-      try {
-        const config: S3Config = await getS3Config();
-        const configured = !!config && !!config.role_arn;
-        setIsConfigured(configured);
-        if (configured) {
-          fetchS3SyncList(); 
-        }
-      } catch (err) {
-        console.error("Error checking S3 config:", err);
-        setError(t('s3Browser.errors.configCheckFailed', 'Failed to check S3 configuration. Please ensure you are logged in and the backend is running.'));
-        setIsConfigured(false);
-      } finally {
-        setIsLoadingConfig(false);
+    const loadInitialData = async () => {
+      await checkConfig();
+      const configResult = await getS3Config();
+      const configured = !!configResult && !!configResult.role_arn;
+      setIsConfigured(configured);
+      if (configured) {
+          fetchS3SyncList();
       }
     };
-    checkConfig();
-  }, [t, fetchS3SyncList]); 
+    loadInitialData();
+    
+  }, [checkConfig, fetchS3SyncList]);
 
   const fetchBuckets = useCallback(async () => {
     if (!isConfigured) return;
@@ -585,6 +623,78 @@ const S3Browser: React.FC = () => {
       return syncList.some(item => item.s3_bucket === selectedBucket && item.s3_key === s3ObjectKey);
   }, [syncList, selectedBucket]);
 
+  const handleSaveConfig = async () => {
+    setIsSavingConfig(true);
+    setConfigError(null);
+    try {
+      if (!inputRoleArn.startsWith("arn:aws:iam::") || !inputRoleArn.includes(":role/")) {
+        throw new Error(t('s3Browser.errors.invalidArnFormat', 'Invalid AWS Role ARN format.'));
+      }
+      
+      const updatedConfig = await configureS3(inputRoleArn);
+      setCurrentRoleArn(updatedConfig?.role_arn ?? '');
+      setInputRoleArn(updatedConfig?.role_arn ?? '');
+      setConfig(updatedConfig);
+      toast({
+        title: t('s3Browser.settings.saveSuccessTitle', 'Configuration Saved'),
+        description: t('s3Browser.settings.saveSuccessDesc', 'AWS Role ARN updated successfully.'),
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (err: any) {
+      console.error("Failed to save S3 config:", err);
+      const errorDetail = err.response?.data?.detail || err.message || 'Unknown error';
+      setConfigError(t('s3Browser.settings.saveError', `Failed to save configuration: ${errorDetail}` ));
+      toast({
+        title: t('s3Browser.errors.configSaveFailedTitle', 'Save Failed'),
+        description: t('s3Browser.settings.saveError', `Failed to save configuration: ${errorDetail}` ),
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
+  const handleClearConfig = async () => {
+    onClearConfirmClose();
+    setIsSavingConfig(true);
+    setConfigError(null);
+    try {
+      await clearS3Config();
+      setCurrentRoleArn('');
+      setInputRoleArn('');
+      setConfig(null);
+      toast({
+        title: t('s3Browser.settings.clearSuccessTitle', 'Configuration Cleared'),
+        description: t('s3Browser.settings.clearSuccessDesc', 'AWS Role ARN has been removed.'),
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+      setIsConfigured(false);
+      setBuckets([]);
+      setSelectedBucket('');
+      setObjects([]);
+      setCurrentPrefix('');
+    } catch (err: any) {
+      console.error("Failed to clear S3 config:", err);
+      const errorDetail = err.response?.data?.detail || err.message || 'Unknown error';
+      setConfigError(t('s3Browser.settings.clearError', `Failed to clear configuration: ${errorDetail}` ));
+      toast({
+        title: t('s3Browser.errors.configClearFailedTitle', 'Clear Failed'),
+        description: t('s3Browser.settings.clearError', `Failed to clear configuration: ${errorDetail}` ),
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   if (isLoadingConfig) {
     return (
       <Center py={10}>
@@ -640,10 +750,11 @@ const S3Browser: React.FC = () => {
         {t('s3Browser.title', 'S3 Browser')}
       </Heading>
 
-      <Tabs isLazy variant='soft-rounded' colorScheme='orange'>
-        <TabList mb='1em'>
-          <Tab>{t('s3Browser.tabs.browseAndSync', 'Browse & Sync')}</Tab>
+      <Tabs isLazy variant="soft-rounded" colorScheme="blue" mt={6}>
+        <TabList mb="1em">
+          <Tab>{t('s3Browser.tabs.browseSync', 'Browse & Sync')}</Tab>
           <Tab>{t('s3Browser.tabs.history', 'History')}</Tab>
+          <Tab>{t('s3Browser.tabs.settings', 'Settings')}</Tab>
         </TabList>
         <TabPanels>
           <TabPanel p={0}>
@@ -832,8 +943,84 @@ const S3Browser: React.FC = () => {
               t={t}
             />
           </TabPanel>
+
+          <TabPanel p={4}>
+            <Heading size="md" mb={4}>{t('s3Browser.settings.title', 'AWS S3 Configuration')}</Heading>
+            {isLoadingConfig && <Center><Spinner /></Center>}
+            {!isLoadingConfig && (
+              <Stack spacing={4} maxWidth="xl">
+                <FormControl>
+                  <FormLabel htmlFor='roleArn'>{t('s3Browser.settings.roleArnLabel', 'IAM Role ARN')}</FormLabel>
+                  <Input
+                    id='roleArn'
+                    placeholder='arn:aws:iam::123456789012:role/YourRoleName'
+                    value={inputRoleArn}
+                    onChange={(e) => setInputRoleArn(e.target.value)}
+                    bg={useColorModeValue('gray.50', 'gray.650')}
+                    isDisabled={isSavingConfig}
+                  />
+                  <FormHelperText>{t('s3Browser.settings.roleArnHelp', 'Enter the ARN of the IAM role this application should assume to access S3.')}</FormHelperText>
+                </FormControl>
+
+                {configError && (
+                  <Alert status="error" borderRadius="md">
+                    <AlertIcon />
+                    {configError}
+                  </Alert>
+                )}
+
+                <HStack justify="flex-end">
+                  <Button 
+                    variant="outline"
+                    colorScheme="red"
+                    onClick={onClearConfirmOpen}
+                    isDisabled={!currentRoleArn || isSavingConfig}
+                    isLoading={isSavingConfig && currentRoleArn === ''}
+                  >
+                    {t('s3Browser.settings.clearConfigButton', 'Clear Configuration')}
+                  </Button>
+                  <Button 
+                    colorScheme="orange"
+                    onClick={handleSaveConfig}
+                    isLoading={isSavingConfig && currentRoleArn !== ''}
+                    isDisabled={inputRoleArn === currentRoleArn || isSavingConfig}
+                  >
+                    {t('common.saveChanges', 'Save Changes')}
+                  </Button>
+                </HStack>
+              </Stack>
+            )}
+          </TabPanel>
         </TabPanels>
       </Tabs>
+
+      <AlertDialog
+        isOpen={isClearConfirmOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onClearConfirmClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              {t('s3Browser.settings.clearConfirmTitle', 'Clear S3 Configuration?')}
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              {t('s3Browser.settings.clearConfirmMsg', 'Are you sure you want to remove the configured AWS Role ARN? You will need to re-enter it to access S3 data.')}
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onClearConfirmClose}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button colorScheme="red" onClick={handleClearConfig} ml={3}>
+                {t('common.confirmClear', 'Confirm Clear')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
     </Container>
   );
 };

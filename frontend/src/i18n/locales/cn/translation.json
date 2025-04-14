@@ -1027,7 +1027,10 @@
       "proceedGenerateKnowledge": "立即生成知识库"
     },
     "actionsHeader": "操作",
-    "taskID": "任务ID",
+    "taskID": "任务 ID:",
+    "retry": "重试",
+    "saveChanges": "保存更改",
+    "confirmClear": "确认清除",
     "noResultsFound": "未找到结果。"
   },
   "buttons": {
@@ -1181,46 +1184,62 @@
   "s3Browser": {
     "title": "S3 浏览器",
     "loadingConfig": "正在检查 S3 配置...",
-    "notConfigured": "AWS S3 集成未配置。请提供您的 IAM 角色 ARN。",
+    "notConfigured": "未配置 AWS S3 集成。请提供您的 IAM 角色 ARN。",
     "configureButton": "配置 S3",
     "selectBucketPlaceholder": "选择一个存储桶...",
     "selectBucketPrompt": "请在上方选择一个存储桶以查看其内容。",
     "emptyFolder": "此位置为空。",
-    "syncAction": "同步",
-    "addToSyncList": "添加到同步列表",
-    "alreadyInSyncList": "已在同步列表",
-    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表。",
-    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除。",
+    "tabs": {
+        "browseSync": "浏览和同步",
+        "history": "历史记录",
+        "settings": "设置"
+    },
+    "settings": {
+        "title": "AWS S3 配置",
+        "roleArnLabel": "IAM 角色 ARN",
+        "roleArnHelp": "输入此应用程序访问 S3 时应承担的 IAM 角色的 ARN。",
+        "saveSuccessTitle": "配置已保存",
+        "saveSuccessDesc": "AWS 角色 ARN 已成功更新。",
+        "saveError": "保存配置失败：{{errorDetail}}",
+        "clearConfigButton": "清除配置",
+        "clearConfirmTitle": "清除 S3 配置？",
+        "clearConfirmMsg": "您确定要移除已配置的 AWS 角色 ARN 吗？您需要重新输入才能访问 S3 数据。",
+        "clearSuccessTitle": "配置已清除",
+        "clearSuccessDesc": "AWS 角色 ARN 已移除。",
+        "clearError": "清除配置失败：{{errorDetail}}"
+    },
     "syncListTitle": "S3 同步列表",
     "pendingCount": "{{count}} 个待处理",
     "syncListEmpty": "您的同步列表为空。请浏览 S3 并添加文件/文件夹。",
     "processSyncListButton": "处理同步列表",
     "ingestingButton": "处理中...",
-    "historyListTitle": "处理历史",
+    "historyListTitle": "处理历史记录",
     "historyEmpty": "历史记录中未找到已处理的项目。",
-    "syncProcessStartedTitle": "S3 同步处理已开始",
-    "syncListEmptyTitle": "同步列表为空",
-    "ingestionTaskProgressTitle": "S3 提取任务",
     "status": {
-      "pending": "待处理",
-      "completed": "已完成",
-      "failed": "失败",
-      "processing": "处理中",
-      "running": "运行中",
-      "polling_error": "轮询错误"
+        "pending": "待处理",
+        "processing": "处理中",
+        "completed": "已完成",
+        "failed": "失败",
+        "running": "运行中",
+        "polling_error": "轮询错误"
     },
     "errors": {
       "loadSyncListError": "加载同步列表时出错",
       "loadHistoryError": "加载历史记录时出错",
-      "configCheckFailed": "检查 S3 配置失败。请确保您已登录且后端正在运行。",
+      "configCheckFailed": "检查 S3 配置失败：{{errorDetail}}",
+      "invalidArnFormat": "无效的 AWS 角色 ARN 格式。",
+      "configSaveFailedTitle": "保存失败",
+      "configClearFailedTitle": "清除失败",
       "loadBucketsFailed": "加载 S3 存储桶失败。请检查权限或配置。",
       "loadObjectsFailed": "加载对象失败。请检查权限或重试。"
     },
-    "tabs": {
-      "syncList": "同步列表",
-      "history": "历史记录",
-      "browseAndSync": "浏览与同步"
-    }
+    "syncAction": "同步",
+    "addToSyncList": "添加到同步列表",
+    "alreadyInSyncList": "已在同步列表",
+    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表。",
+    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除。",
+    "syncProcessStartedTitle": "同步进程已启动",
+    "syncListEmptyTitle": "同步列表为空"
   },
   "tokenManagement": {
     "title": "管理API令牌"

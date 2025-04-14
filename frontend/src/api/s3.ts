@@ -100,6 +100,12 @@ export const configureS3 = async (roleArn: string): Promise<S3Config> => {
   return response.data;
 };
 
+// Clear the S3 configuration (Role ARN) for the user
+export const clearS3Config = async (): Promise<void> => {
+  await apiClient.delete('/s3/configure');
+  // DELETE requests often don't return content, especially on success (204 No Content)
+};
+
 // --- S3 Sync List API Calls ---
 
 /**
