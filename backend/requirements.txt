@@ -19,3 +19,4 @@ watchfiles
 Jinja2
 psycopg2-binary==2.9.10
 boto3
+aiohttp
