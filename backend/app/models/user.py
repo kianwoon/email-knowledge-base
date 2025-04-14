@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 # SQLAlchemy imports
 from sqlalchemy import Column, String, DateTime, Boolean, Text, JSON, LargeBinary
 from sqlalchemy.sql import func # For default timestamps
-from sqlalchemy.dialects.postgresql import UUID # If using UUID
-import uuid # If using UUID
+from sqlalchemy.dialects.postgresql import UUID as SQLAlchemyUUID # Use alias if needed
+import uuid # Make sure uuid is imported
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import LargeBinary # Import LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB # Import JSONB for PostgreSQL
@@ -25,6 +25,7 @@ from .api_key import APIKeyDB  # Import APIKeyDB for relationship
 # +++ Add TYPE_CHECKING block for circular imports +++
 if typing.TYPE_CHECKING:
     from .aws_credential import AwsCredential
+    from .azure_blob import AzureBlobConnection # <<< Add this import
     # Keep APIKeyDB import here if needed for other type hints
     # from .api_key import APIKeyDB 
 # --- End TYPE_CHECKING block ---
@@ -47,7 +48,7 @@ class UserCreate(UserBase):
 
 
 class User(UserBase):
-    id: str | None = None # Microsoft Graph User ID (GUID)
+    id: uuid.UUID | None = None 
     created_at: datetime | None = None
     last_login: datetime | None = None
     ms_token_data: Optional[TokenData] = None
@@ -90,7 +91,7 @@ class UserDB(Base):
     # Assuming email is the primary identifier used in MS Graph & JWT 'sub'
     # If using the MS Graph GUID 'id' as primary key, change accordingly
     email: Mapped[str] = mapped_column(primary_key=True, index=True, unique=True, nullable=False)
-    id: Mapped[str] = mapped_column(index=True, unique=True, nullable=True) # Store the MS Graph ID, maybe not PK?
+    id: Mapped[uuid.UUID] = mapped_column(SQLAlchemyUUID(as_uuid=True), index=True, unique=True, nullable=True) # Store the MS Graph ID, maybe not PK?
     display_name: Mapped[str] = mapped_column(nullable=False)
     # Use server_default for created_at
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -129,6 +130,14 @@ class UserDB(Base):
         back_populates="user", # This points to the 'user' attribute in AwsCredential
         uselist=False,         # One-to-one relationship
         cascade="all, delete-orphan" # Optional: Delete AwsCredential if UserDB is deleted
+    )
+    # --- End Add ---
+
+    # +++ Add Relationship to AzureBlobConnection +++
+    azure_blob_connections: Mapped[List["AzureBlobConnection"]] = relationship(
+        "AzureBlobConnection",
+        back_populates="user",
+        cascade="all, delete-orphan"
     )
     # --- End Add ---
 

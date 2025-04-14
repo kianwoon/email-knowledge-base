@@ -40,6 +40,7 @@ import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import
 import SharePointPage from './pages/SharePoint';
 import S3Browser from '@/pages/S3Browser'; // <<< RE-ADDED S3 Browser import
 import S3ConfigurationPage from '@/pages/S3ConfigurationPage'; // <<< Added S3 Config Page import
+import AzureBlobPage from './pages/AzureBlob'; // <<< Import Azure Blob Page
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
 
 // i18n
@@ -92,6 +93,7 @@ const protectedPaths = [
   '/sharepoint', // Added SharePoint
   '/s3', // <<< RE-ADDED S3 path
   '/settings/s3', // <<< Added S3 Settings path
+  '/azure-blob', // <<< Added Azure Blob path
   // Add other protected paths like dashboard, knowledge-bases, etc.
   '/dashboard',
   '/knowledge-bases',
@@ -190,27 +192,31 @@ function App() {
   useEffect(() => {
     const initializeAuth = async () => {
       console.log("--- App useEffect running initializeAuth (Cookie Based) ---");
-      setIsLoading(true);
+      // Note: setIsLoading(true) is redundant here as initial state is true
+      // setIsLoading(true); 
       let userDetails = null;
       let initialAuth = false;
       try {
-         console.log("Attempting to verify session with backend via /auth/me...");
+         console.log("[initializeAuth] Attempting getCurrentUser...");
          userDetails = await getCurrentUser();
-         console.log("Session verified. User details fetched:", userDetails);
-         initialAuth = true;
+         console.log("[initializeAuth] getCurrentUser success. User:", userDetails);
+         initialAuth = !!userDetails;
       } catch (error: any) {
-         console.log("Session verification failed (likely no valid cookie):", error?.response?.data || error.message);
+         // This includes 401 errors where getCurrentUser returns null
+         console.log("[initializeAuth] getCurrentUser failed or returned null (session likely invalid):", error?.response?.data || error?.message);
          initialAuth = false;
          userDetails = null;
       } finally {
-         console.log(`Setting final state: isAuthenticated=${initialAuth}, user=${!!userDetails}`);
+         console.log(`[initializeAuth] Setting final auth state: isAuthenticated=${initialAuth}, user=${!!userDetails}`);
          setAuth({ isAuthenticated: initialAuth, user: userDetails });
+         console.log("[initializeAuth] >>> Calling setIsLoading(false) NOW.");
          setIsLoading(false);
-         console.log("initializeAuth finished. Loading set to false.");
+         console.log("[initializeAuth] <<< setIsLoading(false) CALLED.");
+         console.log("--- initializeAuth finished. ---");
       }
     };
     initializeAuth();
-  }, []);
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   // Close Session Modal Handler (Restored)
   const handleCloseSessionExpiredModal = () => {
@@ -247,12 +253,17 @@ function App() {
     }
   };
 
+  // <<< ADD Log before the loading check >>>
+  console.log(`[App Render] isLoading state is currently: ${isLoading}`);
+
   // Loading Screen (Restored)
   if (isLoading) {
+    console.log("[App Render] Rendering LoadingScreen because isLoading is true.");
     return <LoadingScreen />;
   }
 
   // Main App Structure (Restored)
+  console.log("[App Render] Rendering main App structure because isLoading is false.");
   return (
     // Assuming Router is handled outside this component if needed
     <Box minH="100vh">
@@ -356,6 +367,16 @@ function App() {
             }
           />
           {/* --- End S3 Configuration Route --- */}
+          {/* --- Start Azure Blob Route --- */}
+          <Route
+            path="/azure-blob"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <AzureBlobPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* --- End Azure Blob Route --- */}
 
           {/* Add routes for lazy-loaded pages */}
           <Route

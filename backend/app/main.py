@@ -29,6 +29,8 @@ from app.routes import user
 from app.routes import sharepoint 
 # Import the new S3 router
 from app.routes import s3 as s3_router
+# Import the new Azure Blob router
+from app.routes import azure_blob
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -162,6 +164,14 @@ app.include_router(
     s3_router.router, 
     prefix=f"{settings.API_PREFIX}/s3", # Set the prefix for S3 routes
     tags=["S3"] # Tag for API docs
+)
+# --- End Include ---
+
+# --- Include Azure Blob Router ---
+app.include_router(
+    azure_blob.router,
+    prefix=f"{settings.API_PREFIX}/azure_blob",
+    tags=["Azure Blob Storage"]
 )
 # --- End Include ---
 

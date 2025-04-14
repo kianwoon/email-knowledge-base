@@ -30,7 +30,7 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey, FaRobot } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey, FaRobot, FaShareAltSquare, FaEnvelopeOpenText } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { getLoginUrl } from '../api/auth';
 
@@ -67,6 +67,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
         { path: '/filter', label: t('navigation.filterEmails'), icon: FaFilter },
         { path: '/sharepoint', label: t('navigation.sharepoint'), icon: FaShareSquare },
         { path: '/s3', label: t('navigation.awsS3'), icon: FaAws, disabled: false },
+        { path: '/azure-blob', label: t('navigation.azureBlob'), icon: FaMicrosoft, disabled: false },
         { path: '#confluence', label: t('navigation.confluence'), icon: FaConfluence, disabled: true },
         { path: '#elastic', label: t('navigation.elasticsearch'), icon: FaServer, disabled: true },
         { path: '#gdrive', label: t('navigation.googleDrive'), icon: FaGoogleDrive, disabled: true },
@@ -143,15 +144,17 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
     try {
       // Get the Microsoft login URL from our backend
       console.log("Attempting to get login URL from backend...");
-      const response = await getLoginUrl();
+      const authUrl = await getLoginUrl(); // Returns string directly
       
-      console.log("Login URL response:", response);
+      console.log("Login URL response:", authUrl);
       
-      if (response && response.auth_url) {
+      if (authUrl) { // Check if the string URL is truthy
         // Redirect to Microsoft login page
-        console.log("Redirecting to auth URL:", response.auth_url);
-        window.location.href = response.auth_url;
+        console.log("Redirecting to auth URL:", authUrl);
+        window.location.href = authUrl; // Use the string directly
       } else {
+        // This case should ideally not happen if getLoginUrl throws an error on failure
+        console.error("Failed to get login URL (empty string received).");
         throw new Error('Failed to get login URL');
       }
     } catch (error) {

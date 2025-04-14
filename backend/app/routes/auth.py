@@ -240,7 +240,8 @@ async def auth_callback(
         # Use db_user.id (MS Graph ID) or db_user.email for JWT subject?
         # Let's stick with email for consistency with get_current_user lookup
         jwt_subject = db_user.email
-        jwt_user_id = db_user.id # Or use MS Graph ID if needed elsewhere
+        # Convert UUID to string for JWT serialization
+        jwt_user_id = str(db_user.id) if db_user.id else None 
 
         # --- Store MS Refresh Token (Example: In localStorage - adjust as needed) ---
         # NOTE: Storing refresh tokens securely is crucial. localStorage is NOT secure.
@@ -253,7 +254,7 @@ async def auth_callback(
         
         # Create JWT payload, INCLUDING the MS Access Token
         jwt_payload = {
-            "sub": jwt_user_id, 
+            "sub": jwt_user_id, # Use the string representation
             "email": jwt_subject,
             "ms_token": ms_access_token # Include the MS token here
         }

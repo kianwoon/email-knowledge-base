@@ -33,6 +33,7 @@
     "elasticsearch": "Elasticsearch (即将推出)",
     "googleDrive": "Google Drive (即将推出)",
     "awsS3": "AWS S3",
+    "azureBlob": "Azure Blob 存储",
     "aiAssistant": "贾维斯",
     "chat": "对话",
     "settings": "设置"

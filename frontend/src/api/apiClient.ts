@@ -198,6 +198,51 @@ export const processSyncList = async (): Promise<{ task_id: string }> => {
     }
 };
 
+// =========================================
+// Azure Blob Storage API Calls
+// =========================================
+
+// Define interfaces for Azure Blob connections based on backend schemas
+export interface AzureBlobConnection {
+  id: string; // Assuming UUID is string
+  user_id: string;
+  name: string;
+  account_name: string;
+  auth_type: string; // 'connection_string', etc.
+  container_name?: string | null;
+  is_active: boolean;
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+}
+
+export interface AzureBlobConnectionCreatePayload {
+  name: string;
+  account_name: string;
+  credentials: string; // The connection string
+  auth_type?: string; // Defaults to 'connection_string' on backend
+  container_name?: string;
+  is_active?: boolean;
+}
+
+export const createAzureBlobConnection = async (
+  connectionData: AzureBlobConnectionCreatePayload
+): Promise<AzureBlobConnection> => {
+  const response = await apiClient.post<AzureBlobConnection>('/azure_blob/connections', connectionData);
+  return response.data;
+};
+
+export const getAzureBlobConnections = async (): Promise<AzureBlobConnection[]> => {
+  const response = await apiClient.get<AzureBlobConnection[]>('/azure_blob/connections');
+  return response.data;
+};
+
+export const listAzureBlobContainers = async (connectionId: string): Promise<string[]> => {
+  const response = await apiClient.get<string[]>(`/azure_blob/connections/${connectionId}/containers`);
+  return response.data;
+};
+
+// Add more functions later: update, delete, list blobs, upload etc.
+
 // --- Task Status API Call ---
 
 /**

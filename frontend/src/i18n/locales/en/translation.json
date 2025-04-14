@@ -37,6 +37,7 @@
     "elasticsearch": "Elasticsearch",
     "googleDrive": "Google Drive",
     "awsS3": "AWS S3",
+    "azureBlob": "Azure Blob Storage",
     "aiDataManagement": "AI Data Management",
     "tokenManagement": "Token Management",
     "jarvis": "Jarvis",
