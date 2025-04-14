@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, load_only # Import load_only
 from sqlalchemy import select, exists, update, text # Import exists, update, and text
 import sqlalchemy.exc
 from datetime import datetime # Ensure datetime is imported
+import uuid
 
 # Import BOTH the Pydantic User and the SQLAlchemy UserDB models
 from ..models.user import User, UserDB 
@@ -233,6 +234,26 @@ def update_user_ms_tokens(db: Session, user_email: str, access_token: str, expir
         db.rollback()
         logger.error(f"Error updating MS tokens for {user_email}: {e}", exc_info=True)
         raise e
+
+# +++ NEW Function to get user by ID +++
+def get_user_by_id(db: Session, user_id: uuid.UUID) -> UserDB | None:
+    """Fetches the UserDB instance by its UUID id."""
+    try:
+        # Fetch the user instance directly by UUID id
+        statement = select(UserDB).where(UserDB.id == user_id)
+        result = db.execute(statement)
+        # Add .unique() to handle potential joined eager loads
+        result = result.unique() 
+        user_db = result.scalar_one_or_none()
+        if user_db:
+            logger.debug(f"Fetched user {user_id} by ID.")
+        else:
+            logger.debug(f"User {user_id} not found when fetching by ID.")
+        return user_db
+    except Exception as e:
+        logger.error(f"Error fetching user by ID {user_id}: {e}", exc_info=True)
+        raise e
+# --- End NEW Function ---
 
 # Add other user CRUD functions here as needed (e.g., create_user, update_user)
 # These functions would typically take Pydantic models as input (e.g., UserCreate)

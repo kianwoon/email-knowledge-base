@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Box, Heading, Select, Button, Icon, // Basic Chakra components
     Table, Thead, Tbody, Tr, Th, Td, TableContainer, // Chakra Table
@@ -7,154 +7,165 @@ import {
     Alert, AlertIcon, Spinner, Center, Text, Tag, // Chakra Feedback & Text
     List, ListItem, // Chakra List
     Tabs, TabList, Tab, TabPanels, TabPanel, // Chakra Tabs
-    FormControl, FormLabel, // Chakra Form (if needed for Settings later)
+    FormControl, FormLabel, FormErrorMessage, // Chakra Form (if needed for Settings later)
     IconButton, // Chakra IconButton
     useColorModeValue, // Hook for colors
-    useToast // Hook for notifications
+    useToast, // Hook for notifications
+    Progress // Add Progress for polling display
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { FaFolder, FaFileAlt, FaSync, FaPlusCircle, FaTrashAlt } from 'react-icons/fa'; // Keep react-icons
-import { ChevronRightIcon } from '@chakra-ui/icons'; // Chakra icons
+import { FaFolder, FaFileAlt, FaSync, FaPlusCircle, FaTrashAlt, FaCheckCircle, FaExclamationTriangle, FaCloud } from 'react-icons/fa'; // Keep react-icons
+import { ChevronRightIcon, AddIcon, CheckCircleIcon, DeleteIcon, SearchIcon, RepeatIcon } from '@chakra-ui/icons'; // Chakra icons
 
 import apiClient from '../../../api/apiClient';
 import axios from 'axios';
 
-// --- API Interface Definitions ---
-// Existing interfaces: AzureConnection, AzureContainer, AzureBlob, AzureSyncItem
-interface AzureConnection {
-  id: string; // Use string ID
-  name: string;
-}
-interface AzureContainer { name: string; }
-interface AzureBlob {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size?: number | null;
-  lastModified?: string | null; // Expect ISO string
-}
-interface AzureSyncItem {
-  id: number;
-  item_name: string;
-  container_name: string;
-  item_path: string;
-  item_type: 'blob' | 'prefix';
-  status: 'pending' | 'processing' | 'completed' | 'error';
-}
+// Import from the new azure api file
+import {
+    getAzureConnections, listAzureContainers, listAzureBlobs,
+    getAzureSyncList, addAzureSyncItem, removeAzureSyncItem, triggerAzureIngestion,
+    AzureConnection, AzureContainer, AzureBlob, AzureSyncItem, AzureSyncItemCreate, TriggerIngestResponse
+} from '../../../api/azure'; 
+import { getTaskStatus } from '../../../api/tasks'; // Assuming tasks API is separate
+import { TaskStatus, TaskStatusEnum } from '../../../models/tasks';
+import AzureConnectionManager from './AzureConnectionManager';
+
+// --- API Interface Definitions --- 
+// Now imported from ../../../api/azure.ts
+// interface AzureConnection { ... }
+// interface AzureContainer { ... }
+// interface AzureBlob { ... }
+// interface AzureSyncItem { ... }
 
 // --- API Functions (Keep as is, using apiClient) ---
-const getAzureConnections = async (): Promise<AzureConnection[]> => {
-  console.log("API CALL: getAzureConnections");
-  try {
-      const response = await apiClient.get<AzureConnection[]>('/azure_blob/connections');
-      // Ensure ID compatibility if backend sends UUID as string
-      return response.data.map(conn => ({ ...conn, id: String(conn.id) }));
-  } catch (error) {
-      console.error("Failed to fetch connections:", error);
-      const errorMsg = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : 'Unknown error';
-      throw new Error(`Failed to fetch connections: ${errorMsg}`);
-  }
-};
-
-const listAzureContainers = async (connectionId: string): Promise<AzureContainer[]> => {
-  console.log("API CALL: listAzureContainers", connectionId);
-  if (!connectionId) throw new Error("Connection ID is required to list containers");
-  try {
-      const response = await apiClient.get<string[]>(`/azure_blob/connections/${connectionId}/containers`);
-      return response.data.map(name => ({ name })); // Map string array to AzureContainer objects
-  } catch (error) {
-       console.error("Failed to list containers:", error);
-       const errorMsg = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : 'Unknown error';
-       throw new Error(`Failed to list containers: ${errorMsg}`);
-  }
-};
-
-const listAzureBlobs = async (connectionId: string, containerName: string, prefix: string = ''): Promise<AzureBlob[]> => {
-  console.log("API CALL: listAzureBlobs", connectionId, containerName, prefix);
-  if (!connectionId || !containerName) {
-      throw new Error("Connection ID and Container Name are required to list blobs");
-  }
-  const encodedContainerName = encodeURIComponent(containerName);
-  const url = `/azure_blob/connections/${connectionId}/containers/${encodedContainerName}/objects`;
-
-  try {
-    const response = await apiClient.get<AzureBlob[]>(url, {
-      params: { prefix: prefix } // Pass prefix as query parameter
-    });
-    // Ensure lastModified is correctly handled (it should be string/null from backend)
-    return response.data;
-  } catch (error) {
-      console.error("[listAzureBlobs] API Error listing blobs:", error); // Log error within function
-      const errorMsg = axios.isAxiosError(error) ? error.response?.data?.detail || error.message : 'Unknown error';
-      throw new Error(`Failed to list blobs: ${errorMsg}`);
-  }
-};
-
-// --- Mocked Sync API Functions --- 
-const addAzureSyncItem = async (item: Omit<AzureSyncItem, 'id' | 'status'>): Promise<AzureSyncItem> => {
-    console.log("API CALL (Mock): addAzureSyncItem", item);
-    // TODO: Replace with actual API call, e.g., POST /api/v1/azure_blob/sync_list/add
-    // const response = await apiClient.post<AzureSyncItem>('/api/v1/azure_blob/sync_list/add', item);
-    // return response.data;
-    await new Promise(resolve => setTimeout(resolve, 300));
-    // Mock response
-    return { ...item, id: Math.random(), status: 'pending' };
-};
-
-const getAzureSyncList = async (): Promise<AzureSyncItem[]> => {
-    console.log("API CALL (Mock): getAzureSyncList");
-    // TODO: Replace with actual API call, e.g., GET /api/v1/azure_blob/sync_list
-    // const response = await apiClient.get<AzureSyncItem[]>('/api/v1/azure_blob/sync_list');
-    // return response.data;
-    await new Promise(resolve => setTimeout(resolve, 400));
-    // Mock response
-    return [
-        // { id: 101, item_name: 'existing_file.txt', container_name: 'container-a', item_path: 'existing_file.txt', item_type: 'blob', status: 'pending' },
-    ];
-};
-
-const removeAzureSyncItem = async (itemId: number): Promise<void> => {
-    console.log("API CALL (Mock): removeAzureSyncItem", itemId);
-    // TODO: Replace with actual API call, e.g., DELETE /api/v1/azure_blob/sync_list/remove/{itemId}
-    // await apiClient.delete(`/api/v1/azure_blob/sync_list/remove/${itemId}`);
-    await new Promise(resolve => setTimeout(resolve, 300));
-};
-
-const triggerAzureIngestion = async (): Promise<{ task_id: string }> => {
-    console.log("API CALL (Mock): triggerAzureIngestion");
-    // TODO: Replace with actual API call, e.g., POST /api/v1/azure_blob/ingest
-    // const response = await apiClient.post<{ task_id: string }>('/api/v1/azure_blob/ingest');
-    // return response.data;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    // Mock response
-    return { task_id: `azure-task-${Math.random().toString(36).substring(7)}` };
-};
+// Now imported from ../../../api/azure.ts
+// const getAzureConnections = async (): Promise<AzureConnection[]> => { /* ... */ };
+// const listAzureContainers = async (connectionId: string): Promise<AzureContainer[]> => { /* ... */ };
+// const listAzureBlobs = async (connectionId: string, containerName: string, prefix: string = ''): Promise<AzureBlob[]> => { /* ... */ };
+// const addAzureSyncItem = async (item: Omit<AzureSyncItem, 'id' | 'status'>): Promise<AzureSyncItem> => { /* ... */ };
+// const getAzureSyncList = async (): Promise<AzureSyncItem[]> => { /* ... */ };
+// const removeAzureSyncItem = async (itemId: number): Promise<void> => { /* ... */ };
+// const triggerAzureIngestion = async (): Promise<{ task_id: string }> => { /* ... */ };
 
 // --- Helper Functions (Keep as is) ---
 const formatFileSize = (bytes?: number | null): string => {
     if (bytes === undefined || bytes === null) return '-';
     if (bytes === 0) return '0 B';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const dm = 2;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    const precision = i < 2 ? 1 : 0;
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(precision)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-const formatDateTime = (dateTimeString?: string | null): string => {
-  if (!dateTimeString) return '-';
-  try {
-    // Format consistently, maybe without seconds?
-    return new Date(dateTimeString).toLocaleString(undefined, {
-        year: 'numeric', month: 'numeric', day: 'numeric', 
-        hour: 'numeric', minute: '2-digit' 
-    });
-  } catch {
-    return dateTimeString; // Fallback
-  }
+const formatDateTime = (dateString?: string | null): string => {
+    if (!dateString) return '-';
+    try {
+        const date = new Date(dateString);
+        // Example format: 4/13/2025, 9:46:25 PM (adjust options as needed)
+        return date.toLocaleString(undefined, {
+            year: 'numeric', 
+            month: 'numeric', 
+            day: 'numeric', 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+    } catch (e) {
+        return 'Invalid Date';
+    }
 };
 
 // --- Component ---
+
+// +++ NEW History List Component +++
+interface HistoryListComponentProps {
+  items: AzureSyncItem[];
+  isLoading: boolean;
+  error: string | null;
+  t: (key: string, options?: any) => string;
+}
+
+const AzureHistoryListComponent: React.FC<HistoryListComponentProps> = ({ 
+  items, isLoading, error, t 
+}) => {
+  const folderColor = useColorModeValue('blue.500', 'blue.300');
+  const fileColor = useColorModeValue('gray.600', 'gray.400');
+  const bgColor = useColorModeValue('gray.50', 'gray.700');
+  const hoverBg = useColorModeValue('gray.100', 'gray.600');
+
+  const renderContent = () => {
+    if (isLoading) {
+      return <Center p={5}><Spinner /></Center>;
+    }
+    if (error) {
+      return <Center p={5}><Text color="red.500" textAlign="center" width="100%">{t('azureBlobBrowser.errors.loadHistoryError', 'Error loading history')}: {error}</Text></Center>;
+    }
+    if (items.length === 0) {
+      return <Center p={5}><Text color="gray.500" textAlign="center" width="100%">{t('azureBlobBrowser.historyEmpty', 'No processed items found in history.')}</Text></Center>;
+    }
+    return (
+      <List spacing={3} p={2}>
+        {items.map((item) => (
+          <ListItem 
+            key={item.id} 
+            display="flex" 
+            justifyContent="space-between" 
+            alignItems="center"
+            p={2}
+            borderRadius="md"
+            _hover={{ bg: hoverBg }}
+          >
+            <HStack spacing={2} flex={1} minWidth={0} width="100%"> 
+              <Icon 
+                as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} 
+                color={item.item_type === 'prefix' ? folderColor : fileColor}
+                boxSize="1.2em"
+                flexShrink={0}
+              />
+              <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%"> 
+                 <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.item_path} width="100%" textAlign="left">
+                  {item.item_name || item.item_path} 
+                 </Text>
+                 <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.container_name} width="100%" textAlign="left">
+                   Container: {item.container_name}
+                 </Text>
+              </VStack>
+            </HStack>
+            <Tag 
+              size="sm" 
+              variant="subtle" 
+              colorScheme={item.status === 'completed' ? 'green' : 'red'}
+              mr={2}
+              flexShrink={0}
+            >
+               <Icon 
+                 as={item.status === 'completed' ? FaCheckCircle : FaExclamationTriangle}
+                 mr={1} 
+               />
+               {/* Use a generic status translation or add specific ones for Azure */}
+               {t(`common.status.${item.status}`, item.status)} 
+            </Tag>
+          </ListItem>
+        ))}
+      </List>
+    );
+  };
+
+  return (
+    <Box mt={6} borderWidth="1px" borderRadius="lg" bg={bgColor} shadow="base">
+      <VStack align="stretch">
+        <HStack justify="space-between" p={4} borderBottomWidth="1px">
+          <Heading size="md">{t('azureBlobBrowser.historyListTitle', 'Processing History')}</Heading>
+        </HStack>
+        <Box maxHeight="400px" overflowY="auto">
+           {renderContent()}
+        </Box>
+      </VStack>
+    </Box>
+  );
+};
+// --- End History List Component ---
 
 export default function AzureBlobBrowser() {
   const { t } = useTranslation();
@@ -182,6 +193,12 @@ export default function AzureBlobBrowser() {
   const [blobError, setBlobError] = useState<string | null>(null);
   const [syncListError, setSyncListError] = useState<string | null>(null);
   const [syncProcessError, setSyncProcessError] = useState<string | null>(null);
+  // Polling State 
+  const [ingestionTaskId, setIngestionTaskId] = useState<string | null>(null);
+  const [isIngestionPolling, setIsIngestionPolling] = useState<boolean>(false);
+  const [ingestionTaskStatus, setIngestionTaskStatus] = useState<TaskStatus | null>(null);
+  const [ingestionError, setIngestionError] = useState<string | null>(null);
+  const ingestionPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Color Mode Values (Chakra) ---
   const bgColor = useColorModeValue('white', 'gray.800');
@@ -193,22 +210,33 @@ export default function AzureBlobBrowser() {
 
   // --- useEffect Hooks (Keep logic, adapt error handling if needed) ---
   // Load connections
+  const loadConnections = useCallback(async () => {
+      console.log('[Azure Load Connections] Running. Current selectedConnectionId:', selectedConnectionId); // LOG BEFORE
+      setIsLoadingConnections(true);
+      setConnectionError(null);
+      try {
+          const data = await getAzureConnections();
+          setConnections(data);
+          // If a connection was selected, ensure it still exists
+          const selectedExists = data.some(c => c.id === selectedConnectionId);
+          console.log(`[Azure Load Connections] Fetched ${data.length} connections. Selected (${selectedConnectionId}) exists: ${selectedExists}`); // LOG CHECK
+          if (selectedConnectionId && !selectedExists) {
+              console.log(`[Azure Load Connections] Resetting selectedConnectionId from ${selectedConnectionId} because it no longer exists.`); // LOG RESET
+              setSelectedConnectionId(''); // Reset if selected connection is gone
+          }
+      } catch (error: any) {
+          console.error("Failed to load Azure connections:", error);
+          setConnectionError(t('errors.loadConnectionsFailed'));
+          toast({ title: t('errors.error'), description: t('errors.loadConnectionsFailed'), status: 'error' });
+      } finally {
+          setIsLoadingConnections(false);
+      }
+  }, [t, toast, selectedConnectionId]);
+
+  // Initial load for connections
   useEffect(() => {
-    const loadConnections = async () => {
-        setIsLoadingConnections(true);
-        setConnectionError(null);
-        try {
-            const data = await getAzureConnections();
-            setConnections(data);
-        } catch (error: any) { // Catch specific error type
-            console.error("Component Error: Failed to load connections:", error);
-            setConnectionError(error.message || t('azureBlobBrowser.errors.loadConnections', 'Failed to load connections.'));
-        } finally {
-            setIsLoadingConnections(false);
-        }
-    };
     loadConnections();
-  }, [t]);
+  }, [loadConnections]);
 
   // Load containers
   useEffect(() => {
@@ -221,6 +249,7 @@ export default function AzureBlobBrowser() {
         setCurrentPrefix('');
         setBreadcrumbs([]);
         try {
+            console.log(`[Azure Load Containers] Fetching containers for connection ID: ${selectedConnectionId}`); // LOG BEFORE API CALL
             const data = await listAzureContainers(selectedConnectionId);
             setContainers(data);
             setSelectedContainer(''); // Reset selection
@@ -263,27 +292,59 @@ export default function AzureBlobBrowser() {
         }
     }, [selectedContainer, currentPrefix]);
 
-   // Load sync list (mocked)
-   useEffect(() => {
-       const loadSyncList = async () => {
-            setIsLoadingSyncList(true);
-            setSyncListError(null);
-            try {
-                const data = await getAzureSyncList();
-                setSyncList(data);
-            } catch (error: any) {
-                console.error("Failed to load sync list (Mock):", error);
-                setSyncListError(t('azureBlobBrowser.errors.loadSyncList', 'Failed to load sync list.'));
-            } finally {
-                setIsLoadingSyncList(false);
-            }
-       };
-       loadSyncList();
-   }, [t]);
+   // Load sync list (using useCallback)
+   const fetchSyncList = useCallback(async () => {
+       setIsLoadingSyncList(true);
+       setSyncListError(null);
+       console.log(`[fetchSyncList] Running for TabIndex: ${tabIndex}, ConnectionId: ${selectedConnectionId}`);
+       
+       let itemsToFetch: AzureSyncItem[] = [];
+       try {
+           if (tabIndex === 1) { // History Tab
+               console.log("[fetchSyncList] Fetching completed and error items for History tab (user-wide).");
+               // Fetch both completed and error statuses without connection ID
+               const completedItems = await getAzureSyncList(undefined, 'completed');
+               const errorItems = await getAzureSyncList(undefined, 'error');
+               itemsToFetch = [...completedItems, ...errorItems];
+           } else if (tabIndex === 0 && selectedConnectionId) { // Browse & Sync Tab (and connection selected)
+               console.log(`[fetchSyncList] Fetching pending items for connection: ${selectedConnectionId}`);
+               // Fetch only pending items for the specific connection
+               itemsToFetch = await getAzureSyncList(selectedConnectionId, 'pending');
+           } else {
+               // If Browse tab but no connection, or other tabs, don't fetch.
+               console.log("[fetchSyncList] Skipping fetch (Browse tab with no connection, or other tab).");
+           }
+           setSyncList(itemsToFetch);
+       } catch (error: any) {
+           console.error("Failed to fetch sync list:", error);
+           const errorMessage = error?.response?.data?.detail || error?.message || t('errors.anErrorOccurred');
+           setSyncListError(errorMessage);
+           toast({ title: t('errors.error'), description: errorMessage, status: 'error' });
+       } finally {
+           setIsLoadingSyncList(false);
+       }
+   }, [selectedConnectionId, tabIndex, t, toast]); // Added toast dependency
+
+  // useEffect to call fetchSyncList when relevant state changes
+  useEffect(() => {
+    // Fetch only when either:
+    // 1. History tab is active (tabIndex 1)
+    // 2. Browse tab is active (tabIndex 0) AND a connection is selected
+    if (tabIndex === 1 || (tabIndex === 0 && selectedConnectionId)) {
+        console.log(`[Sync List Fetch Trigger] Connection: ${selectedConnectionId}, TabIndex: ${tabIndex}. Fetching...`);
+        fetchSyncList();
+    } else {
+        // Clear list if conditions aren't met (e.g., Browse tab with no connection, or Settings tab)
+        console.log(`[Sync List Fetch Trigger] Conditions not met (Conn: ${selectedConnectionId}, Tab: ${tabIndex}). Clearing list.`);
+        setSyncList([]);
+    }
+  }, [selectedConnectionId, tabIndex, fetchSyncList]); // Keep fetchSyncList dependency
 
   // --- Event Handlers (Keep logic, adapt types/toast) ---
   const handleConnectionChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedConnectionId(event.target.value);
+    const newConnectionId = event.target.value;
+    console.log(`[Azure Handle Connection Change] Setting selectedConnectionId to: ${newConnectionId}`); // LOG SET
+    setSelectedConnectionId(newConnectionId);
     // Reset downstream state
     setSelectedContainer('');
     setContainers([]);
@@ -321,7 +382,8 @@ export default function AzureBlobBrowser() {
 
     const handleAddToSyncList = async (blob: AzureBlob) => {
         if (!selectedConnectionId || !selectedContainer) return;
-        const newItem: Omit<AzureSyncItem, 'id' | 'status'> = {
+        const newItem: AzureSyncItemCreate = {
+            connection_id: selectedConnectionId, // Add connection_id
             item_name: blob.name,
             container_name: selectedContainer,
             item_path: blob.path,
@@ -349,18 +411,33 @@ export default function AzureBlobBrowser() {
     };
 
      const handleProcessSyncList = async () => {
+        // Ensure a connection is selected before proceeding
+        if (!selectedConnectionId) {
+            toast({ title: t('errors.error'), description: t('azureBlobBrowser.errors.noConnectionSelected'), status: 'warning' });
+            return;
+        }
+
         setIsProcessingSync(true);
         setSyncProcessError(null);
+        setIngestionTaskStatus(null);
+        setIngestionTaskId(null);
+        setIngestionError(null);
         try {
-            const result = await triggerAzureIngestion();
-            toast({ title: t('azureBlobBrowser.syncSuccessTitle'), description: t('azureBlobBrowser.syncSuccessDetail', { taskId: result.task_id }), status: 'info' });
-            // Refresh sync list
-            const data = await getAzureSyncList();
-            setSyncList(data);
+            // Pass the selectedConnectionId
+            const response = await triggerAzureIngestion(selectedConnectionId);
+            if (response.task_id) {
+                toast({ title: t('azureBlobBrowser.syncSuccessTitle'), description: t('azureBlobBrowser.syncSuccessDetail', { taskId: response.task_id }), status: 'info' });
+                startIngestionPolling(response.task_id);
+            } else {
+                // Handle the NO_OP case or other messages from the backend
+                const message = response.message || t('azureBlobBrowser.syncWarningDetail');
+                toast({ title: t('azureBlobBrowser.syncWarningTitle'), description: message, status: 'warning' });
+                setIsProcessingSync(false);
+            }
         } catch (error: any) {
-            setSyncProcessError(t('azureBlobBrowser.errors.processSyncList', 'Failed to start sync process.') + `: ${error.message}`);
-            toast({ title: t('errors.processSyncListFailed'), description: error.message, status: 'error' });
-        } finally {
+            const errorMessage = error.message || t('azureBlobBrowser.errors.processSyncList');
+            setSyncProcessError(errorMessage);
+            toast({ title: t('errors.processSyncListFailed'), description: errorMessage, status: 'error' });
             setIsProcessingSync(false);
         }
     };
@@ -370,220 +447,310 @@ export default function AzureBlobBrowser() {
     setTabIndex(index);
   };
 
+  // --- Polling Logic --- 
+  const stopIngestionPolling = useCallback(() => {
+    console.log('[Azure Polling] stopIngestionPolling called.');
+    if (ingestionPollingIntervalRef.current) {
+      clearInterval(ingestionPollingIntervalRef.current);
+      ingestionPollingIntervalRef.current = null;
+    }
+    setIsProcessingSync(false);
+    setIsIngestionPolling(false);
+  }, [setIsProcessingSync, setIsIngestionPolling]);
+
+  const pollIngestionTaskStatus = useCallback(async (taskId: string) => {
+    if (!taskId) return;
+    console.log(`[Azure Polling] Checking status for task ${taskId}...`);
+    try {
+      const statusResult = await getTaskStatus(taskId);
+      setIngestionTaskStatus(statusResult);
+      setIngestionError(null);
+
+      const finalStates = [TaskStatusEnum.COMPLETED, TaskStatusEnum.FAILED, 'SUCCESS', 'FAILURE'];
+      if (finalStates.includes(statusResult.status as TaskStatusEnum | 'SUCCESS' | 'FAILURE')) {
+        stopIngestionPolling();
+        const isSuccess = statusResult.status === TaskStatusEnum.COMPLETED || statusResult.status === 'SUCCESS';
+        const errorMessage = statusResult?.details || t('azureBlobBrowser.syncFailedDetail');
+        toast({ title: isSuccess ? t('azureBlobBrowser.syncCompleteTitle') : t('azureBlobBrowser.syncFailedTitle'), 
+                description: isSuccess ? t('azureBlobBrowser.syncCompleteDetail', { taskId: taskId }) : errorMessage,
+                status: isSuccess ? 'success' : 'error', duration: 5000 });
+        // Refresh the *pending* list specifically after polling finishes
+        if (selectedConnectionId) {
+            // Fetch only pending items to update the main sync list display
+            getAzureSyncList(selectedConnectionId, 'pending').then(setSyncList).catch(err => {
+                console.error("Failed to refresh pending sync list:", err);
+                setSyncListError(err instanceof Error ? err.message : t('errors.anErrorOccurred'));
+             });
+        }
+      }
+    } catch (error: any) {
+      console.error("Error polling task status:", error);
+      stopIngestionPolling();
+      const errorMessage = error instanceof Error ? error.message : t('errors.anErrorOccurred');
+      setIngestionError(errorMessage);
+      toast({ title: t('errors.pollingErrorTitle'), description: errorMessage, status: 'error' });
+    }
+  }, [stopIngestionPolling, t, toast, selectedConnectionId]);
+
+  const startIngestionPolling = useCallback((taskId: string) => {
+    stopIngestionPolling();
+    setIngestionTaskId(taskId);
+    setIsIngestionPolling(true);
+    setIsProcessingSync(true);
+    setIngestionError(null);
+    setIngestionTaskStatus({ task_id: taskId, status: TaskStatusEnum.PENDING, progress: 0, message: 'Starting...' });
+    pollIngestionTaskStatus(taskId);
+    ingestionPollingIntervalRef.current = setInterval(() => pollIngestionTaskStatus(taskId), 5000);
+  }, [stopIngestionPolling, pollIngestionTaskStatus, setIsProcessingSync]);
+
+  // Cleanup polling on unmount
+  useEffect(() => { return () => { stopIngestionPolling(); }; }, [stopIngestionPolling]);
+
+  const isInSyncList = useCallback((itemPath: string) => {
+      return syncList.some(item => 
+          item.container_name === selectedContainer && 
+          item.item_path === itemPath
+      );
+  }, [syncList, selectedContainer]);
+
+  // Memoized lists for pending and history items (similar to S3)
+  const pendingSyncItems = React.useMemo(() => 
+    syncList.filter(item => item.status === 'pending'), 
+  [syncList]);
+
+  const historySyncItems = React.useMemo(() => 
+    syncList.filter(item => item.status === 'completed' || item.status === 'error')
+    .sort((a, b) => b.id - a.id), // Sort by ID descending (newest first)
+  [syncList]);
+
   // --- Render Logic using Chakra UI ---
 
-  // Define Content for Browse & Sync Tab
+  // Define Content for Browse & Sync Tab FIRST
   const browseAndSyncContent = (
-    <VStack spacing={4} align="stretch"> {/* Use VStack */} 
+    <VStack spacing={4} align="stretch"> 
       {/* Connection & Container Row */}
-      <HStack spacing={4}> {/* Use HStack */} 
-         {/* Connection Select */} 
-         <FormControl id="azure-connection" isDisabled={isLoadingConnections} flex={1}>
-            {/* <FormLabel>Select Connection</FormLabel> */}
-            <Select 
-              placeholder={isLoadingConnections ? t('common.loading') : t('azureBlobBrowser.connectionSelectPlaceholder')}
-              value={selectedConnectionId}
-              onChange={handleConnectionChange}
-              icon={isLoadingConnections ? <Spinner size="xs" /> : undefined}
-            >
-               {connections.map((conn) => (
-                  <option key={conn.id} value={conn.id}>
-                    {conn.name}
+      <HStack spacing={4} align="end">
+         {/* Connection Select */}
+         <FormControl id="azure-connection" isDisabled={isLoadingConnections || isProcessingSync || isIngestionPolling} flex={1}>
+            <FormLabel>{t('azureBlobBrowser.connectionLabel', 'Select Connection')}</FormLabel>
+            {/* Add Icon to Select */}
+            <HStack>
+               <Icon as={FaCloud} color="blue.500" boxSize={5} /> {/* Azure Icon */} 
+               <Select
+                 placeholder={isLoadingConnections ? t('common.loading') : connectionError ? t('errors.loadConnectionsFailed') : t('azureBlobBrowser.connectionSelectPlaceholder')}
+                 value={selectedConnectionId}
+                 onChange={handleConnectionChange}
+                 isInvalid={!!connectionError}
+               >
+                 {connections.map((conn) => (
+                   <option key={conn.id} value={conn.id}>
+                     {conn.name} {/* Use conn.name based on API definition */}
+                   </option>
+                 ))}
+               </Select>
+            </HStack>
+            {connectionError && <FormErrorMessage>{connectionError}</FormErrorMessage>}
+         </FormControl>
+
+         {/* Container Select */}
+         {selectedConnectionId && (
+            <FormControl id="azure-container" isDisabled={!selectedConnectionId || isLoadingContainers || isProcessingSync || isIngestionPolling} flex={1}>
+              <FormLabel>{t('azureBlobBrowser.containerLabel', 'Select Container')}</FormLabel>
+              <Select 
+                 placeholder={isLoadingContainers ? t('common.loading') : containerError ? t('errors.loadContainersFailed') : t('azureBlobBrowser.containerSelectPlaceholder')}
+                 value={selectedContainer}
+                 onChange={handleContainerChange}
+                 isInvalid={!!containerError}
+              >
+                {containers.map((cont) => (
+                  <option key={cont.name} value={cont.name}>
+                    {cont.name}
                   </option>
                 ))}
-            </Select>
-            {connectionError && <Text color="red.500" fontSize="sm" mt={1}>{connectionError}</Text>}
-          </FormControl>
-
-         {/* Container Select */} 
-         {selectedConnectionId && (
-              <FormControl id="azure-container" isDisabled={isLoadingContainers || !selectedConnectionId} minWidth="200px">
-                {/* <FormLabel>Select Container</FormLabel> */} 
-                <Select 
-                   placeholder={isLoadingContainers ? t('common.loading') : t('azureBlobBrowser.containerSelectPlaceholder')}
-                   value={selectedContainer}
-                   onChange={handleContainerChange}
-                   icon={isLoadingContainers ? <Spinner size="xs" /> : undefined}
-                >
-                  {containers.map((cont) => (
-                     <option key={cont.name} value={cont.name}>
-                       {cont.name}
-                     </option>
-                  ))}
-                </Select>
-                {containerError && <Text color="red.500" fontSize="sm" mt={1}>{containerError}</Text>}
-              </FormControl>
+              </Select>
+              {containerError && <FormErrorMessage>{containerError}</FormErrorMessage>}
+            </FormControl>
          )}
       </HStack>
 
-      {/* Browser Section */} 
+      {/* Breadcrumbs */}
       {selectedContainer && (
-           <Box borderWidth="1px" borderRadius="lg" bg={bgColor} shadow="sm" overflow="hidden"> {/* Mimic outlined Paper */} 
-              {/* Breadcrumbs */}
-              <Box p={2.5} borderBottomWidth="1px" borderColor={borderColor} bg={tableHeaderBg}> 
-                 <Breadcrumb spacing="8px" separator={<Icon as={ChevronRightIcon} color="gray.500" />}>
-                    {breadcrumbs.map((part, index) => (
-                        <BreadcrumbItem key={index} isCurrentPage={index === breadcrumbs.length - 1}>
-                            <BreadcrumbLink 
-                                href="#"
-                                onClick={(e) => { e.preventDefault(); handleBreadcrumbClick(index); }}
-                                display="flex" 
-                                alignItems="center"
-                                fontWeight={index === breadcrumbs.length - 1 ? 'semibold' : 'normal'}
-                                _hover={{ textDecoration: 'none', color: 'blue.500'}}
-                            >
-                                <Icon as={FaFolder} mr={1.5} color={folderColor} />
-                                {part}
-                            </BreadcrumbLink>
-                        </BreadcrumbItem>
+          <Breadcrumb separator='/' spacing='8px'>
+            <BreadcrumbItem>
+                <BreadcrumbLink onClick={() => handleBreadcrumbClick(0)}>{selectedContainer}</BreadcrumbLink>
+            </BreadcrumbItem>
+            {breadcrumbs.slice(1).map((part, index) => (
+                <BreadcrumbItem key={index + 1}>
+                    <BreadcrumbLink onClick={() => handleBreadcrumbClick(index + 1)}>{part}</BreadcrumbLink>
+                </BreadcrumbItem>
+            ))}
+          </Breadcrumb>
+       )}
+
+      {/* Blob List Table */}
+      {selectedContainer && (
+          isLoadingBlobs ? <Spinner /> :
+          blobError ? <Text color="red.500">{blobError}</Text> :
+          <TableContainer mt={4}>
+              <Table variant="simple" size="sm">
+                  <Thead>
+                      <Tr>
+                          <Th width="50%">{t('common.name').toUpperCase()}</Th>
+                          <Th width="25%">{t('common.lastModified').toUpperCase()}</Th>
+                          <Th width="15%" isNumeric>{t('common.size').toUpperCase()}</Th>
+                          <Th width="10%" textAlign="center">{t('common.sync').toUpperCase()}</Th>
+                      </Tr>
+                  </Thead>
+                  <Tbody>
+                      {blobs.length === 0 && !isLoadingBlobs && (
+                          <Tr><Td colSpan={4} textAlign="center">{t('azureBlobBrowser.folderEmpty', 'Folder is empty.')}</Td></Tr>
+                      )}
+                      {blobs.map((blob) => {
+                          const alreadyInList = isInSyncList(blob.path);
+                          return (
+                              <Tr 
+                                key={blob.path} 
+                                _hover={{ bg: useColorModeValue('gray.100', 'gray.700') }} 
+                                cursor={blob.isDirectory ? 'pointer' : 'default'}
+                                onClick={() => blob.isDirectory && handleNavigate(blob)}
+                              >
+                                  <Td>
+                                      <HStack spacing={2}>
+                                          <Icon 
+                                            as={blob.isDirectory ? FaFolder : FaFileAlt} 
+                                            color={blob.isDirectory ? 'blue.500' : 'gray.500'} // Example colors
+                                          />
+                                          <Text>{blob.name}</Text>
+                                      </HStack>
+                                  </Td>
+                                  <Td>{formatDateTime(blob.lastModified)}</Td>
+                                  <Td isNumeric>{formatFileSize(blob.size)}</Td>
+                                  <Td textAlign="center">
+                                       {alreadyInList ? (
+                                          <Icon as={CheckCircleIcon} color="green.500" />
+                                       ) : (
+                                          <IconButton
+                                              aria-label={t('common.add')}
+                                              icon={<Icon as={FaPlusCircle} />}
+                                              size="xs"
+                                              colorScheme="blue"
+                                              onClick={(e) => { e.stopPropagation(); handleAddToSyncList(blob); }}
+                                              isDisabled={isProcessingSync || isIngestionPolling}
+                                          />
+                                       )}
+                                  </Td>
+                              </Tr>
+                          );
+                      })}
+                  </Tbody>
+              </Table>
+          </TableContainer>
+       )}
+
+       {/* Sync List Section */}
+      {selectedConnectionId && (
+          <Box mt={8} p={4} borderWidth="1px" borderRadius="md">
+            <HStack justify="space-between" mb={4}>
+              <Heading size="md">{t('azureBlobBrowser.syncListTitle', 'Azure Sync List')}</Heading>
+              {/* Add Pending Count Tag */}
+              <Tag size="md" variant='solid' colorScheme='blue'>
+                {t('common.pendingCount', { count: syncList.length })}
+              </Tag>
+            </HStack>
+            {isLoadingSyncList && <Spinner />}
+            {syncListError && <Text color="red.500">{syncListError}</Text>}
+            {/* Adjust empty state message if needed */} 
+            {!isLoadingSyncList && syncList.length === 0 && 
+              <Text color="gray.500" textAlign="center" p={4}>
+                {t('azureBlobBrowser.syncListEmptyMessage', 'Your sync list is empty. Browse Azure and add files/folders.')}
+              </Text>
+            }
+             {!isLoadingSyncList && syncList.length > 0 && (
+                 <VStack spacing={2} align="stretch" mb={4} maxHeight="200px" overflowY="auto">
+                    {syncList.map((item) => (
+                       <HStack key={item.id} justify="space-between" p={1} _hover={{ bg: useColorModeValue('gray.50', 'gray.800') }}>
+                         <HStack spacing={1} flex={1} minWidth={0}>
+                            <Icon as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} size="sm" color="gray.500"/>
+                            <Text fontSize="sm" title={item.item_path} isTruncated>
+                                {item.item_name} 
+                                <Text as="span" color="gray.500" fontSize="xs"> ({item.container_name})</Text>
+                            </Text>
+                         </HStack>
+                         <IconButton
+                           aria-label={t('common.remove')}
+                           icon={<DeleteIcon />}
+                           size="xs"
+                           variant="ghost"
+                           colorScheme="red"
+                           onClick={() => handleRemoveFromSyncList(item.id)}
+                           isDisabled={isProcessingSync || isIngestionPolling}
+                         />
+                       </HStack>
                     ))}
-                </Breadcrumb>
+                 </VStack>
+            )}
+            <HStack justify="flex-end">
+              <Button 
+                colorScheme="blue" // Match screenshot button color
+                leftIcon={<RepeatIcon />} // Example icon for process
+                onClick={handleProcessSyncList} 
+                isLoading={isProcessingSync || isIngestionPolling}
+                isDisabled={syncList.length === 0 || isProcessingSync || isIngestionPolling}
+              >
+                {isProcessingSync || isIngestionPolling ? t('azureBlobBrowser.syncing') : t('azureBlobBrowser.processSyncListButton')}
+              </Button>
+            </HStack>
+             {syncProcessError && <Text color="red.500" mt={2}>{syncProcessError}</Text>}
+             {/* Display Ingestion Status */}
+            {ingestionTaskStatus && (
+              <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg={useColorModeValue('gray.50', 'gray.700')}>
+                <HStack justify="space-between">
+                  <Text fontWeight="bold">{t('azureBlobBrowser.ingestionStatusTitle')} (ID: {ingestionTaskStatus.task_id})</Text>
+                   {isIngestionPolling && <Spinner size="sm" />}
+                </HStack>
+                <Text>Status: {ingestionTaskStatus.status}</Text>
+                 {ingestionTaskStatus.progress != null && (
+                    <Progress value={ingestionTaskStatus.progress} size="sm" colorScheme="blue" mt={1} />
+                 )}
+                 {ingestionTaskStatus.message && <Text fontSize="sm" mt={1}>Message: {ingestionTaskStatus.message}</Text>}
+                 {ingestionError && <Text color="red.500" mt={1}>Error: {ingestionError}</Text>}
               </Box>
-
-               {/* Blob List */}
-               <Box>
-                   {isLoadingBlobs && <Center p={6}><Spinner /></Center>}
-                   {blobError && <Alert status="error" m={4}><AlertIcon />{blobError}</Alert>}
-                   {!isLoadingBlobs && !blobError && blobs.length === 0 && 
-                        <Center p={6}><Text color="gray.500">{t('azureBlobBrowser.folderEmpty')}</Text></Center>
-                   }
-                   {!isLoadingBlobs && !blobError && blobs.length > 0 && (
-                       <TableContainer>
-                          <Table variant="simple" size="sm">
-                              <Thead bg={tableHeaderBg}>
-                                  <Tr>
-                                      <Th width="50%">{t('common.name').toUpperCase()}</Th>
-                                      <Th width="25%">{t('common.lastModified').toUpperCase()}</Th>
-                                      <Th width="15%" isNumeric>{t('common.size').toUpperCase()}</Th>
-                                      <Th width="10%" textAlign="center">{t('common.sync').toUpperCase()}</Th>
-                                  </Tr>
-                              </Thead>
-                              <Tbody>
-                                  {blobs.map((blob) => (
-                                      <Tr 
-                                        key={blob.path} 
-                                        _hover={{ bg: hoverBg }} 
-                                        cursor={blob.isDirectory ? 'pointer' : 'default'}
-                                        onClick={() => blob.isDirectory && handleNavigate(blob)}
-                                      >
-                                          <Td>
-                                              <HStack spacing={2}>
-                                                  <Icon 
-                                                    as={blob.isDirectory ? FaFolder : FaFileAlt} 
-                                                    color={blob.isDirectory ? folderColor : fileColor}
-                                                    boxSize="1.2em"
-                                                  />
-                                                  <Text fontWeight="medium">{blob.name}</Text>
-                                              </HStack>
-                                          </Td>
-                                          <Td>{formatDateTime(blob.lastModified)}</Td>
-                                          <Td isNumeric>{blob.isDirectory ? '-' : formatFileSize(blob.size)}</Td>
-                                          <Td textAlign="center">
-                                              <IconButton
-                                                  aria-label={t('azureBlobBrowser.addToSyncList')}
-                                                  icon={<FaPlusCircle />}
-                                                  size="sm"
-                                                  variant="ghost"
-                                                  colorScheme="blue"
-                                                  onClick={(e) => { e.stopPropagation(); handleAddToSyncList(blob); }}
-                                              />
-                                          </Td>
-                                      </Tr>
-                                  ))}
-                              </Tbody>
-                          </Table>
-                      </TableContainer>
-                   )}
-               </Box>
-           </Box>
-      )}
-
-      {/* Sync List Section */} 
-      <Box borderWidth="1px" borderRadius="lg" bg={bgColor} shadow="sm" overflow="hidden">
-          <HStack justify="space-between" p={4} borderBottomWidth="1px" borderColor={borderColor}>
-             <Heading size="md">{t('azureBlobBrowser.syncListTitle')}</Heading>
-             <Tag size="md" variant='solid' colorScheme='blue'>
-                {t('common.pendingCount', { count: syncList.filter(item => item.status === 'pending').length })}
-             </Tag>
-          </HStack>
-          <Box maxHeight="300px" overflowY="auto">
-             {isLoadingSyncList && <Center p={5}><Spinner /></Center>}
-             {syncListError && <Center p={5}><Text color="red.500">{syncListError}</Text></Center>}
-             {!isLoadingSyncList && !syncListError && (
-                 <>
-                    {syncList.filter(item => item.status === 'pending').length === 0 ? (
-                        <Center p={5}><Text color="gray.500">{t('azureBlobBrowser.syncListEmpty')}</Text></Center>
-                    ) : (
-                      <List spacing={1} p={2}>
-                           {syncList.filter(item => item.status === 'pending').map(item => (
-                                <ListItem 
-                                    key={item.id} 
-                                    display="flex" 
-                                    justifyContent="space-between" 
-                                    alignItems="center"
-                                    p={1.5}
-                                    borderRadius="md"
-                                    _hover={{ bg: hoverBg }}
-                                >
-                                   <HStack spacing={2} flex={1} minWidth={0}>
-                                        <Icon 
-                                            as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} 
-                                            color={item.item_type === 'prefix' ? folderColor : fileColor}
-                                            boxSize="1.2em"
-                                        />
-                                        <VStack align="start" spacing={0} flex={1} minWidth={0}>
-                                            <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.item_path}>{item.item_name}</Text>
-                                            <Text fontSize="xs" color="gray.500">{t('azureBlobBrowser.containerLabel')}: {item.container_name}</Text>
-                                        </VStack>
-                                   </HStack>
-                                    <IconButton
-                                        aria-label={t('common.remove')}
-                                        icon={<FaTrashAlt />}
-                                        size="sm"
-                                        variant="ghost"
-                                        colorScheme="red"
-                                        onClick={() => handleRemoveFromSyncList(item.id)}
-                                        isDisabled={isProcessingSync}
-                                    />
-                                </ListItem>
-                            ))}
-                       </List>
-                    )}
-                 </>
-             )}
-           </Box>
-           <HStack justify="flex-end" p={3} borderTopWidth="1px" borderColor={borderColor}>
-               <Button
-                    leftIcon={<Icon as={FaSync} />}
-                    colorScheme="blue"
-                    onClick={handleProcessSyncList}
-                    isDisabled={isProcessingSync || syncList.filter(item => item.status === 'pending').length === 0}
-                    isLoading={isProcessingSync}
-                    loadingText={t('common.processing')}
-                >
-                    {t('azureBlobBrowser.processSyncListButton')}
-               </Button>
-           </HStack>
-           {syncProcessError && <Alert status="error" m={4} mt={0}><AlertIcon />{syncProcessError}</Alert>}
-       </Box>
+            )}
+          </Box>
+       )}
     </VStack>
   );
 
   return (
-    <Box p={4}> {/* Use Box for overall padding */} 
-      <Heading size="lg" mb={6}>{t('azureBlobBrowser.title')}</Heading>
-      <Tabs index={tabIndex} onChange={handleTabsChange} variant='soft-rounded' colorScheme='blue'>
-        <TabList mb={4}>
-          <Tab>{t('azureBlobBrowser.tabs.browseAndSync')}</Tab>
-          <Tab>{t('azureBlobBrowser.tabs.history')}</Tab>
-          <Tab>{t('azureBlobBrowser.tabs.settings')}</Tab>
+    <Box p={5}>
+      {/* Add Page Title */}
+      <Heading size="lg" mb={6}>{t('azureBlobBrowser.title', 'Azure Blob Browser')}</Heading>
+
+      {/* Add History Tab */}
+      <Tabs index={tabIndex} onChange={setTabIndex} variant="soft-rounded" colorScheme="blue">
+        <TabList mb="1em">
+          <Tab>{t('azureBlobBrowser.tabs.browseAndSync', 'Browse & Sync')}</Tab>
+          <Tab>{t('azureBlobBrowser.tabs.history', 'History')}</Tab> {/* Added History Tab */} 
+          <Tab>{t('azureBlobBrowser.tabs.settings', 'Settings')}</Tab>
         </TabList>
         <TabPanels>
-          <TabPanel p={0}> {/* Remove TabPanel padding, VStack handles it */} 
+          {/* Panel 1: Browse & Sync Content */}
+          <TabPanel p={0}> {/* Remove padding if VStack handles it */}
             {browseAndSyncContent}
           </TabPanel>
-          <TabPanel><Text>{t('azureBlobBrowser.tabs.history')} Placeholder</Text></TabPanel>
-          <TabPanel><Text>{t('azureBlobBrowser.tabs.settings')} Placeholder</Text></TabPanel>
+           {/* Panel 2: History Content */}
+          <TabPanel p={0}>
+             <AzureHistoryListComponent
+                items={historySyncItems}
+                isLoading={isLoadingSyncList} 
+                error={syncListError} 
+                t={t}
+              />
+          </TabPanel>
+          {/* Panel 3: Settings Content */}
+          <TabPanel>
+            <AzureConnectionManager onConnectionsChange={loadConnections} />
+          </TabPanel>
         </TabPanels>
       </Tabs>
     </Box>

@@ -852,8 +852,7 @@ const S3Browser: React.FC = () => {
                                     <IconButton
                                       aria-label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
                                       icon={alreadyInList ? <Icon as={FaCheckCircle} color="green.500" /> : <Icon as={FaPlusCircle} />}
-                                      size="sm"
-                                      variant="ghost"
+                                      size="xs"
                                       colorScheme={alreadyInList ? "green" : "blue"}
                                       onClick={() => !alreadyInList && handleAddSyncItem(obj)}
                                       isDisabled={currentlyDisabled}

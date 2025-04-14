@@ -17,6 +17,9 @@ from app.db.models.sharepoint_sync_item import SharePointSyncItem
 from app.models.token_models import TokenDB
 from app.db.models.aws_credential import AwsCredential
 from app.db.models.s3_sync_item import S3SyncItem
+# Add Azure Blob models
+from app.models.azure_blob import AzureBlobConnection
+from app.models.azure_blob_sync_item import AzureBlobSyncItem
 # --- End Model Imports ---
 
 # this is the Alembic Config object, which provides

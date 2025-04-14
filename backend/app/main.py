@@ -50,11 +50,19 @@ logger.debug(f"Allowed origins: {settings.CORS_ALLOWED_ORIGINS}")
 api_prefix = settings.API_PREFIX
 
 # --- Logging Configuration ---
-# Configure root logger to show INFO level logs
-logging.basicConfig(level=logging.INFO, stream=sys.stdout, 
-                    format='%(levelname)s:     %(name)s - %(message)s') 
-# Optionally, set to logging.DEBUG for more verbose output:
-# logging.basicConfig(level=logging.DEBUG, stream=sys.stdout, format='%(levelname)s:     %(name)s - %(message)s')
+# Determine log level based on settings
+log_level = logging.DEBUG if settings.DEBUG else logging.INFO
+# FORCE DEBUG FOR NOW
+# log_level = logging.DEBUG
+
+# Configure root logger
+logging.basicConfig(level=log_level, stream=sys.stdout, 
+                    format='%(levelname)s:%(name)s:%(lineno)d - %(message)s') # Slightly adjusted format for more detail
+
+# Optionally set specific loggers to different levels if needed
+# logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+logger.info(f"Root logger configured with level: {logging.getLevelName(log_level)}")
 # --- End Logging Configuration ---
 
 @asynccontextmanager

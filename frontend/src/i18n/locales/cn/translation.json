@@ -1673,6 +1673,7 @@
           "history": "历史记录",
           "settings": "设置"
       },
+      "connectionLabel": "选择连接",
       "connectionSelectPlaceholder": "选择一个 Azure 连接...",
       "containerSelectPlaceholder": "选择一个容器...",
       "syncListTitle": "Azure 同步列表",
@@ -1689,6 +1690,37 @@
           "loadBlobs": "加载 Blob 失败。",
           "loadSyncList": "加载同步列表失败。",
           "processSyncList": "启动同步进程失败。"
-      }
+      },
+      "historyListTitle": "处理历史记录",
+      "historyEmpty": "历史记录中未找到已处理的项目。",
+      "historyContainerLabel": "容器："
+  },
+  "azureConnectionManager": {
+    "newConnection": "新建 Azure 连接",
+    "newConnectionDesc": "通过提供以下所需详细信息来添加新的 Azure 存储连接。",
+    "connectionNameLabel": "连接名称",
+    "connectionNamePlaceholder": "例如：我的生产存储",
+    "errors": {
+      "duplicateName": "连接名称必须唯一。",
+      "loadFailed": "加载 Azure 连接失败。",
+      "addFailed": "添加 Azure 连接失败。",
+      "deleteFailed": "删除 Azure 连接失败。"
+    },
+    "credentialsLabel": "连接字符串",
+    "credentialsPlaceholder": "输入完整的连接字符串",
+    "credentialsNote": "您的连接字符串将被安全存储。",
+    "title": "Azure 存储设置",
+    "descriptionV2": "使用来自 Azure 的完整连接字符串配置连接。",
+    "addSuccess": "Azure 连接添加成功。",
+    "deleteSuccess": "Azure 连接删除成功。",
+    "existingConnections": "现有连接",
+    "existingConnectionsDesc": "管理您现有的 Azure 存储连接。",
+    "deleteConfirmTitle": "删除连接",
+    "deleteConfirmMsg": "您确定要删除连接 "
+  },
+  "knowledge": {
+    "title": "知识库",
+    "subtitle": "强大的向量数据库，用于存储、搜索和导出组织的知识",
+    "managementTitle": "知识管理"
   }
 }
