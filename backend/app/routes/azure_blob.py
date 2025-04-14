@@ -408,13 +408,17 @@ def trigger_azure_ingestion_endpoint(
     if not connection:
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Azure connection {connection_id} not found or not owned by user.")
 
-    # Fetch pending items for the specific connection
-    pending_items = crud_azure_blob_sync_item.get_sync_items(
-        db=db, user_id=current_user.id, connection_id=connection_id, status='pending'
+    # Fetch pending items for this connection
+    logger.info(f"Fetching pending sync items for connection {ingest_request.connection_id}...")
+    pending_items = crud_azure_blob_sync_item.get_items_by_user_and_connection(
+        db=db, 
+        connection_id=ingest_request.connection_id, 
+        user_id=current_user.id, 
+        status_filter=['pending'] # Use correct function name and pass status as a list
     )
 
     if not pending_items:
-        logger.info(f"No pending Azure sync items found for connection {connection_id} for user {current_user.email}. No task submitted.")
+        logger.info(f"No pending Azure sync items found for connection {ingest_request.connection_id}. Nothing to process.")
         return TaskStatusResponse(
             task_id=None,
             status="NO_OP",
