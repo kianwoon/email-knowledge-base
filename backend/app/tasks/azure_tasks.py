@@ -162,11 +162,12 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
             raise Exception(f'Qdrant check/create failed: {q_err}') # Re-raise for sync wrapper to catch
 
         # 2. Get Pending Items
-        logger.info(f"Task {task_id}: Fetching pending sync items for user {user_id}, connection_id={connection_id}")
+        # Fetch pending items for *all* connections for this user
+        logger.info(f"Task {task_id}: Fetching pending sync items for user {user_id} (all connections)") # Updated log message
         pending_items = crud_azure_blob_sync_item.get_items_by_user_and_connection(
             db, 
             user_id=user_id, 
-            connection_id=connection_id, # Use the connection_id variable passed to the task
+            connection_id=None, # Explicitly pass None to fetch for all connections
             status_filter=['pending'] # Use correct function name and list for status
         )
         total_items = len(pending_items)
