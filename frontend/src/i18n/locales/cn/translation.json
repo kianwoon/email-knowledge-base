@@ -1665,5 +1665,30 @@
     "title": "会话已过期",
     "message": "您的会话已过期。请重新登录以继续。",
     "loginButton": "登录"
+  },
+  "azureBlobBrowser": {
+      "title": "Azure Blob 存储管理",
+      "tabs": {
+          "browseAndSync": "浏览和同步",
+          "history": "历史记录",
+          "settings": "设置"
+      },
+      "connectionSelectPlaceholder": "选择一个 Azure 连接...",
+      "containerSelectPlaceholder": "选择一个容器...",
+      "syncListTitle": "Azure 同步列表",
+      "syncListEmpty": "您的同步列表为空。请浏览 Azure 并添加文件/文件夹。",
+      "processSyncListButton": "处理同步列表",
+      "addToSyncList": "添加到同步列表",
+      "containerLabel": "容器",
+      "folderEmpty": "文件夹为空。",
+      "syncSuccessTitle": "同步进程已启动",
+      "syncSuccessDetail": "任务 ID: {{taskId}}。状态将自动更新。",
+      "errors": {
+          "loadConnections": "加载连接失败。",
+          "loadContainers": "加载容器失败。",
+          "loadBlobs": "加载 Blob 失败。",
+          "loadSyncList": "加载同步列表失败。",
+          "processSyncList": "启动同步进程失败。"
+      }
   }
 }

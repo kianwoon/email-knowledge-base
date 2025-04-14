@@ -1008,7 +1008,12 @@
     "lastModified": "Last Modified",
     "retry": "Retry",
     "saveChanges": "Save Changes",
-    "confirmClear": "Confirm Clear"
+    "confirmClear": "Confirm Clear",
+    "menu": "Menu",
+    "sync": "Sync",
+    "addedToSyncList": "Item added to sync list.",
+    "removedFromSyncList": "Item removed from sync list.",
+    "pendingCount": "{{count}} pending"
   },
   "analysis": {
     "classification": {
@@ -1110,7 +1115,10 @@
     "loadBucketsFailed": "Failed to load S3 buckets. Check permissions or configuration.",
     "loadObjectsFailed": "Failed to load objects. Check permissions or try again.",
     "configClearFailedTitle": "Clear Failed",
-    "configClearFailedDesc": "Failed to clear configuration: {{errorDetail}}"
+    "configClearFailedDesc": "Failed to clear configuration: {{errorDetail}}",
+    "addToSyncListFailed": "Failed to add item to sync list.",
+    "removeFromSyncListFailed": "Failed to remove item from sync list.",
+    "processSyncListFailed": "Failed to start sync process."
   },
   "emailReview": {
     "pageTitle": "Review Analyzed Emails",
@@ -1643,6 +1651,31 @@
       "clearSuccessTitle": "Configuration Cleared",
       "clearSuccessDesc": "AWS Role ARN has been removed.",
       "clearError": "Failed to clear configuration: {{errorDetail}}"
+    }
+  },
+  "azureBlobBrowser": {
+    "title": "Azure Blob Storage Management",
+    "tabs": {
+      "browseAndSync": "Browse & Sync",
+      "history": "History",
+      "settings": "Settings"
+    },
+    "connectionSelectPlaceholder": "Select an Azure Connection...",
+    "containerSelectPlaceholder": "Select a Container...",
+    "syncListTitle": "Azure Sync List",
+    "syncListEmpty": "Your sync list is empty. Browse Azure and add files/folders.",
+    "processSyncListButton": "Process Sync List",
+    "addToSyncList": "Add to Sync List",
+    "containerLabel": "Container",
+    "folderEmpty": "Folder is empty.",
+    "syncSuccessTitle": "Sync process started",
+    "syncSuccessDetail": "Task ID: {{taskId}}. Status will update automatically.",
+    "errors": {
+      "loadConnections": "Failed to load connections.",
+      "loadContainers": "Failed to load containers.",
+      "loadBlobs": "Failed to load blobs.",
+      "loadSyncList": "Failed to load sync list.",
+      "processSyncList": "Failed to start sync process."
     }
   }
 }

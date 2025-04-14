@@ -40,8 +40,14 @@ import SmartFiltering from './pages/documentation/SmartFiltering'; // <-- Import
 import SharePointPage from './pages/SharePoint';
 import S3Browser from '@/pages/S3Browser'; // <<< RE-ADDED S3 Browser import
 import S3ConfigurationPage from '@/pages/S3ConfigurationPage'; // <<< Added S3 Config Page import
-import AzureBlobPage from './pages/AzureBlob'; // <<< Import Azure Blob Page
+// Remove the old Azure Blob page import
+// import AzureBlobPage from './pages/AzureBlob'; 
+// Import the new Azure Blob browser component
+import AzureBlobBrowser from './pages/DataSource/AzureBlob/AzureBlobBrowser';
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
+
+// MUI Theme imports for wrapping AzureBlobBrowser - NO LONGER NEEDED
+// import { ThemeProvider as MuiThemeProvider, createTheme as createMuiTheme } from '@mui/material/styles';
 
 // i18n
 import { useTranslation } from 'react-i18next';
@@ -99,6 +105,9 @@ const protectedPaths = [
   '/knowledge-bases',
   '/tasks',
 ];
+
+// Create a default MUI theme instance - NO LONGER NEEDED
+// const defaultMuiTheme = createMuiTheme();
 
 function App() {
   // State management (Restored from previous correct version)
@@ -372,7 +381,10 @@ function App() {
             path="/azure-blob"
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
-                <AzureBlobPage />
+                 {/* Wrap AzureBlobBrowser with MUI ThemeProvider - REMOVED */}
+                 {/* <MuiThemeProvider theme={defaultMuiTheme}> */}
+                   <AzureBlobBrowser />
+                 {/* </MuiThemeProvider> */}
               </ProtectedRoute>
             }
           />

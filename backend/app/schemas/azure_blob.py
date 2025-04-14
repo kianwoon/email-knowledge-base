@@ -34,4 +34,17 @@ class AzureBlobConnectionRead(AzureBlobConnectionBase):
     updated_at: datetime
 
     class Config:
-        from_attributes = True # Pydantic V2 uses this instead of orm_mode 
+        from_attributes = True # Pydantic V2 uses this instead of orm_mode
+
+# Schema for representing a blob object (file or directory) in a listing
+class AzureBlobObject(BaseModel):
+    name: str = Field(..., description="Name of the blob or directory (basename)", example="document.pdf or folder/")
+    path: str = Field(..., description="Full path of the blob or prefix", example="folder/document.pdf or folder/subfolder/")
+    isDirectory: bool = Field(..., description="True if the item is a directory (prefix)", example=False)
+    size: Optional[int] = Field(None, description="Size of the blob in bytes (None for directories)", example=10240)
+    lastModified: Optional[datetime] = Field(None, description="Last modified timestamp (None for directories)", example="2023-10-27T10:30:00Z")
+    etag: Optional[str] = Field(None, description="ETag of the blob (None for directories)", example='"0x8DBB7B8..."')
+    content_type: Optional[str] = Field(None, description="Content type of the blob (None for directories)", example="application/pdf")
+
+    class Config:
+        from_attributes = True # Allow creating from object attributes 
