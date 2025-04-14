@@ -1353,6 +1353,7 @@
       "lastUpdated": "Last updated: {{time}}",
       "sharepointRawDataLabel": "SharePoint Raw Data",
       "s3RawDataLabel": "AWS S3 Raw Data",
+      "azureBlobRawDataLabel": "Azure Blob Raw Data",
       "vectorDataLabel": "Vector Data Items"
     },
     "actionsTitle": "Management Actions",

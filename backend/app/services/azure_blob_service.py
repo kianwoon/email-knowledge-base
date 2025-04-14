@@ -116,6 +116,9 @@ class AzureBlobService:
         except ClientAuthenticationError as e:
             logger.error(f"Authentication failed when listing containers: {e}")
             raise PermissionError("Authentication failed with Azure Blob Storage.") from e
+        except HttpResponseError as e:
+            logger.error(f"HTTP error listing containers: Status={e.status_code}, Reason={e.reason}, Message={e.message}", exc_info=True)
+            raise RuntimeError(f"Azure HTTP error listing containers: {e.status_code} {e.reason}") from e
         except Exception as e:
             logger.error(f"Error listing containers: {e}", exc_info=True)
             raise RuntimeError("An error occurred while listing containers.") from e

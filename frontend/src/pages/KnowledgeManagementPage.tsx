@@ -43,6 +43,7 @@ interface CombinedSummary {
   rawDataCount: number;
   sharepointRawDataCount: number;
   s3RawDataCount: number;
+  azureBlobRawDataCount: number;
   vectorDataCount: number;
   totalTokenCount: number;
   activeTokenCount: number;
@@ -117,6 +118,7 @@ const KnowledgeManagementPage: React.FC = () => {
         rawDataCount: knowledgeSummary.raw_data_count ?? 0,
         sharepointRawDataCount: knowledgeSummary.sharepoint_raw_data_count ?? 0,
         s3RawDataCount: knowledgeSummary.s3_raw_data_count ?? 0,
+        azureBlobRawDataCount: knowledgeSummary.azure_blob_raw_data_count ?? 0,
         vectorDataCount: knowledgeSummary.vector_data_count ?? 0,
         totalTokenCount: totalTokens,
         activeTokenCount: activeTokens,
@@ -195,12 +197,14 @@ const KnowledgeManagementPage: React.FC = () => {
   let rawCollectionNameDisplay = `{email}_email_knowledge`;
   let sharepointRawCollectionNameDisplay = `{email}_sharepoint_knowledge`;
   let s3RawCollectionNameDisplay = `{email}_aws_s3_knowledge`;
+  let azureBlobRawCollectionNameDisplay = `{email}_azure_blob_knowledge`;
   let vectorCollectionNameDisplay = `{email}_knowledge_base`;
   if (currentUser && currentUser.email) {
       const sanitizedEmail = currentUser.email.replace(/[@.]/g, '_');
       rawCollectionNameDisplay = `${sanitizedEmail}_email_knowledge`;
       sharepointRawCollectionNameDisplay = `${sanitizedEmail}_sharepoint_knowledge`;
       s3RawCollectionNameDisplay = `${sanitizedEmail}_aws_s3_knowledge`;
+      azureBlobRawCollectionNameDisplay = `${sanitizedEmail}_azure_blob_knowledge`;
       vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base`;
   }
   
@@ -285,6 +289,20 @@ const KnowledgeManagementPage: React.FC = () => {
                         <StatNumber>{summaryData.s3RawDataCount}</StatNumber>
                         <StatHelpText fontSize="xs" noOfLines={1} title={s3RawCollectionNameDisplay}>
                           Source: {s3RawCollectionNameDisplay}
+                        </StatHelpText>
+                      </Stat>
+                    </CardBody>
+                  </Card>
+                )}
+                {/* Azure Blob Raw Data Card - Added */} 
+                {summaryData.azureBlobRawDataCount > 0 && (
+                  <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
+                    <CardBody>
+                      <Stat>
+                        <StatLabel>{t('knowledgeManagement.summary.azureBlobRawDataLabel', 'Azure Blob Raw Data')}</StatLabel>
+                        <StatNumber>{summaryData.azureBlobRawDataCount}</StatNumber>
+                        <StatHelpText fontSize="xs" noOfLines={1} title={azureBlobRawCollectionNameDisplay}>
+                          Source: {azureBlobRawCollectionNameDisplay}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
