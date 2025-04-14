@@ -372,13 +372,15 @@ const S3Browser: React.FC = () => {
     console.log("Checking S3 config...");
     setIsLoadingConfig(true);
     setConfigError(null);
+    let configured = false; // Local variable to track status
     try {
       const fetchedConfig = await getS3Config();
       setConfig(fetchedConfig);
       const arn = fetchedConfig?.role_arn ?? '';
       setCurrentRoleArn(arn);
       setInputRoleArn(arn);
-      console.log("S3 Config fetched:", fetchedConfig);
+      configured = !!arn; // Determine status based on fetched ARN
+      console.log("S3 Config fetched:", fetchedConfig, "Is Configured:", configured);
     } catch (err: any) {
       console.error("Failed to check S3 config:", err);
       const errorDetail = err.response?.data?.detail || err.message || 'Unknown error';
@@ -386,7 +388,9 @@ const S3Browser: React.FC = () => {
       setConfig(null);
       setCurrentRoleArn('');
       setInputRoleArn('');
+      configured = false; // Ensure it's false on error
     } finally {
+      setIsConfigured(configured); // Set the state *after* check is complete
       setIsLoadingConfig(false);
     }
   }, [t]);
@@ -394,19 +398,16 @@ const S3Browser: React.FC = () => {
   useEffect(() => {
     const loadInitialData = async () => {
       await checkConfig();
-      const configResult = await getS3Config();
-      const configured = !!configResult && !!configResult.role_arn;
-      setIsConfigured(configured);
-      if (configured) {
-          fetchS3SyncList();
-      }
+      fetchS3SyncList(); 
     };
     loadInitialData();
-    
   }, [checkConfig, fetchS3SyncList]);
 
   const fetchBuckets = useCallback(async () => {
-    if (!isConfigured) return;
+    if (!isConfigured) {
+      console.log("[fetchBuckets] Not configured, skipping fetch.");
+      return; 
+    }
     setIsLoadingBuckets(true);
     setError(null);
     setBuckets([]);
@@ -642,6 +643,8 @@ const S3Browser: React.FC = () => {
         duration: 3000,
         isClosable: true,
       });
+      setIsConfigured(true);
+      fetchBuckets();
     } catch (err: any) {
       console.error("Failed to save S3 config:", err);
       const errorDetail = err.response?.data?.detail || err.message || 'Unknown error';
