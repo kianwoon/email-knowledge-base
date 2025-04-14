@@ -417,6 +417,12 @@ const S3Browser: React.FC = () => {
     try {
       const fetchedBuckets = await listS3Buckets();
       setBuckets(fetchedBuckets);
+      if (fetchedBuckets && fetchedBuckets.length === 1) {
+        console.log(`[S3 Load Buckets] Exactly one bucket found ('${fetchedBuckets[0].name}'). Auto-selecting.`);
+        setSelectedBucket(fetchedBuckets[0].name);
+      } else {
+        console.log(`[S3 Load Buckets] Fetched ${fetchedBuckets.length} buckets. User needs to select.`);
+      }
     } catch (err: any) {
       console.error('Failed to fetch S3 buckets:', err);
       const errorMsg = err.response?.data?.detail || err.message || t('s3Browser.errors.loadBucketsFailed', 'Failed to load S3 buckets. Check permissions or configuration.');

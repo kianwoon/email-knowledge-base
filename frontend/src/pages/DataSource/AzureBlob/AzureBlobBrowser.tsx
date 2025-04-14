@@ -217,12 +217,21 @@ export default function AzureBlobBrowser() {
       try {
           const data = await getAzureConnections();
           setConnections(data);
-          // If a connection was selected, ensure it still exists
-          const selectedExists = data.some(c => c.id === selectedConnectionId);
-          console.log(`[Azure Load Connections] Fetched ${data.length} connections. Selected (${selectedConnectionId}) exists: ${selectedExists}`); // LOG CHECK
-          if (selectedConnectionId && !selectedExists) {
-              console.log(`[Azure Load Connections] Resetting selectedConnectionId from ${selectedConnectionId} because it no longer exists.`); // LOG RESET
-              setSelectedConnectionId(''); // Reset if selected connection is gone
+          // Auto-select if only one connection exists
+          if (data && data.length === 1) {
+              console.log(`[Azure Load Connections] Exactly one connection found ('${data[0].name}' / ${data[0].id}). Auto-selecting.`);
+              // Check if it's different from the current selection to avoid unnecessary state updates/re-renders
+              if (data[0].id !== selectedConnectionId) {
+                  setSelectedConnectionId(data[0].id);
+              }
+          } else {
+              // If multiple or zero connections, ensure the current selection is still valid
+              const selectedExists = data.some(c => c.id === selectedConnectionId);
+              console.log(`[Azure Load Connections] Fetched ${data.length} connections. Selected (${selectedConnectionId}) exists: ${selectedExists}`); // LOG CHECK
+              if (selectedConnectionId && !selectedExists) {
+                  console.log(`[Azure Load Connections] Resetting selectedConnectionId from ${selectedConnectionId} because it no longer exists.`); // LOG RESET
+                  setSelectedConnectionId(''); // Reset if selected connection is gone
+              }
           }
       } catch (error: any) {
           console.error("Failed to load Azure connections:", error);
@@ -251,8 +260,14 @@ export default function AzureBlobBrowser() {
         try {
             console.log(`[Azure Load Containers] Fetching containers for connection ID: ${selectedConnectionId}`); // LOG BEFORE API CALL
             const data = await listAzureContainers(selectedConnectionId);
+            // Auto-select if only one container exists
+            if (data && data.length === 1) {
+                console.log(`[Azure Load Containers] Exactly one container found ('${data[0].name}'). Auto-selecting.`);
+                setSelectedContainer(data[0].name);
+            } else {
+                 setSelectedContainer(''); // Reset selection if multiple or zero containers
+            }
             setContainers(data);
-            setSelectedContainer(''); // Reset selection
         } catch (error: any) {
             console.error("Component Error: Failed to load containers:", error);
             setContainerError(error.message || t('azureBlobBrowser.errors.loadContainers', 'Failed to load containers.'));
