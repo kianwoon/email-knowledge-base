@@ -1,6 +1,7 @@
 import logging
 import uuid
 import json
+import base64
 from typing import List, Dict, Any, Callable, Tuple
 
 import openai

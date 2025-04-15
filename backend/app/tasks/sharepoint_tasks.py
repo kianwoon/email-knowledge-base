@@ -393,7 +393,7 @@ async def _run_processing_logic(
                 "document_type": "file",
                 "sharepoint_item_id": file_id,
                 "sharepoint_drive_id": drive_id,
-                "name": file_info.get("name"),
+                "filename": file_info.get("name"),
                 "webUrl": file_info.get("webUrl"),
                 "createdDateTime": file_info.get("createdDateTime"),
                 "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
