@@ -713,22 +713,6 @@ const S3Browser: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <Container maxW="container.xl" py={5}>
-        <Alert status="error" borderRadius="md">
-          <AlertIcon />
-          {error}
-          {!isLoadingConfig && error.includes('load S3 buckets') && (
-            <Button ml={4} size="sm" onClick={fetchBuckets} isLoading={isLoadingBuckets}>
-              {t('common.retry', 'Retry')}
-            </Button>
-          )}
-        </Alert>
-      </Container>
-    );
-  }
-
   if (!isConfigured) {
     return (
       <Container maxW="container.xl" py={5}>
@@ -758,6 +742,18 @@ const S3Browser: React.FC = () => {
       <Heading as="h1" size="lg" mb={4}>
         {t('s3Browser.title', 'S3 Browser')}
       </Heading>
+
+      {error && (
+          <Alert status="error" borderRadius="md" mb={4}>
+            <AlertIcon />
+            {error}
+            {error.includes('load S3 buckets') && (
+                <Button ml={4} size="sm" onClick={fetchBuckets} isLoading={isLoadingBuckets}>
+                  {t('common.retry', 'Retry')}
+                </Button>
+            )}
+          </Alert>
+      )}
 
       <Tabs isLazy variant="soft-rounded" colorScheme="blue" mt={6}>
         <TabList mb="1em">

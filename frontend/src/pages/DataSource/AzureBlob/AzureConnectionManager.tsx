@@ -37,6 +37,7 @@ interface AzureConnectionManagerProps {
 interface AzureConnectionFormProps {
     onCreate: (data: { 
         name: string; 
+        accountName: string;
         credentials: string;
     }) => void;
     isLoading: boolean;
@@ -46,6 +47,7 @@ interface AzureConnectionFormProps {
 const AzureConnectionForm: React.FC<AzureConnectionFormProps> = ({ onCreate, isLoading, existingConnections }) => {
     const { t } = useTranslation();
     const [name, setName] = useState('');
+    const [accountName, setAccountName] = useState('');
     const [connectionString, setConnectionString] = useState('');
     const [nameError, setNameError] = useState<string | null>(null);
 
@@ -77,9 +79,11 @@ const AzureConnectionForm: React.FC<AzureConnectionFormProps> = ({ onCreate, isL
         }
         onCreate({ 
             name: name.trim(), 
+            accountName: accountName.trim(),
             credentials: connectionString.trim(),
         });
         setName('');
+        setAccountName('');
         setConnectionString('');
     };
 
@@ -105,6 +109,16 @@ const AzureConnectionForm: React.FC<AzureConnectionFormProps> = ({ onCreate, isL
                 </FormControl>
 
                 <FormControl isRequired>
+                    <FormLabel htmlFor='account-name'>{t('azureConnectionManager.accountNameLabel', 'Account Name')}</FormLabel>
+                    <Input
+                        id='account-name'
+                        placeholder={t('azureConnectionManager.accountNamePlaceholder', 'yourstorageaccount')}
+                        value={accountName}
+                        onChange={(e) => setAccountName(e.target.value)}
+                    />
+                </FormControl>
+
+                <FormControl isRequired>
                     <FormLabel htmlFor='connection-string'>{t('azureConnectionManager.credentialsLabel', 'Connection String')}</FormLabel>
                     <Textarea
                         id='connection-string'
@@ -123,7 +137,7 @@ const AzureConnectionForm: React.FC<AzureConnectionFormProps> = ({ onCreate, isL
                     isLoading={isLoading}
                     colorScheme="blue"
                     alignSelf="flex-end"
-                    isDisabled={!name || !connectionString || isLoading}
+                    isDisabled={!name || !accountName || !connectionString || isLoading}
                 >
                     {t('common.add', 'Add Connection')}
                 </Button>
@@ -164,6 +178,7 @@ const AzureConnectionManager: React.FC<AzureConnectionManagerProps> = ({ onConne
 
     const handleCreateConnection = async (connectionData: { 
         name: string; 
+        accountName: string;
         credentials: string;
     }) => {
         setIsProcessing(true);
@@ -171,6 +186,7 @@ const AzureConnectionManager: React.FC<AzureConnectionManagerProps> = ({ onConne
         try {
             const payload = { 
                 name: connectionData.name, 
+                account_name: connectionData.accountName,
                 credentials: connectionData.credentials,
             };
             await createAzureConnection(payload);

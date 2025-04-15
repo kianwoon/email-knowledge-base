@@ -10,6 +10,7 @@ from app.models.azure_blob import AzureAuthType
 from app.models.azure_blob_sync_item import AzureBlobSyncItem
 from app.schemas.azure_blob import AzureBlobConnectionCreate, AzureBlobConnectionUpdate
 from app.utils.security import encrypt_token, decrypt_token
+from app.services.azure_blob_service import parse_connection_string
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,16 @@ def create_connection(
     db: Session, *, obj_in: AzureBlobConnectionCreate, user_id: uuid.UUID
 ) -> AzureBlobConnection:
     """Create a new Azure Blob connection, encrypting the connection string."""
+    
+    # --- Parse connection string to get Account Name --- 
+    parsed_cs = parse_connection_string(obj_in.credentials)
+    account_name_from_cs = parsed_cs.get('AccountName')
+    if not account_name_from_cs:
+        logger.warning(f"Could not parse AccountName from connection string for user {user_id}. It will be missing from the connection record.")
+        # Decide: Raise error or allow creation without account_name? 
+        # For now, allowing creation but logging warning.
+    # --- End Parsing ---
+    
     # Encrypt the connection string provided in credentials field
     encrypted_connection_string = encrypt_token(obj_in.credentials)
     if not encrypted_connection_string:
@@ -24,13 +35,19 @@ def create_connection(
         raise ValueError("Failed to encrypt connection string")
 
     logger.info(f"[CRUD Create] Storing encrypted credentials: {encrypted_connection_string}") # LOG ENCRYPTED DATA
+    
+    db_obj_data = obj_in.model_dump(exclude={"credentials"})
+    # Explicitly set account_name from parsed string if not already set in obj_in
+    # (obj_in.account_name is likely None from the frontend form)
+    if 'account_name' not in db_obj_data or not db_obj_data['account_name']:
+         db_obj_data['account_name'] = account_name_from_cs
+         
     db_obj = AzureBlobConnection(
-        # Exclude plain text credentials, explicitly set encrypted value
-        **obj_in.model_dump(exclude={"credentials"}), 
+        **db_obj_data,
         user_id=user_id,
-        # account_key=None, # Ensure account_key is None
-        credentials=encrypted_connection_string # Store encrypted conn string if applicable
+        credentials=encrypted_connection_string
     )
+    
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
