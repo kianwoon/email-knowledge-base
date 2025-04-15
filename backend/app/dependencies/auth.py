@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
 import requests
+import asyncio
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -181,11 +182,20 @@ async def get_current_user(
                 resource_scopes = [s for s in all_scopes if s not in reserved_scopes]
                 logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
                 
-                # Use the stored refresh token to acquire a new access token
-                refresh_result = msal_app.acquire_token_by_refresh_token(
-                    decrypted_refresh_token,
-                    scopes=resource_scopes # Pass the filtered list
-                )
+                # --- Wrap MSAL call with asyncio.wait_for ---
+                REFRESH_TIMEOUT = 20 # Timeout in seconds
+                try:
+                    refresh_result = await asyncio.wait_for(
+                        msal_app.acquire_token_by_refresh_token(
+                            decrypted_refresh_token,
+                            scopes=resource_scopes # Pass the filtered list
+                        ),
+                        timeout=REFRESH_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"MSAL refresh for user {email} timed out after {REFRESH_TIMEOUT} seconds.")
+                    raise refresh_failed_exception # Raise the same exception as other refresh failures
+                # --- End asyncio.wait_for wrapper ---
 
                 if "access_token" in refresh_result:
                     new_ms_access_token = refresh_result['access_token']
