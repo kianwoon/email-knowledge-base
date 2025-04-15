@@ -377,6 +377,10 @@ async def _run_processing_logic(
                  logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping point creation, marking as failed.")
                  raise ValueError("File content was None") 
 
+            # +++ Encode content to Base64 +++
+            content_b64_string = base64.b64encode(file_content_bytes).decode('utf-8')
+            logger.debug(f"Task {task_id}: Encoded content to Base64 for {file_name} (First 50 chars: {content_b64_string[:50]}...)")
+
             # 2. Process content (Placeholder for embedding)
             # vector = await embed_content(file_content_bytes, file_name) 
             vector_size = settings.EMBEDDING_DIMENSION # Use setting
@@ -395,6 +399,8 @@ async def _run_processing_logic(
                 "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
                 "size": file_info.get("size"),
                 "mimeType": file_info.get("file", {}).get("mimeType"),
+                "content_b64": content_b64_string, # Add Base64 content
+                "analysis_status": "pending", # Add analysis status
             }
             payload = {k: v for k, v in payload.items() if v is not None}
 
