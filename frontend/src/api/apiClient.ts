@@ -41,53 +41,18 @@ export const setupInterceptors = () => {
       // --- RE-ADD DEBUG LOGGING --- 
       console.log('[Interceptor] Error Handler Triggered.');
       console.log('[Interceptor] error.response?.status:', error.response?.status);
-      console.log('[Interceptor] error.response?.data:', error.response?.data);
+      console.log('[Interceptor] error.config?.url:', error.config?.url); // Log the URL that failed
+      console.log('[Interceptor] error.response?.data:', error.response?.data); // Existing log line
       console.log('[Interceptor] error.response?.data?.detail:', error.response?.data?.detail);
       // --- END DEBUG LOGGING --- 
 
-      // --- REMOVE ALL 401 and 404 HANDLING LOGIC FROM HERE --- 
-      // The session-expired event logic in App.tsx now handles 401 consequences.
-      // // Check if it's the specific "User not found" 404 error
-      // if (
-      //   error.response?.status === 404 && 
-      //   error.response?.data?.detail === "User not found"
-      // ) {
-      //     console.warn('[Interceptor] Detected User Not Found (404). Treating as session invalid.');
-      //     // ... (clear tokens, dispatch event)
-      //     localStorage.removeItem('token'); 
-      //     localStorage.removeItem('expires');
-      //     localStorage.removeItem('refresh_token');
-      //     console.log('[Interceptor] Dispatching session-expired event due to User Not Found 404.');
-      //     window.dispatchEvent(new CustomEvent('session-expired'));
-      //     return Promise.reject(error); 
-      // }
-
-      // // Handle 401 Unauthorized (likely expired token)
-      // if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
-      //    originalRequest._retry = true; 
-      //    console.log('[Interceptor] Attempting token refresh...');
-      //
-      //    try {
-      //      const msRefreshToken = localStorage.getItem('refresh_token');
-      //      if (!msRefreshToken) {
-      //        throw new Error('Cannot refresh: MS refresh token not found in localStorage.');
-      //      }
-      //      await refreshToken(msRefreshToken); // <--- This was the remaining call
-      //      console.log('[Interceptor] Token refresh successful (expecting cookie to be set).');
-      //      console.log('[Interceptor] Retrying original request (expecting new cookie).');
-      //      return apiClient(originalRequest);
-      //    } catch (refreshError) {
-      //      console.error('[Interceptor] Token refresh failed:', refreshError);
-      //      // ... (clear tokens, dispatch event)
-      //      localStorage.removeItem('token'); 
-      //      localStorage.removeItem('expires');
-      //      localStorage.removeItem('refresh_token');
-      //      console.log('[Interceptor] Dispatching session-expired event due to refresh failure.');
-      //      window.dispatchEvent(new CustomEvent('session-expired'));
-      //      return Promise.reject(refreshError);
-      //    }
-      // }
-      // --- END REMOVAL --- 
+      // --- ADD BACK 401 Check and Event Dispatch --- 
+      if (error.response?.status === 401) {
+        console.warn('[Interceptor] Detected 401 Unauthorized. Dispatching session-expired event.');
+        // Dispatch the event globally so App.tsx can catch it
+        window.dispatchEvent(new CustomEvent('session-expired'));
+      }
+      // --- END ADD BACK --- 
 
       // For ALL errors, just reject the promise
       // The App.tsx event listener will handle the session-expired event if triggered by a 401
