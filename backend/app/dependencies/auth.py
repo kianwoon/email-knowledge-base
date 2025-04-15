@@ -150,7 +150,11 @@ async def get_current_user(
     
     try:
         logger.debug(f"Validating MS token for user {email} via GET /me")
-        graph_response = requests.get(graph_url, headers=headers)
+        
+        # --- Run blocking requests.get in threadpool ---
+        sync_graph_call = lambda: requests.get(graph_url, headers=headers)
+        graph_response = await run_in_threadpool(sync_graph_call)
+        # --- End threadpool execution ---
 
         if graph_response.status_code == 200:
             logger.info(f"MS token for user {email} is valid.")
