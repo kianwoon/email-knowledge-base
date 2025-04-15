@@ -99,7 +99,7 @@ async def get_assumed_s3_session(
         # role_arn = s3_service.get_user_aws_credentials(db=db, user_email=current_user.email)
         
         # Call the updated service function, passing db instead of role_arn
-        session = s3_service.get_aws_session_for_user(db=db, user_email=current_user.email)
+        session = await s3_service.get_aws_session_for_user(db=db, user_email=current_user.email)
         return session
     except HTTPException as e:
         # Re-raise HTTP exceptions from the service layer (config errors, STS errors)
