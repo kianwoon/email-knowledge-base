@@ -100,11 +100,21 @@ async def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Sessio
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred during AWS authentication.")
 
 
-def list_buckets(session: boto3.Session) -> List[S3Bucket]:
-    """Lists accessible S3 buckets using the provided session."""
+# --- Make list_buckets async and run blocking call in threadpool ---
+async def list_buckets(session: boto3.Session) -> List[S3Bucket]:
+    """Lists accessible S3 buckets using the provided session (non-blocking)."""
     try:
+        # Creating client is fast, no need for threadpool
         s3_client = session.client('s3')
-        response = s3_client.list_buckets()
+
+        # --- Define the blocking call --- 
+        list_buckets_call = lambda: s3_client.list_buckets()
+
+        # --- Run in threadpool (no explicit timeout needed here unless desired) ---
+        logger.info(f"Listing buckets in threadpool using assumed role session.")
+        response = await run_in_threadpool(list_buckets_call)
+        # --- End wrapped call ---
+
         buckets = [S3Bucket(name=b['Name'], creation_date=b.get('CreationDate')) for b in response.get('Buckets', [])]
         logger.info(f"Listed {len(buckets)} buckets using assumed role session.")
         return buckets
@@ -112,42 +122,58 @@ def list_buckets(session: boto3.Session) -> List[S3Bucket]:
         error_code = e.response.get('Error', {}).get('Code')
         logger.error(f"Error listing S3 buckets with assumed role: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AWS error listing buckets: {error_code}")
+    except AttributeError as ae:
+        # Catch the specific error if the session object is still wrong
+        logger.error(f"AttributeError listing S3 buckets: {ae}. The session object might be invalid (e.g., a coroutine).", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error processing AWS session.")
     except Exception as e:
         logger.error(f"Unexpected error listing S3 buckets with assumed role: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while listing buckets.")
 
 
-def list_objects(session: boto3.Session, bucket_name: str, prefix: str = "") -> List[S3Object]:
+# --- Make list_objects async and run blocking calls in threadpool ---
+async def list_objects(session: boto3.Session, bucket_name: str, prefix: str = "") -> List[S3Object]:
     """
-    Lists objects (files and common prefixes/folders) within a bucket/prefix.
+    Lists objects (files and common prefixes/folders) within a bucket/prefix (non-blocking).
     Handles pagination to retrieve all objects.
     """
+    # Client creation is fast
     s3_client = session.client('s3')
     objects = []
+    # Paginator creation is fast
     paginator = s3_client.get_paginator('list_objects_v2')
 
     try:
-        logger.info(f"Listing objects in bucket '{bucket_name}' with prefix '{prefix}' using assumed role session.")
-        page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix, Delimiter='/')
+        logger.info(f"Listing objects in bucket '{bucket_name}' with prefix '{prefix}' using assumed role session (async). ")
 
-        for page in page_iterator:
-            # Add folders (CommonPrefixes)
-            for common_prefix in page.get('CommonPrefixes', []):
-                folder_key = common_prefix.get('Prefix')
-                if folder_key:
-                     objects.append(S3Object(key=folder_key, is_folder=True))
+        # --- Define the blocking paginate call --- 
+        # Note: Paginators themselves aren't directly awaitable with run_in_threadpool.
+        # We need to iterate through pages in the threadpool or fetch all pages at once.
+        # Fetching all pages might be memory-intensive for large buckets.
+        # Let's fetch page by page within the threadpool.
 
-            # Add files (Contents)
-            for obj in page.get('Contents', []):
-                 obj_key = obj.get('Key')
-                 # Skip the prefix itself if it's listed as an object (placeholder for folder)
-                 if obj_key and (obj_key != prefix or not prefix):
-                     objects.append(S3Object(
-                         key=obj_key,
-                         is_folder=False,
-                         size=obj.get('Size'),
-                         last_modified=obj.get('LastModified')
-                     ))
+        # It's complex to run pagination directly in threadpool page-by-page easily.
+        # Alternative: Use aioboto3 if added as a dependency for native async operations.
+        # Simpler alternative for now: Run the *entire* pagination and collection logic in the threadpool.
+        
+        def list_all_objects_sync():
+            sync_objects = []
+            page_iterator = paginator.paginate(Bucket=bucket_name, Prefix=prefix, Delimiter='/')
+            for page in page_iterator:
+                for common_prefix in page.get('CommonPrefixes', []):
+                    folder_key = common_prefix.get('Prefix')
+                    if folder_key: sync_objects.append(S3Object(key=folder_key, is_folder=True))
+                for obj in page.get('Contents', []):
+                    obj_key = obj.get('Key')
+                    if obj_key and (obj_key != prefix or not prefix):
+                        sync_objects.append(S3Object(
+                            key=obj_key, is_folder=False, size=obj.get('Size'), last_modified=obj.get('LastModified')
+                        ))
+            return sync_objects
+
+        # --- Run the full listing logic in threadpool ---
+        objects = await run_in_threadpool(list_all_objects_sync)
+        # --- End wrapped call ---
 
         logger.info(f"Found {len(objects)} objects/folders in '{bucket_name}/{prefix}' using assumed role.")
         objects.sort(key=lambda x: (not x.is_folder, x.key))

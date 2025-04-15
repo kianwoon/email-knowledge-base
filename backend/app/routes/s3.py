@@ -122,7 +122,7 @@ async def list_s3_buckets(
 ):
     logger.info(f"Requesting S3 bucket list using assumed session.")
     try:
-        buckets = s3_service.list_buckets(session=assumed_session)
+        buckets = await s3_service.list_buckets(session=assumed_session)
         return buckets
     except HTTPException as e:
         raise e
@@ -144,7 +144,7 @@ async def list_s3_objects(
     clean_prefix = prefix.lstrip('/') if prefix else ""
     logger.info(f"Requesting object list for s3://{bucket_name}/{clean_prefix} using assumed session.")
     try:
-        objects = s3_service.list_objects(session=assumed_session, bucket_name=bucket_name, prefix=clean_prefix)
+        objects = await s3_service.list_objects(session=assumed_session, bucket_name=bucket_name, prefix=clean_prefix)
         return objects
     except HTTPException as e:
         raise e
