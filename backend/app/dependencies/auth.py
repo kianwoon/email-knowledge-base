@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import ValidationError
 import requests
 import asyncio
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -182,20 +183,23 @@ async def get_current_user(
                 resource_scopes = [s for s in all_scopes if s not in reserved_scopes]
                 logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
                 
-                # --- Wrap MSAL call with asyncio.wait_for ---
+                # --- Wrap MSAL call in threadpool and add timeout --- 
                 REFRESH_TIMEOUT = 20 # Timeout in seconds
                 try:
+                    # Define the synchronous function call
+                    sync_msal_call = lambda: msal_app.acquire_token_by_refresh_token(
+                        decrypted_refresh_token,
+                        scopes=resource_scopes
+                    )
+                    # Run the sync call in threadpool and await its completion with timeout
                     refresh_result = await asyncio.wait_for(
-                        msal_app.acquire_token_by_refresh_token(
-                            decrypted_refresh_token,
-                            scopes=resource_scopes # Pass the filtered list
-                        ),
+                        run_in_threadpool(sync_msal_call),
                         timeout=REFRESH_TIMEOUT
                     )
                 except asyncio.TimeoutError:
-                    logger.error(f"MSAL refresh for user {email} timed out after {REFRESH_TIMEOUT} seconds.")
+                    logger.error(f"MSAL refresh for user {email} timed out after {REFRESH_TIMEOUT} seconds (executed via threadpool).")
                     raise refresh_failed_exception # Raise the same exception as other refresh failures
-                # --- End asyncio.wait_for wrapper ---
+                # --- End threadpool/timeout wrapper ---
 
                 if "access_token" in refresh_result:
                     new_ms_access_token = refresh_result['access_token']
