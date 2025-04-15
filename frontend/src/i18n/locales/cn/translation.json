@@ -1289,6 +1289,11 @@
     "errorFetching": "获取令牌使用数据失败。",
     "errorStartDateMissing": "自定义范围需要开始日期。",
     "errorEndDateBeforeStart": "结束日期不能早于开始日期。",
+    "chartTitle": "使用趋势 (每日)",
+    "noChartData": "所选期间内无可用使用数据以显示图表。",
+    "chartLineName": "使用次数",
+    "tableTitle": "使用详情",
+    "errorFetchingTimeSeries": "获取令牌使用时间序列数据失败。",
     "table": {
       "name": "令牌名称",
       "description": "描述",

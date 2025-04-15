@@ -188,3 +188,50 @@ export const getTokenUsageReport = async (
   }
 };
 // --- END ADDED ---
+
+// --- ADDED for Time Series API --- 
+
+// Interface matching the backend response (TimeSeriesDataPoint from token.py)
+export interface TimeSeriesDataPoint {
+  date: string; // Expecting date string like YYYY-MM-DD
+  usage_count: number;
+}
+
+// Interface for the overall time series response
+export interface TimeSeriesResponse {
+  time_series: TimeSeriesDataPoint[];
+}
+
+/**
+ * Fetch time series usage statistics for tokens owned by the current user.
+ * Optionally filters by date range (YYYY-MM-DD format) and token ID.
+ */
+export const getTokenUsageTimeSeries = async (
+  tokenId?: number | string, // Can be number or the string 'all'
+  startDate?: string,
+  endDate?: string
+): Promise<TimeSeriesResponse> => {
+  console.log(`API: Fetching token usage time series (Token: ${tokenId}, Start: ${startDate}, End: ${endDate})`);
+  try {
+    const params = new URLSearchParams();
+    if (tokenId && tokenId !== 'all') {
+      params.append('token_id', tokenId.toString());
+    }
+    if (startDate) {
+      params.append('start_date', startDate);
+    }
+    if (endDate) {
+      params.append('end_date', endDate);
+    }
+
+    const response = await axiosInstance.get<TimeSeriesResponse>('/token/usage-timeseries', {
+      params: params
+    });
+    console.log('API: Token usage time series received:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('API Error fetching token usage time series:', error);
+    throw error; // Re-throw for component error handling
+  }
+};
+// --- END ADDED ---

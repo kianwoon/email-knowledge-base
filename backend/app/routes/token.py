@@ -64,6 +64,15 @@ class TokenUsageStat(BaseModel):
 class TokenUsageReportResponse(BaseModel):
     usage_stats: List[TokenUsageStat]
 
+# --- ADDED for Time Series --- 
+class TimeSeriesDataPoint(BaseModel):
+    date: date # Representing the day
+    usage_count: int
+
+class TimeSeriesResponse(BaseModel):
+    time_series: List[TimeSeriesDataPoint]
+# --- END ADDED ---
+
 @router.get(
     "/usage-report",
     response_model=TokenUsageReportResponse,
@@ -145,6 +154,83 @@ async def get_token_usage_report(
             detail="Failed to retrieve token usage report."
         )
 # --- End Moved Route --- 
+
+# --- ADDED Time Series Route --- 
+@router.get(
+    "/usage-timeseries",
+    response_model=TimeSeriesResponse,
+    summary="Get Token Usage Time Series Data",
+    description="Retrieves daily usage counts for a specific token or all owned tokens within a date range."
+)
+async def get_token_usage_timeseries(
+    token_id: Optional[int] = Query(None, description="Filter usage by a specific token ID. If omitted, aggregates usage for all owned tokens."),
+    start_date: Optional[date] = Query(None, description="Filter usage logs from this date (inclusive). Format: YYYY-MM-DD"),
+    end_date: Optional[date] = Query(None, description="Filter usage logs up to this date (inclusive). Format: YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_request_user)
+):
+    try:
+        logger.info(f"Fetching token usage time series for user '{current_user.email}' (Token: {token_id}, Start: {start_date}, End: {end_date})")
+        
+        token_ids_to_query = []
+        if token_id is not None:
+            # Verify ownership if a specific token ID is requested
+            token_check = get_token_by_id(db, token_id=token_id)
+            if not token_check or token_check.owner_email != current_user.email:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, 
+                    detail="Token not found or you do not own this token."
+                )
+            token_ids_to_query.append(token_id)
+        else:
+            # If no specific token ID, get all tokens owned by the user
+            owned_tokens = get_user_tokens(db, owner_email=current_user.email)
+            if not owned_tokens:
+                return TimeSeriesResponse(time_series=[]) # No tokens, no usage
+            token_ids_to_query = [token.id for token in owned_tokens]
+            
+        if not token_ids_to_query:
+             return TimeSeriesResponse(time_series=[]) # Should not happen if checks above pass, but safety first
+
+        # Base query: Group by day and count occurrences
+        stmt = select(
+            func.date_trunc('day', ExternalAuditLog.created_at).label('usage_date'),
+            func.count(ExternalAuditLog.id).label('usage_count')
+        ).where(
+            ExternalAuditLog.token_id.in_(token_ids_to_query)
+        )
+
+        # Apply date filters
+        if start_date:
+            start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+            stmt = stmt.where(ExternalAuditLog.created_at >= start_dt)
+        if end_date:
+            end_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
+            stmt = stmt.where(ExternalAuditLog.created_at <= end_dt)
+
+        # Group and order
+        stmt = stmt.group_by('usage_date').order_by('usage_date')
+
+        # Execute query
+        results = db.execute(stmt).all()
+
+        # Format response
+        time_series_data = [
+            TimeSeriesDataPoint(date=row.usage_date.date(), usage_count=row.usage_count)
+            for row in results
+        ]
+
+        return TimeSeriesResponse(time_series=time_series_data)
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise validation/auth errors
+    except Exception as e:
+        logger.error(f"Failed to get token usage time series for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve token usage time series data."
+        )
+# --- END ADDED Time Series Route ---
 
 # ==========================================
 # Standard User-Facing Token Management API (Routes with path params come AFTER)

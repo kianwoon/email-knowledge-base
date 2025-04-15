@@ -24,13 +24,30 @@ import {
   Icon,
   chakra,
   Flex,
+  SimpleGrid,
+  Center,
 } from '@chakra-ui/react';
 import { TriangleDownIcon, TriangleUpIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 import { format, parseISO } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { getTokenUsageReport, TokenUsageStat } from '@/api/token';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import {
+  getTokenUsageReport,
+  TokenUsageStat,
+  getTokenUsageTimeSeries,
+  TimeSeriesDataPoint,
+} from '@/api/token';
 
 const DatePickerWrapperStyles = `
   .react-datepicker-wrapper {
@@ -86,6 +103,9 @@ const TokenUsagePage: React.FC = () => {
   const [usageData, setUsageData] = useState<TokenUsageStat[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesDataPoint[]>([]);
+  const [timeSeriesLoading, setTimeSeriesLoading] = useState<boolean>(true);
+  const [timeSeriesError, setTimeSeriesError] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<string>('all');
   const [selectedTokenId, setSelectedTokenId] = useState<string>('all');
   const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
@@ -97,74 +117,111 @@ const TokenUsagePage: React.FC = () => {
   const tableBorderColor = useColorModeValue('gray.200', 'gray.700');
   const datePickerInputBg = useColorModeValue('white', 'gray.700');
   const datePickerInputBorder = useColorModeValue('gray.200', 'gray.600');
+  const chartStrokeColor = useColorModeValue('#3182CE', '#63B3ED');
 
-  const fetchUsageData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
+  const getDateRangeParams = useCallback(() => {
     let startDateStr: string | undefined = undefined;
     let endDateStr: string | undefined = undefined;
     const today = new Date();
 
-    try {
-      if (selectedRange === 'today') {
-        startDateStr = format(today, 'yyyy-MM-dd');
-        endDateStr = format(today, 'yyyy-MM-dd');
-      } else if (selectedRange === '7d') {
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(today.getDate() - 6);
-        startDateStr = format(sevenDaysAgo, 'yyyy-MM-dd');
-        endDateStr = format(today, 'yyyy-MM-dd');
-      } else if (selectedRange === '30d') {
-        const thirtyDaysAgo = new Date(today);
-        thirtyDaysAgo.setDate(today.getDate() - 29);
-        startDateStr = format(thirtyDaysAgo, 'yyyy-MM-dd');
-        endDateStr = format(today, 'yyyy-MM-dd');
-      } else if (selectedRange === 'custom') {
-        if (customStartDate) {
-          startDateStr = format(customStartDate, 'yyyy-MM-dd');
-        } else {
-          if (customEndDate) { startDateStr = undefined; } else { throw new Error(t('tokenUsage.errorStartDateMissing')); }
-        }
-        if (customEndDate) {
-          if (customStartDate && customEndDate < customStartDate) {
-              throw new Error(t('tokenUsage.errorEndDateBeforeStart'));
-          }
-          endDateStr = format(customEndDate, 'yyyy-MM-dd');
-        } else {
-          endDateStr = undefined;
-        }
-      }
+    if (selectedRange === 'today') {
+      startDateStr = format(today, 'yyyy-MM-dd');
+      endDateStr = format(today, 'yyyy-MM-dd');
+    } else if (selectedRange === '7d') {
+      const sevenDaysAgo = new Date(today);
+      sevenDaysAgo.setDate(today.getDate() - 6);
+      startDateStr = format(sevenDaysAgo, 'yyyy-MM-dd');
+      endDateStr = format(today, 'yyyy-MM-dd');
+    } else if (selectedRange === '30d') {
+      const thirtyDaysAgo = new Date(today);
+      thirtyDaysAgo.setDate(today.getDate() - 29);
+      startDateStr = format(thirtyDaysAgo, 'yyyy-MM-dd');
+      endDateStr = format(today, 'yyyy-MM-dd');
+    } else if (selectedRange === 'custom') {
+       if (customStartDate) {
+         startDateStr = format(customStartDate, 'yyyy-MM-dd');
+       } else if (customEndDate) {
+         startDateStr = undefined;
+       }
+       if (customEndDate) {
+         if (customStartDate && customEndDate < customStartDate) {
+           throw new Error(t('tokenUsage.errorEndDateBeforeStart')); 
+         }
+         endDateStr = format(customEndDate, 'yyyy-MM-dd');
+       } else if (customStartDate) {
+         endDateStr = undefined;
+       }
+    }
 
+    return { startDateStr, endDateStr };
+  }, [selectedRange, customStartDate, customEndDate, t]);
+
+  const fetchUsageData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { startDateStr, endDateStr } = getDateRangeParams();
       const response = await getTokenUsageReport(startDateStr, endDateStr);
       setUsageData(response.usage_stats);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.message || t('tokenUsage.errorFetching');
+      const validationError = (selectedRange === 'custom' && customStartDate && customEndDate && customEndDate < customStartDate) 
+                                ? t('tokenUsage.errorEndDateBeforeStart') 
+                                : null;
+      const errorMessage = validationError || err.response?.data?.detail || err.message || t('tokenUsage.errorFetching');
       setError(errorMessage);
-      toast({
-        title: t('common.error'),
-        description: errorMessage,
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      toast({ title: t('common.error'), description: errorMessage, status: 'error', duration: 5000, isClosable: true });
       setUsageData([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedRange, customStartDate, customEndDate, toast, t]);
+  }, [getDateRangeParams, toast, t, selectedRange, customStartDate, customEndDate]);
+
+  const fetchTimeSeriesData = useCallback(async () => {
+    setTimeSeriesLoading(true);
+    setTimeSeriesError(null);
+    try {
+      const { startDateStr, endDateStr } = getDateRangeParams();
+      const response = await getTokenUsageTimeSeries(selectedTokenId === 'all' ? undefined : selectedTokenId, startDateStr, endDateStr);
+      setTimeSeriesData(response.time_series);
+    } catch (err: any) {
+      const validationError = (selectedRange === 'custom' && customStartDate && customEndDate && customEndDate < customStartDate) 
+                                ? t('tokenUsage.errorEndDateBeforeStart') 
+                                : null;
+      const errorMessage = validationError || err.response?.data?.detail || err.message || t('tokenUsage.errorFetchingTimeSeries');
+      setTimeSeriesError(errorMessage);
+      setTimeSeriesData([]); 
+    } finally {
+      setTimeSeriesLoading(false);
+    }
+  }, [getDateRangeParams, selectedTokenId, toast, t, selectedRange, customStartDate, customEndDate]);
 
   useEffect(() => {
+    const triggerFetch = () => {
+        console.log("Triggering data fetch...");
+        fetchUsageData();
+        fetchTimeSeriesData();
+    };
+
     if (selectedRange === 'custom') {
       if (customStartDate || customEndDate) {
-        fetchUsageData();
+          if (customStartDate && customEndDate && customEndDate < customStartDate) {
+              setError(t('tokenUsage.errorEndDateBeforeStart'));
+              setTimeSeriesError(t('tokenUsage.errorEndDateBeforeStart'));
+              setUsageData([]);
+              setTimeSeriesData([]);
+          } else {
+              triggerFetch();
+          }
       } else {
-        setUsageData([]);
+         setUsageData([]);
+         setTimeSeriesData([]);
+         setError(null);
+         setTimeSeriesError(null);
       }
     } else {
-      fetchUsageData();
+      triggerFetch();
     }
-  }, [fetchUsageData, selectedRange, customStartDate, customEndDate]);
+  }, [fetchUsageData, fetchTimeSeriesData, selectedRange, customStartDate, customEndDate, selectedTokenId, t]);
 
   const handleRangeChange = (range: string) => {
     setSelectedRange(range);
@@ -254,97 +311,131 @@ const TokenUsagePage: React.FC = () => {
   return (
     <Box py={5} px={{ base: 2, md: 4 }} maxW="1200px" margin="auto">
       <style>{DatePickerWrapperStyles}</style>
-      <VStack spacing={4} align="stretch">
+      <VStack spacing={6} align="stretch">
         <Heading as="h1" size="lg">{t('tokenUsage.title')}</Heading>
         <Text>{t('tokenUsage.description')}</Text>
-        <VStack align="stretch" spacing={3}>
-          <HStack justify="space-between" spacing={4} flexWrap="wrap">
-            <HStack spacing={2} align="center">
-              <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectRange')}:</Text>
-              <ButtonGroup isAttached variant="outline" size="sm">
-                <Button onClick={() => handleRangeChange('all')} isActive={Boolean(selectedRange === 'all')}>{t('tokenUsage.allTime')}</Button>
-                <Button onClick={() => handleRangeChange('today')} isActive={Boolean(selectedRange === 'today')}>{t('tokenUsage.today')}</Button>
-                <Button onClick={() => handleRangeChange('7d')} isActive={Boolean(selectedRange === '7d')}>{t('tokenUsage.last7Days')}</Button>
-                <Button onClick={() => handleRangeChange('30d')} isActive={Boolean(selectedRange === '30d')}>{t('tokenUsage.last30Days')}</Button>
-                <Button onClick={() => handleRangeChange('custom')} isActive={Boolean(selectedRange === 'custom')}>{t('tokenUsage.customRange')}</Button>
-              </ButtonGroup>
-            </HStack>
-            <HStack spacing={2} align="center">
-              <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectToken')}:</Text>
-              <Select size="sm" value={selectedTokenId} onChange={handleTokenChange} minW="200px" isDisabled={Boolean(loading || error || usageData.length === 0)}>
-                <option value="all">{t('tokenUsage.allTokens')}</option>
-                {!loading && !error && usageData.map(token => (
-                  <option key={token.token_id} value={token.token_id.toString()}>{token.token_name} ({token.token_preview})</option>
-                ))}
-              </Select>
-            </HStack>
-          </HStack>
-          {selectedRange === 'custom' && (
-            <HStack spacing={4} pt={2}>
-              <FormControl id="customStartDate" w="auto">
-                <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.startDate')}:</FormLabel>
-                <DatePicker selected={customStartDate} onChange={(date: Date | null) => setCustomStartDate(date)} selectsStart startDate={customStartDate} endDate={customEndDate} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" maxDate={new Date()} />
-              </FormControl>
-              <FormControl id="customEndDate" w="auto">
-                <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.endDate')}:</FormLabel>
-                <DatePicker selected={customEndDate} onChange={(date: Date | null) => setCustomEndDate(date)} selectsEnd startDate={customStartDate} endDate={customEndDate} minDate={customStartDate ? customStartDate : undefined} maxDate={new Date()} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" />
-              </FormControl>
-            </HStack>
-          )}
-        </VStack>
-        {loading && (
-          <Box textAlign="center" p={10}>
-            <Spinner size="xl" />
-            <Text mt={2}>{t('common.loading')}</Text>
-          </Box>
-        )}
-        {error && (
-          <Box textAlign="center" p={10}>
-            <Text color="red.500">{error}</Text>
-          </Box>
-        )}
-        {!loading && !error && (
-          <TableContainer borderWidth="1px" borderColor={tableBorderColor} borderRadius="md" bg={tableBg}>
-            <Table variant="simple">
-              <Thead>
-                <Tr>
-                  <SortableTh columnKey="token_name">{t('tokenUsage.table.name')}</SortableTh>
-                  <SortableTh columnKey="token_description">{t('tokenUsage.table.description')}</SortableTh>
-                  <SortableTh columnKey="token_preview">{t('tokenUsage.table.preview')}</SortableTh>
-                  <SortableTh columnKey="usage_count" isNumeric>{t('tokenUsage.table.usageCount')}</SortableTh>
-                  <SortableTh columnKey="last_used_at_date">{t('tokenUsage.table.lastUsed')}</SortableTh>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {processedUsageData.length === 0 ? (
-                  <Tr>
-                    <Td colSpan={5} textAlign="center">
-                      {selectedTokenId === 'all' 
-                        ? t('tokenUsage.table.noData') 
-                        : t('tokenUsage.table.noDataForToken')} 
-                    </Td>
-                  </Tr>
-                ) : (
-                  processedUsageData.map((token) => (
-                    <Tr key={token.token_id}>
-                      <Td fontWeight="medium">{token.token_name}</Td>
-                      <Td color="gray.500">{token.token_description || '-'}</Td>
-                      <Td fontFamily="monospace">
-                        <Tag size="sm" variant="outline">{token.token_preview}</Tag>
-                      </Td>
-                      <Td isNumeric>{token.usage_count}</Td>
-                      <Td>
-                        {token.last_used_at 
-                          ? format(parseISO(token.last_used_at), 'yyyy-MM-dd HH:mm:ss')
-                          : t('common.never')}
-                      </Td>
-                    </Tr>
-                  ))
+        <Box p={4} borderWidth="1px" borderRadius="md" borderColor={tableBorderColor} bg={tableBg}>
+            <VStack align="stretch" spacing={3}>
+                <HStack justify="space-between" spacing={4} flexWrap="wrap">
+                    <HStack spacing={2} align="center">
+                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectRange')}:</Text>
+                    <ButtonGroup isAttached variant="outline" size="sm">
+                        <Button onClick={() => handleRangeChange('all')} isActive={Boolean(selectedRange === 'all')}>{t('tokenUsage.allTime')}</Button>
+                        <Button onClick={() => handleRangeChange('today')} isActive={Boolean(selectedRange === 'today')}>{t('tokenUsage.today')}</Button>
+                        <Button onClick={() => handleRangeChange('7d')} isActive={Boolean(selectedRange === '7d')}>{t('tokenUsage.last7Days')}</Button>
+                        <Button onClick={() => handleRangeChange('30d')} isActive={Boolean(selectedRange === '30d')}>{t('tokenUsage.last30Days')}</Button>
+                        <Button onClick={() => handleRangeChange('custom')} isActive={Boolean(selectedRange === 'custom')}>{t('tokenUsage.customRange')}</Button>
+                    </ButtonGroup>
+                    </HStack>
+                    <HStack spacing={2} align="center">
+                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectToken')}:</Text>
+                    <Select size="sm" value={selectedTokenId} onChange={handleTokenChange} minW="200px" isDisabled={Boolean(loading || error || usageData.length === 0)}>
+                        <option value="all">{t('tokenUsage.allTokens')}</option>
+                        {!loading && !error && usageData.map(token => (
+                        <option key={token.token_id} value={token.token_id.toString()}>{token.token_name} ({token.token_preview})</option>
+                        ))}
+                    </Select>
+                    </HStack>
+                </HStack>
+                {selectedRange === 'custom' && (
+                    <HStack spacing={4} pt={2}>
+                    <FormControl id="customStartDate" w="auto">
+                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.startDate')}:</FormLabel>
+                        <DatePicker selected={customStartDate} onChange={(date: Date | null) => setCustomStartDate(date)} selectsStart startDate={customStartDate} endDate={customEndDate} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" maxDate={new Date()} />
+                    </FormControl>
+                    <FormControl id="customEndDate" w="auto">
+                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.endDate')}:</FormLabel>
+                        <DatePicker selected={customEndDate} onChange={(date: Date | null) => setCustomEndDate(date)} selectsEnd startDate={customStartDate} endDate={customEndDate} minDate={customStartDate ? customStartDate : undefined} maxDate={new Date()} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" />
+                    </FormControl>
+                    </HStack>
                 )}
-              </Tbody>
-            </Table>
-          </TableContainer>
-        )}
+            </VStack>
+        </Box>
+        <Box p={4} borderWidth="1px" borderRadius="md" borderColor={tableBorderColor} bg={tableBg}>
+          <Heading size="md" mb={4}>{t('tokenUsage.chartTitle')}</Heading>
+          {timeSeriesLoading && (
+            <Center h="300px"><Spinner /></Center>
+          )}
+          {timeSeriesError && !timeSeriesLoading && (
+            <Center h="300px"><Text color="red.500">{timeSeriesError}</Text></Center>
+          )}
+          {!timeSeriesLoading && !timeSeriesError && timeSeriesData.length === 0 && (
+            <Center h="300px"><Text color="gray.500">{t('tokenUsage.noChartData')}</Text></Center>
+          )}
+          {!timeSeriesLoading && !timeSeriesError && timeSeriesData.length > 0 && (
+            <Box height="300px">
+                <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                    data={timeSeriesData}
+                    margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="usage_count" name={t('tokenUsage.chartLineName')} stroke={chartStrokeColor} strokeWidth={2} activeDot={{ r: 8 }} />
+                </LineChart>
+                </ResponsiveContainer>
+            </Box>
+          )}
+        </Box>
+        <Box>
+            <Heading size="md" mb={4}>{t('tokenUsage.tableTitle')}</Heading>
+            {loading && (
+            <Box textAlign="center" p={10}>
+                <Spinner size="xl" />
+                <Text mt={2}>{t('common.loading')}</Text>
+            </Box>
+            )}
+            {error && !loading && (
+            <Box textAlign="center" p={10}>
+                <Text color="red.500">{error}</Text>
+            </Box>
+            )}
+            {!loading && !error && (
+            <TableContainer borderWidth="1px" borderColor={tableBorderColor} borderRadius="md" bg={tableBg}>
+                <Table variant="simple">
+                <Thead>
+                    <Tr>
+                    <SortableTh columnKey="token_name">{t('tokenUsage.table.name')}</SortableTh>
+                    <SortableTh columnKey="token_description">{t('tokenUsage.table.description')}</SortableTh>
+                    <SortableTh columnKey="token_preview">{t('tokenUsage.table.preview')}</SortableTh>
+                    <SortableTh columnKey="usage_count" isNumeric>{t('tokenUsage.table.usageCount')}</SortableTh>
+                    <SortableTh columnKey="last_used_at_date">{t('tokenUsage.table.lastUsed')}</SortableTh>
+                    </Tr>
+                </Thead>
+                <Tbody>
+                    {processedUsageData.length === 0 ? (
+                    <Tr>
+                        <Td colSpan={5} textAlign="center">
+                        {selectedTokenId === 'all' 
+                            ? t('tokenUsage.table.noData') 
+                            : t('tokenUsage.table.noDataForToken')} 
+                        </Td>
+                    </Tr>
+                    ) : (
+                    processedUsageData.map((token) => (
+                        <Tr key={token.token_id}>
+                        <Td fontWeight="medium">{token.token_name}</Td>
+                        <Td color="gray.500">{token.token_description || '-'}</Td>
+                        <Td fontFamily="monospace">
+                            <Tag size="sm" variant="outline">{token.token_preview}</Tag>
+                        </Td>
+                        <Td isNumeric>{token.usage_count}</Td>
+                        <Td>
+                            {token.last_used_at 
+                            ? format(parseISO(token.last_used_at), 'yyyy-MM-dd HH:mm:ss')
+                            : t('common.never')}
+                        </Td>
+                        </Tr>
+                    ))
+                    )}
+                </Tbody>
+                </Table>
+            </TableContainer>
+            )}
+        </Box>
       </VStack>
     </Box>
   );
