@@ -2,6 +2,8 @@ import logging
 from celery import Task
 from msal import ConfidentialClientApplication # Assuming msal_app is configured elsewhere or recreated
 import asyncio # Import asyncio
+from asyncio import TimeoutError # Explicit import for clarity
+from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
 
 # Qdrant Imports
 from qdrant_client import QdrantClient, models
@@ -112,24 +114,61 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
         
         logger.debug(f"Task {task_id}: Refresh token retrieved and decrypted for user {db_user.email}.")
 
-        # --- Acquire New Access Token --- 
+        # --- Acquire New Access Token ---
         self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 10, 'status': 'Acquiring access token...'})
         msal_instance = get_msal_app()
-        
+
         reserved_scopes = {'openid', 'profile', 'offline_access'}
         required_scopes = [s for s in settings.MS_SCOPE if s not in reserved_scopes]
         logger.debug(f"Task {task_id}: Requesting access token with filtered scopes: {required_scopes}")
-        
-        token_result = msal_instance.acquire_token_by_refresh_token(
-            refresh_token=refresh_token,
-            scopes=required_scopes
-        )
 
-        if "error" in token_result:
-            error_desc = token_result.get('error_description', 'Unknown token acquisition error')
-            logger.error(f"Task {task_id}: Failed to acquire access token for user {db_user.email}. Error: {token_result.get('error')}, Desc: {error_desc}")
+        token_result = None
+        try:
+            # Define the blocking function call
+            refresh_call = lambda: msal_instance.acquire_token_by_refresh_token(
+                refresh_token=refresh_token,
+                scopes=required_scopes
+            )
+
+            # --- Define an async function to run the call with timeout ---
+            async def run_refresh_with_timeout():
+                logger.info(f"Task {task_id}: Attempting token refresh in threadpool for user {db_user.email}.")
+                # Use a timeout value from settings, defaulting if not present
+                timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
+                result = await asyncio.wait_for(
+                    run_in_threadpool(refresh_call),
+                    timeout=timeout_seconds
+                )
+                logger.info(f"Task {task_id}: Token refresh call completed successfully for user {db_user.email}.")
+                return result
+
+            # --- Run the async function using asyncio.run() ---
+            token_result = asyncio.run(run_refresh_with_timeout())
+            # --- End wrapped call ---
+
+        except TimeoutError: # Catch timeout specifically
+            timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
+            logger.error(f"Task {task_id}: Timeout ({timeout_seconds}s) occurred while acquiring access token for user {db_user.email}.")
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Token acquisition timed out'})
+            return {'status': 'ERROR', 'message': 'Token acquisition timed out'}
+        except Exception as refresh_exc: # Catch any other errors during run_refresh_with_timeout
+            logger.error(f"Task {task_id}: Error during token refresh execution for user {db_user.email}: {refresh_exc}", exc_info=True)
+            # Attempt to extract MSAL-specific error if possible (structure might vary)
+            error_desc = str(refresh_exc)
+            if hasattr(refresh_exc, 'error_response') and isinstance(refresh_exc.error_response, dict):
+                 error_desc = refresh_exc.error_response.get('error_description', str(refresh_exc))
+                 logger.error(f"Task {task_id}: MSAL error during refresh: {error_desc}")
+
             self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Token acquisition failed: {error_desc}'})
             return {'status': 'ERROR', 'message': f'Token acquisition failed: {error_desc}'}
+
+
+        # Check the result dictionary *after* successful execution (no timeout/exception)
+        if not token_result or "error" in token_result:
+            error_desc = token_result.get('error_description', 'Unknown token acquisition error') if token_result else "No result from refresh call"
+            logger.error(f"Task {task_id}: Failed to acquire access token (MSAL error) for user {db_user.email}. Error: {token_result.get('error') if token_result else 'N/A'}, Desc: {error_desc}")
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Token acquisition failed (MSAL): {error_desc}'})
+            return {'status': 'ERROR', 'message': f'Token acquisition failed (MSAL): {error_desc}'}
 
         access_token = token_result.get('access_token')
         if not access_token:

@@ -1,6 +1,7 @@
 import logging
 import base64
 import asyncio
+from asyncio import TimeoutError # Import TimeoutError
 from typing import List, Dict, Any, Tuple, Optional
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from celery import Task
 from celery.utils.log import get_task_logger
 from sqlalchemy.orm import Session
+from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
 
 from ..celery_app import celery_app
 from ..config import settings
@@ -173,29 +175,54 @@ class SharePointProcessingTask(Task):
                 logger.info(f"Task {self.request.id}: Attempting token refresh for {user_email}.")
                 try:
                     msal_instance = get_msal_app()
-                    # Ensure scopes match what's needed for SharePointService
-                    token_result = msal_instance.acquire_token_by_refresh_token(
+                    required_scopes = settings.MS_SCOPES.split() # Use configured scopes
+
+                    # --- Define the blocking function call ---
+                    refresh_call = lambda: msal_instance.acquire_token_by_refresh_token(
                         refresh_token=decrypted_refresh_token,
-                        scopes=settings.MS_SCOPES.split() 
+                        scopes=required_scopes
                     )
 
+                    # --- Define an async function to run the call with timeout ---
+                    async def run_refresh_with_timeout():
+                        logger.info(f"Task {self.request.id}: Attempting token refresh in threadpool for {user_email}.")
+                        timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
+                        result = await asyncio.wait_for(
+                            run_in_threadpool(refresh_call),
+                            timeout=timeout_seconds
+                        )
+                        logger.info(f"Task {self.request.id}: Token refresh call completed successfully for {user_email}.")
+                        return result
+
+                    # --- Run the async function using asyncio.run() ---
+                    token_result = asyncio.run(run_refresh_with_timeout())
+                    # --- End wrapped call ---
+
+                    # Check the result dictionary *after* successful execution
+                    if not token_result or "error" in token_result:
+                        # Handle MSAL specific errors returned in the result dictionary
+                        error_desc = token_result.get('error_description', 'Unknown token acquisition error') if token_result else "No result from refresh call"
+                        logger.error(f"Task {self.request.id}: MSAL refresh error for {user_email}: {token_result.get('error') if token_result else 'N/A'} - {error_desc}")
+                        raise ValueError(f"Token refresh failed (MSAL): {error_desc}")
+
+                    # Process successful result (outside the try block for clarity, or keep inside if preferred)
                     if "access_token" in token_result and "expires_in" in token_result:
                         new_access_token = token_result['access_token']
                         new_expiry = datetime.now(timezone.utc) + timedelta(seconds=token_result['expires_in'])
                         new_refresh_token = token_result.get('refresh_token') # Check if MS sent a new one
-                        
+
                         # --- Encrypt new refresh token if needed ---
                         # encrypted_new_refresh = encrypt_token(new_refresh_token) if new_refresh_token else None
-                        encrypted_new_refresh = new_refresh_token # Assuming not encrypted
-                        
+                        encrypted_new_refresh = new_refresh_token # Assuming not encrypted for now
+
                         # --- Update DB ---
                         logger.info(f"Task {self.request.id}: Token refresh successful for {user_email}. Updating DB.")
                         # Use the new update function
                         update_success = user_crud.update_user_ms_tokens(
-                            db=self.db, 
-                            user_email=user_email, 
-                            access_token=new_access_token, 
-                            expiry=new_expiry, 
+                            db=self.db,
+                            user_email=user_email,
+                            access_token=new_access_token,
+                            expiry=new_expiry,
                             refresh_token=encrypted_new_refresh # Pass the potentially new refresh token
                         )
                         if not update_success:
@@ -203,20 +230,23 @@ class SharePointProcessingTask(Task):
                              # Decide how to handle: raise error or try using old token?
                              # Raising error is safer to prevent using stale data
                              raise ValueError("Failed to update refreshed tokens in database.")
-                             
+
                         access_token = new_access_token # Use the new token for the service
                         logger.info(f"Task {self.request.id}: Using newly refreshed access token for {user_email}.")
-
-                    elif "error_description" in token_result:
-                         logger.error(f"Task {self.request.id}: MSAL refresh error for {user_email}: {token_result.get('error')} - {token_result.get('error_description')}")
-                         raise ValueError(f"Token refresh failed: {token_result.get('error_description')}")
                     else:
-                         logger.error(f"Task {self.request.id}: Unexpected MSAL refresh result for {user_email}: {token_result}")
-                         raise ValueError("Token refresh failed with unexpected result.")
+                        # This case should be less likely now due to the check above, but keep as safeguard
+                         logger.error(f"Task {self.request.id}: Unexpected MSAL refresh result structure for {user_email}: {token_result}")
+                         raise ValueError("Token refresh failed with unexpected result structure.")
 
+                except TimeoutError: # Catch timeout specifically
+                    timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
+                    logger.error(f"Task {self.request.id}: Timeout ({timeout_seconds}s) occurred during token refresh for {user_email}.")
+                    raise ValueError(f"Token refresh timed out after {timeout_seconds}s") # Re-raise as ValueError or specific Task exception
                 except Exception as refresh_err:
+                    # Catch other exceptions during the refresh process (e.g., network issues, invalid refresh token from MSAL)
                     logger.error(f"Task {self.request.id}: Exception during token refresh for {user_email}: {refresh_err}", exc_info=True)
                     # Re-raise or handle appropriately (e.g., mark task as failed)
+                    # Ensure the original exception type isn't lost if re-raising a generic one
                     raise ValueError(f"Exception during token refresh: {refresh_err}")
             else:
                  logger.debug(f"Task {self.request.id}: Existing access token for {user_email} is still valid.")

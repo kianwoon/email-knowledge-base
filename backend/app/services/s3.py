@@ -5,6 +5,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 import logging
 from typing import List, Optional
+import asyncio # Import asyncio
+from asyncio import TimeoutError # Import TimeoutError
+from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
 
 from app.config import settings # Assuming settings has APP_AWS_ACCESS_KEY_ID etc.
 from app.crud import crud_aws_credential
@@ -21,24 +24,27 @@ def get_user_aws_credentials(db: Session, user_email: str) -> str:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AWS Role ARN not configured for this user.")
     return user_cred.role_arn
 
-def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Session:
+# --- Make the function async --- 
+async def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Session:
     """
-    Fetches the user's configured Role ARN from the DB, assumes the role using the 
-    application's credentials, and returns a boto3 Session with temporary credentials.
+    Fetches the user's configured Role ARN from the DB, assumes the role using the
+    application's credentials (with timeout), and returns a boto3 Session with temporary credentials.
+    Now an async function.
     """
     role_session_name = f"user_s3_session_{user_email.replace('@', '_').replace('.', '_')}" # Sanitize session name
 
     try:
-        # --- Fetch Role ARN from DB --- 
+        # --- Fetch Role ARN from DB (remains synchronous) ---
         role_arn = get_user_aws_credentials(db, user_email)
         logger.info(f"Retrieved Role ARN '{role_arn}' for user {user_email} from database.")
-        # --- End Fetch Role ARN --- 
+        # --- End Fetch Role ARN ---
 
         # Check if application credentials are configured in settings
         if not all([settings.APP_AWS_ACCESS_KEY_ID, settings.APP_AWS_SECRET_ACCESS_KEY, settings.AWS_REGION]):
              logger.error("Application AWS credentials (ID, Key, Region) are not configured in settings.")
              raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server configuration error: Missing AWS credentials.")
 
+        # Create the STS client (synchronous operation, relatively quick)
         sts_client = boto3.client(
             'sts',
             aws_access_key_id=settings.APP_AWS_ACCESS_KEY_ID,
@@ -47,13 +53,23 @@ def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Session:
             # endpoint_url=settings.AWS_STS_ENDPOINT_URL # Optional: if using custom endpoint
         )
 
-        logger.info(f"Attempting to assume role: {role_arn} for user: {user_email}")
-        assumed_role_object = sts_client.assume_role(
+        # --- Define the blocking AssumeRole call ---
+        assume_role_call = lambda: sts_client.assume_role(
             RoleArn=role_arn,
             RoleSessionName=role_session_name
         )
 
-        # Create a new session using the temporary credentials
+        logger.info(f"Attempting to assume role: {role_arn} for user: {user_email} (with timeout)")
+        
+        # --- Run the call in threadpool with timeout ---
+        timeout_seconds = getattr(settings, 'AWS_ASSUME_ROLE_TIMEOUT_SECONDS', 30) # Default 30s
+        assumed_role_object = await asyncio.wait_for(
+            run_in_threadpool(assume_role_call),
+            timeout=timeout_seconds
+        )
+        # --- End wrapped call ---
+
+        # Create a new session using the temporary credentials (synchronous)
         credentials = assumed_role_object['Credentials']
         assumed_session = boto3.Session(
             aws_access_key_id=credentials['AccessKeyId'],
@@ -64,6 +80,10 @@ def get_aws_session_for_user(db: Session, user_email: str) -> boto3.Session:
         logger.info(f"Successfully assumed role {role_arn} for user {user_email}")
         return assumed_session
 
+    except TimeoutError:
+        timeout_seconds = getattr(settings, 'AWS_ASSUME_ROLE_TIMEOUT_SECONDS', 30)
+        logger.error(f"Timeout ({timeout_seconds}s) occurred while assuming role {role_arn} for user {user_email}.")
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=f"AWS authentication timed out while assuming role.")
     except (NoCredentialsError, PartialCredentialsError):
         logger.exception("Application AWS credentials not found or incomplete.")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server configuration error: Missing AWS credentials.")

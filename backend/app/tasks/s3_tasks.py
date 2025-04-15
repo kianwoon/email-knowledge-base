@@ -145,7 +145,7 @@ async def _run_s3_processing_logic(
         # role_arn = s3_service.get_user_aws_credentials(db=db_session, user_email=user_email)
         
         # Call the updated service function, passing the db session
-        aws_session = s3_service.get_aws_session_for_user(db=db_session, user_email=user_email)
+        aws_session = await s3_service.get_aws_session_for_user(db=db_session, user_email=user_email)
         s3_client = aws_session.client('s3')
         logger.info(f"Task {task_id}: Successfully obtained assumed role session for user {user_email}")
     except Exception as e:
