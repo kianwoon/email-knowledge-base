@@ -30,6 +30,7 @@ import Support from './pages/Support'; // Corrected name
 // Removed: import NotFoundPage from './pages/NotFoundPage'; // Use catch-all redirect instead
 import KnowledgeManagementPage from '@/pages/KnowledgeManagementPage';
 import TokenManagementPage from './pages/TokenManagementPage';
+import TokenUsagePage from './pages/TokenUsagePage'; // <<< Import TokenUsagePage
 import AITraining from './pages/documentation/AITraining'; // <-- Import Doc Page
 import AIAnalysis from './pages/documentation/AIAnalysis'; // <-- Import
 import Documentation from './pages/documentation/Documentation'; // <-- Import
@@ -95,6 +96,7 @@ const protectedPaths = [
   '/search',
   '/knowledge',
   '/tokens',
+  '/token-usage', // <<< Add Token Usage path
   '/jarvis',
   '/sharepoint', // Added SharePoint
   '/s3', // <<< RE-ADDED S3 path
@@ -333,6 +335,14 @@ function App() {
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <TokenManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/token-usage"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <TokenUsagePage />
               </ProtectedRoute>
             }
           />

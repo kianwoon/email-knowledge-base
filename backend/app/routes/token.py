@@ -1,10 +1,10 @@
 # backend/app/routes/token.py
 import logging
 from uuid import UUID
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response, Query
 from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 import uuid
@@ -31,7 +31,14 @@ from ..crud.token_crud import (
 )
 
 # Import datetime for expiry check
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
+
+# Import the new external model
+from ..models.external_audit_log import ExternalAuditLog
+
+# Import necessary types and functions
+from sqlalchemy import func, select
+from pydantic import BaseModel
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -42,7 +49,105 @@ router = APIRouter(
 )
 
 # ==========================================
-# Standard User-Facing Token Management API
+# Specific Routes (Must come BEFORE routes with path parameters)
+# ==========================================
+
+# --- Moved Usage Report Route UP ---
+class TokenUsageStat(BaseModel):
+    token_id: int
+    token_name: str
+    token_description: Optional[str] = None
+    token_preview: str # Add preview
+    usage_count: int
+    last_used_at: Optional[datetime] = None
+
+class TokenUsageReportResponse(BaseModel):
+    usage_stats: List[TokenUsageStat]
+
+@router.get(
+    "/usage-report",
+    response_model=TokenUsageReportResponse,
+    summary="Get Usage Report for Owned Tokens",
+    description="Retrieves usage statistics for sharing tokens created by the current user, based on external audit logs. Optionally filters by date range."
+)
+async def get_token_usage_report(
+    start_date: Optional[date] = Query(None, description="Filter usage logs from this date (inclusive). Format: YYYY-MM-DD"),
+    end_date: Optional[date] = Query(None, description="Filter usage logs up to this date (inclusive). Format: YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_request_user)
+):
+    """Retrieves usage statistics for tokens owned by the current user."""
+    try:
+        logger.info(f"Fetching token usage report for user '{current_user.email}' (Start: {start_date}, End: {end_date})")
+
+        # Fetch all tokens owned by the user
+        owned_tokens = get_user_tokens(db, owner_email=current_user.email)
+        if not owned_tokens:
+            return TokenUsageReportResponse(usage_stats=[])
+
+        token_ids = [token.id for token in owned_tokens]
+
+        # Base query for ExternalAuditLog
+        stmt = select(
+            ExternalAuditLog.token_id,
+            func.count(ExternalAuditLog.id).label('usage_count'),
+            func.max(ExternalAuditLog.created_at).label('last_used_at')
+        ).where(
+            ExternalAuditLog.token_id.in_(token_ids)
+        )
+
+        # Apply date filters if provided
+        if start_date:
+            stmt = stmt.where(ExternalAuditLog.created_at >= datetime.combine(start_date, datetime.min.time()))
+        if end_date:
+            stmt = stmt.where(ExternalAuditLog.created_at <= datetime.combine(end_date, datetime.max.time()))
+
+        # Group by token_id
+        stmt = stmt.group_by(ExternalAuditLog.token_id)
+
+        # Execute the query
+        result = db.execute(stmt).all()
+
+        # Create a map of token_id to usage stats
+        usage_map = {row.token_id: {"usage_count": row.usage_count, "last_used_at": row.last_used_at} for row in result}
+
+        # Build the response list
+        usage_stats_list: List[TokenUsageStat] = []
+        for token in owned_tokens:
+            stats = usage_map.get(token.id)
+            usage_count = stats["usage_count"] if stats else 0
+            last_used_at = stats["last_used_at"] if stats else None
+
+            # >>> Generate token_preview from hashed_token <<< 
+            hashed = token.hashed_token
+            token_preview_value = f"{hashed[:4]}...{hashed[-4:]}" if hashed and len(hashed) > 8 else "[Invalid Hash]"
+
+            usage_stats_list.append(
+                TokenUsageStat(
+                    token_id=token.id,
+                    token_name=token.name,
+                    token_description=token.description,
+                    token_preview=token_preview_value, # <<< Use the generated value
+                    usage_count=usage_count,
+                    last_used_at=last_used_at
+                )
+            )
+        
+        # Sort by usage count descending
+        usage_stats_list.sort(key=lambda x: x.usage_count, reverse=True)
+
+        return TokenUsageReportResponse(usage_stats=usage_stats_list)
+
+    except Exception as e:
+        logger.error(f"Failed to get token usage report for user '{current_user.email}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve token usage report."
+        )
+# --- End Moved Route --- 
+
+# ==========================================
+# Standard User-Facing Token Management API (Routes with path params come AFTER)
 # ==========================================
 
 # GET /token/ - List tokens for the current user

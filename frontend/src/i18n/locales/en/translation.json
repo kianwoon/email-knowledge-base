@@ -41,7 +41,8 @@
     "aiDataManagement": "AI Data Management",
     "tokenManagement": "Token Management",
     "jarvis": "Jarvis",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "tokenUsage": "Token Usage"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -1013,7 +1014,8 @@
     "sync": "Sync",
     "addedToSyncList": "Item added to sync list.",
     "removedFromSyncList": "Item removed from sync list.",
-    "pendingCount": "{{count}} pending"
+    "pendingCount": "{{count}} pending",
+    "never": "Never"
   },
   "analysis": {
     "classification": {
@@ -1376,99 +1378,61 @@
     "settings": "Settings"
   },
   "tokenManagement": {
-    "title": "API Token Management",
-    "createTokenButton": "Create New Token",
-    "noTokens": "No API tokens found.",
-    "deleteConfirmTitle": "Confirm Deletion",
-    "deleteConfirmMessage": "Are you sure you want to delete the token \"{{tokenName}}\"? This action cannot be undone.",
-    "deleteSuccessTitle": "Token Deleted",
-    "deleteSuccessMessage": "Token \"{{tokenName}}\" has been deleted.",
-    "deleteErrorTitle": "Deletion Failed",
-    "errors": {
-      "loadTokensFailed": "Failed to load tokens. Please try again later.",
-      "deleteFailed": "Failed to delete the token. Please try again."
-    }
-  },
-  "tokenModal": {
-    "createTitle": "Create New API Token",
-    "editTitle": "Edit API Token",
-    "nameLabel": "Name",
-    "namePlaceholder": "e.g., My Analysis Script",
-    "descriptionLabel": "Description",
-    "descriptionPlaceholder": "Optional: Describe what this token is used for",
-    "sensitivityLabel": "Sensitivity Level",
-    "sensitivityLevels": {
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High",
-      "critical": "Critical"
-    },
-    "expiryLabel": "Expiry Date (Optional)",
-    "editableLabel": "Allow Editing Rules Later",
-    "tokenValueLabel": "Token Value",
-    "tokenValueNote": "This value is only shown once upon creation.",
-    "inactiveNote": "Token is currently inactive due to expiry.",
-    "createButton": "Create Token",
-    "updateButton": "Update Token",
-    "createSuccessTitle": "Token Created",
-    "createSuccessDesc": "Token \"{{name}}\" was successfully created.",
-    "updateSuccessTitle": "Token Updated",
-    "updateSuccessDesc": "Token \"{{name}}\" was successfully updated.",
-    "validations": {
-      "nameRequired": "Token name is required."
-    },
-    "errors": {
-      "createFailed": "Failed to create token. Please try again.",
-      "updateFailed": "Failed to update token. Please try again.",
-      "fetchFailed": "Failed to load token details."
-    },
-    "rules": {
-        "title": "Access Rules",
-        "fieldLabel": "Rule Field",
-        "valuesLabel": "Values (press Enter to add)",
-        "valuePlaceholder": "Enter a value",
-        "addAllow": "Add Allow Rule",
-        "addDeny": "Add Deny Rule",
-        "allowTitle": "Allow Rules",
-        "denyTitle": "Deny Rules",
-        "removeRuleTooltip": "Remove this rule",
-        "removeRuleAriaLabel": "Remove rule",
-        "errorTitle": "Incomplete Rule",
-        "errorDescription": "Please select a field and add at least one value.",
-        "duplicateFieldTitle": "Duplicate Field",
-        "duplicateFieldDescAllow": "An allow rule for the field '{{field}}' already exists. Remove the existing rule first to change values.",
-        "duplicateFieldDescDeny": "A deny rule for the field '{{field}}' already exists. Remove the existing rule first to change values.",
-        "allowPrefix": "ALLOW",
-        "denyPrefix": "DENY"
-    }
-  },
-  "tokenManagementPage": {
-    "subtitle": "Create and manage access tokens for sharing knowledge",
-    "createTokenButton": "Create Token",
-    "existingTokensTitle": "Existing Tokens",
-    "noTokens": "No tokens found. Click Create Token to get started.",
+    "title": "Token Management",
+    "description": "Manage your API tokens for accessing the application programmatically.",
+    "createToken": "Create New Token",
+    "tokenName": "Token Name",
+    "descriptionLabel": "Description (Optional)",
+    "tokenCreated": "Token Created",
+    "tokenCreatedSuccess": "Your new API token has been created successfully.",
+    "yourToken": "Your Token",
+    "copyToken": "Copy Token",
+    "close": "Close",
+    "copied": "Copied!",
+    "confirmDelete": "Confirm Deletion",
+    "confirmDeleteMsg": "Are you sure you want to delete the token",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "tokenDeleted": "Token Deleted",
+    "tokenDeletedSuccess": "The token has been successfully deleted.",
+    "errorCreating": "Error Creating Token",
+    "errorDeleting": "Error Deleting Token",
     "table": {
       "name": "Name",
-      "sensitivity": "Sensitivity",
-      "expiry": "Expiry",
+      "description": "Description",
+      "preview": "Preview",
+      "createdAt": "Created At",
       "actions": "Actions"
-    },
-    "actions": {
-      "edit": "Edit Token",
-      "delete": "Delete Token"
-    },
-    "deleteDialog": {
-      "title": "Delete Token",
-      "message": "Are you sure you want to delete this token? This action cannot be undone."
-    },
-    "toast": {
-      "deleteSuccessTitle": "Token Deleted",
-      "deleteErrorTitle": "Deletion Failed",
-      "deleteErrorDescription": "Could not delete token."
+    }
+  },
+  "tokenUsage": {
+    "title": "Token Usage Report",
+    "description": "View statistics on how your API tokens are being used.",
+    "selectRange": "Select Date Range",
+    "selectToken": "Select Token",
+    "allTime": "All Time",
+    "today": "Today",
+    "last7Days": "Last 7 Days",
+    "last30Days": "Last 30 Days",
+    "customRange": "Custom Range",
+    "startDate": "Start Date",
+    "endDate": "End Date",
+    "allTokens": "All Tokens",
+    "errorFetching": "Failed to fetch token usage data.",
+    "errorStartDateMissing": "Custom range requires a start date.",
+    "errorEndDateBeforeStart": "End date cannot be before start date.",
+    "table": {
+      "name": "Token Name",
+      "description": "Description",
+      "preview": "Preview",
+      "usageCount": "Usage Count",
+      "lastUsed": "Last Used",
+      "noData": "No usage data available for the selected period.",
+      "noDataForToken": "No usage data available for this token in the selected period."
     }
   },
   "jarvis": {
-    "title": "Jarvis",
+    "title": "Jarvis AI Assistant",
     "chat": "Chat",
     "settings": "Settings",
     "roles": {

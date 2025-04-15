@@ -36,7 +36,8 @@
     "azureBlob": "Azure Blob 存储",
     "aiAssistant": "贾维斯",
     "chat": "对话",
-    "settings": "设置"
+    "settings": "设置",
+    "tokenUsage": "令牌使用"
   },
   "features": {
     "title": "解锁隐藏知识",
@@ -1016,7 +1017,8 @@
       "tag3": "标签3",
       "knowledge": "知识",
       "important": "重要",
-      "routine": "常规"
+      "routine": "常规",
+      "never": "从不"
     },
     "departments": {
       "engineering": "工程部",
@@ -1244,40 +1246,57 @@
     "syncListEmptyTitle": "同步列表为空"
   },
   "tokenManagement": {
-    "title": "管理API令牌"
-  },
-  "tokenManagementPage": {
-    "subtitle": "创建和管理用于共享知识的访问令牌",
-    "searchPlaceholder": "按名称或描述搜索...",
-    "createTokenButton": "创建令牌",
+    "title": "令牌管理",
+    "description": "管理您用于以编程方式访问应用程序的 API 令牌。",
+    "createToken": "创建新令牌",
+    "tokenName": "令牌名称",
+    "descriptionLabel": "描述（可选）",
+    "tokenCreated": "令牌已创建",
+    "tokenCreatedSuccess": "您的新 API 令牌已成功创建。",
+    "yourToken": "您的令牌",
+    "copyToken": "复制令牌",
+    "close": "关闭",
+    "copied": "已复制！",
+    "confirmDelete": "确认删除",
+    "confirmDeleteMsg": "您确定要删除令牌吗",
+    "delete": "删除",
+    "cancel": "取消",
+    "tokenDeleted": "令牌已删除",
+    "tokenDeletedSuccess": "令牌已成功删除。",
+    "errorCreating": "创建令牌时出错",
+    "errorDeleting": "删除令牌时出错",
     "table": {
       "name": "名称",
       "description": "描述",
-      "sensitivity": "敏感度",
-      "status": "状态",
-      "expiry": "过期时间",
+      "preview": "预览",
+      "createdAt": "创建于",
       "actions": "操作"
-    },
-    "actions": {
-      "edit": "编辑令牌",
-      "delete": "删除令牌"
-    },
-    "tabs": {
-      "active": "活跃",
-      "inactive": "非活跃"
-    },
-    "noActiveTokens": "未找到活跃的令牌。",
-    "noActiveTokensSearch": "未找到匹配搜索的活跃令牌。",
-    "noInactiveTokens": "未找到非活跃的令牌。",
-    "noInactiveTokensSearch": "未找到匹配搜索的非活跃令牌。",
-    "deleteDialog": {
-      "title": "删除令牌",
-      "message": "您确定要删除此令牌吗？此操作无法撤消。"
-    },
-    "toast": {
-      "deleteSuccessTitle": "令牌已删除",
-      "deleteErrorTitle": "删除失败",
-      "deleteErrorDescription": "无法删除令牌。"
+    }
+  },
+  "tokenUsage": {
+    "title": "令牌使用报告",
+    "description": "查看有关您的 API 令牌使用情况的统计信息。",
+    "selectRange": "选择日期范围",
+    "selectToken": "选择令牌",
+    "allTime": "所有时间",
+    "today": "今天",
+    "last7Days": "过去 7 天",
+    "last30Days": "过去 30 天",
+    "customRange": "自定义范围",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "allTokens": "所有令牌",
+    "errorFetching": "获取令牌使用数据失败。",
+    "errorStartDateMissing": "自定义范围需要开始日期。",
+    "errorEndDateBeforeStart": "结束日期不能早于开始日期。",
+    "table": {
+      "name": "令牌名称",
+      "description": "描述",
+      "preview": "预览",
+      "usageCount": "使用次数",
+      "lastUsed": "上次使用",
+      "noData": "所选期间内没有可用的使用数据。",
+      "noDataForToken": "所选期间内此令牌没有可用的使用数据。"
     }
   },
   "editTokenModal": {

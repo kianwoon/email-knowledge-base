@@ -141,3 +141,50 @@ export const bundleTokens = async (payload: TokenBundlePayload): Promise<Token> 
   const response = await axiosInstance.post<Token>('/token/bundle', payload);
   return response.data;
 };
+
+// --- ADDED for Token Usage Report --- 
+
+// Interface matching the backend response (TokenUsageStat from token.py)
+export interface TokenUsageStat {
+  token_id: number;
+  token_name: string;
+  token_description?: string | null;
+  token_preview: string;
+  usage_count: number;
+  last_used_at?: string | null; // ISO string from backend
+}
+
+// Interface for the overall usage report response
+export interface TokenUsageReportResponse {
+  usage_stats: TokenUsageStat[];
+}
+
+/**
+ * Fetch usage statistics for tokens owned by the current user.
+ * Optionally filters by date range (YYYY-MM-DD format).
+ */
+export const getTokenUsageReport = async (
+  startDate?: string, 
+  endDate?: string
+): Promise<TokenUsageReportResponse> => {
+  console.log(`API: Fetching token usage report (Start: ${startDate}, End: ${endDate})`);
+  try {
+    const params = new URLSearchParams();
+    if (startDate) {
+      params.append('start_date', startDate);
+    }
+    if (endDate) {
+      params.append('end_date', endDate);
+    }
+
+    const response = await axiosInstance.get<TokenUsageReportResponse>('/token/usage-report', {
+      params: params
+    });
+    console.log('API: Token usage report received:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('API Error fetching token usage report:', error);
+    throw error; // Re-throw for component error handling
+  }
+};
+// --- END ADDED ---
