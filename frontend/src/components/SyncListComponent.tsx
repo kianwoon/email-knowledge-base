@@ -1,123 +1,145 @@
 import React from 'react';
 import {
   Box,
-  VStack,
-  HStack,
-  Text,
-  Button,
-  List, 
-  ListItem,
-  ListIcon,
-  IconButton,
   Heading,
+  Text,
+  useColorModeValue,
   Spinner,
   Center,
-  useColorModeValue,
+  Button,
+  Icon,
+  VStack,
+  HStack,
+  List,
+  ListItem,
+  IconButton,
+  Tag,
+  Flex,
 } from '@chakra-ui/react';
-import { FaFolder, FaFile, FaTrashAlt, FaSync } from 'react-icons/fa';
+import { FaFolder, FaFileAlt, FaSync, FaTrashAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
-import { SharePointSyncItem } from '../models/sharepoint';
+
+// Define a common interface for sync list items from different sources
+export interface SyncListItem {
+  id: number;
+  item_type: 'prefix' | 'folder' | 'file'; // Standardize: 'folder' or 'file' preferably
+  name: string; // Display name (e.g., item_name, file name)
+  path: string; // Full identifier (e.g., s3_key, blob_path, sharepoint_path)
+  container?: string; // Optional: Bucket, Container name, Drive name, Site name etc.
+  status: 'pending' | 'completed' | 'failed'; // Limited to known statuses
+}
 
 interface SyncListComponentProps {
-  items: SharePointSyncItem[];
-  onRemoveItem: (sharepointItemId: string) => void;
+  items: SyncListItem[];
+  onRemoveItem: (itemId: number) => Promise<void>;
   onProcessList: () => void;
   isProcessing: boolean;
   isLoading: boolean;
   error: string | null;
+  sourceType: 'S3' | 'Azure' | 'SharePoint'; // To customize titles etc.
+  t: (key: string, options?: any) => string;
 }
 
-const SyncListComponent: React.FC<SyncListComponentProps> = ({ 
-  items, 
-  onRemoveItem, 
-  onProcessList, 
-  isProcessing, 
+const SyncListComponent: React.FC<SyncListComponentProps> = ({
+  items,
+  onRemoveItem,
+  onProcessList,
+  isProcessing,
   isLoading,
-  error
+  error,
+  sourceType,
+  t,
 }) => {
-  const { t } = useTranslation();
   const folderColor = useColorModeValue('blue.500', 'blue.300');
   const fileColor = useColorModeValue('gray.600', 'gray.400');
   const bgColor = useColorModeValue('gray.50', 'gray.700');
   const hoverBg = useColorModeValue('gray.100', 'gray.600');
+
+  // Only show pending items in this component
+  const pendingItems = items.filter(item => item.status === 'pending');
 
   const renderContent = () => {
     if (isLoading) {
       return <Center p={5}><Spinner /></Center>;
     }
     if (error) {
-        // Display error (consider using Alert component from Chakra)
-        return <Center p={5}><Text color="red.500">{t('sharepoint.errors.loadSyncListError')}: {error}</Text></Center>;
+      return <Center p={5}><Text color="red.500" textAlign="center" width="100%">{t('syncList.errors.loadError', { context: sourceType, error: error })}</Text></Center>;
     }
-    if (items.length === 0) {
-      return <Center p={5}><Text color="gray.500">{t('sharepoint.syncListEmpty')}</Text></Center>;
+    if (pendingItems.length === 0) {
+      return <Center p={5}><Text color="gray.500" textAlign="center" width="100%">{t('syncList.empty_one', { context: sourceType })}</Text></Center>;
     }
-
     return (
-      <List spacing={3} p={4}>
-        {items.map((item) => (
-          <ListItem 
-            key={item.sharepoint_item_id} 
-            display="flex" 
-            alignItems="center" 
-            justifyContent="space-between"
-            p={2}
-            borderRadius="md"
-            _hover={{ bg: hoverBg }}
-            bg={bgColor}
-          >
-            <HStack flex={1} minWidth={0}> {/* Allow shrinking */} 
-              <ListIcon 
-                as={item.item_type === 'folder' ? FaFolder : FaFile} 
-                color={item.item_type === 'folder' ? folderColor : fileColor} 
-                w={5} h={5}
+      <List spacing={3} p={2}>
+        {pendingItems.map((item) => {
+          const isFolder = item.item_type === 'folder' || item.item_type === 'prefix';
+          return (
+            <ListItem
+              key={item.id}
+              display="flex"
+              justifyContent="space-between"
+              alignItems="center"
+              p={2}
+              borderRadius="md"
+              _hover={{ bg: hoverBg }}
+            >
+              <HStack spacing={2} flex={1} minWidth={0} width="100%">
+                <Icon
+                  as={isFolder ? FaFolder : FaFileAlt}
+                  color={isFolder ? folderColor : fileColor}
+                  boxSize="1.2em"
+                  flexShrink={0}
+                />
+                <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%">
+                  <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.path} width="100%" textAlign="left">
+                    {item.name || item.path}
+                  </Text>
+                  {item.container && (
+                     <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.container} width="100%" textAlign="left">
+                       {t(`syncList.containerLabel.${sourceType}`, { defaultValue: 'Location' })}: {item.container}
+                     </Text>
+                   )}
+                </VStack>
+              </HStack>
+              <IconButton
+                aria-label={t('common.remove', 'Remove')}
+                icon={<FaTrashAlt />}
+                size="sm"
+                variant="ghost"
+                colorScheme="red"
+                onClick={() => onRemoveItem(item.id)}
+                isDisabled={isProcessing}
+                flexShrink={0}
               />
-              <Text 
-                isTruncated 
-                title={item.item_name}
-                flex={1} // Allow text to take available space
-              >
-                {item.item_name}
-              </Text>
-            </HStack>
-            <IconButton
-              aria-label={t('common.remove')}
-              icon={<FaTrashAlt />}
-              size="sm"
-              variant="ghost"
-              colorScheme="red"
-              onClick={() => onRemoveItem(item.sharepoint_item_id)}
-              isDisabled={isProcessing}
-              ml={2} // Add margin left
-            />
-          </ListItem>
-        ))}
+            </ListItem>
+          );
+        })}
       </List>
     );
   };
 
   return (
     <Box borderWidth="1px" borderRadius="lg" overflow="hidden">
-      <VStack spacing={0} align="stretch">
-        <HStack justify="space-between" p={4} borderBottomWidth="1px">
-            <Heading size="sm">{t('sharepoint.syncListTitle')}</Heading>
-            <Text fontSize="sm">{t('sharepoint.syncListCount', { count: items.length })}</Text>
-        </HStack>
-        <Box maxHeight="400px" overflowY="auto"> {/* Scrollable list area */}
-            {renderContent()}
-        </Box>
-        <HStack justify="flex-end" p={4} borderTopWidth="1px">
-            <Button 
-                colorScheme="blue"
-                leftIcon={<FaSync />} 
-                onClick={onProcessList}
-                isLoading={isProcessing} // Show spinner on button when processing
-                isDisabled={isProcessing || items.length === 0 || isLoading || !!error}
-            >
-                {t('sharepoint.processSyncListButton')}
-            </Button>
-        </HStack>
-      </VStack>
+      <Flex justify="space-between" align="center" p={4} borderBottomWidth="1px">
+        <Heading size="md">{t('syncList.title_one', { context: sourceType })}</Heading>
+        <Tag size="md" variant="solid" colorScheme="blue">
+          {t('syncList.pendingCount', { count: pendingItems.length })}
+        </Tag>
+      </Flex>
+      <Box maxHeight="300px" overflowY="auto" p={4}>
+        {renderContent()}
+      </Box>
+      <Flex justify="flex-end" p={4} borderTopWidth="1px">
+        <Button
+          leftIcon={<FaSync />}
+          colorScheme="orange"
+          onClick={onProcessList}
+          isDisabled={isProcessing || pendingItems.length === 0}
+          isLoading={isProcessing}
+          loadingText={t('syncList.processingButton', 'Processing...')}
+        >
+          {t('syncList.processButton_one', { context: sourceType })}
+        </Button>
+      </Flex>
     </Box>
   );
 };

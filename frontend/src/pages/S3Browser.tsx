@@ -69,6 +69,7 @@ import {
 } from '../api/s3';
 import { getTaskStatus } from '../api/tasks';
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks';
+import SyncListComponent, { SyncListItem } from '../components/SyncListComponent';
 import { FaAws, FaFolder, FaFileAlt, FaSync, FaPlusCircle, FaCheckCircle, FaTrashAlt, FaHistory, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
 import { ChevronRightIcon } from '@chakra-ui/icons';
 
@@ -115,109 +116,6 @@ const ItemTableSkeleton = () => (
     </Table>
   </TableContainer>
 );
-
-interface SyncListComponentProps {
-  items: S3SyncItem[];
-  onRemoveItem: (itemId: number) => Promise<void>;
-  onProcessList: () => void;
-  isProcessing: boolean;
-  isLoading: boolean;
-  error: string | null;
-  t: (key: string, options?: any) => string;
-}
-
-const S3SyncListComponent: React.FC<SyncListComponentProps> = ({ 
-  items, onRemoveItem, onProcessList, isProcessing, isLoading, error, t 
-}) => {
-  const folderColor = useColorModeValue('blue.500', 'blue.300');
-  const fileColor = useColorModeValue('gray.600', 'gray.400');
-  const bgColor = useColorModeValue('gray.50', 'gray.700');
-  const hoverBg = useColorModeValue('gray.100', 'gray.600');
-
-  const pendingItems = items.filter(item => item.status === 'pending');
-
-  const renderContent = () => {
-    if (isLoading) {
-      return <Center p={5}><Spinner /></Center>;
-    }
-    if (error) {
-      return <Center p={5}><Text color="red.500" textAlign="center" width="100%">{t('s3Browser.errors.loadSyncListError', 'Error loading sync list')}: {error}</Text></Center>;
-    }
-    if (pendingItems.length === 0) {
-      return <Center p={5}><Text color="gray.500" textAlign="center" width="100%">{t('s3Browser.syncListEmpty', 'Your sync list is empty. Browse S3 and add files/folders.')}</Text></Center>;
-    }
-    return (
-      <List spacing={3} p={2}>
-        {pendingItems.map((item) => (
-          <ListItem 
-            key={item.id} 
-            display="flex" 
-            justifyContent="space-between" 
-            alignItems="center"
-            p={2}
-            borderRadius="md"
-            _hover={{ bg: hoverBg }}
-          >
-            <HStack spacing={2} flex={1} minWidth={0} width="100%"> 
-              <Icon 
-                as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} 
-                color={item.item_type === 'prefix' ? folderColor : fileColor}
-                boxSize="1.2em"
-                flexShrink={0}
-              />
-              <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%"> 
-                 <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.s3_key} width="100%" textAlign="left">
-                  {item.item_name || item.s3_key} 
-                 </Text>
-                 <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.s3_bucket} width="100%" textAlign="left">
-                   Bucket: {item.s3_bucket}
-                 </Text>
-              </VStack>
-            </HStack>
-            <IconButton
-              aria-label={t('common.remove', 'Remove')}
-              icon={<FaTrashAlt />}
-              size="sm"
-              variant="ghost"
-              colorScheme="red"
-              onClick={() => onRemoveItem(item.id)}
-              isDisabled={isProcessing}
-              flexShrink={0}
-            />
-          </ListItem>
-        ))}
-      </List>
-    );
-  };
-
-  return (
-    <Box mt={6} borderWidth="1px" borderRadius="lg" bg={bgColor} shadow="base">
-      <VStack align="stretch">
-        <HStack justify="space-between" p={4} borderBottomWidth="1px">
-          <Heading size="md">{t('s3Browser.syncListTitle', 'S3 Sync List')}</Heading>
-          <Tag size="md" variant='solid' colorScheme='blue'>
-            {t('s3Browser.pendingCount', { count: pendingItems.length })}
-          </Tag>
-        </HStack>
-        <Box maxHeight="300px" overflowY="auto">
-           {renderContent()}
-        </Box>
-        <HStack justify="flex-end" p={4} borderTopWidth="1px">
-           <Button
-              leftIcon={<FaSync />}
-              colorScheme="orange"
-              onClick={onProcessList}
-              isDisabled={isProcessing || pendingItems.length === 0}
-              isLoading={isProcessing}
-              loadingText={t('s3Browser.ingestingButton', 'Processing...')}
-            >
-              {t('s3Browser.processSyncListButton', 'Process Sync List')}
-           </Button>
-        </HStack>
-      </VStack>
-    </Box>
-  );
-};
 
 interface HistoryListComponentProps {
   items: S3SyncItem[];
@@ -355,6 +253,17 @@ const S3Browser: React.FC = () => {
     .sort((a, b) => b.id - a.id), 
   [syncList]);
 
+  const genericPendingSyncItems: SyncListItem[] = React.useMemo(() => 
+    pendingSyncItems.map(item => ({
+      id: item.id,
+      item_type: item.item_type,
+      name: item.item_name || item.s3_key.split('/').filter(Boolean).pop() || item.s3_key,
+      path: item.s3_key,
+      container: item.s3_bucket,
+      status: item.status as 'pending' | 'completed' | 'failed',
+    })),
+  [pendingSyncItems]);
+
   const fetchS3SyncList = useCallback(async () => {
     setIsLoadingSyncList(true);
     setSyncListError(null);
@@ -373,14 +282,14 @@ const S3Browser: React.FC = () => {
     console.log("Checking S3 config...");
     setIsLoadingConfig(true);
     setConfigError(null);
-    let configured = false; // Local variable to track status
+    let configured = false;
     try {
       const fetchedConfig = await getS3Config();
       setConfig(fetchedConfig);
       const arn = fetchedConfig?.role_arn ?? '';
       setCurrentRoleArn(arn);
       setInputRoleArn(arn);
-      configured = !!arn; // Determine status based on fetched ARN
+      configured = !!arn;
       console.log("S3 Config fetched:", fetchedConfig, "Is Configured:", configured);
     } catch (err: any) {
       console.error("Failed to check S3 config:", err);
@@ -389,9 +298,9 @@ const S3Browser: React.FC = () => {
       setConfig(null);
       setCurrentRoleArn('');
       setInputRoleArn('');
-      configured = false; // Ensure it's false on error
+      configured = false;
     } finally {
-      setIsConfigured(configured); // Set the state *after* check is complete
+      setIsConfigured(configured);
       setIsLoadingConfig(false);
     }
   }, [t]);
@@ -937,13 +846,14 @@ const S3Browser: React.FC = () => {
                 </Box>
               )}
               
-              <S3SyncListComponent
-                items={pendingSyncItems}
+              <SyncListComponent
+                items={genericPendingSyncItems}
                 onRemoveItem={handleRemoveSyncItem}
                 onProcessList={handleProcessSyncList}
                 isProcessing={isProcessingSyncList}
                 isLoading={isLoadingSyncList}
                 error={syncListError}
+                sourceType='S3'
                 t={t}
               />
             </VStack>

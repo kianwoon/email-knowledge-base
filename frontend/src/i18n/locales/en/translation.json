@@ -1643,11 +1643,7 @@
     "alreadyInSyncList": "Already in sync list",
     "itemAddedToSync": "Item '{{name}}' added to sync list.",
     "itemRemovedFromSync": "Item '{{name}}' removed from sync list.",
-    "syncListTitle": "S3 Sync List",
     "pendingCount": "{{count}} pending",
-    "syncListEmpty": "Your sync list is empty. Browse S3 and add files/folders.",
-    "processSyncListButton": "Process Sync List",
-    "ingestingButton": "Processing...",
     "historyListTitle": "Processing History",
     "historyEmpty": "No processed items found in history.",
     "syncProcessStartedTitle": "S3 sync process started",
@@ -1662,7 +1658,6 @@
       "polling_error": "Polling Error"
     },
     "errors": {
-      "loadSyncListError": "Error loading sync list",
       "loadHistoryError": "Error loading history",
       "configCheckFailed": "Failed to check S3 configuration: {{errorDetail}}",
       "loadBucketsFailed": "Failed to load S3 buckets. Check permissions or configuration.",
@@ -1699,8 +1694,6 @@
     "connectionLabel": "Select Connection",
     "connectionSelectPlaceholder": "Select an Azure Connection...",
     "containerSelectPlaceholder": "Select a Container...",
-    "syncListTitle": "Azure Sync List",
-    "syncListEmpty": "Your sync list is empty. Browse Azure and add files/folders.",
     "addToSyncList": "Add to Sync List",
     "alreadyInSyncList": "Already in sync list",
     "containerLabel": "Container",
@@ -1718,12 +1711,9 @@
       "loadConnections": "Failed to load connections.",
       "loadContainers": "Failed to load containers.",
       "loadBlobs": "Failed to load blobs.",
-      "loadSyncList": "Failed to load sync list.",
       "processSyncList": "Failed to start sync process.",
       "noConnectionSelected": "Please select an Azure connection first to process the list."
     },
-    "syncing": "Processing...",
-    "processSynced": "Process Sync List",
     "historyListTitle": "Processing History",
     "historyEmpty": "No processed items found in history.",
     "historyContainerLabel": "Container:"
@@ -1749,6 +1739,25 @@
       "addFailed": "Failed to add Azure connection",
       "deleteFailed": "Failed to delete Azure connection",
       "duplicateName": "Connection name must be unique."
+    }
+  },
+  "syncList": {
+    "title_one": "{{context}} Sync List",
+    "title_other": "{{context}} Sync List",
+    "empty_one": "Your {{context}} sync list is empty. Browse and add files/folders.",
+    "empty_other": "Your {{context}} sync list is empty. Browse and add files/folders.",
+    "pendingCount": "Pending ({{count}})",
+    "processButton_one": "Process {{context}} List",
+    "processButton_other": "Process {{context}} List",
+    "processingButton": "Processing...",
+    "errors": {
+      "loadError_one": "Error loading {{context}} sync list: {{error}}",
+      "loadError_other": "Error loading {{context}} sync list: {{error}}"
+    },
+    "containerLabel": {
+        "S3": "Bucket",
+        "Azure": "Container",
+        "SharePoint": "Drive ID" 
     }
   }
 }

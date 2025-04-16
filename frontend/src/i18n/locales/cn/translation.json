@@ -984,705 +984,39 @@
     }
   },
   "common": {
-    "yes": "是",
-    "no": "否",
     "loading": "加载中...",
     "error": "错误",
     "success": "成功",
-    "cancel": "取消",
-    "save": "保存",
-    "delete": "删除",
-    "edit": "编辑",
-    "view": "查看",
-    "search": "搜索",
-    "filter": "筛选",
-    "sort": "排序",
-    "select": "选择",
-    "submit": "提交",
-    "reset": "重置",
-    "previous": "上一页",
-    "next": "下一页",
-    "send": "发送",
-    "refresh": "刷新数据",
-    "notAvailable": "暂无",
-    "active": "活跃",
-    "inactive": "非活跃",
-    "name": "名称",
-    "type": "类型",
-    "size": "大小",
-    "modified": "修改时间",
-    "modifiedBy": "修改者",
-    "tags": {
-      "executive": "高管",
-      "sales": "销售",
-      "marketing": "市场营销",
-      "finance": "财务",
-      "legal": "法务",
-      "hr": "人力资源",
-      "it": "信息技术",
-      "operations": "运营",
-      "customerSupport": "客户支持",
-      "policy": "政策",
-      "procedure": "流程",
-      "decision": "决策",
-      "report": "报告",
-      "analysis": "分析",
-      "discussion": "讨论",
-      "approval": "审批",
-      "request": "请求",
-      "notification": "通知",
-      "public": "公开",
-      "internal": "内部",
-      "confidential": "机密",
-      "restricted": "受限",
-      "pii": "个人信息",
-      "financial": "财务",
-      "strategic": "战略",
-      "tag0": "标签0",
-      "tag1": "标签1",
-      "tag2": "标签2",
-      "tag3": "标签3",
-      "knowledge": "知识",
-      "important": "重要",
-      "routine": "常规",
-      "never": "从不"
-    },
-    "departments": {
-      "engineering": "工程部",
-      "product": "产品部",
-      "marketing": "市场部",
-      "sales": "销售部"
-    },
-    "actions": "操作",
-    "actionsHeader": "操作",
-    "taskID": "任务 ID:",
-    "retry": "重试",
-    "saveChanges": "保存更改",
-    "confirmClear": "确认清除",
-    "noResultsFound": "未找到结果。"
-  },
-  "buttons": {
+    "warning": "警告",
+    "info": "信息",
     "cancel": "取消",
     "confirm": "确认",
     "save": "保存",
     "delete": "删除",
     "edit": "编辑",
-    "select": "选择",
+    "add": "添加",
+    "remove": "移除",
+    "retry": "重试",
     "submit": "提交",
-    "reset": "重置"
-  },
-  "analysis": {
-    "classification": {
-      "tags": {
-        "executive": "高管",
-        "sales": "销售",
-        "marketing": "市场营销",
-        "finance": "财务",
-        "legal": "法务",
-        "hr": "人力资源",
-        "it": "信息技术",
-        "operations": "运营",
-        "customerSupport": "客户支持",
-        "policy": "政策",
-        "procedure": "流程",
-        "decision": "决策",
-        "report": "报告",
-        "analysis": "分析",
-        "discussion": "讨论",
-        "approval": "审批",
-        "request": "请求",
-        "notification": "通知",
-        "public": "公开",
-        "internal": "内部",
-        "confidential": "机密",
-        "restricted": "受限",
-        "pii": "个人信息",
-        "financial": "财务",
-        "strategic": "战略"
-      }
-    },
-    "pii": {
-      "types": {
-        "names": "姓名",
-        "emails": "电子邮件地址",
-        "phoneNumbers": "电话号码",
-        "addresses": "地址",
-        "ssn": "社会安全号码/身份证号码",
-        "financialData": "财务数据",
-        "healthInformation": "健康信息",
-        "credentials": "凭证"
-      }
-    },
-    "title": "主题分析",
-    "prompt": "点击'分析数据'以查看主题分析结果。",
-    "errorLoading": "加载分析时出错：{{error}}",
-    "submittedTitle": "分析已提交",
-    "submittedDescription": "任务提交成功。ID: {{jobId}}",
-    "errorTitle": "分析出错",
-    "errorDescription": "{{error}}",
-    "completeTitle": "分析完成",
-    "failedTitle": "分析失败"
-  },
-  "language": {
-    "english": "English",
-    "chinese": "中文"
-  },
-  "userMenu": {
-    "account": "账户",
-    "signOut": "退出登录"
-  },
-  "auth": {
-    "signInWithMicrosoft": "使用 Microsoft 登录"
-  },
-  "jarvis": {
-    "title": "贾维斯 AI 助手",
-    "welcomeMessage": "您好！我是贾维斯，您的 AI 助手。今天有什么可以帮您？",
-    "continueWithoutKeys": "您可以在没有保存 API 密钥的情况下继续。",
-    "chat": "对话",
-    "settings": "设置",
-    "thinking": "贾维斯正在思考...",
-    "loadingApiKeys": "正在加载 API 密钥...",
-    "messagePlaceholder": "在此输入您的消息...",
-    "settingsTitle": "API 设置",
-    "settingsContent": {
-      "modelSelection": "模型选择",
-      "modelDescription": "选择用于聊天的 AI 模型。需要 API 密钥的模型只有在下面保存了相应的密钥后才能选择。",
-      "model": "模型",
-      "modelDefaultHelp": "所选模型将用于新的聊天会话。您可以随时更改。",
-      "apiKeyTitle": "API 密钥",
-      "apiKey": "{{provider}} API 密钥",
-      "apiKeyPlaceholder": "输入 API 密钥",
-      "apiKeySet": "API 密钥已设置",
-      "openaiApiKeyDescription": "输入您的 OPENAI API 密钥以使用 OPENAI 模型。",
-      "anthropicApiKeyDescription": "输入您的 ANTHROPIC API 密钥以使用 ANTHROPIC 模型。",
-      "googleApiKeyDescription": "输入您的 GOOGLE API 密钥以使用 GOOGLE 模型。",
-      "openaiApiKeyHelp": "需要用于 GPT-3.5 Turbo, GPT-4, GPT-4 Turbo 等模型。",
-      "anthropicApiKeyHelp": "需要用于 Claude 3 Opus, Claude 3 Sonnet, Claude 3 Haiku 等模型。",
-      "googleApiKeyHelp": "需要用于 Gemini 1.5 Pro, Gemini 1.5 Flash 等模型。"
-    },
-    "requiresKey": "需要 API 密钥",
-    "setAsDefault": "设为默认",
-    "apiKeyDescription": "要使用某些模型，请提供相应提供商的 API 密钥：",
-    "delete": "删除密钥",
-    "deleteApiKeyTooltip": "删除已保存的密钥",
-    "saveApiKeyTooltip": "保存此密钥",
-    "apiKeySaved": "API 密钥已保存",
-    "apiKeySavedDesc": "您的 {{provider}} API 密钥已成功保存。",
-    "apiKeySaveError": "保存 API 密钥时出错",
-    "apiKeyDeleted": "API 密钥已删除",
-    "apiKeyDeletedDesc": "您的 {{provider}} API 密钥已被删除。",
-    "apiKeyDeleteError": "删除 API 密钥时出错",
-    "defaultModelSaved": "默认模型已保存",
-    "defaultModelSavedDesc": "您的默认模型偏好已保存。",
-    "defaultModelError": "保存默认模型时出错"
-  },
-  "customKnowledge": {
-    "uploadTab": "自定义知识库",
-    "historyTab": "历史记录",
-    "uploadTitle": "上传自定义知识文件",
-    "selectFiles": "选择文件",
-    "uploadHelp": "允许的类型：{{allowedTypes}}。最大大小：每个文件 {{maxSize}}。",
-    "filesToUpload": "准备上传的文件",
-    "filename": "文件名",
-    "size": "大小",
-    "noFilesSelected": "尚未选择任何文件。",
-    "process": "处理选定文件",
-    "historyTitle": "上传历史记录",
-    "noHistory": "未找到上传历史记录。",
-    "status": "状态",
-    "uploadedAt": "上传时间",
-    "statusEnum": {
-      "pending": "待处理",
-      "processing": "处理中",
-      "completed": "已完成",
-      "failed": "失败"
-    },
-    "duplicateFile": "此文件已被处理。如果您想再次上传，请重命名该文件。",
-    "uploadSuccess": "文件上传成功",
-    "uploadFailed": "部分文件上传失败"
-  },
-  "knowledgeManagement": {
-    "title": "知识库管理",
-    "summaryTitle": "数据摘要",
-    "summary": {
-      "lastUpdated": "最后更新时间：{{time}}",
-      "emailRawDataLabel": "Outlook 原始数据",
-      "sharepointRawDataLabel": "SharePoint 原始数据",
-      "s3RawDataLabel": "AWS S3 原始数据",
-      "azureBlobRawDataLabel": "Azure Blob 原始数据",
-      "customRawDataLabel": "自定义原始数据",
-      "vectorDataLabel": "向量数据项",
-      "vectorDataSource": "来源：{{vectorCollection}}",
-      "tokenLabel": "API 访问令牌",
-      "tokenHelp": "{{count}} 个活动"
-    },
-    "task": {
-      "title": "后台任务状态",
-      "processing": "知识库更新进行中...",
-      "taskId": "任务 ID：{{id}}",
-      "calculating": "计算中...",
-      "pending": "任务待处理...",
-      "started": "任务已开始..."
-    },
-    "actionsTitle": "管理操作",
-    "actionsPlaceholder": "知识库管理的其他相关操作可在此处添加。",
-    "errors": {
-      "loadFailed": "加载页面数据失败。请重试。",
-      "taskCheckFailed": "检查活动后台任务失败。"
-    }
-  },
-  "fileManager": {
-    "title": "文件管理器"
-  },
-  "s3Browser": {
-    "title": "S3 浏览器",
-    "loadingConfig": "正在检查 S3 配置...",
-    "notConfigured": "未配置 AWS S3 集成。请提供您的 IAM 角色 ARN。",
-    "configureButton": "配置 S3",
-    "selectBucketPlaceholder": "选择一个存储桶...",
-    "selectBucketPrompt": "请在上方选择一个存储桶以查看其内容。",
-    "emptyFolder": "此位置为空。",
-    "tabs": {
-        "browseSync": "浏览和同步",
-        "history": "历史记录",
-        "settings": "设置"
-    },
-    "settings": {
-        "title": "AWS S3 配置",
-        "roleArnLabel": "IAM 角色 ARN",
-        "roleArnHelp": "输入此应用程序访问 S3 时应承担的 IAM 角色的 ARN。",
-        "saveSuccessTitle": "配置已保存",
-        "saveSuccessDesc": "AWS 角色 ARN 已成功更新。",
-        "saveError": "保存配置失败：{{errorDetail}}",
-        "clearConfigButton": "清除配置",
-        "clearConfirmTitle": "清除 S3 配置？",
-        "clearConfirmMsg": "您确定要移除已配置的 AWS 角色 ARN 吗？您需要重新输入才能访问 S3 数据。",
-        "clearSuccessTitle": "配置已清除",
-        "clearSuccessDesc": "AWS 角色 ARN 已移除。",
-        "clearError": "清除配置失败：{{errorDetail}}"
-    },
-    "syncListTitle": "S3 同步列表",
-    "pendingCount": "{{count}} 个待处理",
-    "syncListEmpty": "您的同步列表为空。请浏览 S3 并添加文件/文件夹。",
-    "processSyncListButton": "处理同步列表",
-    "ingestingButton": "处理中...",
-    "historyListTitle": "处理历史记录",
-    "historyEmpty": "历史记录中未找到已处理的项目。",
-    "status": {
-        "pending": "待处理",
-        "processing": "处理中",
-        "completed": "已完成",
-        "failed": "失败",
-        "running": "运行中",
-        "polling_error": "轮询错误"
-    },
-    "errors": {
-      "loadSyncListError": "加载同步列表时出错",
-      "loadHistoryError": "加载历史记录时出错",
-      "configCheckFailed": "检查 S3 配置失败：{{errorDetail}}",
-      "invalidArnFormat": "无效的 AWS 角色 ARN 格式。",
-      "configSaveFailedTitle": "保存失败",
-      "configClearFailedTitle": "清除失败",
-      "loadBucketsFailed": "加载 S3 存储桶失败。请检查权限或配置。",
-      "loadObjectsFailed": "加载对象失败。请检查权限或重试。"
-    },
-    "syncAction": "同步",
-    "addToSyncList": "添加到同步列表",
-    "alreadyInSyncList": "已在同步列表",
-    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表。",
-    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除。",
-    "syncProcessStartedTitle": "同步进程已启动",
-    "syncListEmptyTitle": "同步列表为空"
-  },
-  "tokenManagement": {
-    "title": "令牌管理",
-    "description": "管理您用于以编程方式访问应用程序的 API 令牌。",
-    "createToken": "创建新令牌",
-    "tokenName": "令牌名称",
-    "descriptionLabel": "描述（可选）",
-    "tokenCreated": "令牌已创建",
-    "tokenCreatedSuccess": "您的新 API 令牌已成功创建。",
-    "yourToken": "您的令牌",
-    "copyToken": "复制令牌",
     "close": "关闭",
-    "copied": "已复制！",
-    "confirmDelete": "确认删除",
-    "confirmDeleteMsg": "您确定要删除令牌吗",
-    "delete": "删除",
-    "cancel": "取消",
-    "tokenDeleted": "令牌已删除",
-    "tokenDeletedSuccess": "令牌已成功删除。",
-    "errorCreating": "创建令牌时出错",
-    "errorDeleting": "删除令牌时出错",
-    "table": {
-      "name": "名称",
-      "description": "描述",
-      "preview": "预览",
-      "createdAt": "创建于",
-      "actions": "操作"
-    }
-  },
-  "tokenUsage": {
-    "title": "令牌使用报告",
-    "description": "查看有关您的 API 令牌使用情况的统计信息。",
-    "selectRange": "选择日期范围",
-    "selectToken": "选择令牌",
-    "allTime": "所有时间",
-    "today": "今天",
-    "last7Days": "过去 7 天",
-    "last30Days": "过去 30 天",
-    "customRange": "自定义范围",
-    "startDate": "开始日期",
-    "endDate": "结束日期",
-    "allTokens": "所有令牌",
-    "errorFetching": "获取令牌使用数据失败。",
-    "errorStartDateMissing": "自定义范围需要开始日期。",
-    "errorEndDateBeforeStart": "结束日期不能早于开始日期。",
-    "chartTitle": "使用趋势 (每日)",
-    "noChartData": "所选期间内无可用使用数据以显示图表。",
-    "chartLineName": "使用次数",
-    "tableTitle": "使用详情",
-    "errorFetchingTimeSeries": "获取令牌使用时间序列数据失败。",
-    "table": {
-      "name": "令牌名称",
-      "description": "描述",
-      "preview": "预览",
-      "usageCount": "使用次数",
-      "lastUsed": "上次使用",
-      "noData": "所选期间内没有可用的使用数据。",
-      "noDataForToken": "所选期间内此令牌没有可用的使用数据。"
-    }
-  },
-  "editTokenModal": {
-    "title": "编辑令牌",
-    "toast": {
-      "successTitle": "令牌已更新",
-      "successDescription": "令牌\"{{name}}\"已成功更新。",
-      "errorTitle": "更新失败",
-      "errorDescription": "无法更新令牌。"
-    },
-    "errors": {
-      "fetchFailed": "加载令牌数据失败，请重试"
-    },
-    "form": {
-      "name": {
-        "label": "令牌名称",
-        "placeholder": "例如：我的API密钥"
-      },
-      "description": {
-        "label": "描述",
-        "placeholder": "可选：描述此令牌的用途"
-      },
-      "sensitivity": {
-        "label": "敏感度级别",
-        "helper": "控制数据访问限制。"
-      },
-      "allowRules": {
-        "label": "允许规则",
-        "placeholder": "输入允许规则并按回车键",
-        "helper": "可选：列出允许访问的规则。"
-      },
-      "denyRules": {
-        "label": "拒绝规则",
-        "placeholder": "输入拒绝规则并按回车键",
-        "helper": "可选：列出拒绝访问的规则。"
-      },
-      "expiry": {
-        "label": "过期日期（可选）",
-        "helper": "令牌将在此日期后失效。"
-      },
-      "active": {
-        "label": "活跃状态",
-        "helper": "非活跃令牌无法使用。"
-      }
-    }
-  },
-  "search": {
-    "title": "知识库搜索",
-    "description": "搜索您组织的知识库",
-    "queryLabel": "搜索查询",
-    "placeholder": "输入关键词或短语进行搜索...",
-    "helperText": "使用关键词、短语或自然语言进行搜索。支持高级搜索语法。",
-    "searching": "正在搜索...",
-    "results": "找到 {{count}} 个结果，共 {{total}} 个",
-    "from": "来自",
-    "matchPercentage": "匹配度 {{percentage}}%",
-    "viewDetails": "查看详情",
-    "knowledgeItem": "知识项详情",
-    "source": "来源",
-    "sender": "发送者",
-    "date": "日期",
-    "extractedDate": "提取日期",
-    "content": "内容",
-    "toast": {
-      "emptyQuery": "请输入搜索内容",
-      "searchError": "搜索时出错",
-      "loadError": "加载内容时出错"
-    }
-  },
-  "filterSetup": {
-    "title": "邮件过滤设置",
-    "subtitle": "配置邮件过滤规则",
-    "emailTable": {
-      "loading": "正在加载邮件...",
-      "noEmails": "未找到邮件",
-      "subject": "主题",
-      "sender": "发件人",
-      "date": "日期",
-      "preview": "预览"
-    },
-    "filters": {
-      "templates": {
-        "title": "过滤器模板",
-        "save": "保存模板",
-        "load": "加载模板",
-        "name": "模板名称",
-        "placeholder": "输入模板名称"
-      },
-      "folder": {
-        "label": "选择文件夹",
-        "placeholder": "选择邮件文件夹"
-      },
-      "keywords": {
-        "label": "关键词",
-        "placeholder": "输入关键词",
-        "add": "添加关键词",
-        "remove": "移除关键词"
-      },
-      "date": {
-        "label": "日期范围",
-        "start": "开始日期",
-        "end": "结束日期"
-      },
-      "itemsPerPage": {
-        "label": "每页显示",
-        "items": "{{count}} 项"
-      }
-    },
-    "actions": {
-      "analyze": "分析邮件",
-      "saveToKnowledge": "保存到知识库",
-      "refresh": "刷新列表"
-    },
-    "pagination": {
-      "previous": "上一页",
-      "next": "下一页",
-      "page": "第 {{page}} 页",
-      "of": "共 {{total}} 页"
-    },
-    "toast": {
-      "templateSaved": {
-        "title": "模板已保存",
-        "description": "过滤器模板保存成功"
-      },
-      "templateLoaded": {
-        "title": "模板已加载",
-        "description": "过滤器模板加载成功"
-      },
-      "analyzeSuccess": {
-        "title": "分析已开始",
-        "description": "邮件分析任务已启动"
-      },
-      "analyzeError": {
-        "title": "分析失败",
-        "description": "启动邮件分析时出错"
-      },
-      "saveSuccess": {
-        "title": "保存成功",
-        "description": "已成功保存到知识库"
-      },
-      "saveError": {
-        "title": "保存失败",
-        "description": "保存到知识库时出错"
-      },
-      "loadError": {
-        "title": "加载失败",
-        "description": "加载邮件数据时出错"
-      }
-    }
-  },
-  "emailReview": {
-    "pageTitle": "邮件审核",
-    "pageDescription": "审核和批准要添加到知识库的邮件",
-    "sampleEmails": {
-      "subject": "示例邮件 #{{number}}",
-      "body": "这是示例邮件 #{{number}} 的内容。",
-      "summary": "示例邮件 #{{number}} 的摘要",
-      "keyPoint1": "关键点 1 - 邮件 #{{number}}",
-      "keyPoint2": "关键点 2 - 邮件 #{{number}}",
-      "keyPoint3": "关键点 3 - 邮件 #{{number}}"
-    },
-    "filters": {
-      "title": "筛选条件",
-      "allDepartments": "所有部门",
-      "allSensitivityLevels": "所有敏感度级别",
-      "allPrivacyLevels": "所有隐私级别"
-    },
-    "privacy": {
-      "private": "私密",
-      "notPrivate": "非私密"
-    },
-    "table": {
-      "title": "待审核邮件",
-      "noResults": "未找到符合条件的邮件",
-      "subject": "主题",
-      "department": "部门",
-      "sensitivity": "敏感度",
-      "tags": "标签",
-      "private": "私密性",
-      "actions": "操作"
-    },
-    "actions": {
-      "viewDetails": "查看详情",
-      "approve": "批准",
-      "reject": "拒绝",
-      "selectAll": "全选",
-      "deselectAll": "取消全选",
-      "approveSelected": "批准所选",
-      "rejectSelected": "拒绝所选"
-    },
-    "pagination": {
-      "showingRangeOfTotal": "显示 {{start}} - {{end}} 条，共 {{total}} 条",
-      "selectedCount": "已选择 {{count}} 条",
-      "pageInfo": "第 {{currentPage}} 页，共 {{totalPages}} 页"
-    },
-    "notes": {
-      "label": "审核备注",
-      "placeholder": "输入有关此审核决定的任何备注..."
-    },
-    "drawer": {
-      "title": "邮件详情",
-      "from": "发件人：{{sender}} <{{email}}>",
-      "date": "日期：{{date}}",
-      "analysisTitle": "分析结果",
-      "summary": "摘要",
-      "keyPoints": "关键点",
-      "piiDetected": "检测到的个人信息",
-      "recommendedAction": "建议操作",
-      "emailContent": "邮件内容",
-      "attachmentsCount": "附件 ({{count}})",
-      "attachmentType": "类型：{{type}}",
-      "attachmentSize": "大小：{{size}}"
-    },
-    "toast": {
-      "loadErrorTitle": "加载失败",
-      "updateErrorTitle": "更新失败",
-      "approvedSuccess": "邮件已批准",
-      "rejectedSuccess": "邮件已拒绝",
-      "bulkApprovedSuccess": "已批准 {{count}} 封邮件",
-      "bulkRejectedSuccess": "已拒绝 {{count}} 封邮件",
-      "bulkUpdateErrorTitle": "批量更新失败",
-      "noSelectionTitle": "未选择邮件",
-      "noSelectionDescription": "请至少选择一封邮件进行操作"
-    }
-  },
-  "errors": {
-    "unknown": "发生未知错误。",
-    "unauthorized": "未授权。请重新登录。",
-    "forbidden": "禁止访问。您没有权限。",
-    "notFound": "未找到资源。",
-    "serverError": "内部服务器错误。请稍后重试。",
-    "fetchCurrentUser": "获取用户信息失败。",
-    "taskStatus": "获取任务状态失败。",
-    "fetchSyncListError": "获取同步列表失败。",
-    "processSyncListError": "提交同步列表处理时出错",
-    "sessionExpiredTitle": "会话已过期",
-    "sessionExpiredMessage": "您的会话已过期。请重新登录以继续。"
-  },
-  "sharepoint": {
-    "tabs": {
-      "browseSites": "浏览站点",
-      "quickAccess": "快速访问",
-      "myRecent": "我的最近",
-      "history": "历史记录"
-    },
-    "drivesForSite": "驱动器 / 文档库 (站点: {{siteName}})",
-    "title": "SharePoint 数据源",
-    "sites": "站点",
-    "drives": "驱动器 / 文档库",
-    "selectSitePrompt": "选择一个 SharePoint 站点以浏览其驱动器。",
-    "selectSiteDesc": "显示已关注的站点。您可以直接在 SharePoint 中关注更多站点。",
-    "selectDrivePrompt": "选择一个驱动器（文档库）以浏览其内容。",
-    "selectDriveDesc": "仅显示文档库。",
-    "noSitesFound": "未找到已关注的站点。",
-    "noDrivesFound": "此站点未找到驱动器。",
-    "selectSiteFirst": "请先选择一个站点。",
-    "selectDriveFirst": "请先选择一个驱动器。",
-    "items": "文件和文件夹",
+    "view": "查看",
+    "details": "详情",
     "name": "名称",
-    "modified": "上次修改时间",
-    "size": "大小",
-    "actions": "操作",
-    "searchPlaceholder": "搜索此驱动器...",
-    "searchButton": "搜索",
-    "downloadButton": "下载并处理",
-    "noItemsFound": "此位置未找到任何项目。",
-    "searchNoResults": "未找到与您的搜索匹配的项目。",
-    "loadingSites": "正在加载站点...",
-    "loadingDrives": "正在加载驱动器...",
-    "loadingItems": "正在加载项目...",
-    "searching": "正在搜索...",
-    "downloading": "正在开始下载...",
-    "taskSubmitted": "文件处理任务已提交。",
-    "taskProgress": "正在处理文件...",
-    "taskComplete": "文件处理完成。",
-    "taskFailed": "文件处理失败。",
-    "filterByOwner": "按所有者筛选",
-    "noMatchingItemsFilter": "没有符合筛选条件的项目。",
-    "noRecentItems": "未找到最近的项目。",
-    "untitledItem": "无标题项目",
-    "errors": {
-      "fetchSitesTitle": "获取站点时出错",
-      "fetchDrivesTitle": "获取驱动器时出错",
-      "fetchItemsTitle": "获取项目时出错",
-      "searchFailedTitle": "搜索失败",
-      "searchQueryMissing": "请输入搜索查询。",
-      "downloadTitle": "开始下载时出错",
-      "taskStatusTitle": "检查任务状态时出错"
-    },
-    "tooltips": {
-      "download": "下载并处理此文件以用于知识库",
-      "browseFolder": "打开文件夹"
-    },
-    "noSitesFoundForFilter": "未找到以 '{{letter}}' 开头的站点",
-    "root": "驱动器根目录",
-    "searchResults": "搜索结果",
-    "downloadFile": "下载并处理此文件",
-    "searchButtonLabel": "搜索驱动器",
-    "downloadTaskProgressTitle": "文件处理任务",
-    "emptyFolder": "此文件夹为空",
-    "emptyFolderDesc": "此处未找到文件或子文件夹。",
-    "noSearchResults": "未找到符合您搜索条件的项。",
-    "pageTitle": "SharePoint 数据源",
-    "errors": {
-      "fetchRecentTitle": "获取最近项目时出错"
-    },
-    "searchDrivePlaceholder": "搜索此文档库...",
-    "syncTaskProgressTitle": "同步任务进度",
-    "status": {
-      "pending": "待定",
-      "processing": "处理中",
-      "completed": "已完成",
-      "failed": "失败"
-    },
-    "syncListCount": "已选择 {{count}} 个项目",
-    "selectSitePlaceholder": "请选择一个 SharePoint 站点",
-    "noSitesFoundForFilter": "未找到以 '{{letter}}' 开头的站点",
-    "searchDrive": "搜索此驱动器",
-    "history": {
-        "title": "已处理项目历史",
-        "empty": "历史记录中未找到已完成的项目。"
-    },
-    "itemType": {
-        "folder": "文件夹",
-        "file": "文件"
-    },
-    "itemRemovedDetail": "项目 '{itemPath}' 已从同步列表中移除。",
-    "errorRemove": "移除项目时出错",
-    "warningTitle": "警告",
-    "itemAlreadyProcessed": "此项目已被处理或正在处理中。",
-    "history": "同步历史",
+    "description": "描述",
     "status": "状态",
+    "status_pending": "待处理",
+    "status_running": "运行中",
+    "status_completed": "已完成",
+    "status_failed": "失败",
+    "status_error": "错误",
+    "status_queued": "已排队",
+    "taskCompleted": "任务成功完成。",
+    "taskFailed": "任务失败。",
+    "taskID": "任务ID:",
+    "type": "类型",
+    "size": "大小",
+    "modified": "修改时间",
+    "lastModified": "最后修改时间",
     "addedOn": "添加时间"
   },
   "deleteConfirmation": "您确定要删除此项吗？",
@@ -1727,52 +1061,44 @@
     "noDriveSelected": "未选择要从中添加项目的驱动器。",
     "fetchSyncListError": "获取同步列表失败。"
   },
-  "syncListTitle": "同步列表",
-  "syncListEmpty": "您的同步列表为空。请浏览 SharePoint 并添加文件/文件夹。",
-  "processSyncListButton": "处理同步列表",
   "sessionExpired": {
     "title": "会话已过期",
     "message": "您的会话已过期。请重新登录以继续。",
     "loginButton": "登录"
   },
   "azureBlobBrowser": {
-      "title": "Azure Blob 存储管理",
-      "tabs": {
-          "browseAndSync": "浏览和同步",
-          "history": "历史记录",
-          "settings": "设置"
-      },
-      "connectionLabel": "选择连接",
-      "connectionSelectPlaceholder": "选择一个 Azure 连接...",
-      "containerSelectPlaceholder": "选择一个容器...",
-      "syncListTitle": "Azure 同步列表",
-      "syncListEmpty": "您的同步列表为空。请浏览 Azure 并添加文件/文件夹。",
-      "addToSyncList": "添加到同步列表",
-      "alreadyInSyncList": "已在同步列表",
-      "containerLabel": "容器",
-      "folderEmpty": "文件夹为空。",
-      "syncSuccessTitle": "同步进程已启动",
-      "syncSuccessDetail": "任务 ID: {{taskId}}。状态将自动更新。",
-      "syncWarningTitle": "同步信息",
-      "syncWarningDetail": "未找到待处理项或任务已在运行。",
-      "syncFailedTitle": "同步失败",
-      "syncFailedDetail": "处理同步项目失败。",
-      "syncCompleteTitle": "同步完成",
-      "syncCompleteDetail": "项目处理成功 (任务 ID: {{taskId}})。",
-      "ingestionStatusTitle": "摄取状态",
-      "errors": {
-          "loadConnections": "加载连接失败。",
-          "loadContainers": "加载容器失败。",
-          "loadBlobs": "加载 Blob 失败。",
-          "loadSyncList": "加载同步列表失败。",
-          "processSyncList": "启动同步进程失败。",
-          "noConnectionSelected": "请先选择一个 Azure 连接以处理列表。"
-      },
-      "historyListTitle": "处理历史记录",
-      "historyEmpty": "历史记录中未找到已处理的项目。",
-      "historyContainerLabel": "容器：",
-      "syncing": "处理中...",
-      "processSynced": "处理同步列表"
+    "title": "Azure Blob 存储管理",
+    "tabs": {
+      "browseAndSync": "浏览和同步",
+      "history": "历史记录",
+      "settings": "设置"
+    },
+    "connectionLabel": "选择连接",
+    "connectionSelectPlaceholder": "选择一个 Azure 连接...",
+    "containerSelectPlaceholder": "选择一个容器...",
+    "addToSyncList": "添加到同步列表",
+    "alreadyInSyncList": "已在同步列表",
+    "containerLabel": "容器",
+    "folderEmpty": "文件夹为空。",
+    "syncSuccessTitle": "同步进程已启动",
+    "syncSuccessDetail": "任务 ID: {{taskId}}。状态将自动更新。",
+    "syncWarningTitle": "同步信息",
+    "syncWarningDetail": "未找到待处理的项目或任务已在运行。",
+    "syncFailedTitle": "同步失败",
+    "syncFailedDetail": "处理同步项目失败。",
+    "syncCompleteTitle": "同步完成",
+    "syncCompleteDetail": "项目处理成功 (任务 ID: {{taskId}})。",
+    "ingestionStatusTitle": "同步状态",
+    "errors": {
+      "loadConnections": "加载连接失败。",
+      "loadContainers": "加载容器失败。",
+      "loadBlobs": "加载 Blob 失败。",
+      "processSyncList": "启动同步进程失败。",
+      "noConnectionSelected": "请先选择一个 Azure 连接以处理列表。"
+    },
+    "historyListTitle": "处理历史记录",
+    "historyEmpty": "历史记录中未找到已处理的项目。",
+    "historyContainerLabel": "容器:"
   },
   "azureConnectionManager": {
     "title": "Azure 存储设置",
@@ -1799,7 +1125,82 @@
   },
   "knowledge": {
     "title": "知识库",
-    "subtitle": "强大的向量数据库，用于存储、搜索和导出组织的知识",
+    "subtitle": "强大的向量数据库，用于存储、搜索和导出组织的知识。",
     "managementTitle": "知识管理"
+  },
+  "s3Browser": {
+    "title": "S3 浏览器",
+    "loadingConfig": "正在检查 S3 配置...",
+    "notConfigured": "未配置 AWS S3 集成。请提供您的 IAM 角色 ARN。",
+    "configureButton": "配置 S3",
+    "selectBucketPlaceholder": "选择一个存储桶...",
+    "selectBucketPrompt": "请在上方选择一个存储桶以查看其内容。",
+    "emptyFolder": "此位置为空。",
+    "pendingCount": "{{count}} 个待处理",
+    "historyListTitle": "处理历史记录",
+    "historyEmpty": "历史记录中未找到已处理的项目。",
+    "status": {
+      "pending": "待处理",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败",
+      "running": "运行中",
+      "polling_error": "轮询错误"
+    },
+    "errors": {
+      "loadHistoryError": "加载历史记录时出错",
+      "configCheckFailed": "检查 S3 配置失败：{{errorDetail}}",
+      "invalidArnFormat": "无效的 AWS 角色 ARN 格式。",
+      "configSaveFailedTitle": "保存失败",
+      "configClearFailedTitle": "清除失败",
+      "loadBucketsFailed": "加载 S3 存储桶失败。请检查权限或配置。",
+      "loadObjectsFailed": "加载对象失败。请检查权限或重试。"
+    },
+    "syncAction": "同步",
+    "addToSyncList": "添加到同步列表",
+    "alreadyInSyncList": "已在同步列表",
+    "itemAddedToSync": "项目 '{{name}}' 已添加到同步列表。",
+    "itemRemovedFromSync": "项目 '{{name}}' 已从同步列表移除。",
+    "syncProcessStartedTitle": "同步进程已启动",
+    "syncListEmptyTitle": "同步列表为空",
+    "ingestionTaskProgressTitle": "S3 Ingestion Task",
+    "tabs": {
+      "browseAndSync": "浏览和同步",
+      "history": "历史记录",
+      "settings": "设置"
+    },
+    "settings": {
+      "title": "AWS S3 配置",
+      "roleArnLabel": "IAM 角色 ARN",
+      "roleArnHelp": "输入此应用程序访问 S3 时应承担的 IAM 角色的 ARN。",
+      "saveSuccessTitle": "配置已保存",
+      "saveSuccessDesc": "AWS 角色 ARN 已成功更新。",
+      "saveError": "保存配置失败：{{errorDetail}}",
+      "clearConfigButton": "清除配置",
+      "clearConfirmTitle": "清除 S3 配置？",
+      "clearConfirmMsg": "您确定要移除已配置的 AWS 角色 ARN 吗？您需要重新输入才能访问 S3 数据。",
+      "clearSuccessTitle": "配置已清除",
+      "clearSuccessDesc": "AWS 角色 ARN 已移除。",
+      "clearError": "清除配置失败：{{errorDetail}}"
+    }
+  },
+  "syncList": {
+    "title_one": "{{context}} 同步列表",
+    "title_other": "{{context}} 同步列表",
+    "empty_one": "您的 {{context}} 同步列表为空。请浏览并添加文件/文件夹。",
+    "empty_other": "您的 {{context}} 同步列表为空。请浏览并添加文件/文件夹。",
+    "pendingCount": "待处理 ({{count}}项)",
+    "processButton_one": "处理 {{context}} 列表",
+    "processButton_other": "处理 {{context}} 列表",
+    "processingButton": "处理中...",
+    "errors": {
+      "loadError_one": "加载 {{context}} 同步列表时出错: {{error}}",
+      "loadError_other": "加载 {{context}} 同步列表时出错: {{error}}"
+    },
+    "containerLabel": {
+        "S3": "存储桶",
+        "Azure": "容器",
+        "SharePoint": "驱动器ID"
+    }
   }
 }

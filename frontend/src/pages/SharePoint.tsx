@@ -36,7 +36,7 @@ import {
   List,
   ListItem
 } from '@chakra-ui/react';
-import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown, FaPlusCircle, FaCheckCircle } from 'react-icons/fa';
+import { FaFolder, FaFileAlt, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown, FaPlusCircle, FaCheckCircle } from 'react-icons/fa';
 import { CheckIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 import apiClient from '../api/apiClient'; // Changed to default import
@@ -44,7 +44,7 @@ import { getTaskStatus } from '../api/tasks'; // Import task API
 import { TaskStatusEnum, TaskStatus as TaskStatusInterface } from '../models/tasks'; // Import enum and interface
 import QuickAccessList from '../components/QuickAccessList'; // <-- Import the new component
 import MyRecentFilesList from '../components/MyRecentFilesList'; // Import the new component
-import SyncListComponent from '../components/SyncListComponent'; // <-- Import the new component
+import SyncListComponent, { SyncListItem } from '../components/SyncListComponent'; // <-- Import the new component
 import {
   SharePointSite, 
   SharePointDrive, 
@@ -159,6 +159,9 @@ const formatFileSize = (bytes?: number): string => {
 const SharePointPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
+
+  // +++ Add bgColor +++
+  const bgColor = useColorModeValue('gray.50', 'gray.800');
 
   // State Management
   const [isLoadingSites, setIsLoadingSites] = useState(true); // Start loading sites initially
@@ -974,466 +977,491 @@ const isAlreadyInSyncList = syncedItemIdsSet.has(item.id);
   }, [fetchSyncList]); // Run once on mount, depending on fetchSyncList callback
   // +++ End UseEffect +++
 
+  // Map SharePointSyncItem to the generic SyncListItem
+  const genericPendingSyncItems: SyncListItem[] = useMemo(() => 
+    syncList
+      .filter(item => item.status === 'pending')
+      .map(item => ({
+        id: item.id, // Assuming SharePointSyncItem has an 'id' field
+        item_type: item.item_type, // 'folder' or 'file'
+        name: item.item_name, // Use item_name directly
+        path: item.sharepoint_item_id, // Use sharepoint_item_id as the unique path/identifier
+        container: item.sharepoint_drive_id, // Use drive_id as the container info
+        status: item.status as 'pending' | 'completed' | 'failed', // Cast status
+      })),
+  [syncList]);
+
   // Main Return
   return (
-    <Container maxW="container.xl" py={5}>
-      <VStack spacing={5} align="stretch">
-        <Heading size="lg" textAlign={{ base: 'center', md: 'left' }}>{t('sharepoint.title')}</Heading>
+    <Container maxW="container.xl" py={5} bg={bgColor}>
+      <Heading size="lg" textAlign={{ base: 'center', md: 'left' }} mb={5}>{t('sharepoint.title')}</Heading>
 
-        <Tabs variant="soft-rounded" colorScheme="blue" isLazy onChange={(index) => {
-          if (index === 3) {
-            fetchHistory();
-          }
-        }}>
-          <TabList mb="1em">
-            <Tab>{t('sharepoint.tabs.browseSites')}</Tab>
-            <Tab>{t('sharepoint.tabs.quickAccess')}</Tab>
-            <Tab>{t('sharepoint.tabs.myRecent')}</Tab>
-            <Tab>{t('sharepoint.tabs.history')}</Tab>
-          </TabList>
-          <TabPanels>
-            <TabPanel p={0}>
-              <VStack spacing={6} align="stretch">
-                <Box>
-                <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePlaceholder')}</Text>
-                  <AlphabetIndex 
-                    selectedLetterFilter={selectedLetterFilter}
-                    handleLetterFilterClick={handleLetterFilterClick}
-                    availableLetters={availableLetters}
-                    t={t}
-                  />
-                  {isLoadingSites ? (
-                      <HStack overflowX="auto" py={2} spacing={4}>
-                          {[...Array(8)].map((_, i) => <Card key={i} minW="180px"><Skeleton height="80px" /></Card>)}
-                      </HStack>
-                  ) : sites.length > 0 ? (
-                      filteredSites.length > 0 ? (
+      <Tabs variant="soft-rounded" colorScheme="blue" isLazy onChange={(index) => {
+        if (index === 3) {
+          fetchHistory();
+        }
+      }}>
+        <TabList mb="1em">
+          <Tab>{t('sharepoint.tabs.browseSites')}</Tab>
+          <Tab>{t('sharepoint.tabs.quickAccess')}</Tab>
+          <Tab>{t('sharepoint.tabs.myRecent')}</Tab>
+          <Tab>{t('sharepoint.tabs.history')}</Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel p={0}>
+            <VStack spacing={6} align="stretch">
+              <Box>
+              <Text fontSize="lg" mb={2} textAlign="center">{t('sharepoint.selectSitePlaceholder')}</Text>
+                <AlphabetIndex 
+                  selectedLetterFilter={selectedLetterFilter}
+                  handleLetterFilterClick={handleLetterFilterClick}
+                  availableLetters={availableLetters}
+                  t={t}
+                />
+                {isLoadingSites ? (
+                    <HStack overflowX="auto" py={2} spacing={4}>
+                        {[...Array(8)].map((_, i) => <Card key={i} minW="180px"><Skeleton height="80px" /></Card>)}
+                    </HStack>
+                ) : sites.length > 0 ? (
+                    filteredSites.length > 0 ? (
+                        <HStack 
+                            overflowX="auto" 
+                            spacing={4} 
+                            py={2} 
+                            px={1}
+                            css={{ 
+                                '&::-webkit-scrollbar': {
+                                    height: '8px',
+                                },
+                                '&::-webkit-scrollbar-thumb': {
+                                    background: scrollbarThumbBg,
+                                    borderRadius: '8px',
+                                },
+                                'scrollbarWidth': 'thin'
+                            }}
+                        >
+                            {filteredSites.map((site) => (
+                                <Card 
+                                    key={site.id} 
+                                    p={4} 
+                                    onClick={() => handleSiteSelect(site.id)}
+                                    cursor="pointer"
+                                    _hover={{ shadow: 'md', borderColor: 'blue.400' }}
+                                    borderWidth="2px"
+                                    borderColor={selectedSite === site.id ? 'blue.400' : 'transparent'}
+                                    transition="all 0.2s"
+                                    minHeight="80px" 
+                                    minWidth="180px"
+                                    display="flex"
+                                    alignItems="center" 
+                                    justifyContent="center" 
+                                    textAlign="center"
+                                    flexShrink={0}
+                                    title={`${site.displayName}\n${site.webUrl}`}
+                                >
+                                    <Icon as={FaGlobeEurope} boxSize={5} mb={2} color="gray.500"/> 
+                                    <Text fontWeight="medium" noOfLines={2}>{site.displayName}</Text>
+                                </Card>
+                            ))}
+                        </HStack>
+                    ) : (
+                        <Center h="100px">
+                            <Text color="gray.500">{t('sharepoint.noSitesFoundForFilter', { letter: selectedLetterFilter })}</Text>
+                        </Center>
+                    )
+                ) : (
+                  <Center h="100px">
+                    <Text color="gray.500">{t('sharepoint.noSitesFound')}</Text>
+                  </Center>
+                )}
+              </Box>
+
+              {selectedSite && (
+                <VStack spacing={2} align="stretch" mt={4} pt={4} borderTopWidth="1px">
+                  <Heading size="md" mb={2}> 
+                    {t('sharepoint.drivesForSite', { siteName: sites.find(s => s.id === selectedSite)?.displayName || selectedSite })}
+                  </Heading>
+
+                  <Box>
+                      {isLoadingDrives ? (
+                          <HStack overflowX="auto" py={2} spacing={4}>
+                              {[...Array(5)].map((_, i) => <DriveCardSkeleton key={i} />)}
+                          </HStack>
+                      ) : drives.length > 0 ? (
                           <HStack 
                               overflowX="auto" 
                               spacing={4} 
                               py={2} 
-                              px={1}
-                              css={{ 
-                                  '&::-webkit-scrollbar': {
-                                      height: '8px',
-                                  },
-                                  '&::-webkit-scrollbar-thumb': {
-                                      background: scrollbarThumbBg,
-                                      borderRadius: '8px',
-                                  },
-                                  'scrollbarWidth': 'thin'
-                              }}
+                              px={1} 
+                              css={{ }}
                           >
-                              {filteredSites.map((site) => (
+                              {drives.map((drive) => (
                                   <Card 
-                                      key={site.id} 
-                                      p={4} 
-                                      onClick={() => handleSiteSelect(site.id)}
+                                      key={drive.id} 
+                                      p={3}
+                                      onClick={() => handleDriveSelect(drive.id)}
                                       cursor="pointer"
-                                      _hover={{ shadow: 'md', borderColor: 'blue.400' }}
+                                      _hover={{ shadow: 'md', borderColor: 'teal.400' }}
                                       borderWidth="2px"
-                                      borderColor={selectedSite === site.id ? 'blue.400' : 'transparent'}
+                                      borderColor={selectedDrive === drive.id ? 'teal.400' : 'transparent'}
                                       transition="all 0.2s"
-                                      minHeight="80px" 
-                                      minWidth="180px"
+                                      minHeight="60px" 
+                                      minWidth="160px"
                                       display="flex"
                                       alignItems="center" 
                                       justifyContent="center" 
                                       textAlign="center"
                                       flexShrink={0}
-                                      title={`${site.displayName}\n${site.webUrl}`}
+                                      title={`${drive.name || t('common.unnamedDrive', 'Unnamed Drive')}\n${t('common.type', 'Type')}: ${drive.driveType || t('common.notApplicable', 'N/A')}\n${drive.webUrl}`}
                                   >
-                                      <Icon as={FaGlobeEurope} boxSize={5} mb={2} color="gray.500"/> 
-                                      <Text fontWeight="medium" noOfLines={2}>{site.displayName}</Text>
+                                      <Text fontWeight="medium" fontSize="sm" noOfLines={2}>{drive.name || t('common.unnamedDrive', 'Unnamed Drive')}</Text>
                                   </Card>
                               ))}
                           </HStack>
                       ) : (
-                          <Center h="100px">
-                              <Text color="gray.500">{t('sharepoint.noSitesFoundForFilter', { letter: selectedLetterFilter })}</Text>
+                          <Center h="80px">
+                              <Text color="gray.500">{t('sharepoint.noDrivesFound')}</Text>
                           </Center>
-                      )
-                  ) : (
-                    <Center h="100px">
-                      <Text color="gray.500">{t('sharepoint.noSitesFound')}</Text>
-                    </Center>
-                  )}
-                </Box>
+                      )}
+                  </Box>
 
-                {selectedSite && (
-                  <VStack spacing={4} align="stretch" mt={4} pt={4} borderTopWidth="1px">
-                    <Heading size="md" mb={2}> 
-                      {t('sharepoint.drivesForSite', { siteName: sites.find(s => s.id === selectedSite)?.displayName || selectedSite })}
-                    </Heading>
+                  {/* Render Search, Breadcrumbs, Progress, Table only when drive selected */} 
+                  {selectedDrive && (
+                    <>
+                      {/* 1. Search Input */} 
+                      <InputGroup size="md" mb={2}> {/* Add mb to separate from breadcrumbs */}
+                          <Input
+                              placeholder={t('sharepoint.searchDrivePlaceholder')}
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              onKeyDown={handleSearchKeyDown}
+                              bg={searchInputBg}
+                              pr="3rem"
+                              isDisabled={isAnythingLoading || !selectedDrive}
+                          />
+                          <InputRightElement width="3rem">
+                              <IconButton
+                                  h="1.75rem"
+                                  size="sm"
+                                  aria-label={t('sharepoint.searchDrive') || 'Search'}
+                                  icon={<Icon as={FaSearch} />}
+                                  onClick={() => searchDrive(selectedDrive, searchQuery)}
+                                  isDisabled={false}
+                                  colorScheme="blue"
+                              />
+                          </InputRightElement>
+                      </InputGroup>
 
-                    <Box>
-                        {isLoadingDrives ? (
-                            <HStack overflowX="auto" py={2} spacing={4}>
-                                {[...Array(5)].map((_, i) => <DriveCardSkeleton key={i} />)}
-                            </HStack>
-                        ) : drives.length > 0 ? (
-                            <HStack 
-                                overflowX="auto" 
-                                spacing={4} 
-                                py={2} 
-                                px={1} 
-                                css={{ }}
-                            >
-                                {drives.map((drive) => (
-                                    <Card 
-                                        key={drive.id} 
-                                        p={3}
-                                        onClick={() => handleDriveSelect(drive.id)}
-                                        cursor="pointer"
-                                        _hover={{ shadow: 'md', borderColor: 'teal.400' }}
-                                        borderWidth="2px"
-                                        borderColor={selectedDrive === drive.id ? 'teal.400' : 'transparent'}
-                                        transition="all 0.2s"
-                                        minHeight="60px" 
-                                        minWidth="160px"
-                                        display="flex"
-                                        alignItems="center" 
-                                        justifyContent="center" 
-                                        textAlign="center"
-                                        flexShrink={0}
-                                        title={`${drive.name || t('common.unnamedDrive', 'Unnamed Drive')}\n${t('common.type', 'Type')}: ${drive.driveType || t('common.notApplicable', 'N/A')}\n${drive.webUrl}`}
-                                    >
-                                        <Text fontWeight="medium" fontSize="sm" noOfLines={2}>{drive.name || t('common.unnamedDrive', 'Unnamed Drive')}</Text>
-                                    </Card>
-                                ))}
-                            </HStack>
-                        ) : (
-                            <Center h="80px">
-                                <Text color="gray.500">{t('sharepoint.noDrivesFound')}</Text>
-                            </Center>
-                        )}
-                    </Box>
-
-                    {/* Render Search, Breadcrumbs, Progress, Table only when drive selected */} 
-                    {selectedDrive && (
-                      <>
-                        {/* 1. Search Input */} 
-                        <InputGroup size="md" mb={2}> {/* Add mb to separate from breadcrumbs */}
-                            <Input
-                                placeholder={t('sharepoint.searchDrivePlaceholder')}
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onKeyDown={handleSearchKeyDown}
-                                bg={searchInputBg}
-                                pr="3rem"
-                                isDisabled={isAnythingLoading || !selectedDrive}
-                            />
-                            <InputRightElement width="3rem">
-                                <IconButton
-                                    h="1.75rem"
-                                    size="sm"
-                                    aria-label={t('sharepoint.searchDrive') || 'Search'}
-                                    icon={<Icon as={FaSearch} />}
-                                    onClick={() => searchDrive(selectedDrive, searchQuery)}
-                                    isDisabled={false}
-                                    colorScheme="blue"
-                                />
-                            </InputRightElement>
-                        </InputGroup>
-
-                        {/* 2. Breadcrumbs Row */}
-                        <HStack
-                          width="100%"
-                          alignItems="center" 
-                          spacing={4}
-                          mb={4} // Add margin bottom to separate from table/progress
-                        >
-                          <Box flex={1} minWidth="0">
-                              {renderBreadcrumbs({ 
-                                drives,
-                                selectedDrive,
-                                currentBreadcrumbs,
-                                searchPerformed,
-                                isLoadingItems,
-                                isSearching,
-                                handleBreadcrumbClick,
-                                t
-                              })} 
-                          </Box>
-                        </HStack>
-                        
-                        {/* 3. Task Progress Display */} 
-                        {isDownloadTaskRunning && activeTaskId && (
-                          <Box 
-                            p={4} borderWidth="1px" borderRadius="md" 
-                            borderColor={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? "red.300" : "blue.300"} 
-                            bg={useColorModeValue("blue.50", "blue.900")} mb={4}
-                          >
-                              <VStack spacing={2} align="stretch">
-                                <HStack justify="space-between">
-                                  <Text fontSize="sm" fontWeight="bold">{t('sharepoint.downloadTaskProgressTitle')}</Text>
-                                  <Tag 
-                                      size="sm"
-                                      colorScheme={
-                                        taskStatus === TaskStatusEnum.COMPLETED ? 'green' : 
-                                        taskStatus === TaskStatusEnum.FAILED || taskStatus === 'POLLING_ERROR' ? 'red' : 
-                                        'blue'
-                                      }
-                                    >
-                                      {taskStatus || 'Initializing...'}
-                                    </Tag>
-                                </HStack>
-                                <Text fontSize="xs">{t('common.taskID', 'Task ID:')} {activeTaskId}</Text>
-                                {taskProgress !== null && (
-                                  <Progress 
-                                    value={taskProgress} size="xs" 
-                                    colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
-                                    isAnimated={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
-                                    hasStripe={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
-                                    borderRadius="full"
-                                  />
-                                )}
-                                {taskDetails && (
-                                    <Text fontSize="xs" color="gray.500" mt={1} noOfLines={1} title={typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}>
-                                      {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
-                                    </Text>
-                                )}
-                              </VStack>
-                          </Box>
-                        )}
-
-                        {/* 4. Files and Folders Table Area */} 
-                        <Box
-                            overflowX="auto"
-                            bg={tableBg} 
-                            borderRadius="md"
-                            borderWidth="1px"
-                        >
-                           {isLoadingItems || isSearching ? (
-                               <ItemTableSkeleton />
-                           ) : (
-                               <Box borderWidth="1px" borderRadius="lg" overflow="hidden">
-                                 <Table variant="simple" bg={tableBg}>
-                                   <Thead>
-                                     <Tr>
-                                       <Th 
-                                         onClick={() => handleBrowseSort('name')} 
-                                         cursor="pointer"
-                                         _hover={{ bg: hoverBg }}
-                                       >
-                                         {t('common.name')} <BrowseSortIcon column="name" />
-                                       </Th>
-                                       <Th 
-                                         onClick={() => handleBrowseSort('lastModifiedDateTime')} 
-                                         cursor="pointer"
-                                         _hover={{ bg: hoverBg }}
-                                       >
-                                         {t('common.modified')} <BrowseSortIcon column="lastModifiedDateTime" />
-                                       </Th>
-                                       <Th 
-                                         isNumeric 
-                                         onClick={() => handleBrowseSort('size')} 
-                                         cursor="pointer"
-                                         _hover={{ bg: hoverBg }}
-                                       >
-                                         {t('common.size')} <BrowseSortIcon column="size" />
-                                       </Th>
-                                       <Th textAlign="center">
-                                         {t('common.sync')}
-                                       </Th> 
-                                     </Tr>
-                                   </Thead>
-                                   <Tbody>
-                                     {sortedAndFilteredItems.length > 0 ? (
-                                       sortedAndFilteredItems.map((item: SharePointItem) => (
-                                         <Tr key={item.id} _hover={{ bg: hoverBg }}>
-                                           <Td 
-                                             onClick={() => item.is_folder && handleItemClick(item)} 
-                                             cursor={item.is_folder ? 'pointer' : 'default'}
-                                             title={item.name}
-                                           >
-                                             <HStack>
-                                               <Icon 
-                                                 as={item.is_folder ? FaFolder : FaFile} 
-                                                 color={item.is_folder ? folderColor : fileColor}
-                                                 w={4} h={4}
-                                               />
-                                               <Text noOfLines={1}>{item.name || '-'}</Text>
-                                             </HStack>
-                                           </Td>
-                                           <Td>{formatDateTime(item.lastModifiedDateTime)}</Td>
-                                           <Td isNumeric>{formatFileSize(item.size)}</Td>
-                                           <Td textAlign="center"> 
-                                               {renderSyncActionButton(item, syncedItemIdsSet, isProcessing, handleAddSyncItem, t)}
-                                           </Td>
-                                         </Tr>
-                                       ))
-                                     ) : (
-                                       <Tr>
-                                         <Td colSpan={4} textAlign="center">{searchPerformed ? t('common.noResultsFound') : t('sharepoint.noItemsFound')}</Td>
-                                       </Tr>
-                                     )}
-                                   </Tbody>
-                                 </Table>
-                               </Box>
-                           )}
+                      {/* 2. Breadcrumbs Row */}
+                      <HStack
+                        width="100%"
+                        alignItems="center" 
+                        spacing={4}
+                        mb={4} // Add margin bottom to separate from table/progress
+                      >
+                        <Box flex={1} minWidth="0">
+                            {renderBreadcrumbs({ 
+                              drives,
+                              selectedDrive,
+                              currentBreadcrumbs,
+                              searchPerformed,
+                              isLoadingItems,
+                              isSearching,
+                              handleBreadcrumbClick,
+                              t
+                            })} 
                         </Box>
-                      </>
-                    )}
-                  </VStack>
-                )}
-              </VStack>
-            </TabPanel>
-            <TabPanel p={0}>
-              <QuickAccessList />
-            </TabPanel>
-            <TabPanel p={0}>
-              <MyRecentFilesList />
-            </TabPanel>
-            <TabPanel p={0}>
-              <Box borderWidth="1px" borderRadius="lg" p={4} bg={useColorModeValue('gray.50', 'gray.700')} shadow="sm">
-                <VStack spacing={4} align="stretch">
-                    <Heading size="md">{t('sharepoint.history.title')}</Heading>
-                    {isLoadingHistory && <Center p={5}><Spinner /></Center>} 
-                    {historyError && <Text color="red.500" p={5}>{historyError}</Text>} 
-                    {!isLoadingHistory && !historyError && (
-                        historyItems.length === 0
-                        ? (<Center p={5}><Text color="gray.500">{t('sharepoint.history.empty')}</Text></Center>)
-                        : (
-                            <Box overflowY="auto" maxHeight="400px">
-                                <List spacing={3} p={2}>
-                                    {historyItems.map((item) => (
-                                        <ListItem 
-                                          key={item.id} 
-                                          display="flex" 
-                                          justifyContent="space-between" 
-                                          alignItems="center"
-                                          p={2}
-                                          borderRadius="md"
-                                          _hover={{ bg: hoverBg }}
-                                        >
-                                          <HStack spacing={2} flex={1} minWidth={0} width="100%"> 
-                                            <Icon 
-                                              as={item.item_type === 'folder' ? FaFolder : FaFile} 
-                                              color={item.item_type === 'folder' ? folderColor : fileColor}
-                                              boxSize="1.2em"
-                                              flexShrink={0}
-                                            />
-                                            <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%"> 
-                                              <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.item_name} width="100%" textAlign="left">
-                                                {item.item_name} 
-                                              </Text>
-                                              {/* Display Drive ID as source info */}
-                                              <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.sharepoint_drive_id} width="100%" textAlign="left">
-                                                {t('sharepoint.history.driveIdLabel', 'Drive ID:')} {item.sharepoint_drive_id}
-                                              </Text>
-                                            </VStack>
-                                          </HStack>
-                                          {/* Status Tag (Always Completed for History) */}
-                                          <Tag 
-                                            size="sm" 
-                                            variant="subtle" 
-                                            colorScheme="green"
-                                            mr={2}
-                                            flexShrink={0}
-                                          >
-                                            <Icon 
-                                              as={FaCheckCircle}
-                                              mr={1} 
-                                            />
-                                            {t('common.status.completed', 'Completed')} 
-                                          </Tag>
-                                        </ListItem>
-                                    ))}
-                                </List>
-                            </Box>
-                        )
-                    )}
+                      </HStack>
+                      
+                      {/* 3. Task Progress Display */} 
+                      {isDownloadTaskRunning && activeTaskId && (
+                        <Box 
+                          p={4} borderWidth="1px" borderRadius="md" 
+                          borderColor={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? "red.300" : "blue.300"} 
+                          bg={useColorModeValue("blue.50", "blue.900")} mb={4}
+                        >
+                            <VStack spacing={2} align="stretch">
+                              <HStack justify="space-between">
+                                <Text fontSize="sm" fontWeight="bold">{t('sharepoint.downloadTaskProgressTitle')}</Text>
+                                <Tag 
+                                    size="sm"
+                                    colorScheme={
+                                      taskStatus === TaskStatusEnum.COMPLETED ? 'green' : 
+                                      taskStatus === TaskStatusEnum.FAILED || taskStatus === 'POLLING_ERROR' ? 'red' : 
+                                      'blue'
+                                    }
+                                  >
+                                    {taskStatus || 'Initializing...'}
+                                  </Tag>
+                              </HStack>
+                              <Text fontSize="xs">{t('common.taskID', 'Task ID:')} {activeTaskId}</Text>
+                              {taskProgress !== null && (
+                                <Progress 
+                                  value={taskProgress} size="xs" 
+                                  colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
+                                  isAnimated={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
+                                  hasStripe={taskStatus !== 'SUCCESS' && taskStatus !== 'FAILURE'} 
+                                  borderRadius="full"
+                                />
+                              )}
+                              {taskDetails && (
+                                  <Text fontSize="xs" color="gray.500" mt={1} noOfLines={1} title={typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}>
+                                    {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
+                                  </Text>
+                              )}
+                            </VStack>
+                        </Box>
+                      )}
+
+                      {/* 4. Files and Folders Table Area */} 
+                      <Box
+                          overflowX="auto"
+                          bg={tableBg} 
+                          borderRadius="lg"
+                          borderWidth="1px"
+                          overflow="hidden"
+                      >
+                         {isLoadingItems || isSearching ? (
+                             <ItemTableSkeleton />
+                         ) : (
+                             <Table variant="simple" bg={tableBg}>
+                                 <Thead>
+                                   <Tr>
+                                     <Th 
+                                       onClick={() => handleBrowseSort('name')} 
+                                       cursor="pointer"
+                                       _hover={{ bg: hoverBg }}
+                                     >
+                                       {t('common.name')} <BrowseSortIcon column="name" />
+                                     </Th>
+                                     <Th 
+                                       onClick={() => handleBrowseSort('lastModifiedDateTime')} 
+                                       cursor="pointer"
+                                       _hover={{ bg: hoverBg }}
+                                     >
+                                       {t('common.modified')} <BrowseSortIcon column="lastModifiedDateTime" />
+                                     </Th>
+                                     <Th 
+                                       isNumeric 
+                                       onClick={() => handleBrowseSort('size')} 
+                                       cursor="pointer"
+                                       _hover={{ bg: hoverBg }}
+                                     >
+                                       {t('common.size')} <BrowseSortIcon column="size" />
+                                     </Th>
+                                     <Th textAlign="center">
+                                       {t('common.sync')}
+                                     </Th> 
+                                   </Tr>
+                                 </Thead>
+                                 <Tbody>
+                                   {sortedAndFilteredItems.length > 0 ? (
+                                     sortedAndFilteredItems.map((item: SharePointItem) => (
+                                       <Tr key={item.id} _hover={{ bg: hoverBg }}>
+                                         <Td 
+                                           onClick={() => item.is_folder && handleItemClick(item)} 
+                                           cursor={item.is_folder ? 'pointer' : 'default'}
+                                           title={item.name}
+                                         >
+                                           <HStack>
+                                             <Icon 
+                                               as={item.is_folder ? FaFolder : FaFileAlt} 
+                                               color={item.is_folder ? folderColor : fileColor}
+                                               boxSize="1.2em"
+                                             />
+                                             <Text noOfLines={1}>{item.name || '-'}</Text>
+                                           </HStack>
+                                         </Td>
+                                         <Td>{formatDateTime(item.lastModifiedDateTime)}</Td>
+                                         <Td isNumeric>{formatFileSize(item.size)}</Td>
+                                         <Td textAlign="center"> 
+                                             {renderSyncActionButton(item, syncedItemIdsSet, isProcessing, handleAddSyncItem, t)}
+                                         </Td>
+                                       </Tr>
+                                     ))
+                                   ) : (
+                                     <Tr>
+                                       <Td colSpan={4} textAlign="center">{searchPerformed ? t('common.noResultsFound') : t('sharepoint.noItemsFound')}</Td>
+                                     </Tr>
+                                   )}
+                                 </Tbody>
+                             </Table>
+                         )}
+                      </Box>
+
+                      {/* +++ MOVE Sync List Component HERE +++ */}
+                      {/* Render the Sync List Component directly */}
+                      <SyncListComponent 
+                        items={genericPendingSyncItems} // Pass the mapped generic items
+                        onRemoveItem={async (itemId: number): Promise<void> => {
+                          // Find the original sharepoint_item_id based on the generic id
+                          const originalItem = syncList.find(i => i.id === itemId);
+                          if (originalItem && originalItem.sharepoint_item_id) {
+                              try {
+                                // Call the original handler which expects a string and returns Promise<void>
+                                await handleRemoveSyncItem(originalItem.sharepoint_item_id); 
+                              } catch (error) {
+                                // Error is handled within handleRemoveSyncItem via toast, but log here just in case
+                                console.error(`[SyncListComponent Wrapper] Error calling handleRemoveSyncItem for id ${itemId}:`, error);
+                              }
+                          } else {
+                            console.error(`Could not find original SharePoint item ID for internal id ${itemId} to remove.`);
+                            toast({ title: t('errors.errorRemovingItem'), description: 'Internal error: Item not found.', status: 'error' });
+                          }
+                        }}
+                        onProcessList={handleProcessSyncList}
+                        isProcessing={isProcessing}
+                        isLoading={isSyncListLoading}
+                        error={syncListError}
+                        sourceType='SharePoint' 
+                        t={t} 
+                      />
+                      {/* +++ END MOVE Sync List +++ */}
+
+                      {/* +++ MOVE Sync Task Progress Display HERE +++ */}
+                      {(isProcessing || processingTaskStatus) && processingTaskId && (
+                        <Box 
+                          mt={4} p={4} borderWidth="1px" borderRadius="md" 
+                          borderColor={
+                            processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                            processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                              ? "red.300" 
+                              : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300")
+                          } 
+                          bg={useColorModeValue(
+                           processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                           processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                             ? "red.50" 
+                             : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50"),
+                           processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                           processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
+                             ? "red.900" 
+                             : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900")
+                          )}
+                          mb={4}
+                        >
+                            <VStack spacing={2} align="stretch">
+                              <HStack justify="space-between">
+                                <Text fontSize="sm" fontWeight="bold">{t('sharepoint.syncTaskProgressTitle')}</Text>
+                                <Tag 
+                                    size="sm"
+                                    colorScheme={
+                                      processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' :
+                                      processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                                      processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
+                                      processingTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'gray' :
+                                      'blue'
+                                    }
+                                  >
+                                    {processingTaskStatus?.status || 'Initializing...'}
+                                  </Tag>
+                              </HStack>
+                              <Text fontSize="xs">{t('common.taskID')} {processingTaskId}</Text>
+                              {typeof processingTaskStatus?.progress === 'number' && (
+                                <Progress 
+                                  value={processingTaskStatus.progress} size="xs" 
+                                  colorScheme={
+                                    processingTaskStatus?.status === TaskStatusEnum.FAILED || 
+                                    processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
+                                    (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' : 'blue')
+                                  } 
+                                  isAnimated={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
+                                  hasStripe={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
+                                  borderRadius="full"
+                                />
+                              )}
+                              {(processingTaskStatus?.message || processingError) ? (
+                                  <Text fontSize="xs" color={processingError ? "red.500" : "gray.500"} mt={1} noOfLines={2} title={processingError || processingTaskStatus?.message || undefined}>
+                                    {processingError || processingTaskStatus?.message}
+                                  </Text>
+                              ) : null}
+                               {/* Refined conditional rendering for result, check if not empty */}
+                               {processingTaskStatus?.result && typeof processingTaskStatus.result === 'object' && Object.keys(processingTaskStatus.result).length > 0 ? (
+                                   <Text fontSize="xs" color="orange.500" mt={1}>
+                                       Details: {JSON.stringify(processingTaskStatus.result)}
+                                   </Text>
+                               ) : null}
+                            </VStack>
+                        </Box>
+                      )}
+                      {/* +++ END MOVE Sync Progress +++ */}
+                    </>
+                  )}
                 </VStack>
-              </Box>
-            </TabPanel>
-          </TabPanels>
-        </Tabs>
-
-{/* +++ Render the Sync List Component +++ */}
-        <Box mt={6}> {/* Add some margin top */} 
-          {/* Log the list before filtering for the component */}
-          {console.log('[SP Page] Rendering SyncListComponent. Full syncList:', syncList, 'Filtered items:', syncList.filter(item => item.status === 'pending'))}
-          <SyncListComponent 
-            items={syncList.filter(item => item.status === 'pending')} // Filter for pending items
-            onRemoveItem={handleRemoveSyncItem}
-            onProcessList={handleProcessSyncList}
-            isProcessing={isProcessing}
-            isLoading={isSyncListLoading}
-            error={syncListError}
-          />
-        </Box>
-        {/* +++ End Sync List Component Rendering +++ */}
-
-        {/* +++ NEW: Sync Task Progress Display +++ */}
-        {(isProcessing || processingTaskStatus) && processingTaskId && (
-          <Box 
-            mt={4} p={4} borderWidth="1px" borderRadius="md" 
-            borderColor={
-              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
-              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
-                ? "red.300" 
-                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300")
-            } 
-            bg={useColorModeValue(
-              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
-              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
-                ? "red.50" 
-                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50"),
-              processingTaskStatus?.status === TaskStatusEnum.FAILED || 
-              processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION
-                ? "red.900" 
-                : (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900")
-            )}
-            mb={4}
-          >
-              <VStack spacing={2} align="stretch">
-                <HStack justify="space-between">
-                  <Text fontSize="sm" fontWeight="bold">{t('sharepoint.syncTaskProgressTitle')}</Text>
-                  <Tag 
-                      size="sm"
-                      colorScheme={
-                        processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' :
-                        processingTaskStatus?.status === TaskStatusEnum.FAILED || 
-                        processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
-                        processingTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? 'gray' :
-                        'blue'
-                      }
-                    >
-                      {processingTaskStatus?.status || 'Initializing...'}
-                    </Tag>
-                </HStack>
-                <Text fontSize="xs">{t('common.taskID')} {processingTaskId}</Text>
-                {typeof processingTaskStatus?.progress === 'number' && (
-                  <Progress 
-                    value={processingTaskStatus.progress} size="xs" 
-                    colorScheme={
-                      processingTaskStatus?.status === TaskStatusEnum.FAILED || 
-                      processingTaskStatus?.status === TaskStatusEnum.FAILED_SUBMISSION ? 'red' : 
-                      (processingTaskStatus?.status === TaskStatusEnum.COMPLETED ? 'green' : 'blue')
-                    } 
-                    isAnimated={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
-                    hasStripe={processingTaskStatus?.status === TaskStatusEnum.RUNNING || processingTaskStatus?.status === TaskStatusEnum.PENDING}
-                    borderRadius="full"
-                  />
-                )}
-                {(processingTaskStatus?.message || processingError) && (
-                    <Text fontSize="xs" color={processingError ? "red.500" : "gray.500"} mt={1} noOfLines={2} title={processingError || processingTaskStatus?.message || undefined}>
-                      {processingError || processingTaskStatus?.message}
-                    </Text>
-                )}
-                 {/* Display results if available (e.g., partial failure details) */} 
-                 {processingTaskStatus?.result && typeof processingTaskStatus.result === 'object' && (
-                     <Text fontSize="xs" color="orange.500" mt={1}>
-                         Details: {JSON.stringify(processingTaskStatus.result)}
-                     </Text>
-                 )}
+              )}
+            </VStack>
+          </TabPanel>
+          <TabPanel p={0}>
+            <QuickAccessList />
+          </TabPanel>
+          <TabPanel p={0}>
+            <MyRecentFilesList />
+          </TabPanel>
+          <TabPanel p={0}>
+            <Box borderWidth="1px" borderRadius="lg" p={4} bg={useColorModeValue('gray.50', 'gray.700')} shadow="sm">
+              <VStack spacing={4} align="stretch">
+                  <Heading size="md">{t('sharepoint.history.title')}</Heading>
+                  {isLoadingHistory && <Center p={5}><Spinner /></Center>} 
+                  {historyError && <Text color="red.500" p={5}>{historyError}</Text>} 
+                  {!isLoadingHistory && !historyError && (
+                      historyItems.length === 0
+                      ? (<Center p={5}><Text color="gray.500">{t('sharepoint.history.empty')}</Text></Center>)
+                      : (
+                          <Box overflowY="auto" maxHeight="400px">
+                              <List spacing={3} p={2}>
+                                  {historyItems.map((item) => (
+                                      <ListItem 
+                                        key={item.id} 
+                                        display="flex" 
+                                        justifyContent="space-between" 
+                                        alignItems="center"
+                                        p={2}
+                                        borderRadius="md"
+                                        _hover={{ bg: hoverBg }}
+                                      >
+                                        <HStack spacing={2} flex={1} minWidth={0} width="100%"> 
+                                          <Icon 
+                                            as={item.item_type === 'folder' ? FaFolder : FaFileAlt} 
+                                            color={item.item_type === 'folder' ? folderColor : fileColor}
+                                            boxSize="1.2em"
+                                            flexShrink={0}
+                                          />
+                                          <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%"> 
+                                            <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.item_name} width="100%" textAlign="left">
+                                              {item.item_name} 
+                                            </Text>
+                                            {/* Display Drive ID as source info */}
+                                            <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.sharepoint_drive_id} width="100%" textAlign="left">
+                                              {t('sharepoint.history.driveIdLabel', 'Drive ID:')} {item.sharepoint_drive_id}
+                                            </Text>
+                                          </VStack>
+                                        </HStack>
+                                        {/* Status Tag (Always Completed for History) */}
+                                        <Tag 
+                                          size="sm" 
+                                          variant="subtle" 
+                                          colorScheme="green"
+                                          mr={2}
+                                          flexShrink={0}
+                                        >
+                                          <Icon 
+                                            as={FaCheckCircle}
+                                            mr={1} 
+                                          />
+                                          {t('common.status.completed', 'Completed')} 
+                                        </Tag>
+                                      </ListItem>
+                                  ))}
+                              </List>
+                          </Box>
+                      )
+                  )}
               </VStack>
-          </Box>
-        )}
-        {/* +++ END Sync Task Progress Display +++ */}
+            </Box>
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
 
-      </VStack>
     </Container>
   );
 };

@@ -30,6 +30,7 @@ import {
 import { getTaskStatus } from '../../../api/tasks'; // Assuming tasks API is separate
 import { TaskStatus, TaskStatusEnum } from '../../../models/tasks';
 import AzureConnectionManager from './AzureConnectionManager';
+import SyncListComponent, { SyncListItem } from '../../../components/SyncListComponent'; // Import shared component
 
 // --- API Interface Definitions --- 
 // Now imported from ../../../api/azure.ts
@@ -523,25 +524,39 @@ export default function AzureBlobBrowser() {
   useEffect(() => { return () => { stopIngestionPolling(); }; }, [stopIngestionPolling]);
 
   const isInSyncList = useCallback((itemPath: string) => {
+      // This check should be sufficient for the button state
       return syncList.some(item => 
           item.container_name === selectedContainer && 
-          item.item_path === itemPath
+          item.item_path === itemPath &&
+          item.status === 'pending' // Only consider pending items for the 'add' button state
       );
   }, [syncList, selectedContainer]);
 
-  // Memoized lists for pending and history items (similar to S3)
+  // Memoized lists for pending and history items 
   const pendingSyncItems = React.useMemo(() => 
     syncList.filter(item => item.status === 'pending'), 
   [syncList]);
 
+  // Map AzureSyncItem to the generic SyncListItem for the shared component
+  const genericPendingSyncItems: SyncListItem[] = React.useMemo(() => 
+    pendingSyncItems.map(item => ({
+      id: item.id,
+      // Standardize item_type if possible, otherwise map directly
+      item_type: item.item_type === 'blob' ? 'file' : item.item_type, // Map 'blob' to 'file', keep 'prefix' as is? Or use 'folder'?
+      name: item.item_name || item.item_path.split('/').filter(Boolean).pop() || item.item_path, 
+      path: item.item_path,
+      container: item.container_name,
+      status: item.status as 'pending' | 'completed' | 'failed', // Cast
+    })),
+  [pendingSyncItems]);
+
   const historySyncItems = React.useMemo(() => 
-    syncList.filter(item => item.status === 'completed' || item.status === 'error')
+    syncList.filter(item => item.status === 'completed' || item.status === 'error') // Assuming 'error' is the failure status for Azure
     .sort((a, b) => b.id - a.id), // Sort by ID descending (newest first)
   [syncList]);
 
   // --- Render Logic using Chakra UI ---
 
-  // +++ Moved Definition UP: Define Content for Browse & Sync Tab FIRST +++
   const browseAndSyncContent = (
     <VStack spacing={4} align="stretch"> 
       {/* Connection & Container Row */}
@@ -608,8 +623,8 @@ export default function AzureBlobBrowser() {
           isLoadingBlobs ? <Spinner /> :
           blobError ? <Text color="red.500">{blobError}</Text> :
           <Box mt={4} borderWidth="1px" borderRadius="md" bg={bgColor} overflow="hidden">
-            <TableContainer> 
-                <Table variant="simple" size="sm">
+            <TableContainer>
+                <Table variant="simple">
                     <Thead>
                         <Tr>
                             <Th width="50%">{t('common.name')}</Th>
@@ -638,6 +653,7 @@ export default function AzureBlobBrowser() {
                                             <Icon 
                                               as={blob.isDirectory ? FaFolder : FaFileAlt} 
                                               color={blob.isDirectory ? folderColor : fileColor}
+                                              boxSize="1.2em"
                                             />
                                             <Text>{blob.name}</Text>
                                         </HStack>
@@ -673,121 +689,76 @@ export default function AzureBlobBrowser() {
           </Box>
        )}
 
-       {/* Sync List Section */}
+       {/* === Sync List Section - Replaced with Shared Component === */}
       {selectedConnectionId && (
-          <Box mt={8} p={4} borderWidth="1px" borderRadius="md">
-            {/* Filter syncList to only show pending items for display and logic below */}
-            {(() => {
-                const pendingItems = syncList.filter(item => item.status === 'pending');
-                const pendingCount = pendingItems.length;
-                return (
-                    <>
-                        <HStack justify="space-between" mb={4}>
-                            <Heading size="md">{t('azureBlobBrowser.syncListTitle', 'Azure Sync List')}</Heading>
-                            {/* Use pendingCount for the Tag */}
-                            <Tag size="md" variant='solid' colorScheme='blue'>
-                                {t('common.pendingCount', { count: pendingCount })}
-                            </Tag>
-                        </HStack>
-                        {isLoadingSyncList && <Spinner />}
-                        {syncListError && <Text color="red.500">{syncListError}</Text>}
-                        {!isLoadingSyncList && pendingCount === 0 && 
-                            <Text color="gray.500" textAlign="center" p={4}>
-                                {t('azureBlobBrowser.syncListEmptyMessage', 'Your sync list is empty. Browse Azure and add files/folders.')}
-                            </Text>
-                        }
-                        {!isLoadingSyncList && pendingCount > 0 && (
-                            <VStack spacing={2} align="stretch" mb={4} maxHeight="200px" overflowY="auto">
-                                {/* Iterate over PENDING items only */}
-                                {pendingItems.map((item) => (
-                                <HStack key={item.id} justify="space-between" p={1} _hover={{ bg: useColorModeValue('gray.50', 'gray.800') }}>
-                                    <HStack spacing={1} flex={1} minWidth={0}>
-                                        <Icon as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} size="sm" color="gray.500"/>
-                                        <Text fontSize="sm" title={item.item_path} isTruncated>
-                                            {item.item_name} 
-                                            <Text as="span" color="gray.500" fontSize="xs"> ({item.container_name})</Text>
-                                        </Text>
-                                    </HStack>
-                                    <IconButton
-                                        aria-label={t('common.remove')}
-                                        icon={<DeleteIcon />}
-                                        size="xs"
-                                        variant="ghost"
-                                        colorScheme="red"
-                                        onClick={() => handleRemoveFromSyncList(item.id)}
-                                        isDisabled={isProcessingSync || isIngestionPolling}
-                                    />
-                                </HStack>
-                                ))}
-                            </VStack>
-                        )}
-                        <HStack justify="flex-end">
-                            <Button 
-                                colorScheme="blue" 
-                                leftIcon={<RepeatIcon />} 
-                                onClick={handleProcessSyncList} 
-                                isLoading={isProcessingSync || isIngestionPolling}
-                                /* Disable button based on PENDING count */
-                                isDisabled={pendingCount === 0 || isProcessingSync || isIngestionPolling}
-                            >
-                                {isProcessingSync || isIngestionPolling ? t('azureBlobBrowser.syncing') : t('azureBlobBrowser.processSynced')}
-                            </Button>
-                        </HStack>
-                    </>
-                );
-             })()}
-             {/* Keep the Ingestion Status display outside the IIFE */}
-             {syncProcessError && <Text color="red.500" mt={2}>{syncProcessError}</Text>}
-            {ingestionTaskStatus && (
-              <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg={useColorModeValue('gray.50', 'gray.700')}>
-                <HStack justify="space-between">
-                  <Text fontWeight="bold">{t('azureBlobBrowser.ingestionStatusTitle')} (ID: {ingestionTaskStatus.task_id})</Text>
-                   {isIngestionPolling && <Spinner size="sm" />}
-                </HStack>
-                <Text>Status: {ingestionTaskStatus.status}</Text>
-                 {ingestionTaskStatus.progress != null && (
-                    <Progress value={ingestionTaskStatus.progress} size="sm" colorScheme="blue" mt={1} />
-                 )}
-                 {ingestionTaskStatus.message && <Text fontSize="sm" mt={1}>Message: {ingestionTaskStatus.message}</Text>}
-                 {ingestionError && <Text color="red.500" mt={1}>Error: {ingestionError}</Text>}
-              </Box>
-            )}
+          <Box mt={8}>
+              <SyncListComponent 
+                  items={genericPendingSyncItems} // Pass the mapped generic items
+                  onRemoveItem={handleRemoveFromSyncList} // Pass the remove handler
+                  onProcessList={handleProcessSyncList} // Pass the process handler
+                  isProcessing={isProcessingSync || isIngestionPolling} // Combine processing/polling states
+                  isLoading={isLoadingSyncList} // Pass sync list loading state
+                  error={syncListError} // Pass sync list error state
+                  sourceType='Azure' // Specify the source type
+                  t={t} // Pass the translation function
+              />
           </Box>
+      )}
+      {/* === End of Replaced Sync List Section === */}
+      
+      {/* Keep the Ingestion Status display below the Sync List */}
+      {selectedConnectionId && syncProcessError && <Text color="red.500" mt={2}>{syncProcessError}</Text>}
+      {selectedConnectionId && ingestionTaskStatus && (
+         <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg={useColorModeValue('gray.50', 'gray.700')}>
+             <HStack justify="space-between">
+                 <Text fontWeight="bold">{t('azureBlobBrowser.ingestionStatusTitle')} (ID: {ingestionTaskStatus.task_id})</Text>
+                 {isIngestionPolling && <Spinner size="sm" />}
+             </HStack>
+             <Text>Status: {ingestionTaskStatus.status}</Text>
+             {ingestionTaskStatus.progress != null && (
+                 <Progress value={ingestionTaskStatus.progress} size="sm" colorScheme="blue" mt={1} />
+             )}
+             {ingestionTaskStatus.message && (
+                 <Text fontSize="xs" color="gray.500" mt={1}>{ingestionTaskStatus.message}</Text>
+             )}
+             {ingestionError && (
+                <Text fontSize="xs" color="red.500" mt={1}>{ingestionError}</Text> 
+             )}
+         </Box>
        )}
+
     </VStack>
   );
 
+  // --- Main Component Return (Tabs) ---
   return (
-    <Box p={5}>
-      {/* Add Page Title */}
-      <Heading size="lg" mb={6}>{t('azureBlobBrowser.title', 'Azure Blob Browser')}</Heading>
-
-      {/* Add History Tab */}
-      <Tabs index={tabIndex} onChange={setTabIndex} variant="soft-rounded" colorScheme="blue">
-        <TabList mb="1em">
-          <Tab>{t('azureBlobBrowser.tabs.browseAndSync', 'Browse & Sync')}</Tab>
-          <Tab>{t('azureBlobBrowser.tabs.history', 'History')}</Tab> {/* Added History Tab */} 
-          <Tab>{t('azureBlobBrowser.tabs.settings', 'Settings')}</Tab>
-        </TabList>
-        <TabPanels>
-          {/* Panel 1: Browse & Sync Content */}
-          <TabPanel p={0}> {/* Remove padding if VStack handles it */}
-            {browseAndSyncContent}
-          </TabPanel>
-           {/* Panel 2: History Content */}
-          <TabPanel p={0}>
-             <AzureHistoryListComponent
-                items={historySyncItems}
-                isLoading={isLoadingSyncList} 
-                error={syncListError} 
-                t={t}
-              />
-          </TabPanel>
-          {/* Panel 3: Settings Content */}
-          <TabPanel>
-            <AzureConnectionManager onConnectionsChange={loadConnections} />
-          </TabPanel>
-        </TabPanels>
+    <Box p={5} bg={bgColor}>
+      <Heading size="lg" mb={5}>{t('azureBlobBrowser.title', 'Azure Blob Storage Browser')}</Heading>
+      <Tabs isLazy index={tabIndex} onChange={handleTabsChange} variant="soft-rounded" colorScheme="blue">
+          <TabList>
+              <Tab>{t('azureBlobBrowser.tabs.browseAndSync')}</Tab>
+              <Tab>{t('azureBlobBrowser.tabs.history')}</Tab>
+              <Tab>{t('azureBlobBrowser.tabs.connections')}</Tab> {/* Changed from "Settings" */}
+          </TabList>
+          <TabPanels>
+              <TabPanel p={0} pt={4}>
+                  {/* Use the defined content variable */}
+                  {browseAndSyncContent}
+              </TabPanel>
+              <TabPanel p={0} pt={4}>
+                  {/* History List Component */}
+                  <AzureHistoryListComponent 
+                     items={historySyncItems} 
+                     isLoading={isLoadingSyncList} 
+                     error={syncListError} 
+                     t={t}
+                   />
+              </TabPanel>
+              <TabPanel p={0} pt={4}>
+                  {/* Connection Manager Component - Fix Prop Name */}
+                  <AzureConnectionManager onConnectionsChange={loadConnections} />
+              </TabPanel>
+          </TabPanels>
       </Tabs>
     </Box>
   );
