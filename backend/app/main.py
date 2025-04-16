@@ -31,6 +31,8 @@ from app.routes import sharepoint
 from app.routes import s3 as s3_router
 # Import the new Azure Blob router
 from app.routes import azure_blob
+# Import the new custom_knowledge router
+from app.routes import custom_knowledge
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.qdrant_client import get_qdrant_client
@@ -181,6 +183,10 @@ app.include_router(
     prefix=f"{settings.API_PREFIX}/azure_blob",
     tags=["Azure Blob Storage"]
 )
+# --- End Include ---
+
+# --- Include Custom Knowledge Router ---
+app.include_router(custom_knowledge.router, prefix=f"{settings.API_PREFIX}/custom-knowledge", tags=["Custom Knowledge"])
 # --- End Include ---
 
 # Root endpoint (optional - for basic API check)

@@ -18,9 +18,9 @@ def get_qdrant_client() -> QdrantClient:
     logger.info("Qdrant client initialized.")
     return client
 
-def ensure_collection_exists(client: QdrantClient):
+def ensure_collection_exists(client: QdrantClient, collection_name: str = None):
     """Checks if the collection exists and creates it if not. Handles potential client-side parsing errors gracefully."""
-    collection_name = settings.QDRANT_COLLECTION_NAME
+    collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
     vector_size = settings.EMBEDDING_DIMENSION
     distance_metric = models.Distance.COSINE
 
@@ -29,10 +29,6 @@ def ensure_collection_exists(client: QdrantClient):
         logger.info(f"[ensure_collection_exists] Attempting client.get_collection('{collection_name}')...")
         collection_info = client.get_collection(collection_name=collection_name)
         logger.info(f"[ensure_collection_exists] SUCCESS: Collection '{collection_name}' confirmed via API call.")
-        
-        # Optional: Log vector parameter mismatch as a warning, but don't delete/recreate.
-        # This part might still raise ResponseHandlingException if parsing fails here,
-        # but we handle that below.
         try:
              if hasattr(collection_info, 'vectors_config') and collection_info.vectors_config:
                   current_params = collection_info.vectors_config.params # qdrant > v1.1
@@ -58,8 +54,14 @@ def ensure_collection_exists(client: QdrantClient):
             return # Assume exists
         else:
             logger.warning(f"[ensure_collection_exists] Client-side exception might indicate non-existence (Status: {status_code}). Falling through to general check...")
-            # Fall through to general Exception block to handle 404 specifically
-            pass 
+            # Explicitly create the collection if not found (404)
+            logger.info(f"[ensure_collection_exists] Creating collection '{collection_name}' with vector size {vector_size} and distance {distance_metric}...")
+            client.recreate_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(size=vector_size, distance=distance_metric)
+            )
+            logger.info(f"[ensure_collection_exists] Collection '{collection_name}' created.")
+            return
 
     except Exception as e:
          # Catch other exceptions, including potential 404s

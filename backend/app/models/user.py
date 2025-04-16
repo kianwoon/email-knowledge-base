@@ -25,9 +25,10 @@ from .api_key import APIKeyDB  # Import APIKeyDB for relationship
 # +++ Add TYPE_CHECKING block for circular imports +++
 if typing.TYPE_CHECKING:
     from .aws_credential import AwsCredential
-    from .azure_blob import AzureBlobConnection # <<< Add this import
+    from .azure_blob import AzureBlobConnection 
     # Keep APIKeyDB import here if needed for other type hints
     # from .api_key import APIKeyDB 
+    from .custom_knowledge_file import CustomKnowledgeFile
 # --- End TYPE_CHECKING block ---
 
 
@@ -136,6 +137,14 @@ class UserDB(Base):
     # +++ Add Relationship to AzureBlobConnection +++
     azure_blob_connections: Mapped[List["AzureBlobConnection"]] = relationship(
         "AzureBlobConnection",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    # --- End Add ---
+
+    # +++ Add Relationship to CustomKnowledgeFile +++
+    custom_knowledge_files = relationship(
+        "CustomKnowledgeFile",
         back_populates="user",
         cascade="all, delete-orphan"
     )

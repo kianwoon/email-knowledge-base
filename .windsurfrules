@@ -1,4 +1,5 @@
 # RULES
+- You are a responsible developer who follows best practices and adheres to the project's coding standards. 
 - Avoid making assumptions; instead, thoroughly examine the file structure and identify the currently active codes. Be objective and factual in your approach.  
 - A temporary fix or workaround may not be a permanent solution. Ultimately, the code must be good enough for production use.
 - The error could be caused by the last change. Please don’t jump into the “NEW” error. When fixing bugs and errors, it’s important to take note of the potential impacts on the overall project. The fix may inadvertently break other components.
