@@ -28,6 +28,7 @@ class KnowledgeSummaryResponseModel(BaseModel):
     sharepoint_raw_data_count: int # SharePoint raw data
     s3_raw_data_count: int # S3 raw data
     azure_blob_raw_data_count: int # Azure Blob raw data
+    custom_raw_data_count: int # Custom raw data
     vector_data_count: int
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -103,16 +104,19 @@ async def get_knowledge_summary_route(
     s3_raw_collection_name = f"{sanitized_email}_aws_s3_knowledge" # CORRECTED NAME
     # Collection for AZURE BLOB raw data items
     azure_blob_raw_collection_name = f"{sanitized_email}_azure_blob_knowledge"
+    # Collection for CUSTOM KNOWLEDGE raw data items
+    custom_knowledge_collection_name = f"{sanitized_email}_custom_knowledge"
     # Collection for vector data (RAG)
     vector_collection_name = f"{sanitized_email}_knowledge_base"
     
     # Log all collections being queried
-    logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {s3_raw_collection_name}, {azure_blob_raw_collection_name}, {vector_collection_name}")
+    logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {s3_raw_collection_name}, {azure_blob_raw_collection_name}, {custom_knowledge_collection_name}, {vector_collection_name}")
 
     email_raw_count = 0
     sharepoint_raw_count = 0
     s3_raw_count = 0 # Initialize S3 count
     azure_blob_raw_count = 0 # Initialize Azure Blob count
+    custom_raw_count = 0 # Initialize Custom count
     vector_count = 0
     last_update_time = None
 
@@ -181,6 +185,24 @@ async def get_knowledge_summary_route(
                 # Optionally re-raise if Azure Blob count is critical:
                 # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing Azure Blob raw data storage.")
 
+        # Get CUSTOM raw data count - NEW LOGIC
+        try:
+            logger.debug(f"Calling qdrant_client.count for CUSTOM raw data collection: {custom_knowledge_collection_name}")
+            count_result_custom = qdrant.count(collection_name=custom_knowledge_collection_name, exact=True)
+            custom_raw_count = count_result_custom.count
+            logger.debug(f"CUSTOM raw data count for {custom_knowledge_collection_name}: {custom_raw_count}")
+        except UnexpectedResponse as e:
+            if e.status_code == 404:
+                logger.warning(f"CUSTOM raw data collection '{custom_knowledge_collection_name}' not found. Setting count to 0.")
+                custom_raw_count = 0
+            else:
+                logger.error(f"Qdrant error counting {custom_knowledge_collection_name}: {e}")
+                # Don't necessarily fail the whole request, just log and return 0 for Custom
+                custom_raw_count = 0 
+                logger.warning(f"Non-404 Qdrant error counting {custom_knowledge_collection_name}: {e}. Setting count to 0.")
+                # Optionally re-raise if custom count is critical:
+                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing Custom raw data storage.")
+
         # Get vector data count
         try:
             logger.debug(f"Calling qdrant_client.count for vector data collection: {vector_collection_name}")
@@ -206,13 +228,14 @@ async def get_knowledge_summary_route(
                 logger.error(f"Qdrant error counting {vector_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.")
 
-        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, S3Raw={s3_raw_count}, AzureBlobRaw={azure_blob_raw_count}, Vector={vector_count}")
+        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, S3Raw={s3_raw_count}, AzureBlobRaw={azure_blob_raw_count}, CustomRaw={custom_raw_count}, Vector={vector_count}")
         # Return counts including S3 and Azure Blob raw data
         return KnowledgeSummaryResponseModel(
             raw_data_count=email_raw_count,
             sharepoint_raw_data_count=sharepoint_raw_count,
             s3_raw_data_count=s3_raw_count,
             azure_blob_raw_data_count=azure_blob_raw_count,
+            custom_raw_data_count=custom_raw_count,
             vector_data_count=vector_count,
             last_updated=last_update_time if last_update_time else datetime.now(timezone.utc) # Use fetched or default time
         )

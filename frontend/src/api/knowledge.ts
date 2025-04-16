@@ -16,6 +16,7 @@ export interface KnowledgeSummaryResponse {
   sharepoint_raw_data_count?: number;
   s3_raw_data_count?: number;
   azure_blob_raw_data_count?: number;
+  custom_raw_data_count?: number;
   vector_data_count?: number;
   last_updated?: string | null;
 }
@@ -66,6 +67,7 @@ export const getKnowledgeBaseSummary = async (): Promise<KnowledgeSummaryRespons
       sharepoint_raw_data_count: 0,
       s3_raw_data_count: 0,
       azure_blob_raw_data_count: 0,
+      custom_raw_data_count: 0,
       vector_data_count: 0,
       last_updated: null,
     };

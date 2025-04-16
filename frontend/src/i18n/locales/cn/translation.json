@@ -1184,6 +1184,7 @@
       "sharepointRawDataLabel": "SharePoint 原始数据",
       "s3RawDataLabel": "AWS S3 原始数据",
       "azureBlobRawDataLabel": "Azure Blob 原始数据",
+      "customRawDataLabel": "自定义原始数据",
       "vectorDataLabel": "向量数据项",
       "vectorDataSource": "来源：{{vectorCollection}}",
       "tokenLabel": "API 访问令牌",

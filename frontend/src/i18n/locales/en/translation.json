@@ -1356,6 +1356,7 @@
       "sharepointRawDataLabel": "SharePoint Raw Data",
       "s3RawDataLabel": "AWS S3 Raw Data",
       "azureBlobRawDataLabel": "Azure Blob Raw Data",
+      "customRawDataLabel": "Custom Raw Data",
       "vectorDataLabel": "Vector Data Items"
     },
     "actionsTitle": "Management Actions",
