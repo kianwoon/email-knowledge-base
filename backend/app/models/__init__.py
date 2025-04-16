@@ -4,6 +4,7 @@
 from .user import User, UserCreate, UserInDB, UserDB
 from .api_key import APIKeyDB, APIKey, APIKeyCreate
 from .user_preference import UserPreferenceDB
+from .custom_knowledge_file import CustomKnowledgeFile
 
 __all__ = [
     "UserDB",
@@ -13,5 +14,6 @@ __all__ = [
     "APIKeyDB",
     "APIKey",
     "APIKeyCreate",
-    "UserPreferenceDB"
+    "UserPreferenceDB",
+    "CustomKnowledgeFile"
 ] 

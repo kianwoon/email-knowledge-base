@@ -143,7 +143,7 @@ class UserDB(Base):
     # --- End Add ---
 
     # +++ Add Relationship to CustomKnowledgeFile +++
-    custom_knowledge_files = relationship(
+    custom_knowledge_files: Mapped[List["CustomKnowledgeFile"]] = relationship(
         "CustomKnowledgeFile",
         back_populates="user",
         cascade="all, delete-orphan"
