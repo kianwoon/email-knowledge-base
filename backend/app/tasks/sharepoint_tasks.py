@@ -10,6 +10,7 @@ from celery import Task
 from celery.utils.log import get_task_logger
 from sqlalchemy.orm import Session
 from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
+import httpx # Import httpx for potential timeout configuration
 
 from ..celery_app import celery_app
 from ..config import settings
@@ -25,6 +26,9 @@ from .email_tasks import get_msal_app # CORRECTED Import from the sibling email_
 # Qdrant imports
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
+
+# Ensure SQLAlchemy update is imported if not already
+from sqlalchemy import update # Add this near other SQLAlchemy imports if missing
 
 logger = get_task_logger(__name__)
 
@@ -88,6 +92,9 @@ async def _recursively_get_files_from_folder(service: SharePointService, drive_i
         raise 
     return files
 
+# --- Define a timeout for the blocking refresh call ---
+MS_REFRESH_TIMEOUT_SECONDS = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
+
 class SharePointProcessingTask(Task):
     _db = None
     _qdrant_client = None
@@ -125,147 +132,108 @@ class SharePointProcessingTask(Task):
                 raise ValueError(f"User {user_email} not found.")
 
             access_token = db_user.ms_access_token
-            refresh_token = db_user.ms_refresh_token # Assuming stored directly for now
+            refresh_token = db_user.ms_refresh_token # Assuming stored directly
             expiry_time = db_user.ms_token_expiry
-            
-            # --- Decrypt refresh token if needed ---
-            # if refresh_token:
-            #     decrypted_refresh_token = decrypt_token(refresh_token)
-            # else:
-            #     decrypted_refresh_token = None
-            decrypted_refresh_token = refresh_token # Assuming not encrypted for now
+            decrypted_refresh_token = refresh_token # Assuming not encrypted
 
             if not decrypted_refresh_token:
                 logger.error(f"Task {self.request.id}: Missing refresh token for user {user_email}.")
                 raise ValueError(f"Missing refresh token for user {user_email}. Cannot proceed.")
 
             # --- Check token expiry (allowing a buffer) ---
-            # Make expiry_time timezone-aware if it isn't already (assuming UTC)
             tz_aware_expiry = None
             if expiry_time:
                 if expiry_time.tzinfo is None:
                      tz_aware_expiry = expiry_time.replace(tzinfo=timezone.utc)
                 else:
-                    tz_aware_expiry = expiry_time # Already timezone-aware
+                    tz_aware_expiry = expiry_time
             
             current_time_utc = datetime.now(timezone.utc)
             check_time = current_time_utc + timedelta(minutes=5)
             
-            # +++ Add Detailed Logging +++
-            logger.info(f"Task {self.request.id}: Expiry Check - DB expiry_time: {expiry_time}")
             logger.info(f"Task {self.request.id}: Expiry Check - Timezone-aware expiry: {tz_aware_expiry}")
-            logger.info(f"Task {self.request.id}: Expiry Check - Current UTC time: {current_time_utc}")
             logger.info(f"Task {self.request.id}: Expiry Check - Comparison time (now + 5min): {check_time}")
-            # +++ End Detailed Logging +++
-            
-            # Check if token is missing, expired, or expires within the next 5 minutes
+
             needs_refresh = False
             if not access_token or not tz_aware_expiry:
                 needs_refresh = True
                 logger.info(f"Task {self.request.id}: Access token or expiry missing/invalid for {user_email}. Refresh required.")
             elif tz_aware_expiry <= check_time:
                 needs_refresh = True
-                logger.info(f"Task {self.request.id}: Access token for {user_email} expired or expiring soon (Expiry: {tz_aware_expiry} <= Check Time: {check_time}). Refresh required.")
+                logger.info(f"Task {self.request.id}: Access token for {user_email} expired or expiring soon. Refresh required.")
             else:
-                 # +++ Add explicit log for valid token case +++
-                 logger.info(f"Task {self.request.id}: Expiry Check PASSED for {user_email} (Expiry: {tz_aware_expiry} > Check Time: {check_time}). Using existing token.")
+                 logger.info(f"Task {self.request.id}: Expiry Check PASSED for {user_email}. Using existing token.")
 
             # --- Attempt Refresh if Needed ---
             if needs_refresh:
-                logger.info(f"Task {self.request.id}: Attempting token refresh for {user_email}.")
+                logger.info(f"Task {self.request.id}: Attempting **direct blocking** token refresh for {user_email}.")
                 try:
                     msal_instance = get_msal_app()
-                    required_scopes = settings.MS_SCOPES.split() # Use configured scopes
+                    required_scopes = settings.MS_SCOPES.split()
 
-                    # --- Define the blocking function call ---
-                    refresh_call = lambda: msal_instance.acquire_token_by_refresh_token(
+                    # --- Execute the blocking MSAL call directly ---
+                    # Note: MSAL's underlying HTTP client might have its own timeouts.
+                    # Consider adding explicit timeout to msal_instance if possible or wrap this call.
+                    token_result = msal_instance.acquire_token_by_refresh_token(
                         refresh_token=decrypted_refresh_token,
                         scopes=required_scopes
+                        # If msal allows passing timeout, add it here e.g. timeout=MS_REFRESH_TIMEOUT_SECONDS
                     )
+                    # --- End direct call ---
 
-                    # --- Define an async function to run the call with timeout ---
-                    async def run_refresh_with_timeout():
-                        logger.info(f"Task {self.request.id}: Attempting token refresh in threadpool for {user_email}.")
-                        timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
-                        result = await asyncio.wait_for(
-                            run_in_threadpool(refresh_call),
-                            timeout=timeout_seconds
-                        )
-                        logger.info(f"Task {self.request.id}: Token refresh call completed successfully for {user_email}.")
-                        return result
-
-                    # --- Run the async function using asyncio.run() ---
-                    token_result = asyncio.run(run_refresh_with_timeout())
-                    # --- End wrapped call ---
-
-                    # Check the result dictionary *after* successful execution
                     if not token_result or "error" in token_result:
-                        # Handle MSAL specific errors returned in the result dictionary
                         error_desc = token_result.get('error_description', 'Unknown token acquisition error') if token_result else "No result from refresh call"
                         logger.error(f"Task {self.request.id}: MSAL refresh error for {user_email}: {token_result.get('error') if token_result else 'N/A'} - {error_desc}")
+                        # Fail explicitly if refresh fails
                         raise ValueError(f"Token refresh failed (MSAL): {error_desc}")
 
-                    # Process successful result (outside the try block for clarity, or keep inside if preferred)
                     if "access_token" in token_result and "expires_in" in token_result:
                         new_access_token = token_result['access_token']
                         new_expiry = datetime.now(timezone.utc) + timedelta(seconds=token_result['expires_in'])
-                        new_refresh_token = token_result.get('refresh_token') # Check if MS sent a new one
+                        new_refresh_token = token_result.get('refresh_token')
+                        encrypted_new_refresh = new_refresh_token # Assuming not encrypted
 
-                        # --- Encrypt new refresh token if needed ---
-                        # encrypted_new_refresh = encrypt_token(new_refresh_token) if new_refresh_token else None
-                        encrypted_new_refresh = new_refresh_token # Assuming not encrypted for now
-
-                        # --- Update DB ---
                         logger.info(f"Task {self.request.id}: Token refresh successful for {user_email}. Updating DB.")
-                        # Use the new update function
                         update_success = user_crud.update_user_ms_tokens(
                             db=self.db,
                             user_email=user_email,
                             access_token=new_access_token,
                             expiry=new_expiry,
-                            refresh_token=encrypted_new_refresh # Pass the potentially new refresh token
+                            refresh_token=encrypted_new_refresh
                         )
                         if not update_success:
                              logger.error(f"Task {self.request.id}: Failed to update new tokens in DB for {user_email}.")
-                             # Decide how to handle: raise error or try using old token?
-                             # Raising error is safer to prevent using stale data
                              raise ValueError("Failed to update refreshed tokens in database.")
 
-                        access_token = new_access_token # Use the new token for the service
-                        logger.info(f"Task {self.request.id}: Using newly refreshed access token for {user_email}.")
+                        access_token = new_access_token # Use the new token
+                        logger.info(f"Task {self.request.id}: DB update successful. Using newly refreshed access token for {user_email}.")
                     else:
-                        # This case should be less likely now due to the check above, but keep as safeguard
                          logger.error(f"Task {self.request.id}: Unexpected MSAL refresh result structure for {user_email}: {token_result}")
                          raise ValueError("Token refresh failed with unexpected result structure.")
 
-                except TimeoutError: # Catch timeout specifically
-                    timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
-                    logger.error(f"Task {self.request.id}: Timeout ({timeout_seconds}s) occurred during token refresh for {user_email}.")
-                    raise ValueError(f"Token refresh timed out after {timeout_seconds}s") # Re-raise as ValueError or specific Task exception
+                # Catch specific exceptions if needed (e.g., httpx.TimeoutException if underlying client uses it)
                 except Exception as refresh_err:
-                    # Catch other exceptions during the refresh process (e.g., network issues, invalid refresh token from MSAL)
-                    logger.error(f"Task {self.request.id}: Exception during token refresh for {user_email}: {refresh_err}", exc_info=True)
-                    # Re-raise or handle appropriately (e.g., mark task as failed)
-                    # Ensure the original exception type isn't lost if re-raising a generic one
-                    raise ValueError(f"Exception during token refresh: {refresh_err}")
-            else:
-                 logger.debug(f"Task {self.request.id}: Existing access token for {user_email} is still valid.")
+                    logger.error(f"Task {self.request.id}: Exception during token refresh process for {user_email}: {refresh_err}", exc_info=True)
+                    # IMPORTANT: Re-raise the exception to ensure the task fails if refresh fails
+                    raise ValueError(f"Exception during token refresh prevented service initialization: {refresh_err}")
 
             # --- Initialize Service with Valid Token ---
             if not access_token:
-                 # This should ideally not be reached if refresh logic is correct
-                 logger.error(f"Task {self.request.id}: Access token still unavailable for {user_email} after refresh attempt.")
+                 # This should only be reached if refresh wasn't needed but token was initially None
+                 logger.error(f"Task {self.request.id}: Access token is unexpectedly None before service initialization for {user_email}.")
                  raise ValueError(f"Could not obtain valid access token for {user_email}.")
-                 
+
+            # +++ Add final confirmation log +++
+            logger.info(f"Task {self.request.id}: Initializing SharePointService for {user_email} with token expiring at {expiry_time} (or refreshed expiry if applicable). Token starts with: {access_token[:10]}...")
             self._sharepoint_service = SharePointService(access_token)
-            
+
         return self._sharepoint_service
 
 async def _run_processing_logic(
     task_instance: Task,
     db_session: Session,
     sp_service: SharePointService,
-    items_to_process: List[Dict[str, Any]],
+    items_to_process: List[Dict[str, Any]], # This is the original list including folders
     user_email: str
 ) -> Tuple[int, int, List[models.PointStruct]]:
     """Orchestrates the async fetching and processing of files."""
@@ -273,53 +241,69 @@ async def _run_processing_logic(
     all_files_to_process: List[Dict[str, Any]] = []
     processed_item_ids = set() # Track all processed IDs (files and folders)
     total_failed_discovery = 0
+    # +++ Keep track of original folder DB IDs and their expansion outcome +++
+    folder_outcomes: Dict[int, str] = {} # {item_db_id: "success" | "failed"}
 
     # --- Expand Folders to Files (Async) ---
     logger.info(f"Task {task_id}: Expanding folders...")
     folder_expansion_tasks = []
+    original_folder_items_map: Dict[str, int] = {} # {folder_sp_id: item_db_id}
+
     for item in items_to_process:
-        item_id = item['sharepoint_item_id']
-        if item_id in processed_item_ids:
+        item_sp_id = item['sharepoint_item_id']
+        item_db_id = item.get('item_db_id') # Get the DB ID of the original item
+        item_type = item.get('item_type')
+
+        if item_sp_id in processed_item_ids: # Skip if already handled (e.g., duplicate entry)
             continue
 
-        if item.get('item_type') == 'folder':
-            logger.info(f"Task {task_id}: Queuing expansion for folder '{item.get('item_name')}' (ID: {item_id})")
+        if item_type == 'folder' and item_db_id:
+            logger.info(f"Task {task_id}: Queuing expansion for folder '{item.get('item_name')}' (SP_ID: {item_sp_id}, DB_ID: {item_db_id}) ")
+            original_folder_items_map[item_sp_id] = item_db_id # Store mapping
+            # Add task to list for concurrent execution
             folder_expansion_tasks.append(
-                 _recursively_get_files_from_folder(sp_service, item['sharepoint_drive_id'], item_id, processed_item_ids)
+                 _recursively_get_files_from_folder(sp_service, item['sharepoint_drive_id'], item_sp_id, processed_item_ids)
             )
-            processed_item_ids.add(item_id) # Mark folder as processed
-        elif item.get('item_type') == 'file':
-             if item_id not in processed_item_ids:
+            # Mark folder SP ID as processed (to avoid re-processing if listed again)
+            processed_item_ids.add(item_sp_id) 
+            # Assume success initially, will be updated on error
+            folder_outcomes[item_db_id] = "success"
+
+        elif item_type == 'file':
+             # Add file directly if not already processed (e.g., added individually)
+             if item_sp_id not in processed_item_ids:
                  all_files_to_process.append(item)
-                 processed_item_ids.add(item_id)
+                 processed_item_ids.add(item_sp_id)
         else:
-            logger.warning(f"Task {task_id}: Skipping item {item_id} with unknown type: {item.get('item_type')}")
+            logger.warning(f"Task {task_id}: Skipping item {item_sp_id} with unknown type: {item_type}")
+            if item_db_id: # Mark unknown type with DB ID as failed
+                 folder_outcomes[item_db_id] = "failed"
 
     # Run folder expansions concurrently
     if folder_expansion_tasks:
-        results = await asyncio.gather(*folder_expansion_tasks, return_exceptions=True)
-        for result in results:
+        # Use the list of futures directly, assume order matches original append order implicitly
+        expansion_results = await asyncio.gather(*folder_expansion_tasks, return_exceptions=True)
+        
+        # Correlate results back to original folders
+        original_folder_sp_ids = list(original_folder_items_map.keys())
+        for i, result in enumerate(expansion_results):
+            folder_sp_id = original_folder_sp_ids[i]
+            folder_db_id = original_folder_items_map[folder_sp_id]
+            
             if isinstance(result, Exception):
-                logger.error(f"Task {task_id}: Folder expansion failed: {result}", exc_info=result)
+                logger.error(f"Task {task_id}: Folder expansion failed for SP_ID {folder_sp_id} (DB_ID: {folder_db_id}): {result}", exc_info=result)
                 total_failed_discovery += 1 # Count failure
+                folder_outcomes[folder_db_id] = "failed" # Mark this specific folder as failed
             elif isinstance(result, list):
-                # Add successfully retrieved file details from the recursive call
-                # The recursive call already handles its internal duplicates.
-                # The final dict-based deduplication will handle any duplicates across top-level calls.
-                for file_detail in result:
-                     all_files_to_process.append(file_detail)
+                # Add successfully retrieved file details
+                all_files_to_process.extend(result)
+                # Keep folder_outcomes[folder_db_id] as "success"
             else:
-                 logger.warning(f"Task {task_id}: Unexpected result type from folder expansion: {type(result)}")
-
-    total_files = len(all_files_to_process)
-    logger.info(f"Task {task_id}: Total files to process after expansion: {total_files}. Discovery failures: {total_failed_discovery}")
-    if total_files == 0:
-        return 0, total_failed_discovery, [] # Processed, Failed, Points
+                 logger.warning(f"Task {task_id}: Unexpected result type from folder expansion for SP_ID {folder_sp_id} (DB_ID: {folder_db_id}): {type(result)}")
+                 folder_outcomes[folder_db_id] = "failed" # Mark as failed on unexpected result
 
     # --- De-duplicate the FINAL list of files before processing ---
-    # +++ Add Logging: Inspect list before de-duplication +++
     logger.debug(f"Task {task_id}: Content of all_files_to_process before de-duplication (first 2 items): {all_files_to_process[:2]}")
-    
     unique_files_dict: Dict[str, Dict[str, Any]] = {}
     for file_item in all_files_to_process:
         file_id = file_item.get('sharepoint_item_id')
@@ -327,27 +311,35 @@ async def _run_processing_logic(
             unique_files_dict[file_id] = file_item
         elif not file_id:
             logger.warning(f"Task {task_id}: Found file item without 'sharepoint_item_id' after expansion: {file_item}")
-
     final_files_to_process = list(unique_files_dict.values())
+    total_files = len(final_files_to_process)
+    logger.info(f"Task {task_id}: Total unique files to process: {total_files}. Discovery failures: {total_failed_discovery}")
+    if total_files == 0 and total_failed_discovery == 0:
+         # If no files and no discovery errors, potentially update original items that were empty folders
+         pass # Handled later
+    elif total_files == 0 and total_failed_discovery > 0:
+         # If only discovery errors, the folders are already marked failed
+         pass # Handled later
 
-    # --- Process Each File (Async Downloads) --- 
+    # --- Process Each File --- 
     points_to_upsert: List[models.PointStruct] = []
     total_processed_files = 0
-    total_failed_files = total_failed_discovery # Start with discovery failures
+    # Start file failures count with discovery failures
+    total_failed_files_or_folders = total_failed_discovery 
     current_file_num = 0
 
-    for item_data_from_api in final_files_to_process: # Renamed for clarity
+    for item_data_from_api in final_files_to_process: 
         current_file_num += 1
-        # Get SharePoint IDs from the data passed to the task
         file_id = item_data_from_api['sharepoint_item_id']
         drive_id = item_data_from_api['sharepoint_drive_id']
-        # Get the Database ID for status updates
-        item_db_id = item_data_from_api.get('item_db_id') # Use .get() for safety
-
-        # item_status = 'processing' # Default status before processing <-- REMOVE, set below
-        db_sync_item: Optional[SharePointSyncItemDBModel] = None # Define type hint
-
-        # --- Attempt to fetch DB item and update status ONLY if item_db_id exists --- 
+        item_db_id = item_data_from_api.get('item_db_id') # DB ID of the *file itself*, if added directly
+        file_name = item_data_from_api.get('item_name', 'Unknown')
+        
+        # Assume success for this file initially
+        file_processed_successfully = False
+        db_sync_item: Optional[SharePointSyncItemDBModel] = None 
+        
+        # --- Update DB Status for the file item (if it has a direct DB entry) ---
         if item_db_id:
             try:
                 db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
@@ -355,129 +347,132 @@ async def _run_processing_logic(
                     db_sync_item.status = 'processing'
                     db_session.add(db_sync_item)
                     db_session.commit()
-                    logger.debug(f"Task {task_id}: Set status to 'processing' for DB item ID {item_db_id} (SP ID: {file_id})")
-                else:
-                    logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status. Status update skipped.")
-                    # Don't skip the whole file, just the status update
-            except Exception as db_err:
-                logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True)
-                db_session.rollback()
-                # Don't skip the whole file, try processing anyway but log DB error
-        else:
-            logger.debug(f"Task {task_id}: No item_db_id for discovered file SP ID {file_id}. Skipping DB status updates.")
-        # --- End status update attempt ---
-
-        # --- Fetch full item details (Always attempt this) ---
-        logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
-        file_details = None
-        try:
-            file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
-        except Exception as detail_err:
-             logger.error(f"Task {task_id}: Error fetching details for file '{item_data_from_api.get('item_name', 'Unknown')}' (ID: {file_id}): {detail_err}", exc_info=True)
-             # No details, cannot proceed with this file
-
-        if not file_details:
-            logger.warning(f"Task {task_id}: Could not fetch details for file '{item_data_from_api.get('item_name', 'Unknown')}' (ID: {file_id}). Skipping file processing.")
-            total_failed_files += 1
-            # Update status to 'failed' only if we had a DB item
-            if db_sync_item:
-                try:
-                    db_sync_item.status = 'failed'
-                    db_session.add(db_sync_item)
-                    db_session.commit()
-                    logger.info(f"Task {task_id}: Set status to 'failed' for DB item ID {item_db_id} (SP ID: {file_id}) due to detail fetch error.")
-                except Exception as db_err_fail:
-                    logger.error(f"Task {task_id}: DB error updating status to 'failed' for DB ID {item_db_id}: {db_err_fail}", exc_info=True)
-                    db_session.rollback()
-            continue # Go to next file if details failed
+                else: logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status.")
+            except Exception as db_err: logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True); db_session.rollback()
         
-        file_info = file_details.model_dump()
-        file_name = file_info.get('name', item_data_from_api.get('item_name', 'Unknown')) # Prefer fetched name
-        logger.debug(f"Task {task_id}: file_info dict before payload creation: {file_info}")
-
-        # --- Update task progress ---
-        progress_percent = 10 + int(80 * (current_file_num / total_files))
-        logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}")
-        task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': progress_percent, 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
-
+        # --- Process the file --- 
         try:
-            # 1. Download file
+            # Fetch details (moved inside try-except)
+            logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
+            file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
+            if not file_details: raise ValueError("Could not fetch file details")
+            file_info = file_details.model_dump()
+            file_name = file_info.get('name', file_name) # Prefer fetched name
+            logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}")
+            task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10 + int(80 * (current_file_num / total_files)), 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
+
+            # Download content
             file_content_bytes = await sp_service.download_file_content(drive_id=drive_id, item_id=file_id)
-            if file_content_bytes is None:
-                 logger.warning(f"Task {task_id}: No content for file {file_id}. Skipping point creation, marking as failed.")
-                 raise ValueError("File content was None") 
-
-            # +++ Encode content to Base64 +++
+            if file_content_bytes is None: raise ValueError("File content was None")
             content_b64_string = base64.b64encode(file_content_bytes).decode('utf-8')
-            logger.debug(f"Task {task_id}: Encoded content to Base64 for {file_name} (First 50 chars: {content_b64_string[:50]}...)")
 
-            # 2. Process content (Placeholder for embedding)
-            # vector = await embed_content(file_content_bytes, file_name) 
-            vector_size = settings.EMBEDDING_DIMENSION # Use setting
-            vector = [0.1] * vector_size # Placeholder vector
-            logger.debug(f"Task {task_id}: Placeholder processing complete for {file_name}.")
+            # Process content (Embedding placeholder)
+            vector_size = settings.EMBEDDING_DIMENSION
+            vector = [0.1] * vector_size # Placeholder
 
-            # 3. Construct Qdrant payload
-            payload = {
-                "source": "sharepoint",
-                "document_type": "file",
-                "sharepoint_item_id": file_id,
-                "sharepoint_drive_id": drive_id,
-                "filename": file_info.get("name"),
-                "webUrl": file_info.get("webUrl"),
-                "createdDateTime": file_info.get("createdDateTime"),
-                "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
-                "size": file_info.get("size"),
-                "mimeType": file_info.get("file", {}).get("mimeType"),
-                "content_b64": content_b64_string, # Add Base64 content
-                "analysis_status": "pending", # Add analysis status
-            }
+            # Construct payload
+            payload = { "source": "sharepoint", "document_type": "file", "sharepoint_item_id": file_id, "sharepoint_drive_id": drive_id, "filename": file_info.get("name"), "webUrl": file_info.get("webUrl"), "createdDateTime": file_info.get("createdDateTime"), "lastModifiedDateTime": file_info.get("lastModifiedDateTime"), "size": file_info.get("size"), "mimeType": file_info.get("file", {}).get("mimeType"), "content_b64": content_b64_string, "analysis_status": "pending" }
             payload = {k: v for k, v in payload.items() if v is not None}
-
-            # 4. Create Qdrant point
             qdrant_point_id = generate_qdrant_point_id(file_id)
-            point = models.PointStruct(
-                id=qdrant_point_id,
-                vector=vector,
-                payload=payload
-            )
+            point = models.PointStruct(id=qdrant_point_id, vector=vector, payload=payload)
             points_to_upsert.append(point)
+            
+            # Mark as successful for status update
+            file_processed_successfully = True
             total_processed_files += 1
 
-            # 5. Update status to 'completed' in DB (only if db_sync_item exists)
-            if db_sync_item:
-                try:
-                    db_sync_item.status = 'completed'
-                    db_session.add(db_sync_item)
-                    db_session.commit()
-                    logger.info(f"Task {task_id}: Set status to 'completed' for DB item ID {item_db_id} (SP ID: {file_id})")
-                except Exception as db_err_complete:
-                    logger.error(f"Task {task_id}: DB error updating status to 'completed' for DB ID {item_db_id}: {db_err_complete}", exc_info=True)
-                    db_session.rollback()
-                    # If DB update fails, count as failure even if point was created
-                    total_failed_files += 1
-                    if total_processed_files > 0: 
-                      total_processed_files -= 1
-
-        except Exception as e: 
+        except Exception as e:
             logger.error(f"Task {task_id}: Failed to process file '{file_name}' (ID: {file_id}): {e}", exc_info=True)
-            total_failed_files += 1
-            # 6. Update status to 'failed' in DB (only if db_sync_item exists)
-            if db_sync_item:
-                try:
-                    if db_sync_item.status != 'failed': # Avoid re-updating if already failed
-                        db_sync_item.status = 'failed'
-                        db_session.add(db_sync_item)
-                        db_session.commit()
-                        logger.info(f"Task {task_id}: Set status to 'failed' for DB item ID {item_db_id} (SP ID: {file_id}) due to processing error.")
-                except Exception as db_err_fail:
-                    logger.error(f"Task {task_id}: DB error updating status to 'failed' for DB ID {item_db_id}: {db_err_fail}", exc_info=True)
-                    db_session.rollback()
+            total_failed_files_or_folders += 1 # Increment overall failure count
+            # file_processed_successfully remains False
 
-    return total_processed_files, total_failed_files, points_to_upsert
+        # --- Update DB status for the file (if direct entry exists) ---
+        if db_sync_item:
+            final_file_status = 'completed' if file_processed_successfully else 'failed'
+            if db_sync_item.status != final_file_status: # Avoid redundant updates
+                 try:
+                     db_sync_item.status = final_file_status
+                     db_session.add(db_sync_item)
+                     db_session.commit()
+                     logger.info(f"Task {task_id}: Set file status to '{final_file_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
+                 except Exception as db_err_final:
+                     logger.error(f"Task {task_id}: DB error updating final status to '{final_file_status}' for DB ID {item_db_id}: {db_err_final}", exc_info=True)
+                     db_session.rollback()
+                     # If DB update fails, revert success count and increment failure count
+                     if file_processed_successfully:
+                         total_processed_files -= 1
+                         total_failed_files_or_folders += 1
+
+    # --- Update Original Folder Item Statuses --- 
+    logger.info(f"Task {task_id}: === Starting Final Folder Status Update Section ===")
+    logger.info(f"Task {task_id}: Original items passed to task: {items_to_process}") # Log the original list
+    logger.info(f"Task {task_id}: Folder expansion outcomes: {folder_outcomes}") # Log the outcomes dict
+    
+    processed_folder_db_ids = set()
+
+    for loop_idx, original_item in enumerate(items_to_process): # Iterate through the initial list again
+        item_db_id = original_item.get('item_db_id')
+        item_type = original_item.get('item_type')
+        logger.debug(f"Task {task_id}: Final loop check item {loop_idx}: DB_ID={item_db_id}, Type={item_type}") # Log each item check
+
+        if item_type == 'folder' and item_db_id and item_db_id not in processed_folder_db_ids:
+            processed_folder_db_ids.add(item_db_id) # Prevent processing same folder DB ID twice
+            logger.info(f"Task {task_id}: Processing FOLDER item: DB_ID={item_db_id}") # Log when folder is processed
+            
+            folder_final_status = "unknown"
+            expansion_outcome = folder_outcomes.get(item_db_id)
+            logger.debug(f"Task {task_id}: Folder DB_ID {item_db_id} - Expansion outcome: {expansion_outcome}")
+
+            if expansion_outcome == "success":
+                folder_final_status = 'completed'
+            elif expansion_outcome == "failed":
+                folder_final_status = 'failed'
+            else:
+                logger.warning(f"Task {task_id}: Unknown expansion outcome for folder DB ID {item_db_id}. Cannot determine final status.")
+                continue
+                
+            logger.info(f"Task {task_id}: Determined final status for folder DB_ID {item_db_id} as: '{folder_final_status}'")
+
+            try:
+                logger.debug(f"Task {task_id}: Attempting direct update for folder DB_ID {item_db_id}...")
+                # Use a direct query and update approach within this block for isolation
+                stmt = (
+                    update(SharePointSyncItemDBModel)
+                    .where(SharePointSyncItemDBModel.id == item_db_id)
+                    .values(status=folder_final_status)
+                    .execution_options(synchronize_session="fetch") # Or False, depending on need
+                )
+                result = db_session.execute(stmt)
+                logger.debug(f"Task {task_id}: Update execution result for folder DB_ID {item_db_id}: rowcount={result.rowcount}")
+                if result.rowcount > 0:
+                    logger.info(f"Task {task_id}: Directly updated status for original folder (DB_ID: {item_db_id}) to '{folder_final_status}'. ({result.rowcount} row affected). Attempting commit.")
+                    try:
+                        db_session.commit() 
+                        logger.info(f"Task {task_id}: Successfully committed status update for folder DB_ID: {item_db_id}.")
+                    except Exception as commit_err:
+                        logger.error(f"Task {task_id}: Failed to commit status update for folder DB_ID {item_db_id}: {commit_err}", exc_info=True)
+                        db_session.rollback() 
+                else:
+                    # This might happen if the status was already correct, or the item was deleted
+                    logger.warning(f"Task {task_id}: Update statement affected 0 rows for folder DB ID {item_db_id}. Item might not exist or status already set.")
+            except Exception as db_folder_err:
+                 logger.error(f"Task {task_id}: DB error during final status update attempt for folder DB ID {item_db_id}: {db_folder_err}", exc_info=True)
+                 db_session.rollback() # Rollback on error during update execution
+        elif item_type != 'folder':
+             logger.debug(f"Task {task_id}: Final loop - Skipping non-folder item {loop_idx}: DB_ID={item_db_id}")
+        elif not item_db_id:
+             logger.debug(f"Task {task_id}: Final loop - Skipping folder item {loop_idx} without DB ID.")
+        elif item_db_id in processed_folder_db_ids:
+             logger.debug(f"Task {task_id}: Final loop - Skipping already processed folder DB_ID {item_db_id}.")
+             
+    logger.info(f"Task {task_id}: === Finished Final Folder Status Update Section ===")
+
+    # Return counts and points
+    logger.info(f"Task {task_id}: Returning final counts. Processed Files: {total_processed_files}, Failed Items (Files+Folders): {total_failed_files_or_folders}")
+    return total_processed_files, total_failed_files_or_folders, points_to_upsert
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')
-def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str): # Renamed parameter
+def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str):
     task_id = self.request.id
     logger.info(f"Starting SharePoint batch task {task_id} for user {user_email} ({len(items_for_task)} items).")
     self.update_state(state='STARTED', meta={'user': user_email, 'progress': 0, 'status': 'Initializing...'})
@@ -510,12 +505,13 @@ def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10, 'status': 'Discovering files...'})
 
         # --- Run Async Logic --- 
+        # Note: total_failed now includes folder discovery failures AND file processing failures
         total_processed, total_failed, points_to_upsert = asyncio.run(
             _run_processing_logic(
                 task_instance=self, 
                 db_session=db_session, 
                 sp_service=sp_service, 
-                items_to_process=items_for_task, # Pass the correctly named list
+                items_to_process=items_for_task, # Pass the original list
                 user_email=user_email
             )
         )

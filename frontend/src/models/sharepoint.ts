@@ -120,6 +120,7 @@ export interface SharePointSyncItem {
     sharepoint_item_id: string; // ID from SharePoint
     sharepoint_drive_id: string; // Drive ID from SharePoint
     item_name: string; // Name of the item from SharePoint
+    status?: string; // Add status field (optional)
 }
 
 // Used when adding an item (id and user_id are handled by backend)

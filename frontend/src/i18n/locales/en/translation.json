@@ -1696,53 +1696,59 @@
       "history": "History",
       "settings": "Settings"
     },
+    "connectionLabel": "Select Connection",
     "connectionSelectPlaceholder": "Select an Azure Connection...",
     "containerSelectPlaceholder": "Select a Container...",
     "syncListTitle": "Azure Sync List",
     "syncListEmpty": "Your sync list is empty. Browse Azure and add files/folders.",
-    "processSyncListButton": "Process Sync List",
     "addToSyncList": "Add to Sync List",
+    "alreadyInSyncList": "Already in sync list",
     "containerLabel": "Container",
     "folderEmpty": "Folder is empty.",
     "syncSuccessTitle": "Sync process started",
     "syncSuccessDetail": "Task ID: {{taskId}}. Status will update automatically.",
+    "syncWarningTitle": "Sync Information",
+    "syncWarningDetail": "No pending items found to process or task already running.",
+    "syncFailedTitle": "Sync Failed",
+    "syncFailedDetail": "Failed to process sync items.",
+    "syncCompleteTitle": "Sync Complete",
+    "syncCompleteDetail": "Items processed successfully (Task ID: {{taskId}}).",
+    "ingestionStatusTitle": "Ingestion Status",
     "errors": {
       "loadConnections": "Failed to load connections.",
       "loadContainers": "Failed to load containers.",
       "loadBlobs": "Failed to load blobs.",
       "loadSyncList": "Failed to load sync list.",
-      "processSyncList": "Failed to start sync process."
-    }
+      "processSyncList": "Failed to start sync process.",
+      "noConnectionSelected": "Please select an Azure connection first to process the list."
+    },
+    "syncing": "Processing...",
+    "processSynced": "Process Sync List",
+    "historyListTitle": "Processing History",
+    "historyEmpty": "No processed items found in history.",
+    "historyContainerLabel": "Container:"
   },
   "azureConnectionManager": {
     "title": "Azure Storage Settings",
-    "description": "Configure your Azure Storage connections to access blob containers. Each connection requires a storage account name and connection string.",
+    "description": "Configure your Azure Storage connections to access blob containers. Each connection requires a connection name and connection string.",
     "newConnection": "New Azure Connection",
     "newConnectionDesc": "Add a new Azure Storage connection by providing the required details below.",
     "connectionNameLabel": "Connection Name",
     "connectionNamePlaceholder": "e.g., My Production Storage",
-    "accountNameLabel": "Storage Account Name",
-    "accountNamePlaceholder": "yourstorageaccount",
     "credentialsLabel": "Connection String",
     "credentialsPlaceholder": "Enter full connection string",
-    "accountKeyLabel": "Account Key",
-    "accountKeyPlaceholder": "Enter storage account key (key1 or key2)",
-    "credentialsNote": "Your key will be stored securely.",
+    "credentialsNote": "Your connection string will be stored securely.",
     "existingConnections": "Existing Connections",
     "existingConnectionsDesc": "Manage your existing Azure Storage connections.",
     "deleteConfirmTitle": "Delete Connection",
-    "deleteConfirmMsg": "Are you sure you want to delete the connection",
+    "deleteConfirmMsg": "Are you sure you want to delete the connection '{{name}}'?",
     "addSuccess": "Azure connection added successfully",
     "deleteSuccess": "Azure connection deleted successfully",
     "errors": {
       "loadFailed": "Failed to load Azure connections",
       "addFailed": "Failed to add Azure connection",
-      "deleteFailed": "Failed to delete Azure connection"
-    },
-    "errors": {
-      "invalidAccountNameFormat": "Must be 3-24 lowercase letters and numbers.",
-      "duplicateName": "Connection name must be unique.",
-      "noConnectionSelected": "Please select an Azure connection first."
+      "deleteFailed": "Failed to delete Azure connection",
+      "duplicateName": "Connection name must be unique."
     }
   }
 }

@@ -187,7 +187,7 @@ async def get_quick_access(
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
     """Retrieves documents recently used by the signed-in user."""
-    logger.info(f"Fetching quick access items for user {current_user.id}")
+    logger.info(f"Fetching quick access items for user {current_user.email}")
     service = _get_service_instance(current_user)
     try:
         items = await service.get_quick_access_items()
@@ -196,7 +196,7 @@ async def get_quick_access(
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Error fetching quick access items for user {current_user.id}: {e}", exc_info=True)
+        logger.error(f"Error fetching quick access items for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrieve quick access items.")
 
 # Placeholder for Shared Items route
@@ -216,10 +216,10 @@ async def get_my_recent_files(
         return recent_items
     except HTTPException as e:
         # Log detailed error before re-raising
-        logger.error(f"sharepoint.errors.fetchRecentTitleFailed to retrieve recent items: {e.detail}", exc_info=True)
+        logger.error(f"sharepoint.errors.fetchRecentTitleFailed to retrieve recent items for user {current_user.email}: {e.detail}", exc_info=True)
         raise HTTPException(status_code=e.status_code, detail="Failed to retrieve recent items.")
     except Exception as e:
-        logger.error(f"sharepoint.errors.fetchRecentUnexpected unexpected error retrieving recent items: {e}", exc_info=True)
+        logger.error(f"sharepoint.errors.fetchRecentUnexpected unexpected error retrieving recent items for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching recent items.")
 # --- End New Route --- 
 
@@ -237,27 +237,25 @@ async def add_sync_list_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    logger.info(f"User {current_user.id} adding item {item_data.sharepoint_item_id} ('{item_data.item_name}') to sync list.")
+    logger.info(f"User {current_user.email} adding item {item_data.sharepoint_item_id} ('{item_data.item_name}') to sync list.")
     
     try:
-        # Directly call the add_item CRUD function
-        created_item = crud_sharepoint_sync_item.add_item(db=db, item_in=item_data, user_id=str(current_user.id))
+        # Call CRUD function with user_email
+        created_item = crud_sharepoint_sync_item.add_item(db=db, item_in=item_data, user_email=current_user.email)
         
-        # add_item returns None if it already existed (due to IntegrityError)
         if created_item is None:
-             logger.warning(f"Item {item_data.sharepoint_item_id} already in sync list for user {current_user.id}. Add request ignored.")
-             # Return HTTP 409 Conflict to indicate it wasn't newly created
+             logger.warning(f"Item {item_data.sharepoint_item_id} already in sync list for user {current_user.email}. Add request ignored.")
              raise HTTPException(
                  status_code=status.HTTP_409_CONFLICT,
                  detail=f"Item '{item_data.item_name}' already exists in the sync list."
              )
         
-        logger.info(f"Successfully added item {created_item.id} to sync list for user {current_user.id}.")
+        logger.info(f"Successfully added item {created_item.id} to sync list for user {current_user.email}.")
         return created_item
-    except HTTPException as http_exc: # Re-raise specific HTTP exceptions (like the 409)
+    except HTTPException as http_exc:
         raise http_exc
-    except Exception as e: # Catch other potential errors from add_item
-        logger.error(f"Failed to add item {item_data.sharepoint_item_id} to sync list for user {current_user.id}: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Failed to add item {item_data.sharepoint_item_id} to sync list for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add item '{item_data.item_name}' to sync list due to an internal error."
@@ -274,31 +272,32 @@ async def remove_sync_list_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    logger.info(f"User {current_user.id} requesting removal of item {sharepoint_item_id} from sync list.")
+    logger.info(f"User {current_user.email} requesting removal of item {sharepoint_item_id} from sync list.")
     deleted_item = crud_sharepoint_sync_item.remove_item(
-        db=db, user_id=str(current_user.id), sharepoint_item_id=sharepoint_item_id
+        db=db, user_email=current_user.email, sharepoint_item_id=sharepoint_item_id
     )
     if deleted_item is None:
-        logger.warning(f"Item {sharepoint_item_id} not found in sync list for user {current_user.id} or removal failed.")
+        logger.warning(f"Item {sharepoint_item_id} not found in sync list for user {current_user.email} or removal failed.")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item not found in sync list."
         )
-    logger.info(f"Successfully removed item {sharepoint_item_id} from sync list for user {current_user.id}.")
+    logger.info(f"Successfully removed item {sharepoint_item_id} from sync list for user {current_user.email}.")
     return {"message": "Item removed successfully"}
 
 @router.get(
     "/sync-list",
     response_model=List[SharePointSyncItem],
     summary="Get User Sync List",
-    description="Retrieves all items currently in the user's sync list."
+    description="Retrieves ALL items from the user's sync list, regardless of status."
 )
 async def get_sync_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    logger.info(f"Fetching sync list for user {current_user.id}")
-    items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=str(current_user.id))
+    logger.info(f"Fetching ALL sync list items for user {current_user.email}")
+    # Call the CRUD function to get ALL items for the user
+    items = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_email=current_user.email)
     return items
 
 @router.get(
@@ -311,15 +310,15 @@ async def get_sync_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    logger.info(f"Fetching completed sync history for user {current_user.id}")
+    logger.info(f"Fetching completed sync history for user {current_user.email}")
     try:
         completed_items = crud_sharepoint_sync_item.get_completed_sync_items_for_user(
             db=db,
-            user_id=str(current_user.id)
+            user_email=current_user.email
         )
         return completed_items
-    except Exception as e: # Generic catch-all for unexpected DB errors
-        logger.error(f"Error fetching sync history for user {current_user.id}: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error fetching sync history for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve sync history."
@@ -336,52 +335,51 @@ async def process_sync_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    user_email_str = current_user.email # Keep this for logging if needed
-    user_id_str = str(current_user.id) # Get the user ID as a string
+    user_email_str = current_user.email # Use email directly
+    # user_id_str = str(current_user.id) # No longer needed for CRUD
 
-    if not user_email_str: # Keep email check for logging/potential future use
-        logger.error(f"User object for ID {user_id_str} is missing email address.")
-        # Consider if email is truly needed elsewhere; if not, this check might be less critical
-        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User email not available.")
-        
-    logger.info(f"User {user_email_str} (ID: {user_id_str}) initiating processing of sync list.")
+    if not user_email_str:
+        logger.error(f"User object for ID {current_user.id} is missing email address.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email not available.")
+
+    logger.info(f"User {user_email_str} initiating processing of sync list.")
     
-    # 1. Get all items from the user's sync list using the correct user ID
-    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_id=user_id_str) # Use user_id_str
+    # 1. Get all items from the user's sync list using user_email
+    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_email=user_email_str)
     if not sync_items_db:
-        logger.warning(f"Sync list is empty for user {user_email_str} (ID: {user_id_str}). Nothing to process.")
-        # OPTIONAL: Change the status code? 400 Bad Request might be more suitable than 404 Not Found if the list is just empty.
-        # For now, keeping 404 as per original logic, but flagging it.
+        logger.warning(f"Sync list is empty for user {user_email_str}. Nothing to process.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync list is empty.")
 
     # 2. Format data for Celery task (include DB ID and necessary fields)
     items_for_task = [
         {
-            "item_db_id": item.id, # <<< Include DB ID
+            "item_db_id": item.id,
             "sharepoint_item_id": item.sharepoint_item_id,
             "item_type": item.item_type,
             "sharepoint_drive_id": item.sharepoint_drive_id,
             "item_name": item.item_name
-            # Status is managed by the task itself
         }
         for item in sync_items_db if item.status == 'pending' # Only process pending items
     ]
     
     if not items_for_task:
-        logger.info(f"No pending items in sync list for user {user_email_str} (ID: {user_id_str}). Nothing to process.")
-        # Return 200 OK as there's nothing to queue
-        return {"message": "No pending items to process."} 
+        logger.info(f"No pending items in sync list for user {user_email_str}. Nothing to process.")
+        # Return 200 OK as there's nothing to queue, maybe a more specific message?
+        # Returning TaskStatus with a specific message might be better than plain dict
+        # For now, keeping simple dict return for minimal change, but consider aligning response model
+        return {"message": "No pending items to process."}
 
     # 3. Submit batch processing task to Celery
     try:
+        # Pass user_email to the Celery task
         task = process_sharepoint_batch_task.delay(items_for_task, user_email_str)
-        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_email_str} (ID: {user_id_str}).")
+        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_email_str}.")
         
         # Return a TaskStatus object conforming to the response_model
         return TaskStatus(task_id=task.id, status=TaskStatusEnum.PENDING, message="Sync list processing submitted.")
 
     except Exception as e:
-        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_email_str} (ID: {user_id_str}): {e}", exc_info=True)
+        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_email_str}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to initiate sync list processing."

@@ -11,7 +11,8 @@ import {
     IconButton, // Chakra IconButton
     useColorModeValue, // Hook for colors
     useToast, // Hook for notifications
-    Progress // Add Progress for polling display
+    Progress, // Add Progress for polling display
+    Tooltip // <<< Add Tooltip import
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaFolder, FaFileAlt, FaSync, FaPlusCircle, FaTrashAlt, FaCheckCircle, FaExclamationTriangle, FaCloud } from 'react-icons/fa'; // Keep react-icons
@@ -322,9 +323,9 @@ export default function AzureBlobBrowser() {
                const errorItems = await getAzureSyncList(undefined, 'error');
                itemsToFetch = [...completedItems, ...errorItems];
            } else if (tabIndex === 0 && selectedConnectionId) { // Browse & Sync Tab (and connection selected)
-               console.log(`[fetchSyncList] Fetching pending items for connection: ${selectedConnectionId}`);
-               // Fetch only pending items for the specific connection
-               itemsToFetch = await getAzureSyncList(selectedConnectionId, 'pending');
+               // Fetch *ALL* items for the specific connection, regardless of status
+               console.log(`[fetchSyncList] Fetching ALL sync items for connection: ${selectedConnectionId}`);
+               itemsToFetch = await getAzureSyncList(selectedConnectionId, undefined); // Remove status filter
            } else {
                // If Browse tab but no connection, or other tabs, don't fetch.
                console.log("[fetchSyncList] Skipping fetch (Browse tab with no connection, or other tab).");
@@ -540,7 +541,7 @@ export default function AzureBlobBrowser() {
 
   // --- Render Logic using Chakra UI ---
 
-  // Define Content for Browse & Sync Tab FIRST
+  // +++ Moved Definition UP: Define Content for Browse & Sync Tab FIRST +++
   const browseAndSyncContent = (
     <VStack spacing={4} align="stretch"> 
       {/* Connection & Container Row */}
@@ -606,117 +607,137 @@ export default function AzureBlobBrowser() {
       {selectedContainer && (
           isLoadingBlobs ? <Spinner /> :
           blobError ? <Text color="red.500">{blobError}</Text> :
-          <TableContainer mt={4}>
-              <Table variant="simple" size="sm">
-                  <Thead>
-                      <Tr>
-                          <Th width="50%">{t('common.name').toUpperCase()}</Th>
-                          <Th width="25%">{t('common.lastModified').toUpperCase()}</Th>
-                          <Th width="15%" isNumeric>{t('common.size').toUpperCase()}</Th>
-                          <Th width="10%" textAlign="center">{t('common.sync').toUpperCase()}</Th>
-                      </Tr>
-                  </Thead>
-                  <Tbody>
-                      {blobs.length === 0 && !isLoadingBlobs && (
-                          <Tr><Td colSpan={4} textAlign="center">{t('azureBlobBrowser.folderEmpty', 'Folder is empty.')}</Td></Tr>
-                      )}
-                      {blobs.map((blob) => {
-                          const alreadyInList = isInSyncList(blob.path);
-                          return (
-                              <Tr 
-                                key={blob.path} 
-                                _hover={{ bg: useColorModeValue('gray.100', 'gray.700') }} 
-                                cursor={blob.isDirectory ? 'pointer' : 'default'}
-                                onClick={() => blob.isDirectory && handleNavigate(blob)}
-                              >
-                                  <Td>
-                                      <HStack spacing={2}>
-                                          <Icon 
-                                            as={blob.isDirectory ? FaFolder : FaFileAlt} 
-                                            color={blob.isDirectory ? 'blue.500' : 'gray.500'} // Example colors
-                                          />
-                                          <Text>{blob.name}</Text>
-                                      </HStack>
-                                  </Td>
-                                  <Td>{formatDateTime(blob.lastModified)}</Td>
-                                  <Td isNumeric>{formatFileSize(blob.size)}</Td>
-                                  <Td textAlign="center">
-                                       {alreadyInList ? (
-                                          <Icon as={CheckCircleIcon} color="green.500" />
-                                       ) : (
-                                          <IconButton
-                                              aria-label={t('common.add')}
-                                              icon={<Icon as={FaPlusCircle} />}
-                                              size="xs"
-                                              colorScheme="blue"
-                                              onClick={(e) => { e.stopPropagation(); handleAddToSyncList(blob); }}
-                                              isDisabled={isProcessingSync || isIngestionPolling}
-                                          />
-                                       )}
-                                  </Td>
-                              </Tr>
-                          );
-                      })}
-                  </Tbody>
-              </Table>
-          </TableContainer>
+          <Box mt={4} borderWidth="1px" borderRadius="md" bg={bgColor} overflow="hidden">
+            <TableContainer> 
+                <Table variant="simple" size="sm">
+                    <Thead>
+                        <Tr>
+                            <Th width="50%">{t('common.name')}</Th>
+                            <Th width="25%">{t('common.modified')}</Th>
+                            <Th width="15%" isNumeric>{t('common.size')}</Th>
+                            <Th width="10%" textAlign="center">{t('common.sync')}</Th>
+                        </Tr>
+                    </Thead>
+                    <Tbody>
+                        {blobs.length === 0 && !isLoadingBlobs && (
+                            <Tr><Td colSpan={4} textAlign="center">{t('azureBlobBrowser.folderEmpty', 'Folder is empty.')}</Td></Tr>
+                        )}
+                        {blobs.map((blob) => {
+                            const alreadyInList = isInSyncList(blob.path);
+                            const currentlyDisabled = alreadyInList || isProcessingSync || isIngestionPolling;
+                            const actionButtonLabel = alreadyInList ? t('azureBlobBrowser.alreadyInSyncList') : t('common.add');
+                            return (
+                                <Tr 
+                                  key={blob.path} 
+                                  _hover={{ bg: useColorModeValue('gray.100', 'gray.700') }} 
+                                  cursor={blob.isDirectory ? 'pointer' : 'default'}
+                                  onClick={() => blob.isDirectory && handleNavigate(blob)}
+                                >
+                                    <Td>
+                                        <HStack spacing={2}>
+                                            <Icon 
+                                              as={blob.isDirectory ? FaFolder : FaFileAlt} 
+                                              color={blob.isDirectory ? folderColor : fileColor}
+                                            />
+                                            <Text>{blob.name}</Text>
+                                        </HStack>
+                                    </Td>
+                                    <Td>{formatDateTime(blob.lastModified)}</Td>
+                                    <Td isNumeric>{formatFileSize(blob.size)}</Td>
+                                    <Td textAlign="center">
+                                         <Tooltip label={actionButtonLabel} aria-label={actionButtonLabel} placement="top">
+                                            <span> 
+                                              <IconButton
+                                                aria-label={actionButtonLabel}
+                                                icon={alreadyInList ? <Icon as={FaCheckCircle} /> : <Icon as={FaPlusCircle} />}
+                                                size="xs"
+                                                variant="solid"
+                                                colorScheme={alreadyInList ? "green" : "blue"}
+                                                onClick={(e) => {
+                                                    if (!alreadyInList) {
+                                                        e.stopPropagation(); 
+                                                        handleAddToSyncList(blob); 
+                                                    }
+                                                }}
+                                                isDisabled={currentlyDisabled}
+                                              />
+                                            </span>
+                                         </Tooltip>
+                                    </Td>
+                                </Tr>
+                            );
+                        })}
+                    </Tbody>
+                </Table>
+            </TableContainer>
+          </Box>
        )}
 
        {/* Sync List Section */}
       {selectedConnectionId && (
           <Box mt={8} p={4} borderWidth="1px" borderRadius="md">
-            <HStack justify="space-between" mb={4}>
-              <Heading size="md">{t('azureBlobBrowser.syncListTitle', 'Azure Sync List')}</Heading>
-              {/* Add Pending Count Tag */}
-              <Tag size="md" variant='solid' colorScheme='blue'>
-                {t('common.pendingCount', { count: syncList.length })}
-              </Tag>
-            </HStack>
-            {isLoadingSyncList && <Spinner />}
-            {syncListError && <Text color="red.500">{syncListError}</Text>}
-            {/* Adjust empty state message if needed */} 
-            {!isLoadingSyncList && syncList.length === 0 && 
-              <Text color="gray.500" textAlign="center" p={4}>
-                {t('azureBlobBrowser.syncListEmptyMessage', 'Your sync list is empty. Browse Azure and add files/folders.')}
-              </Text>
-            }
-             {!isLoadingSyncList && syncList.length > 0 && (
-                 <VStack spacing={2} align="stretch" mb={4} maxHeight="200px" overflowY="auto">
-                    {syncList.map((item) => (
-                       <HStack key={item.id} justify="space-between" p={1} _hover={{ bg: useColorModeValue('gray.50', 'gray.800') }}>
-                         <HStack spacing={1} flex={1} minWidth={0}>
-                            <Icon as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} size="sm" color="gray.500"/>
-                            <Text fontSize="sm" title={item.item_path} isTruncated>
-                                {item.item_name} 
-                                <Text as="span" color="gray.500" fontSize="xs"> ({item.container_name})</Text>
+            {/* Filter syncList to only show pending items for display and logic below */}
+            {(() => {
+                const pendingItems = syncList.filter(item => item.status === 'pending');
+                const pendingCount = pendingItems.length;
+                return (
+                    <>
+                        <HStack justify="space-between" mb={4}>
+                            <Heading size="md">{t('azureBlobBrowser.syncListTitle', 'Azure Sync List')}</Heading>
+                            {/* Use pendingCount for the Tag */}
+                            <Tag size="md" variant='solid' colorScheme='blue'>
+                                {t('common.pendingCount', { count: pendingCount })}
+                            </Tag>
+                        </HStack>
+                        {isLoadingSyncList && <Spinner />}
+                        {syncListError && <Text color="red.500">{syncListError}</Text>}
+                        {!isLoadingSyncList && pendingCount === 0 && 
+                            <Text color="gray.500" textAlign="center" p={4}>
+                                {t('azureBlobBrowser.syncListEmptyMessage', 'Your sync list is empty. Browse Azure and add files/folders.')}
                             </Text>
-                         </HStack>
-                         <IconButton
-                           aria-label={t('common.remove')}
-                           icon={<DeleteIcon />}
-                           size="xs"
-                           variant="ghost"
-                           colorScheme="red"
-                           onClick={() => handleRemoveFromSyncList(item.id)}
-                           isDisabled={isProcessingSync || isIngestionPolling}
-                         />
-                       </HStack>
-                    ))}
-                 </VStack>
-            )}
-            <HStack justify="flex-end">
-              <Button 
-                colorScheme="blue" // Match screenshot button color
-                leftIcon={<RepeatIcon />} // Example icon for process
-                onClick={handleProcessSyncList} 
-                isLoading={isProcessingSync || isIngestionPolling}
-                isDisabled={syncList.length === 0 || isProcessingSync || isIngestionPolling}
-              >
-                {isProcessingSync || isIngestionPolling ? t('azureBlobBrowser.syncing') : t('azureBlobBrowser.processSyncListButton')}
-              </Button>
-            </HStack>
+                        }
+                        {!isLoadingSyncList && pendingCount > 0 && (
+                            <VStack spacing={2} align="stretch" mb={4} maxHeight="200px" overflowY="auto">
+                                {/* Iterate over PENDING items only */}
+                                {pendingItems.map((item) => (
+                                <HStack key={item.id} justify="space-between" p={1} _hover={{ bg: useColorModeValue('gray.50', 'gray.800') }}>
+                                    <HStack spacing={1} flex={1} minWidth={0}>
+                                        <Icon as={item.item_type === 'prefix' ? FaFolder : FaFileAlt} size="sm" color="gray.500"/>
+                                        <Text fontSize="sm" title={item.item_path} isTruncated>
+                                            {item.item_name} 
+                                            <Text as="span" color="gray.500" fontSize="xs"> ({item.container_name})</Text>
+                                        </Text>
+                                    </HStack>
+                                    <IconButton
+                                        aria-label={t('common.remove')}
+                                        icon={<DeleteIcon />}
+                                        size="xs"
+                                        variant="ghost"
+                                        colorScheme="red"
+                                        onClick={() => handleRemoveFromSyncList(item.id)}
+                                        isDisabled={isProcessingSync || isIngestionPolling}
+                                    />
+                                </HStack>
+                                ))}
+                            </VStack>
+                        )}
+                        <HStack justify="flex-end">
+                            <Button 
+                                colorScheme="blue" 
+                                leftIcon={<RepeatIcon />} 
+                                onClick={handleProcessSyncList} 
+                                isLoading={isProcessingSync || isIngestionPolling}
+                                /* Disable button based on PENDING count */
+                                isDisabled={pendingCount === 0 || isProcessingSync || isIngestionPolling}
+                            >
+                                {isProcessingSync || isIngestionPolling ? t('azureBlobBrowser.syncing') : t('azureBlobBrowser.processSynced')}
+                            </Button>
+                        </HStack>
+                    </>
+                );
+             })()}
+             {/* Keep the Ingestion Status display outside the IIFE */}
              {syncProcessError && <Text color="red.500" mt={2}>{syncProcessError}</Text>}
-             {/* Display Ingestion Status */}
             {ingestionTaskStatus && (
               <Box mt={4} p={3} borderWidth="1px" borderRadius="md" bg={useColorModeValue('gray.50', 'gray.700')}>
                 <HStack justify="space-between">

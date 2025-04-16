@@ -46,6 +46,7 @@ import {
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
+  Tooltip,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { Link as RouterLink } from 'react-router-dom';
@@ -851,15 +852,24 @@ const S3Browser: React.FC = () => {
                                   <Td textAlign="left" width="30%">{formatDateTime(obj.last_modified)}</Td>
                                   <Td isNumeric width="15%">{formatFileSize(obj.size)}</Td>
                                   <Td width="15%" textAlign="center">
-                                    <IconButton
+                                    <Tooltip 
+                                      label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
                                       aria-label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
-                                      icon={alreadyInList ? <Icon as={FaCheckCircle} color="green.500" /> : <Icon as={FaPlusCircle} />}
-                                      size="xs"
-                                      colorScheme={alreadyInList ? "green" : "blue"}
-                                      onClick={() => !alreadyInList && handleAddSyncItem(obj)}
-                                      isDisabled={currentlyDisabled}
-                                      title={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
-                                    />
+                                      placement="top"
+                                      hasArrow
+                                    >
+                                      <span style={currentlyDisabled ? { display: 'inline-block', cursor: 'not-allowed' } : {}}>
+                                        <IconButton
+                                          aria-label={alreadyInList ? t('s3Browser.alreadyInSyncList', 'Already in sync list') : t('s3Browser.addToSyncList', 'Add to sync list')}
+                                          icon={alreadyInList ? <Icon as={FaCheckCircle} color="green.500" /> : <Icon as={FaPlusCircle} />}
+                                          size="xs"
+                                          colorScheme={alreadyInList ? "green" : "blue"}
+                                          onClick={() => !alreadyInList && handleAddSyncItem(obj)}
+                                          isDisabled={currentlyDisabled}
+                                          style={currentlyDisabled ? { pointerEvents: 'none' } : {}}
+                                        />
+                                      </span>
+                                    </Tooltip>
                                   </Td>
                                 </Tr>
                               );

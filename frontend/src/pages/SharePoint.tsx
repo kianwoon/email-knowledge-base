@@ -31,9 +31,13 @@ import {
   Progress,
   Card,
   SimpleGrid,
-  Tabs, TabList, TabPanels, Tab, TabPanel
+  Tabs, TabList, TabPanels, Tab, TabPanel,
+  Tooltip,
+  List,
+  ListItem
 } from '@chakra-ui/react';
-import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown, FaCheckCircle, FaPlusCircle } from 'react-icons/fa';
+import { FaFolder, FaFile, FaSearch, FaCloudDownloadAlt, FaDatabase, FaGlobeEurope, FaSort, FaSortUp, FaSortDown, FaPlusCircle, FaCheckCircle } from 'react-icons/fa';
+import { CheckIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
 import apiClient from '../api/apiClient'; // Changed to default import
 import { getTaskStatus } from '../api/tasks'; // Import task API
@@ -209,6 +213,13 @@ const SharePointPage: React.FC = () => {
   const hoverBg = useColorModeValue('gray.50', 'whiteAlpha.100');
   const scrollbarThumbBg = useColorModeValue('gray.300', 'gray.600'); // Moved from JSX
   const searchInputBg = useColorModeValue('white', 'gray.700'); // Moved from JSX
+
+  // +++ Memoized Set of Synced Item IDs +++
+  const syncedItemIdsSet = useMemo(() => {
+    // console.log(`[useMemo syncedItemIdsSet] Recalculating. syncList length: ${syncList.length}`); // Keep commented out 
+    return new Set(syncList.map(item => item.sharepoint_item_id));
+  }, [syncList]);
+  // +++ End Memoized Set +++
 
   // --- Legacy Polling Functions (Renamed for Clarity) --- 
   const stopDownloadPolling = useCallback(() => {
@@ -722,7 +733,7 @@ const renderBreadcrumbs = ({
     });
 
     return processedItems;
-  }, [items, browseSortBy, browseSortDirection, selectedLetterFilter]);
+  }, [items, browseSortBy, browseSortDirection, selectedLetterFilter, syncList]); // Added syncList dependency
   // +++ End Memoized List +++
 
   // Effects
@@ -750,6 +761,29 @@ const renderBreadcrumbs = ({
     }
   }, [stopDownloadPolling, stopSyncPolling]); // Add dependencies
 
+  // +++ SYNC LIST FETCH FUNCTION +++
+  const fetchSyncList = useCallback(async () => {
+    // Assuming sync list is user-wide for SharePoint for now, not drive-specific
+    // If it were drive-specific, we'd need selectedDrive as a dependency and in the API call
+    console.log('[SP Page] Fetching sync list...');
+    setIsSyncListLoading(true);
+    setSyncListError(null);
+    try {
+      // Assume endpoint returns SharePointSyncItem[]
+      const response = await apiClient.get<SharePointSyncItem[]>('/sharepoint/sync-list');
+      setSyncList(response.data || []);
+      console.log(`[SP Page] Fetched ${response.data?.length || 0} items for sync list.`);
+    } catch (error: any) {
+      console.error('[SP Page] Error fetching sync list:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to load sync list';
+      setSyncListError(errorMsg);
+      toast({ title: t('errors.errorLoadingSyncList'), description: errorMsg, status: 'error' });
+    } finally {
+      setIsSyncListLoading(false);
+    }
+  }, [t, toast, apiClient]); // Dependencies: t, toast, apiClient
+  // +++ END SYNC LIST FETCH FUNCTION +++
+
   // +++ SYNC LIST HANDLERS +++ (AFTER POLLING FUNCTIONS)
   const handleAddSyncItem = useCallback(async (item: SharePointItem) => {
     if (!selectedDrive) {
@@ -769,14 +803,24 @@ const renderBreadcrumbs = ({
     };
     try {
       console.log(`[SP Page] Adding item ${item.id} to sync list...`);
-      const addedItem = await apiClient.post('/sharepoint/sync-list/add', itemData).then(res => res.data);
-      setSyncList(prev => [...prev.filter(i => i.sharepoint_item_id !== item.id), addedItem]);
+      // Make the API call and expect the newly created item back
+      const response = await apiClient.post<SharePointSyncItem>('/sharepoint/sync-list/add', itemData);
+      const addedItem = response.data; // Get the full item from the response
+      
+      // Update local state immediately with the item returned from the backend
+      setSyncList(prev => [...prev, addedItem]); 
+      
       toast({ title: t('sharepoint.itemAddedToSync', { name: item.name }), status: 'success', duration: 2000 });
     } catch (error: any) {
       console.error(`[SP Page] Error adding item ${item.id} to sync list:`, error);
-      toast({ title: t('errors.errorAddingItem'), description: error.response?.data?.detail || error.message || t('errors.unknown'), status: 'error' });
+      // Don't modify syncList state on error
+      const errorDesc = error.response?.status === 409 
+          ? t('sharepoint.alreadyInSyncList') // Specific message for 409 Conflict
+          : error.response?.data?.detail || error.message || t('errors.unknown');
+      const errorStatus = error.response?.status === 409 ? 'warning' : 'error';
+      toast({ title: t('errors.errorAddingItem'), description: errorDesc, status: errorStatus });
     }
-  }, [selectedDrive, t, toast, syncList, apiClient, setSyncList]);
+  }, [selectedDrive, t, toast, syncList, apiClient, setSyncList]); // Keep dependencies
 
   const handleRemoveSyncItem = useCallback(async (sharepointItemId: string) => {
     const itemToRemove = syncList.find(i => i.sharepoint_item_id === sharepointItemId);
@@ -827,46 +871,55 @@ const renderBreadcrumbs = ({
   }, [syncList, isProcessing, t, toast, startSyncPolling, apiClient, setSyncList, setIsProcessing, setProcessingError, setProcessingTaskStatus, setProcessingTaskId]); // Removed stop/poll from here, use startSyncPolling
   // +++ END SYNC LIST HANDLERS +++
 
-  // +++ ADD BACK Helper Function for Action Button +++
-  const renderSyncActionButton = (item: SharePointItem, syncList: SharePointSyncItem[], isProcessing: boolean, handleAddSyncItem: (item: SharePointItem) => void, t: (key: string) => string) => {
-    // Check if the current item is in the sync list
-    const isInSyncList = syncList.some((syncItem: SharePointSyncItem) => syncItem.sharepoint_item_id === item.id);
+  // +++ Overwriting Helper Function for Action Button +++
+const renderSyncActionButton = (item: SharePointItem, syncedItemIdsSet: Set<string>, isProcessing: boolean, handleAddSyncItem: (item: SharePointItem) => void, t: (key: string) => string) => {    // Check if the current item is already in the sync list
+const isAlreadyInSyncList = syncedItemIdsSet.has(item.id);
+    // Check if the item is allowed based on extension
+    const itemName = item.name ?? '';
+    const fileExtension = itemName.includes('.') ? itemName.substring(itemName.lastIndexOf('.')).toLowerCase() : '';
+    const isAllowedFileType = item.is_file ? ALLOWED_FILE_EXTENSIONS.includes(fileExtension) : true;
 
-    let canAddItem = false;
-    if (item.is_folder) {
-        // Always allow adding folders
-        canAddItem = true;
-    } else if (item.is_file && item.name) {
-        // Check file extension if it's a file
-        const fileNameLower = item.name.toLowerCase();
-        const lastDotIndex = fileNameLower.lastIndexOf('.');
-        if (lastDotIndex !== -1) { // Ensure there is an extension
-          const fileExtension = fileNameLower.substring(lastDotIndex);
-          if (ALLOWED_FILE_EXTENSIONS.includes(fileExtension)) {
-              canAddItem = true;
-          }
-        } 
+    // Determine if the button should be generally disabled (global processing or unsupported file type)
+    const isDisabledGlobally = isProcessing || (item.is_file && !isAllowedFileType);
+
+    // Determine final disabled state (global OR already synced)
+    const isDisabled = isDisabledGlobally || isAlreadyInSyncList;
+
+    // Determine tooltip based on the reason for being disabled or the action
+    let tooltipLabel = isAlreadyInSyncList ? t('sharepoint.alreadyInSync') : t('sharepoint.addToSync');
+    if (!isAlreadyInSyncList && item.is_file && !isAllowedFileType) {
+        tooltipLabel = t('sharepoint.fileTypeNotSupported');
     }
-
-    // Render button only if the item type is allowed
-    if (canAddItem) {
-      return (
-        <IconButton
-          aria-label={isInSyncList ? t('sharepoint.alreadyInSyncList') : t('sharepoint.addToSyncList')}
-          icon={isInSyncList ? <FaCheckCircle color="green"/> : <FaPlusCircle />}
-          size="sm"
-          variant="ghost"
-          color={isInSyncList ? "green.500" : "blue.500"} 
-          onClick={() => !isInSyncList && handleAddSyncItem(item)} 
-          isDisabled={isProcessing || isInSyncList} 
-          title={isInSyncList ? t('sharepoint.alreadyInSyncList') : t('sharepoint.addToSyncList')}
-        />
-      );
-    } 
-
-    return null; // Don't render button for unsupported file types
+    
+    // Match AzureBlobBrowser styling
+    return (
+      <Tooltip label={tooltipLabel} placement="top" hasArrow>
+        {/* Span needed for tooltip on disabled button */}
+        <span style={isDisabled ? { display: 'inline-block', cursor: 'not-allowed' } : {}}>
+            <IconButton // Changed back to IconButton
+              icon={isAlreadyInSyncList ? <Icon as={FaCheckCircle} /> : <Icon as={FaPlusCircle} />} // Dynamic Icon
+              aria-label={tooltipLabel} // Keep accessibility label
+              variant="solid" // Match Azure: solid variant
+              size="xs"      // Match Azure: extra-small size
+              colorScheme={isAlreadyInSyncList ? "green" : "blue"} // Dynamic color scheme
+              onClick={(e) => {
+                // Only trigger add if not disabled (though isDisabled prop handles this)
+                if (!isDisabled && !isAlreadyInSyncList) { 
+                    e.stopPropagation(); // Prevent potential row click issues
+                    handleAddSyncItem(item);
+                }
+              }}
+              isDisabled={isDisabled} // Disable based on combined logic
+              // Show loading only if processing AND not already synced
+              isLoading={isProcessing && !isAlreadyInSyncList} 
+              // Ensure no interaction when disabled
+              style={isDisabled ? { pointerEvents: 'none' } : {}} 
+            />
+        </span>
+      </Tooltip>
+    );
   };
-  // +++ END Helper Function +++
+  // +++ END Overwritten Helper Function +++
 
   // --- Effect to auto-select site if filter results in one ---
   useEffect(() => {
@@ -913,6 +966,13 @@ const renderBreadcrumbs = ({
       }
   }, [t, toast, apiClient]); // Add apiClient if it's a dependency, adjust others as needed
   // +++ End History Fetch Function +++
+
+  // +++ UseEffect to Fetch Initial Sync List +++
+  useEffect(() => {
+      console.log("[SP Page Effect] Fetching initial sync list on mount.");
+      fetchSyncList();
+  }, [fetchSyncList]); // Run once on mount, depending on fetchSyncList callback
+  // +++ End UseEffect +++
 
   // Main Return
   return (
@@ -1155,21 +1215,27 @@ const renderBreadcrumbs = ({
                                          onClick={() => handleBrowseSort('name')} 
                                          cursor="pointer"
                                          _hover={{ bg: hoverBg }}
-                                       >{t('common.name')} <BrowseSortIcon column="name" /></Th>
+                                       >
+                                         {t('common.name')} <BrowseSortIcon column="name" />
+                                       </Th>
                                        <Th 
                                          onClick={() => handleBrowseSort('lastModifiedDateTime')} 
                                          cursor="pointer"
                                          _hover={{ bg: hoverBg }}
-                                       >{t('common.modified')} <BrowseSortIcon column="lastModifiedDateTime" /></Th>
+                                       >
+                                         {t('common.modified')} <BrowseSortIcon column="lastModifiedDateTime" />
+                                       </Th>
                                        <Th 
                                          isNumeric 
                                          onClick={() => handleBrowseSort('size')} 
                                          cursor="pointer"
                                          _hover={{ bg: hoverBg }}
-                                       >{t('common.size')} <BrowseSortIcon column="size" /></Th>
-                                       <Th>{t('common.modifiedBy')}</Th>
-                                       <Th>{t('common.modified')}</Th>
-                                       <Th>{t('common.actionsHeader')}</Th>{/* Action column */}
+                                       >
+                                         {t('common.size')} <BrowseSortIcon column="size" />
+                                       </Th>
+                                       <Th textAlign="center">
+                                         {t('common.sync')}
+                                       </Th> 
                                      </Tr>
                                    </Thead>
                                    <Tbody>
@@ -1192,8 +1258,8 @@ const renderBreadcrumbs = ({
                                            </Td>
                                            <Td>{formatDateTime(item.lastModifiedDateTime)}</Td>
                                            <Td isNumeric>{formatFileSize(item.size)}</Td>
-                                           <Td>
-                                             {renderSyncActionButton(item, syncList, isProcessing, handleAddSyncItem, t)}
+                                           <Td textAlign="center"> 
+                                               {renderSyncActionButton(item, syncedItemIdsSet, isProcessing, handleAddSyncItem, t)}
                                            </Td>
                                          </Tr>
                                        ))
@@ -1220,51 +1286,76 @@ const renderBreadcrumbs = ({
               <MyRecentFilesList />
             </TabPanel>
             <TabPanel p={0}>
-              <VStack spacing={4} align="stretch">
-                  <Heading size="md">{t('sharepoint.history.title')}</Heading>
-                  {isLoadingHistory && <Center><Spinner /></Center>}
-                  {historyError && <Text color="red.500">{historyError}</Text>}
-                  {!isLoadingHistory && !historyError && (
-                      historyItems.length === 0
-                      ? (<Text>{t('sharepoint.history.empty')}</Text>)
-                      : (
-                          <Box overflowY="auto" maxHeight="400px">
-                              <Table variant="simple" size="sm" bg={tableBg}>
-                                  <Thead>
-                                      <Tr>
-                                          <Th>{t('common.name')}</Th>
-                                          <Th>{t('common.type')}</Th>
-                                      </Tr>
-                                  </Thead>
-                                  <Tbody>
-                                      {historyItems.map((item) => (
-                                          <Tr key={item.id} _hover={{ bg: hoverBg }}>
-                                              <Td>
-                                                  <HStack>
-                                                      <Icon
-                                                          as={item.item_type === 'folder' ? FaFolder : FaFile}
-                                                          color={item.item_type === 'folder' ? folderColor : fileColor}
-                                                      />
-                                                      <Text>{item.item_name}</Text>
-                                                  </HStack>
-                                              </Td>
-                                              <Td>{t(`sharepoint.itemType.${item.item_type}`)}</Td>
-                                          </Tr>
-                                      ))}
-                                  </Tbody>
-                              </Table>
-                          </Box>
-                      )
-                  )}
-              </VStack>
+              <Box borderWidth="1px" borderRadius="lg" p={4} bg={useColorModeValue('gray.50', 'gray.700')} shadow="sm">
+                <VStack spacing={4} align="stretch">
+                    <Heading size="md">{t('sharepoint.history.title')}</Heading>
+                    {isLoadingHistory && <Center p={5}><Spinner /></Center>} 
+                    {historyError && <Text color="red.500" p={5}>{historyError}</Text>} 
+                    {!isLoadingHistory && !historyError && (
+                        historyItems.length === 0
+                        ? (<Center p={5}><Text color="gray.500">{t('sharepoint.history.empty')}</Text></Center>)
+                        : (
+                            <Box overflowY="auto" maxHeight="400px">
+                                <List spacing={3} p={2}>
+                                    {historyItems.map((item) => (
+                                        <ListItem 
+                                          key={item.id} 
+                                          display="flex" 
+                                          justifyContent="space-between" 
+                                          alignItems="center"
+                                          p={2}
+                                          borderRadius="md"
+                                          _hover={{ bg: hoverBg }}
+                                        >
+                                          <HStack spacing={2} flex={1} minWidth={0} width="100%"> 
+                                            <Icon 
+                                              as={item.item_type === 'folder' ? FaFolder : FaFile} 
+                                              color={item.item_type === 'folder' ? folderColor : fileColor}
+                                              boxSize="1.2em"
+                                              flexShrink={0}
+                                            />
+                                            <VStack align="start" spacing={0} flex={1} minWidth={0} width="100%"> 
+                                              <Text fontSize="sm" fontWeight="medium" noOfLines={1} title={item.item_name} width="100%" textAlign="left">
+                                                {item.item_name} 
+                                              </Text>
+                                              {/* Display Drive ID as source info */}
+                                              <Text fontSize="xs" color="gray.500" noOfLines={1} title={item.sharepoint_drive_id} width="100%" textAlign="left">
+                                                {t('sharepoint.history.driveIdLabel', 'Drive ID:')} {item.sharepoint_drive_id}
+                                              </Text>
+                                            </VStack>
+                                          </HStack>
+                                          {/* Status Tag (Always Completed for History) */}
+                                          <Tag 
+                                            size="sm" 
+                                            variant="subtle" 
+                                            colorScheme="green"
+                                            mr={2}
+                                            flexShrink={0}
+                                          >
+                                            <Icon 
+                                              as={FaCheckCircle}
+                                              mr={1} 
+                                            />
+                                            {t('common.status.completed', 'Completed')} 
+                                          </Tag>
+                                        </ListItem>
+                                    ))}
+                                </List>
+                            </Box>
+                        )
+                    )}
+                </VStack>
+              </Box>
             </TabPanel>
           </TabPanels>
         </Tabs>
 
-        {/* +++ Render the Sync List Component +++ */}
+{/* +++ Render the Sync List Component +++ */}
         <Box mt={6}> {/* Add some margin top */} 
+          {/* Log the list before filtering for the component */}
+          {console.log('[SP Page] Rendering SyncListComponent. Full syncList:', syncList, 'Filtered items:', syncList.filter(item => item.status === 'pending'))}
           <SyncListComponent 
-            items={syncList} 
+            items={syncList.filter(item => item.status === 'pending')} // Filter for pending items
             onRemoveItem={handleRemoveSyncItem}
             onProcessList={handleProcessSyncList}
             isProcessing={isProcessing}
