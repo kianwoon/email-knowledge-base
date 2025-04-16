@@ -1,11 +1,16 @@
-# Global Development Rules
+# RULES
+- Avoid making assumptions; instead, thoroughly examine the file structure and identify the currently active codes. Be objective and factual in your approach.  
+- A temporary fix or workaround may not be a permanent solution. Ultimately, the code must be good enough for production use.
+- The error could be caused by the last change. Please don’t jump into the “NEW” error. When fixing bugs and errors, it’s important to take note of the potential impacts on the overall project. The fix may inadvertently break other components.
+- Avoid over-focusing on a single aspect. Consider other aspects for a complete context. 
+- Do not change the .env file without asking for permission.
+- Do not missed the crucial detail by not using hardcoded values.
+- Once we’ve confirmed the method, please ensure it’s executed thoroughly and not half-baked. 
+- Avoid interpreting search results too hastily. The reassessment must be based on ACTIVE codes.
+- All Chinese translations will be defaulted to CN.
+- If you make a mistake with the active codes and cause the project to fail, I will reset you and erase everything you’ve created. 
+- Please don’t attempt to start any service without seeking my approval.
 
-## Process Management
-- Use `pkill -f "npm run dev"` to stop development servers
-- Avoid infinite loops in responses
-- Do not hardcode values
-
-## Best Practices
-- Always use relative paths
-- Maintain consistent code formatting
-- Document major changes
+# Notes
+- In the production frontend server, we rely on Docker to handle the .env variables.
+- the translation is located in /frontend/src/i18n. all chinese default to CN
