@@ -42,7 +42,8 @@
     "tokenManagement": "Token Management",
     "jarvis": "Jarvis",
     "dashboard": "Dashboard",
-    "tokenUsage": "Token Usage"
+    "tokenUsage": "Token Usage",
+    "customKnowledge": "Custom Knowledge"
   },
   "features": {
     "title": "Unlock Hidden Knowledge",
@@ -701,12 +702,6 @@
           "saving": "Saving...",
           "proceedGenerateKB": "Proceed now, Generate knowledge base"
         },
-        "buttons": {
-          "proceed": "Proceed now, Generate knowledge base",
-          "proceedNow": "Proceed now, Generate knowledge base",
-          "proceedGenerate": "Proceed now, Generate knowledge base",
-          "generateKB": "Generate knowledge base"
-        },
         "analysis": {
           "title": "Analysis Results",
           "processingPrompt": "Analysis in progress, results will appear here...",
@@ -1120,7 +1115,12 @@
     "configClearFailedDesc": "Failed to clear configuration: {{errorDetail}}",
     "addToSyncListFailed": "Failed to add item to sync list.",
     "removeFromSyncListFailed": "Failed to remove item from sync list.",
-    "processSyncListFailed": "Failed to start sync process."
+    "processSyncListFailed": "Failed to start sync process.",
+    "chatFailed": "Failed to get response from AI.",
+    "errorPollingStatus": "Error polling task status",
+    "errorAddingItem": "Error adding item",
+    "errorRemovingItem": "Error removing item",
+    "errorStartingTask": "Error starting task"
   },
   "emailReview": {
     "pageTitle": "Review Analyzed Emails",
@@ -1438,31 +1438,70 @@
   },
   "jarvis": {
     "title": "Jarvis AI Assistant",
+    "welcomeMessage": "Hello! I am Jarvis, your AI assistant. How can I help you today?",
+    "continueWithoutKeys": "You can continue without saved API keys.",
     "chat": "Chat",
     "settings": "Settings",
-    "roles": {
-      "user": "User",
-      "assistant": "Assistant"
-    },
-    "messagePlaceholder": "Enter your message...",
-    "placeholderResponse": "This is a placeholder response. API integration pending.",
-    "setAsDefault": "Set as Default",
-    "defaultModelSaved": "Default Model Saved",
-    "defaultModelSavedDesc": "Your default model preference has been saved.",
-    "defaultModelError": "Error Saving Default Model",
+    "thinking": "Jarvis is thinking...",
+    "loadingApiKeys": "Loading API keys...",
+    "messagePlaceholder": "Type your message here...",
+    "settingsTitle": "API Settings",
     "settingsContent": {
+      "modelSelection": "Model Selection",
+      "modelDescription": "Select the AI model to use for chat. Models requiring an API key are only selectable if the corresponding key is saved below.",
+      "model": "Model",
+      "modelDefaultHelp": "The selected model will be used for new chat sessions. You can change it anytime.",
       "apiKeyTitle": "API Key",
+      "apiKey": "{{provider}} API Key",
+      "apiKeyPlaceholder": "Enter API key",
+      "apiKeySet": "API key is set",
       "openaiApiKeyDescription": "Enter your OPENAI API key to use OPENAI models.",
       "anthropicApiKeyDescription": "Enter your ANTHROPIC API key to use ANTHROPIC models.",
       "googleApiKeyDescription": "Enter your GOOGLE API key to use GOOGLE models.",
-      "selectModel": "Select AI Model",
-      "selectModelPlaceholder": "Please select an AI model",
-      "apiKey": "{{provider}} API Key",
-      "apiKeyPlaceholder": "Enter API key",
-      "modelSelection": "Model Selection",
-      "modelDescription": "Select the AI model to use for chat",
-      "model": "Model"
-    }
+      "openaiApiKeyHelp": "Needed for models like GPT-3.5 Turbo, GPT-4, GPT-4 Turbo.",
+      "anthropicApiKeyHelp": "Needed for models like Claude 3 Opus, Claude 3 Sonnet, Claude 3 Haiku.",
+      "googleApiKeyHelp": "Needed for models like Gemini 1.5 Pro, Gemini 1.5 Flash."
+    },
+    "requiresKey": "Requires API Key",
+    "setAsDefault": "Set as Default",
+    "apiKeyDescription": "To use certain models, provide API keys from the respective providers:",
+    "delete": "Delete Key",
+    "deleteApiKeyTooltip": "Delete Saved Key",
+    "saveApiKeyTooltip": "Save This Key",
+    "apiKeySaved": "API Key Saved",
+    "apiKeySavedDesc": "Your {{provider}} API key has been saved successfully.",
+    "apiKeySaveError": "Error Saving API Key",
+    "apiKeyDeleted": "API Key Deleted",
+    "apiKeyDeletedDesc": "Your {{provider}} API key has been deleted.",
+    "apiKeyDeleteError": "Error Deleting API Key",
+    "defaultModelSaved": "Default Model Saved",
+    "defaultModelSavedDesc": "Your default model preference has been saved.",
+    "defaultModelError": "Error Saving Default Model"
+  },
+  "customKnowledge": {
+    "uploadTab": "Custom Knowledge",
+    "historyTab": "History",
+    "uploadTitle": "Upload Custom Knowledge Files",
+    "selectFiles": "Select Files",
+    "uploadHelp": "Allowed types: {{allowedTypes}}. Max size: {{maxSize}} per file.",
+    "filesToUpload": "Files Ready for Upload",
+    "filename": "Filename",
+    "size": "Size",
+    "noFilesSelected": "No files selected yet.",
+    "process": "Process Selected Files",
+    "historyTitle": "Upload History",
+    "noHistory": "No upload history found.",
+    "status": "Status",
+    "uploadedAt": "Uploaded At",
+    "statusEnum": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "duplicateFile": "This file has already been processed. Please rename the file if you want to upload it again.",
+    "uploadSuccess": "Files uploaded successfully",
+    "uploadFailed": "Some files failed to upload"
   },
   "sharepoint": {
     "title": "SharePoint Integration",
@@ -1573,7 +1612,7 @@
     "selectBucketPrompt": "Please select a bucket above to view its contents.",
     "emptyFolder": "This location is empty.",
     "syncAction": "Sync",
-    "addToSyncList": "Add to sync list",
+    "addToSyncList": "Add to Sync List",
     "alreadyInSyncList": "Already in sync list",
     "itemAddedToSync": "Item '{{name}}' added to sync list.",
     "itemRemovedFromSync": "Item '{{name}}' removed from sync list.",
