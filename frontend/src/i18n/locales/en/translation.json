@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Email Knowledge Base",
-    "tagline": "AI-POWERED EMAIL KNOWLEDGE BASE"
+    "tagline": "One Platform. All Your Knowledge. Ready for AI"
   },
   "home": {
     "hero": {
@@ -838,15 +838,41 @@
     "forgotPassword": "Forgot password?",
     "signIn": "Sign in",
     "or": "or",
-    "signUp": "Sign up"
+    "signUp": "Sign up",
+    "highlights": [
+      {
+        "title": "Seamless Enterprise Data Integration",
+        "description": "Connects natively to Outlook, SharePoint, AWS S3, Azure Blob, and more — enabling you to extract insights from the silos where information lives."
+      },
+      {
+        "title": "AI-Ready Knowledge Base, Instantly",
+        "description": "Transforms raw emails, documents, and files into structured, queryable knowledge. With just a Microsoft sign-in, you can activate AI-powered discovery — starting with your own inbox."
+      },
+      {
+        "title": "Built-In Enterprise AI Assistant",
+        "description": "Access your knowledge through a smart AI assistant, \"Jarvis\" — trained on your enterprise data, ready to assist in real-time with context-aware answers."
+      },
+      {
+        "title": "Secure Sharing with Fine-Grained Control",
+        "description": "Easily generate and manage access tokens with clear sensitivity labels and expiry controls — ensuring secure collaboration across teams and partners."
+      },
+      {
+        "title": "Full Auditability and Usage Visibility",
+        "description": "Track exactly how your knowledge is being accessed and used — bringing transparency, control, and governance to your AI initiatives."
+      },
+      {
+        "title": "From ETL to Enterprise Activation",
+        "description": "This isn't just data ingestion. It's about activating knowledge for decision-making, productivity, and scalable AI automation — all from a single unified platform."
+      }
+    ]
   },
   "toast": {
     "loginSuccess": {
-      "title": "Login Successful",
-      "description": "You have been successfully logged in."
+      "title": "Login successful",
+      "description": "You have successfully signed in."
     },
     "loginError": {
-      "title": "Login Failed",
+      "title": "Login Error",
       "description": "There was an error logging in. Please try again."
     }
   },

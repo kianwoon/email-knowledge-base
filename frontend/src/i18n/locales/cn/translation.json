@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "电子邮件知识库",
-    "tagline": "人工智能驱动的电子邮件知识库"
+    "tagline": "一个平台。所有知识。AI 就绪"
   },
   "home": {
     "hero": {
@@ -772,7 +772,33 @@
     "login": "登录",
     "forgotPassword": "忘记密码",
     "dontHaveAccount": "没有账号？",
-    "createAccount": "创建账号"
+    "createAccount": "创建账号",
+    "highlights": [
+      {
+        "title": "无缝企业数据集成",
+        "description": "原生连接 Outlook, SharePoint, AWS S3, Azure Blob 等 — 让您从信息孤岛中提取洞察。"
+      },
+      {
+        "title": "即时可用的 AI 知识库",
+        "description": "将原始邮件、文档和文件转换为结构化、可查询的知识。只需 Microsoft 登录，即可激活 AI 驱动的发现 — 从您自己的收件箱开始。"
+      },
+      {
+        "title": "内置企业 AI 助手",
+        "description": "通过智能 AI 助手\"贾维斯\"访问您的知识 — 基于您的企业数据进行训练，随时准备提供具有上下文感知的实时答案。"
+      },
+      {
+        "title": "细粒度控制的安全共享",
+        "description": "轻松生成和管理具有明确敏感度标签和到期控制的访问令牌 — 确保跨团队和合作伙伴的安全协作。"
+      },
+      {
+        "title": "全面的可审计性和使用可见性",
+        "description": "精确跟踪您的知识被访问和使用的方式 — 为您的 AI 计划带来透明度、控制和治理。"
+      },
+      {
+        "title": "从 ETL 到企业激活",
+        "description": "这不仅仅是数据提取。这是关于激活知识以支持决策、提高生产力和实现可扩展的 AI 自动化 — 所有这些都来自一个统一的平台。"
+      }
+    ]
   },
   "toast": {
     "loginSuccess": {

@@ -44,11 +44,50 @@ import {
   FaUsers,
   FaMicrosoft,
   FaClock,
+  FaKey,
+  FaDownload,
+  FaComments,
+  FaChartBar,
+  FaRocket,
 } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../components/LanguageSwitcher';
 import { getLoginUrl } from '../api/auth';
 import ImageCarousel from '../components/ImageCarousel';
+
+// Define the new rotating content using translation keys
+const rotatingHighlights = [
+  {
+    icon: '📥',
+    titleKey: 'signIn.highlights.0.title',
+    descriptionKey: 'signIn.highlights.0.description'
+  },
+  {
+    icon: '🧠',
+    titleKey: 'signIn.highlights.1.title',
+    descriptionKey: 'signIn.highlights.1.description'
+  },
+  {
+    icon: '💬',
+    titleKey: 'signIn.highlights.2.title',
+    descriptionKey: 'signIn.highlights.2.description'
+  },
+  {
+    icon: '🔐',
+    titleKey: 'signIn.highlights.3.title',
+    descriptionKey: 'signIn.highlights.3.description'
+  },
+  {
+    icon: '📊',
+    titleKey: 'signIn.highlights.4.title',
+    descriptionKey: 'signIn.highlights.4.description'
+  },
+  {
+    icon: '🚀',
+    titleKey: 'signIn.highlights.5.title',
+    descriptionKey: 'signIn.highlights.5.description'
+  }
+];
 
 interface SignInProps {
   onLogin: () => void;
@@ -64,6 +103,7 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
+  const [currentHighlightIndex, setCurrentHighlightIndex] = useState(0);
 
   useEffect(() => {
     // Check for token in URL after OAuth redirect
@@ -91,6 +131,17 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
       });
     }
   }, [onLogin, navigate, toast]);
+
+  // Effect for rotating highlights
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setCurrentHighlightIndex(prevIndex => 
+        (prevIndex + 1) % rotatingHighlights.length
+      );
+    }, 7000); // Rotate every 7 seconds
+
+    return () => clearInterval(intervalId); // Cleanup on unmount
+  }, []);
 
   const handleSignIn = async () => {
     setIsLoading(true);
@@ -147,6 +198,9 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
     }
   ];
 
+  // Get the current highlight
+  const currentHighlight = rotatingHighlights[currentHighlightIndex];
+
   return (
     <>
       <Box as="main" minH="100vh" bg={colorMode === 'dark' ? "dark.bg" : "light.bg"} position="relative" overflow="hidden">
@@ -165,37 +219,48 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
                 position="relative"
                 textAlign={{ base: "center", md: "left" }}
               >
-                <VStack spacing={{ base: 1.5, md: 1.5 }} align={{ base: "center", md: "flex-start" }}>
+                <VStack spacing={{ base: 4, md: 4 }} align={{ base: "center", md: "flex-start" }}>
                   <Box 
-                    bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.05)"} 
-                    px={3} 
-                    py={1} 
-                    borderRadius="full"
+                    key={currentHighlightIndex}
+                    bg={colorMode === 'dark' ? "rgba(255, 255, 255, 0.07)" : "rgba(255, 255, 255, 0.7)"} 
+                    p={6} 
+                    borderRadius="lg" 
+                    boxShadow="md"
+                    w="100%"
+                    sx={{ backdropFilter: 'blur(5px)' }}
+                    borderWidth="1px"
+                    borderColor={colorMode === 'dark' ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)"}
                   >
-                    <Text 
-                      fontSize={{ base: "sm", md: "md" }} 
-                      color={colorMode === 'dark' ? "cyan.400" : "blue.500"}
-                      fontWeight="medium"
-                    >
-                      {t('app.tagline')}
-                    </Text>
+                    <VStack spacing={3} align="flex-start">
+                      <HStack spacing={3}>
+                        <Text fontSize="2xl">{currentHighlight.icon}</Text>
+                        <Heading
+                          as="h2"
+                          size={{ base: "xl", md: "2xl" }}
+                          color={colorMode === 'dark' ? "white" : "gray.800"}
+                          lineHeight="1.3"
+                          fontWeight="semibold"
+                        >
+                          {t(currentHighlight.titleKey)}
+                        </Heading>
+                      </HStack>
+                      <Text fontSize={{ base: "lg", md: "xl" }} color={colorMode === 'dark' ? "gray.300" : "gray.700"}>
+                        {t(currentHighlight.descriptionKey)}
+                      </Text>
+                    </VStack>
                   </Box>
 
-                  <Heading
-                    as="h1"
-                    size={{ base: "xl", md: "2xl" }}
-                    color={colorMode === 'dark' ? "white" : "gray.800"}
-                    lineHeight="1.2"
-                    fontWeight="bold"
+                  <Text 
+                    fontSize={{ base: "2xl", md: "3xl" }}
+                    fontWeight="semibold"
+                    color={colorMode === 'dark' ? "gray.200" : "gray.700"}
+                    textAlign={{ base: "center", md: "left" }}
+                    pt={2}
                   >
-                    {t('home.hero.title')}
-                  </Heading>
-
-                  <Text fontSize={{ base: "md", md: "lg" }} color={colorMode === 'dark' ? "gray.300" : "gray.700"}>
-                    {t('home.hero.description')}
+                    {t('app.tagline')}
                   </Text>
 
-                  <HStack spacing={{ base: 2, md: 4 }} pt={2} flexDir={{ base: "column", sm: "row" }} w={{ base: "100%", sm: "auto" }}>
+                  <HStack spacing={{ base: 2, md: 4 }} pt={4} flexDir={{ base: "column", sm: "row" }} w={{ base: "100%", sm: "auto" }}>
                     {!isAuthenticated && (
                       <Button
                         leftIcon={<Icon as={FaMicrosoft} />}
