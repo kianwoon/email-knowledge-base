@@ -219,7 +219,7 @@ async def generate_openai_rag_response(
                 {"role": "user", "content": (
                     f"User question: {message}\nChunks:\n" +
                     "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
-                    "\nRespond with exactly the JSON object (e.g. {\\"1\\":\\"yes\\",\\"2\\":\\"no\\"})."
+                    "\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
                 )}
             ]
             class_resp = await user_client.chat.completions.create(
