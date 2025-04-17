@@ -3,6 +3,8 @@ from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 import logging # Import logging
+import httpx  # For HuggingFace reranker API
+from httpx import HTTPStatusError
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
@@ -153,8 +155,37 @@ async def generate_openai_rag_response(
         # 2. Create embedding for the user message (can still use system key client? Let's use user key)
         # Potentially switch embedding to use user_client too if needed, or keep using global client
         # For now, let's use the user_client for embedding as well for consistency
-        logger.debug(f"Creating embedding for message: '{message[:50]}...' using user key")
-        query_embedding = await create_embedding(message, client=user_client) # Pass the user client
+        # --- START: Query refinement step to extract table and role for retrieval ---
+        import json
+        retrieval_query = message
+        try:
+            refine_msgs = [
+                {"role": "system", "content": (
+                    "You are a query refiner. Extract the target table/section and the entity from the user question. "
+                    "Return JSON with keys 'table' and 'role'."
+                )},
+                {"role": "user", "content": (
+                    f"Question: {message}\nRespond with JSON: {{\"table\":\"...\", \"role\":\"...\"}}."
+                )}
+            ]
+            resp_refine = await user_client.chat.completions.create(
+                model=settings.OPENAI_MODEL_NAME,
+                messages=refine_msgs,
+                temperature=0.0
+            )
+            refined = json.loads(resp_refine.choices[0].message.content)
+            # Build a concise retrieval query
+            parts = []
+            if refined.get('table'): parts.append(refined['table'])
+            if refined.get('role'): parts.append(refined['role'])
+            if parts:
+                retrieval_query = ' '.join(parts)
+            logger.debug(f"RAG: Refined retrieval query: {retrieval_query}")
+        except Exception as e:
+            logger.warning(f"Query refinement failed, using original message: {e}", exc_info=True)
+        # --- END: Query refinement ---
+        logger.debug(f"Creating embedding for retrieval_query: '{retrieval_query[:50]}...' using user key")
+        query_embedding = await create_embedding(retrieval_query, client=user_client) # Pass the user client
         logger.debug("Embedding created using user key.")
 
         # 3. Determine user-specific collection name and search
@@ -175,6 +206,91 @@ async def generate_openai_rag_response(
         logger.debug(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
         logger.debug(f"RAG: Raw search results: {search_results}")
 
+        # --- Start: LLM-based chunk classification to handle arbitrary layouts ---
+        try:
+            # Prepare chunks for classification
+            chunk_texts = [hit['payload']['content'] for hit in search_results]
+            class_messages = [
+                {"role": "system", "content": (
+                    "You are a classification assistant. Given a user question and a list of text chunks, "
+                    "respond with a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
+                    "each chunk is useful to answer the question."
+                )},
+                {"role": "user", "content": (
+                    f"User question: {message}\nChunks:\n" +
+                    "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
+                    "\nRespond with valid JSON like {\"1\":\"yes\", \"2\":\"no\", ...}."
+                )}
+            ]
+            class_resp = await user_client.chat.completions.create(
+                model=settings.OPENAI_MODEL_NAME,
+                messages=class_messages,
+                temperature=0.0
+            )
+            import json
+            decisions = json.loads(class_resp.choices[0].message.content)
+            # Filter only chunks marked 'yes'
+            classified = [hit for idx, hit in enumerate(search_results, start=1)
+                          if decisions.get(str(idx), "no").lower() == "yes"]
+            if classified:
+                search_results = classified
+            logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
+        except Exception as e:
+            logger.warning(f"Chunk classification failed, using original hits: {e}", exc_info=True)
+        # --- End: LLM-based classification ---
+
+        # --- Start: Enhanced filtering to drop wrong table chunks for monthly vs conversion queries ---
+        query_lower = message.lower()
+        # If the user requests monthly rates or rate card, only keep chunks that mention monthly rate (or B1)
+        if 'monthly rate' in query_lower or 'rate card' in query_lower:
+            monthly_terms = ['monthly rate', 'monthly rates by individual', 'b1:']
+            search_results = [
+                hit for hit in search_results
+                if any(term in hit.get('payload', {}).get('content', '').lower() for term in monthly_terms)
+            ]
+        # If the user requests conversion fees, only keep chunks that mention conversion fee (or B4)
+        elif 'conversion fee' in query_lower:
+            conversion_terms = ['conversion fee', 'conversion fees by individual', 'b4:']
+            search_results = [
+                hit for hit in search_results
+                if any(term in hit.get('payload', {}).get('content', '').lower() for term in conversion_terms)
+            ]
+        # --- End: Enhanced filtering ---
+
+        # Local reranking using OpenAI embeddings and cosine similarity
+        if settings.ENABLE_RERANK:
+            try:
+                # Extract document texts
+                docs = [hit["payload"]["content"] for hit in search_results]
+                # Generate embeddings for each doc using user's API key
+                doc_embeddings = [
+                    await create_embedding(text, client=user_client)
+                    for text in docs
+                ]
+                # Cosine similarity helper
+                import math
+                def cos_sim(a, b):
+                    dot = sum(x*y for x, y in zip(a, b))
+                    norm_a = math.sqrt(sum(x*x for x in a))
+                    norm_b = math.sqrt(sum(y*y for y in b))
+                    return dot/(norm_a*norm_b) if norm_a and norm_b else 0.0
+                # Compute similarities
+                sims = [cos_sim(query_embedding, emb) for emb in doc_embeddings]
+                # Blend Qdrant's native score with cosine similarity
+                qdrant_scores = [hit.get('score', 0.0) for hit in search_results]
+                min_s, max_s = min(qdrant_scores), max(qdrant_scores)
+                if max_s > min_s:
+                    norm_scores = [(s - min_s)/(max_s - min_s) for s in qdrant_scores]
+                else:
+                    norm_scores = [1.0] * len(qdrant_scores)
+                alpha = getattr(settings, 'RERANK_WEIGHT', 0.5)
+                final_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
+                order = sorted(range(len(final_scores)), key=lambda i: final_scores[i], reverse=True)
+                search_results = [search_results[i] for i in order]
+                logger.debug(f"Locally reranked Qdrant hits new order: {order}")
+            except Exception as e:
+                logger.warning(f"Local rerank failed, proceeding with original Qdrant order: {e}", exc_info=True)
+
         # 4. Format context and augment prompt
         context_str = ""
         if search_results:
@@ -194,21 +310,20 @@ async def generate_openai_rag_response(
 
         # --- REVISED SYSTEM PROMPT V9 (Modified Fallback Instruction) ---
         system_prompt = f"""You are Jarvis, an AI assistant that uses provided RAG context and conversation history only.
+Always answer strictly from the provided context; do not fabricate or infer any details not present in the context.
+If the context lacks enough information, respond that you don't have sufficient context or ask a clarifying question.
 
 **Output Modes (use exactly one):**
 - Markdown list
-- Markdown table (`|…|`)
 - JSON object
 - Code block (triple‑backticks)
 - Plain text
 
 **Instructions (in order):**
 1. If the user's question includes "list," "what are," etc., use a Markdown list.
-2. If the user's question includes "table," "matrix," "compare," use a Markdown table:
-   - Fill missing fields with "N/A."
-3. If the user's question requests structured data for code, output valid JSON.
-4. For other direct questions, answer in plain text paragraphs.
-5. If you cannot answer from context, ask exactly one clarifying question.
+2. If the user's question requests structured data for code, output valid JSON.
+3. For other direct questions, answer in plain text paragraphs.
+4. If you cannot answer from context, ask exactly one clarifying question.
 
 --- START RAG CONTEXT ---
 {context_str}
@@ -269,3 +384,44 @@ Answer:
 # Keep the old simple chat function for now, or remove if replaced by RAG
 # async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
 #    ... (previous implementation) ...
+
+# +++ Reranker Function +++
+async def rerank_documents(query: str, docs: List[str]) -> List[int]:
+    """
+    Call HuggingFace BAAI/bge-reranker-v2-m3 to rerank documents.
+    Returns list of indices sorted by descending relevance.
+    """
+    # Check feature flag and token
+    if not settings.ENABLE_RERANK or not settings.HUGGINGFACE_API_TOKEN:
+        logger.debug("Reranking disabled or no HuggingFace token, skipping rerank.")
+        return list(range(len(docs)))
+    url = "https://api-inference.huggingface.co/models/BAAI/bge-reranker-v2-m3?pipeline_tag=sentence-similarity"
+    headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_API_TOKEN}"}
+    # BGE reranker expects a list of {query, document} entries
+    payload = {"inputs": [
+        {"query": query, "document": doc}
+        for doc in docs
+    ]}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            try:
+                resp.raise_for_status()
+            except HTTPStatusError as he:
+                # Log full error response body for debugging
+                logger.error(f"HuggingFace reranker HTTP {he.response.status_code} error: {he.response.text}", exc_info=True)
+                raise
+            result = resp.json()
+            # HF reranker may return a list of scores or a dict with "scores"
+            if isinstance(result, list):
+                scores = result
+            elif isinstance(result, dict) and "scores" in result:
+                scores = result["scores"]
+            else:
+                raise ValueError("Unexpected reranker response format")
+            # Sort indices by score descending
+            return sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+    except Exception as e:
+        logger.warning(f"Failed to rerank documents using HuggingFace: {e}", exc_info=True)
+        return list(range(len(docs)))
+# +++ End Reranker Function +++

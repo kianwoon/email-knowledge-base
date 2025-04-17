@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") # validated by check_required_env_vars
     OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
+    # HuggingFace reranker settings
+    HUGGINGFACE_API_TOKEN: Optional[str] = os.getenv("HUGGINGFACE_API_TOKEN")  # Token for HuggingFace inference
+    ENABLE_RERANK: bool = os.getenv("ENABLE_RERANK", "True") == "True"  # Feature-flag for reranking
+    # Weight (0-1) to blend Qdrant native score and cosine similarity for reranking
+    RERANK_WEIGHT: float = float(os.getenv("RERANK_WEIGHT", "0.5"))
+
     # Qdrant settings
     QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars
     QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY") # Optional, not validated by helper
