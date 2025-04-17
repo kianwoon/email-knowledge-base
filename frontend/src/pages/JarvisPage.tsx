@@ -47,6 +47,7 @@ import { sendChatMessage } from '../api/chat';
 import { getOpenAIApiKey, saveOpenAIApiKey, getAllApiKeys, getProviderApiKey, saveProviderApiKey, ApiProvider, deleteProviderApiKey, saveDefaultModel, getDefaultModel } from '../api/user';
 import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/customKnowledge';
 import { CustomKnowledgeFile } from '../models/customKnowledge';
+import axios from 'axios';
 
 // Types for LLM models
 interface LLMModel {
@@ -152,6 +153,9 @@ const JarvisPage: React.FC = () => {
   const [customHistory, setCustomHistory] = useState<CustomKnowledgeFile[]>([]);
   const [customHistoryLoading, setCustomHistoryLoading] = useState(false);
   const [customHistoryError, setCustomHistoryError] = useState<string | null>(null);
+  const [snippetContent, setSnippetContent] = useState<string>('');
+  const [snippetLoading, setSnippetLoading] = useState<boolean>(false);
+  const [snippetTag, setSnippetTag] = useState<string>('');
 
   // Ref for the chat container
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -607,6 +611,36 @@ const JarvisPage: React.FC = () => {
     }
   }, [activeTab]);
 
+  // Handler to ingest freeform snippet into user's knowledge base
+  const handleIngestSnippet = async () => {
+    if (!snippetContent.trim() || snippetLoading) return;
+    setSnippetLoading(true);
+    try {
+      const body = { content: snippetContent, metadata: snippetTag ? { tag: snippetTag } : {} };
+      const response = await axios.post('/api/v1/knowledge/snippet', body);
+      toast({
+        title: t('jarvis.addKnowledgeSuccess', 'Knowledge added'),
+        description: t('jarvis.addKnowledgeDesc', 'Your text has been added to your knowledge base.'),
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+      setSnippetContent('');
+      setSnippetTag('');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to add knowledge';
+      toast({
+        title: t('common.error'),
+        description: msg,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setSnippetLoading(false);
+    }
+  };
+
   return (
     <Container maxW="container.xl" py={5} bg={bgColor}>
       <VStack spacing={5} align="stretch">
@@ -631,6 +665,7 @@ const JarvisPage: React.FC = () => {
             <Tab>{t('jarvis.settings')}</Tab>
             <Tab>{t('customKnowledge.uploadTab', 'Custom Knowledge')}</Tab>
             <Tab>{t('customKnowledge.historyTab', 'History')}</Tab>
+            <Tab>{t('jarvis.addKnowledge', 'Add Knowledge')}</Tab>
           </TabList>
           <TabPanels>
             <TabPanel p={0}>
@@ -1058,6 +1093,48 @@ const JarvisPage: React.FC = () => {
                      </TableContainer>
                   )}
                 </Box>
+              </VStack>
+            </TabPanel>
+
+            <TabPanel p={4}>
+              <VStack spacing={4} align="stretch">
+                <Heading size="md" color={headingColor}>
+                  {t('jarvis.addKnowledge', 'Add Knowledge')}
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="snippet-tag">{t('jarvis.snippetTagLabel', 'Tag (optional)')}</FormLabel>
+                  <Input
+                    id="snippet-tag"
+                    value={snippetTag}
+                    onChange={(e) => setSnippetTag(e.target.value)}
+                    placeholder={t('jarvis.snippetTagPlaceholder', 'e.g., GIC rate card')}
+                    bg={inputBg}
+                    borderColor={borderColor}
+                    isDisabled={snippetLoading}
+                  />
+                  <FormHelperText color={useColorModeValue('gray.600','gray.400')}>
+                    {t('jarvis.snippetTagHelper', 'Optional: Assign a lowercase tag so you can retrieve this snippet using `tag:<your_tag>` in your query.')}
+                  </FormHelperText>
+                </FormControl>
+                <Textarea
+                  value={snippetContent}
+                  onChange={(e) => setSnippetContent(e.target.value)}
+                  placeholder={t('jarvis.snippetPlaceholder', 'Enter text to add to knowledge base...')}
+                  rows={6}
+                  resize="vertical"
+                  isDisabled={snippetLoading}
+                  bg={inputBg}
+                  borderColor={borderColor}
+                />
+                <Button
+                  colorScheme="blue"
+                  onClick={handleIngestSnippet}
+                  isLoading={snippetLoading}
+                  isDisabled={!snippetContent.trim() || snippetLoading}
+                  alignSelf="flex-end"
+                >
+                  {t('jarvis.submitSnippet', 'Submit')}
+                </Button>
               </VStack>
             </TabPanel>
           </TabPanels>

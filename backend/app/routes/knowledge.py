@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Literal
+from typing import Literal, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone # Import datetime
 
@@ -9,6 +9,10 @@ from app.models.user import User
 from app.db.qdrant_client import get_qdrant_client # Assuming Qdrant client dependency
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
+from app.config import settings
+import uuid
+from app.services.embedder import create_embedding
+from qdrant_client.http.models import PointStruct
 # Import the service function we will create
 # from app.services.knowledge_service import fetch_collection_summary 
 
@@ -31,6 +35,11 @@ class KnowledgeSummaryResponseModel(BaseModel):
     custom_raw_data_count: int # Custom raw data
     vector_data_count: int
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Request model for snippet ingestion
+class SnippetRequest(BaseModel):
+    content: str
+    metadata: Optional[Dict[str, Any]] = {}
 
 @router.get("/summary/{collection_name}", response_model=CollectionSummaryResponseModel)
 async def get_collection_summary_route(
@@ -246,3 +255,38 @@ async def get_knowledge_summary_route(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while retrieving the knowledge base summary."
         ) 
+
+@router.post("/snippet")
+async def ingest_snippet(
+    snippet: SnippetRequest,
+    current_user: User = Depends(get_current_user),
+    qdrant: QdrantClient = Depends(get_qdrant_client)
+):
+    """
+    Ingest a freeform text snippet into the user's RAG knowledge base.
+    Body JSON should be {"content": "...", "metadata": {...}}.
+    """
+    # Validate and parse request
+    text = snippet.content
+    metadata = snippet.metadata or {}
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing 'content' in request body.")
+    # Normalize tag to lowercase to ensure consistent retrieval
+    if 'tag' in metadata and isinstance(metadata['tag'], str):
+        metadata['tag'] = metadata['tag'].strip().lower()
+    # Mark this point as a snippet source for later retrieval filtering
+    metadata['source'] = 'snippet'
+    # Create embedding for the full snippet
+    embedding = await create_embedding(text)
+    # Determine user-specific collection
+    sanitized = current_user.email.replace('@', '_').replace('.', '_')
+    collection = f"{sanitized}_knowledge_base"
+    # Create a single Qdrant point for the entire snippet
+    point = PointStruct(
+        id=str(uuid.uuid4()),
+        vector=embedding,
+        payload={"content": text, **metadata}
+    )
+    # Upsert into Qdrant
+    qdrant.upsert(collection_name=collection, points=[point], wait=True)
+    return {"status": "success", "id": point.id, "collection": collection} 

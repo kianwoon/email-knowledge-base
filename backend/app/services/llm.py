@@ -1,10 +1,9 @@
 import json
+import re  # For rate-card dollar filtering
 from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 import logging # Import logging
-import httpx  # For HuggingFace reranker API
-from httpx import HTTPStatusError
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
@@ -13,6 +12,7 @@ from app.models.user import User # Assuming User model is here
 from app.services.embedder import create_embedding, search_qdrant_knowledge
 from app.crud import api_key_crud # Import API key CRUD
 from fastapi import HTTPException, status # Import HTTPException
+from qdrant_client import models
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -156,7 +156,6 @@ async def generate_openai_rag_response(
         # Potentially switch embedding to use user_client too if needed, or keep using global client
         # For now, let's use the user_client for embedding as well for consistency
         # --- START: Query refinement step to extract table and role for retrieval ---
-        import json
         retrieval_query = message
         try:
             refine_msgs = [
@@ -184,6 +183,29 @@ async def generate_openai_rag_response(
         except Exception as e:
             logger.warning(f"Query refinement failed, using original message: {e}", exc_info=True)
         # --- END: Query refinement ---
+        # Store the original retrieval query before refinement/expansion
+        orig_retrieval_query = retrieval_query
+        # --- START: Query expansion for synonyms ---
+        if getattr(settings, 'ENABLE_QUERY_EXPANSION', False):
+            try:
+                expand_msgs = [
+                    {"role": "system", "content": (
+                        "You are a synonym expander. Given a query, return an expanded query including synonyms, separated by commas. Output only plain text."
+                    )},
+                    {"role": "user", "content": f"Expand the following query to include synonyms: {retrieval_query}"}
+                ]
+                exp_resp = await user_client.chat.completions.create(
+                    model=settings.OPENAI_MODEL_NAME,
+                    messages=expand_msgs,
+                    temperature=0.0
+                )
+                expanded = exp_resp.choices[0].message.content.strip()
+                if expanded:
+                    retrieval_query = expanded
+                    logger.debug(f"RAG: Expanded retrieval query: {retrieval_query}")
+            except Exception as e:
+                logger.warning(f"Query expansion failed, using original retrieval_query: {e}", exc_info=True)
+        # --- END: Query expansion ---
         logger.debug(f"Creating embedding for retrieval_query: '{retrieval_query[:50]}...' using user key")
         query_embedding = await create_embedding(retrieval_query, client=user_client) # Pass the user client
         logger.debug("Embedding created using user key.")
@@ -197,52 +219,133 @@ async def generate_openai_rag_response(
         embedding_snippet = str(query_embedding[:5]) + "..." if query_embedding else "None"
         logger.debug(f"RAG: Using query embedding (first 5 elements): {embedding_snippet}")
 
+        # Build a generic tag filter: honor only explicit 'tag:<value>' directives
+        tag_filter = None
+        directive_match = re.search(r'\btag[:=]\s*([A-Za-z0-9 _-]+)', message, re.IGNORECASE)
+        if directive_match:
+            tag_val = directive_match.group(1).strip().lower()
+            tag_filter = models.Filter(
+                must=[models.FieldCondition(key="tag", match=models.MatchValue(value=tag_val))]
+            )
+            logger.debug(f"RAG: Applying metadata filter for tag directive '{tag_val}'")
+        # Log and run Qdrant search with optional metadata filter
+        logger.debug(f"RAG: Running Qdrant search for query: '{retrieval_query[:50]}...' with limit {settings.RAG_SEARCH_LIMIT} and filter={tag_filter}")
         search_results = await search_qdrant_knowledge(
             query_embedding=query_embedding,
-            limit=10,
-            collection_name=collection_to_search
+            limit=settings.RAG_SEARCH_LIMIT,
+            collection_name=collection_to_search,
+            qdrant_filter=tag_filter
         )
+        # For rate-card queries, try snippet-only filter first
+        if ('rate card' in message.lower() or 'rate for' in message.lower()):
+            try:
+                snippet_filter = models.Filter(
+                    must=[models.FieldCondition(key="source", match=models.MatchValue(value="snippet"))]
+                )
+                snippet_hits = await search_qdrant_knowledge(
+                    query_embedding=query_embedding,
+                    limit=settings.RAG_SEARCH_LIMIT,
+                    collection_name=collection_to_search,
+                    qdrant_filter=snippet_filter
+                )
+                if snippet_hits:
+                    search_results = snippet_hits
+                    logger.debug(f"RAG: Using snippet-only hits for rate-card query, found {len(search_results)} chunks")
+            except Exception as e:
+                logger.warning(f"Snippet-only Qdrant search failed: {e}", exc_info=True)
         # Log the raw search result length AND the results themselves for inspection
         logger.debug(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
         logger.debug(f"RAG: Raw search results: {search_results}")
+        # Fallback: if we filtered by tag but got zero hits, retry without tag filter
+        if tag_filter and not search_results:
+            logger.warning("RAG: No hits with tag filter, falling back to unfiltered search")
+            search_results = await search_qdrant_knowledge(
+                query_embedding=query_embedding,
+                limit=settings.RAG_SEARCH_LIMIT,
+                collection_name=collection_to_search
+            )
+        if not search_results and getattr(settings, 'ENABLE_QUERY_EXPANSION', False):
+            logger.warning("RAG: No results after query expansion, retrying with original query")
+            # Recreate embedding for original query
+            query_embedding = await create_embedding(orig_retrieval_query, client=user_client)
+            logger.debug(f"RAG: Running Qdrant fallback search for original query: '{orig_retrieval_query[:50]}...' with limit {settings.RAG_SEARCH_LIMIT}")
+            search_results = await search_qdrant_knowledge(
+                query_embedding=query_embedding,
+                limit=settings.RAG_SEARCH_LIMIT,
+                collection_name=collection_to_search
+            )
+            logger.debug(f"RAG: Qdrant fallback search returned {len(search_results)} hits from '{collection_to_search}'")
 
         # --- Start: LLM-based chunk classification to handle arbitrary layouts ---
-        try:
-            # Prepare chunks for classification
-            chunk_texts = [hit['payload']['content'] for hit in search_results]
-            class_messages = [
-                {"role": "system", "content": (
-                    "You are a classification assistant. Given a user question and a list of text chunks, "
-                    "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
-                    "each chunk is useful to answer the question. Do not include any additional text or markdown."
-                )},
-                {"role": "user", "content": (
-                    f"User question: {message}\nChunks:\n" +
-                    "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
-                    "\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
-                )}
-            ]
-            class_resp = await user_client.chat.completions.create(
-                model=settings.OPENAI_MODEL_NAME,
-                messages=class_messages,
-                temperature=0.0
-            )
-            # Debug: log raw classification response
-            logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
-            import json
-            decisions = json.loads(class_resp.choices[0].message.content)
-            # Filter only chunks marked 'yes'
-            classified = [hit for idx, hit in enumerate(search_results, start=1)
-                          if decisions.get(str(idx), "no").lower() == "yes"]
-            if classified:
-                search_results = classified
-            logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
-        except Exception as e:
-            logger.warning(f"Chunk classification failed, using original hits: {e}", exc_info=True)
+        if 'rate card' not in message.lower() and 'rate for' not in message.lower():
+            # Only classify chunks for non-rate-card queries
+            try:
+                # Prepare chunks for classification
+                chunk_texts = [hit['payload']['content'] for hit in search_results]
+                class_messages = [
+                    {"role": "system", "content": (
+                        "You are a classification assistant. Given a user question and a list of text chunks, "
+                        "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
+                        "each chunk is useful to answer the question. Do not include any additional text or markdown."
+                    )},
+                    {"role": "user", "content": (
+                        f"User question: {message}\nChunks:\n" +
+                        "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
+                        "\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
+                    )}
+                ]
+                class_resp = await user_client.chat.completions.create(
+                    model=settings.OPENAI_MODEL_NAME,
+                    messages=class_messages,
+                    temperature=0.0
+                )
+                # Debug: log raw classification response
+                logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
+                decisions = json.loads(class_resp.choices[0].message.content)
+                # Filter only chunks marked 'yes'
+                classified = [hit for idx, hit in enumerate(search_results, start=1)
+                              if decisions.get(str(idx), "no").lower() == "yes"]
+                if classified:
+                    search_results = classified
+                logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
+            except Exception as e:
+                logger.warning(f"Chunk classification failed, using original hits: {e}", exc_info=True)
+        else:
+            # Skip classification for rate-card queries to preserve table chunks
+            logger.debug("RAG: Skipping chunk classification for rate-card/table style query")
+        # Currency-value filtering for rate-card queries: keep only relevant chunks
+        if 'rate card' in message.lower() or 'rate for' in message.lower():
+            orig_chunks = search_results.copy()
+            # Match $, S$, or SGD amounts or comma-formatted numbers (e.g., 4,600)
+            pattern = re.compile(r"(?:\$\s?\d|S\$\s?\d|SGD\s?\d|\d{1,3}(?:,\d{3})+)")
+            filtered = [hit for hit in search_results if pattern.search(hit.get('payload', {}).get('content', ''))]
+            if filtered:
+                search_results = filtered
+                logger.debug(f"RAG: Applied currency-value filter, kept {len(search_results)}/{len(orig_chunks)} chunks")
+            else:
+                logger.debug("RAG: No currency-value chunks found, skipping currency-value filter and keeping all chunks")
+            # Fallback substring match for the extracted role if present
+            if isinstance(refined, dict) and refined.get('role'):
+                role = refined['role']
+                substring_hits = [
+                    hit for hit in orig_chunks
+                    if role.lower() in hit.get('payload', {}).get('content', '').lower()
+                ]
+                if substring_hits:
+                    search_results = substring_hits
+                    logger.debug(f"RAG: Fallback substring filter for role '{role}', kept {len(search_results)}/{len(orig_chunks)} chunks")
+            # If 'tag:' directive was used, reapply that filter after fallback
+            if directive_match:
+                tag_val = directive_match.group(1).strip().lower()
+                tag_hits = [hit for hit in search_results
+                            if hit.get('payload', {}).get('tag', '').lower() == tag_val]
+                if tag_hits:
+                    search_results = tag_hits
+                    logger.debug(f"RAG: Reapplied tag filter '{tag_val}', kept {len(tag_hits)}/{len(orig_chunks)} chunks")
         # --- End: LLM-based classification ---
 
         # Local reranking using OpenAI embeddings and cosine similarity
-        if settings.ENABLE_RERANK:
+        if settings.ENABLE_RERANK and search_results:
             try:
                 # Extract document texts
                 docs = [hit["payload"]["content"] for hit in search_results]
@@ -268,10 +371,43 @@ async def generate_openai_rag_response(
                 else:
                     norm_scores = [1.0] * len(qdrant_scores)
                 alpha = getattr(settings, 'RERANK_WEIGHT', 0.5)
-                final_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
-                order = sorted(range(len(final_scores)), key=lambda i: final_scores[i], reverse=True)
+                raw_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
+                # Apply optional threshold filtering
+                min_score = getattr(settings, 'RERANK_MIN_SCORE', None)
+                if min_score is not None:
+                    # filter out low-scoring hits
+                    scored = [(idx, sc) for idx, sc in enumerate(raw_scores) if sc >= min_score]
+                    if scored:
+                        order = [idx for idx, _ in sorted(scored, key=lambda x: x[1], reverse=True)]
+                    else:
+                        # fallback to sorting all if none meet threshold
+                        order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
+                else:
+                    order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
+                # Optional MMR diversification for diversity
+                if getattr(settings, 'ENABLE_MMR', False):
+                    mmr_lambda = getattr(settings, 'MMR_LAMBDA', 0.5)
+                    mmr_top_k = getattr(settings, 'MMR_TOP_K', len(order))
+                    selected = []
+                    candidates = order.copy()
+                    # first pick highest relevance
+                    if sims:
+                        first = max(candidates, key=lambda idx: sims[idx])
+                        selected.append(first)
+                        candidates.remove(first)
+                    while len(selected) < mmr_top_k and candidates:
+                        mmr_scores = []
+                        for cand in candidates:
+                            max_sim = max(cos_sim(doc_embeddings[cand], doc_embeddings[sel]) for sel in selected)
+                            score_mmr = mmr_lambda * sims[cand] - (1 - mmr_lambda) * max_sim
+                            mmr_scores.append((cand, score_mmr))
+                        next_cand = max(mmr_scores, key=lambda x: x[1])[0]
+                        selected.append(next_cand)
+                        candidates.remove(next_cand)
+                    order = selected
+                    logger.debug(f"Applied MMR diversification: final order {order}")
                 search_results = [search_results[i] for i in order]
-                logger.debug(f"Locally reranked Qdrant hits new order: {order}")
+                logger.debug(f"Locally reranked Qdrant hits with blending and threshold, new order: {order}")
             except Exception as e:
                 logger.warning(f"Local rerank failed, proceeding with original Qdrant order: {e}", exc_info=True)
 
@@ -304,10 +440,12 @@ If the context lacks enough information, respond that you don't have sufficient 
 - Code block (triple‑backticks)
 
 **Instructions (in order):**
-1. If the user's question includes "list", "what are", "rate card", or asks for multiple items, present a bullet list. Use markdown hyphens if supported; otherwise plain hyphens.
-2. If the user's question requests structured data for code, output valid JSON.
-3. For direct questions or single-item info, answer in friendly plain text paragraphs or bullet list.
-4. If you cannot answer from context, ask exactly one clarifying question.
+- FIRST, reproduce tabular datasets as markdown tables if context contains one.
+1. If the relevant context contains a tabular dataset (e.g., a rate card table), reproduce it as a markdown table preserving rows and columns.
+2. If the user's question includes "list", "what are", or asks for multiple items, present a bullet list. Use markdown hyphens if supported; otherwise plain hyphens.
+3. If the user's question requests structured data for code, output valid JSON.
+4. For direct questions or single-item info, answer in friendly plain text paragraphs or bullet list.
+5. If you cannot answer from context, ask exactly one clarifying question.
 
 --- START RAG CONTEXT ---
 {context_str}
@@ -368,44 +506,3 @@ Answer:
 # Keep the old simple chat function for now, or remove if replaced by RAG
 # async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
 #    ... (previous implementation) ...
-
-# +++ Reranker Function +++
-async def rerank_documents(query: str, docs: List[str]) -> List[int]:
-    """
-    Call HuggingFace BAAI/bge-reranker-v2-m3 to rerank documents.
-    Returns list of indices sorted by descending relevance.
-    """
-    # Check feature flag and token
-    if not settings.ENABLE_RERANK or not settings.HUGGINGFACE_API_TOKEN:
-        logger.debug("Reranking disabled or no HuggingFace token, skipping rerank.")
-        return list(range(len(docs)))
-    url = "https://api-inference.huggingface.co/models/BAAI/bge-reranker-v2-m3?pipeline_tag=sentence-similarity"
-    headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_API_TOKEN}"}
-    # BGE reranker expects a list of {query, document} entries
-    payload = {"inputs": [
-        {"query": query, "document": doc}
-        for doc in docs
-    ]}
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            try:
-                resp.raise_for_status()
-            except HTTPStatusError as he:
-                # Log full error response body for debugging
-                logger.error(f"HuggingFace reranker HTTP {he.response.status_code} error: {he.response.text}", exc_info=True)
-                raise
-            result = resp.json()
-            # HF reranker may return a list of scores or a dict with "scores"
-            if isinstance(result, list):
-                scores = result
-            elif isinstance(result, dict) and "scores" in result:
-                scores = result["scores"]
-            else:
-                raise ValueError("Unexpected reranker response format")
-            # Sort indices by score descending
-            return sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-    except Exception as e:
-        logger.warning(f"Failed to rerank documents using HuggingFace: {e}", exc_info=True)
-        return list(range(len(docs)))
-# +++ End Reranker Function +++

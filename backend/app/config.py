@@ -100,6 +100,16 @@ class Settings(BaseSettings):
     ENABLE_RERANK: bool = os.getenv("ENABLE_RERANK", "True") == "True"  # Feature-flag for reranking
     # Weight (0-1) to blend Qdrant native score and cosine similarity for reranking
     RERANK_WEIGHT: float = float(os.getenv("RERANK_WEIGHT", "0.5"))
+    # Query expansion using LLM to include synonyms
+    ENABLE_QUERY_EXPANSION: bool = os.getenv("ENABLE_QUERY_EXPANSION", "False") == "True"
+    # MMR diversification settings
+    ENABLE_MMR: bool = os.getenv("ENABLE_MMR", "False") == "True"
+    # Lambda for MMR score blending (0-1)
+    MMR_LAMBDA: float = float(os.getenv("MMR_LAMBDA", "0.5"))
+    # Number of documents to select after MMR
+    MMR_TOP_K: int = int(os.getenv("MMR_TOP_K", "5"))
+    # Maximum number of Qdrant hits to retrieve (configurable RAG search limit)
+    RAG_SEARCH_LIMIT: int = int(os.getenv("RAG_SEARCH_LIMIT", "10"))
 
     # Qdrant settings
     QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars
