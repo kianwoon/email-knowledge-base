@@ -126,12 +126,16 @@ async def generate_openai_rag_response(
     chat_history: List[Dict[str, str]], 
     user: User,
     db: Session, # Database session
+    model_id: Optional[str] = None  # Override the default LLM model
 ) -> str:
     """
     Generates a chat response using RAG and the USER'S OpenAI API key.
     Fails if the user has not provided their OpenAI API key.
     """
     try:
+        # Determine which model to use: user-selected or default
+        chat_model = model_id or settings.OPENAI_MODEL_NAME
+        logger.debug(f"Using LLM model: {chat_model}")
         # 1. Get USER's OpenAI API Key
         logger.debug(f"Attempting to retrieve user's OpenAI API key for {user.email}")
         user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
@@ -168,7 +172,7 @@ async def generate_openai_rag_response(
                 )}
             ]
             resp_refine = await user_client.chat.completions.create(
-                model=settings.OPENAI_MODEL_NAME,
+                model=chat_model,
                 messages=refine_msgs,
                 temperature=0.0
             )
@@ -195,7 +199,7 @@ async def generate_openai_rag_response(
                     {"role": "user", "content": f"Expand the following query to include synonyms: {retrieval_query}"}
                 ]
                 exp_resp = await user_client.chat.completions.create(
-                    model=settings.OPENAI_MODEL_NAME,
+                    model=chat_model,
                     messages=expand_msgs,
                     temperature=0.0
                 )
@@ -295,7 +299,7 @@ async def generate_openai_rag_response(
                     )}
                 ]
                 class_resp = await user_client.chat.completions.create(
-                    model=settings.OPENAI_MODEL_NAME,
+                    model=chat_model,
                     messages=class_messages,
                     temperature=0.0
                 )
@@ -479,12 +483,12 @@ Answer:
         # --- END HISTORY HANDLING ---
 
         # 5. Call OpenAI using the USER-specific client
-        logger.debug(f"Calling OpenAI model '{settings.OPENAI_MODEL_NAME}' with user key...")
-        # Log the final messages structure being sent (optional but good for debugging history)
-        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}") 
+        # Choose the model: user-specified or default
+        logger.debug(f"Calling OpenAI model '{chat_model}' with user key...")
+        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}")
         response = await user_client.chat.completions.create(
-            model=settings.OPENAI_MODEL_NAME, 
-            messages=messages, # Send the constructed messages list
+            model=chat_model,
+            messages=messages,
             temperature=0.1,
         )
         response_content = response.choices[0].message.content

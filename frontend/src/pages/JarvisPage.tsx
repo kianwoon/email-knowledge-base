@@ -214,33 +214,26 @@ const JarvisPage: React.FC = () => {
     }
   }, [chatHistory]);
 
-  // Load saved default model
+  // Load saved default model from backend
   useEffect(() => {
     const loadDefaultModel = async () => {
+      setModelLoading(true);
       try {
-        setModelLoading(true);
-        // Check sessionStorage first
-        const cachedModel = sessionStorage.getItem('jarvis_default_model');
-        if (cachedModel && AVAILABLE_MODELS.some(m => m.id === cachedModel)) {
-          setSelectedModel(cachedModel);
-          console.log("Loaded default model from cache:", cachedModel);
+        // Always fetch the default model from the backend
+        const model = await getDefaultModel();
+        if (model && AVAILABLE_MODELS.some(m => m.id === model)) {
+          setSelectedModel(model);
+          console.log("Loaded default model from API:", model);
         } else {
-          const model = await getDefaultModel();
-          if (model && AVAILABLE_MODELS.some(m => m.id === model)) {
-             setSelectedModel(model);
-             sessionStorage.setItem('jarvis_default_model', model); // Cache the result
-             console.log("Loaded default model from API:", model);
-          } else {
-             // If API returns nothing or invalid, set to first available model
-             const firstModel = AVAILABLE_MODELS[0]?.id || 'gpt-3.5-turbo';
-             setSelectedModel(firstModel);
-             console.log("Setting default model to first available:", firstModel);
-          }
+          // Fallback to first available model if invalid
+          const firstModel = AVAILABLE_MODELS[0]?.id || 'gpt-3.5-turbo';
+          setSelectedModel(firstModel);
+          console.log("Setting default model to first available:", firstModel);
         }
       } catch (error) {
         console.error("Error loading default model:", error);
         const firstModel = AVAILABLE_MODELS[0]?.id || 'gpt-3.5-turbo';
-        setSelectedModel(firstModel); // Fallback to first model on error
+        setSelectedModel(firstModel);
         console.log("Setting default model to first available on error:", firstModel);
       } finally {
         setModelLoading(false);
@@ -496,7 +489,6 @@ const JarvisPage: React.FC = () => {
       setSavingDefaultModel(true);
       // Call the API to save the default model
       await saveDefaultModel(selectedModel);
-      
       toast({
         title: t('jarvis.defaultModelSaved', 'Default Model Saved'),
         description: t('jarvis.defaultModelSavedDesc', 'Your default model preference has been saved.'),
@@ -664,10 +656,10 @@ const JarvisPage: React.FC = () => {
         >
           <TabList mb="1em">
             <Tab>{t('jarvis.chat')}</Tab>
-            <Tab>{t('jarvis.settings')}</Tab>
-            <Tab>{t('customKnowledge.uploadTab', 'Custom Knowledge')}</Tab>
-            <Tab>{t('customKnowledge.historyTab', 'History')}</Tab>
+            <Tab>{t('customKnowledge.uploadTab', 'Customer knowledge')}</Tab>
             <Tab>{t('jarvis.addKnowledge', 'Add Knowledge')}</Tab>
+            <Tab>{t('customKnowledge.historyTab', 'History')}</Tab>
+            <Tab>{t('jarvis.settings')}</Tab>
           </TabList>
           <TabPanels>
             <TabPanel p={0}>
@@ -756,154 +748,6 @@ const JarvisPage: React.FC = () => {
                   </Button>
                 </HStack>
               </VStack>
-            </TabPanel>
-
-            <TabPanel p={4}>
-              <Heading size="md" mb={6} color={headingColor}>
-                {t('jarvis.settingsTitle', 'API Settings')}
-              </Heading>
-              {apiKeyLoading ? (
-                 <Center py={10}><Spinner size="xl" /></Center>
-              ) : (
-                 <Stack spacing={6}>
-                    <Box borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
-                      <Heading size="sm" mb={3} color={headingColor}>
-                         {t('jarvis.settingsContent.modelSelection', 'Model Selection')}
-                      </Heading>
-                      <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>
-                         {t('jarvis.settingsContent.modelDescription', 'Select the AI model to use for chat. Models requiring an API key are only selectable if the corresponding key is saved below.')}
-                      </Text>
-                      
-                      <FormControl>
-                         <FormLabel htmlFor="modelSelect" srOnly>
-                           {t('jarvis.settingsContent.model', 'Model')}
-                         </FormLabel>
-                         <HStack>
-                           {modelLoading ? (
-                             <Skeleton height="40px" flex="1" />
-                           ) : (
-                             <Select
-                               id="modelSelect"
-                               value={selectedModel}
-                               onChange={handleModelChange}
-                               flex="1"
-                               bg={inputBg}
-                               borderColor={borderColor}
-                             >
-                               {AVAILABLE_MODELS.map((model) => {
-                                 const hasRequiredKey = !model.requiresKey || !!apiKeys[model.provider];
-                                 return (
-                                   <option
-                                     key={model.id}
-                                     value={model.id}
-                                     disabled={!hasRequiredKey}
-                                   >
-                                     {model.name} {!hasRequiredKey ? ` (${t('jarvis.requiresKey', 'Requires API Key')})` : ''}
-                                   </option>
-                                 );
-                               })}
-                             </Select>
-                           )}
-                           <Button
-                             colorScheme="blue"
-                             onClick={setModelAsDefault}
-                             isLoading={savingDefaultModel}
-                             isDisabled={modelLoading || !selectedModel}
-                           >
-                             {t('jarvis.setAsDefault', 'Set as Default')}
-                           </Button>
-                         </HStack>
-                         <FormHelperText mt={2}>
-                           {t('jarvis.settingsContent.modelDefaultHelp', 'The selected model will be used for new chat sessions. You can change it anytime.')}
-                         </FormHelperText>
-                      </FormControl>
-                    </Box>
-                    
-                    <Text color={useColorModeValue('gray.600', 'gray.400')} pt={2}>
-                      {t('jarvis.apiKeyDescription', 'To use certain models, provide API keys from the respective providers:')}
-                    </Text>
-                    
-                    <VStack spacing={4} align="stretch">
-                       {(['openai', 'anthropic', 'google'] as ApiProvider[]).map(provider => {
-                         const hasModels = AVAILABLE_MODELS.some(model => model.provider === provider && model.requiresKey);
-                         if (!hasModels) return null;
-                         
-                         return (
-                           <Box key={provider} borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
-                             <Heading size="sm" mb={3} color={headingColor}>{provider.toUpperCase()} {t('jarvis.settingsContent.apiKeyTitle')}</Heading>
-                             <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>
-                               {t(`jarvis.settingsContent.${provider}ApiKeyDescription`,
-                                  `Enter your ${provider.toUpperCase()} API key to enable ${provider.toUpperCase()}-powered models.`)}
-                             </Text>
-                             
-                              <Stack direction={{ base: 'column', sm: 'row' }} spacing={3} align="center">
-                                <FormControl flex={1}>
-                                  <FormLabel htmlFor={`${provider}-apiKey`} srOnly>
-                                    {t('jarvis.settingsContent.apiKey', { provider: provider.toUpperCase() })}
-                                  </FormLabel>
-                                  <InputGroup size="md">
-                                    <Input
-                                      id={`${provider}-apiKey`}
-                                      type="password"
-                                      value={apiKeys[provider] || ''}
-                                      onChange={(e) => handleApiKeyUpdate(provider, e.target.value)}
-                                      placeholder={t('jarvis.settingsContent.apiKeyPlaceholder')}
-                                      bg={inputBg}
-                                      borderColor={borderColor}
-                                      pr="6rem"
-                                    />
-                                    <InputRightElement width="auto" pr={1}>
-                                       <HStack spacing={1}> 
-                                           {apiKeys[provider] && (
-                                              <IconButton
-                                                aria-label={t('jarvis.delete', 'Delete Key')}
-                                                icon={<FaTrashAlt />}
-                                                size="sm"
-                                                variant="ghost"
-                                                colorScheme="red"
-                                                onClick={() => handleDeleteApiKey(provider)}
-                                                title={t('jarvis.deleteApiKeyTooltip', 'Delete Saved Key')}
-                                              />
-                                           )}
-                                           <Button h="1.75rem" size="sm"
-                                            onClick={() => handleSaveApiKey(provider)}
-                                            isDisabled={!apiKeys[provider] || apiKeys[provider].length < 5}
-                                            colorScheme={apiKeys[provider] ? 'green' : 'blue'}
-                                            title={t('jarvis.saveApiKeyTooltip', 'Save This Key')}
-                                          >
-                                            {t('common.save', 'Save')}
-                                          </Button>
-                                        </HStack>
-                                    </InputRightElement>
-                                  </InputGroup>
-                                </FormControl>
-                              </Stack>
-                              
-                              {apiKeys[provider] && (
-                                 <HStack mt={2}>
-                                   <Icon as={FaCheckCircle} color="green.500" />
-                                   <Text fontSize="xs" color="green.500">
-                                    {t('jarvis.apiKeySet', 'API key is set')}
-                                   </Text>
-                                 </HStack>
-                              )}
-                               <FormControl> 
-                                 <FormHelperText mt={2}>
-                                   {t(`jarvis.settingsContent.${provider}ApiKeyHelp`, `Needed for models like ${AVAILABLE_MODELS.filter(m => m.provider === provider).map(m => m.name).join(', ')}.`)}
-                                 </FormHelperText>
-                               </FormControl>
-                             </Box>
-                           );
-                         })}
-                      </VStack>
-                      {apiKeyError && (
-                        <Alert status="error" borderRadius="md">
-                          <AlertIcon />
-                          {apiKeyError}
-                        </Alert>
-                      )}
-                 </Stack>
-              )}
             </TabPanel>
 
             <TabPanel p={0}>
@@ -1016,6 +860,48 @@ const JarvisPage: React.FC = () => {
               </VStack>
             </TabPanel>
 
+            <TabPanel p={4}>
+              <VStack spacing={4} align="stretch">
+                <Heading size="md" color={headingColor}>
+                  {t('jarvis.addKnowledge', 'Add Knowledge')}
+                </Heading>
+                <FormControl>
+                  <FormLabel htmlFor="snippet-tag">{t('jarvis.snippetTagLabel', 'Tag (optional)')}</FormLabel>
+                  <Input
+                    id="snippet-tag"
+                    value={snippetTag}
+                    onChange={(e) => setSnippetTag(e.target.value)}
+                    placeholder={t('jarvis.snippetTagPlaceholder', 'e.g., GIC rate card')}
+                    bg={inputBg}
+                    borderColor={borderColor}
+                    isDisabled={snippetLoading}
+                  />
+                  <FormHelperText color={useColorModeValue('gray.600','gray.400')}>
+                    {t('jarvis.snippetTagHelper', 'Optional: Assign a lowercase tag so you can retrieve this snippet using `tag:<your_tag>` in your query.')}
+                  </FormHelperText>
+                </FormControl>
+                <Textarea
+                  value={snippetContent}
+                  onChange={(e) => setSnippetContent(e.target.value)}
+                  placeholder={t('jarvis.snippetPlaceholder', 'Enter text to add to knowledge base...')}
+                  rows={6}
+                  resize="vertical"
+                  isDisabled={snippetLoading}
+                  bg={inputBg}
+                  borderColor={borderColor}
+                />
+                <Button
+                  colorScheme="blue"
+                  onClick={handleIngestSnippet}
+                  isLoading={snippetLoading}
+                  isDisabled={!snippetContent.trim() || snippetLoading}
+                  alignSelf="flex-end"
+                >
+                  {t('jarvis.submitSnippet', 'Submit')}
+                </Button>
+              </VStack>
+            </TabPanel>
+
             <TabPanel p={0}>
               <VStack spacing={4} align="stretch">
                 <Box borderWidth={1} borderRadius="lg" p={4} boxShadow="sm" bg={boxBgColor}>
@@ -1101,42 +987,150 @@ const JarvisPage: React.FC = () => {
             <TabPanel p={4}>
               <VStack spacing={4} align="stretch">
                 <Heading size="md" color={headingColor}>
-                  {t('jarvis.addKnowledge', 'Add Knowledge')}
+                  {t('jarvis.settingsTitle', 'API Settings')}
                 </Heading>
-                <FormControl>
-                  <FormLabel htmlFor="snippet-tag">{t('jarvis.snippetTagLabel', 'Tag (optional)')}</FormLabel>
-                  <Input
-                    id="snippet-tag"
-                    value={snippetTag}
-                    onChange={(e) => setSnippetTag(e.target.value)}
-                    placeholder={t('jarvis.snippetTagPlaceholder', 'e.g., GIC rate card')}
-                    bg={inputBg}
-                    borderColor={borderColor}
-                    isDisabled={snippetLoading}
-                  />
-                  <FormHelperText color={useColorModeValue('gray.600','gray.400')}>
-                    {t('jarvis.snippetTagHelper', 'Optional: Assign a lowercase tag so you can retrieve this snippet using `tag:<your_tag>` in your query.')}
-                  </FormHelperText>
-                </FormControl>
-                <Textarea
-                  value={snippetContent}
-                  onChange={(e) => setSnippetContent(e.target.value)}
-                  placeholder={t('jarvis.snippetPlaceholder', 'Enter text to add to knowledge base...')}
-                  rows={6}
-                  resize="vertical"
-                  isDisabled={snippetLoading}
-                  bg={inputBg}
-                  borderColor={borderColor}
-                />
-                <Button
-                  colorScheme="blue"
-                  onClick={handleIngestSnippet}
-                  isLoading={snippetLoading}
-                  isDisabled={!snippetContent.trim() || snippetLoading}
-                  alignSelf="flex-end"
-                >
-                  {t('jarvis.submitSnippet', 'Submit')}
-                </Button>
+                {apiKeyLoading ? (
+                   <Center py={10}><Spinner size="xl" /></Center>
+                ) : (
+                   <Stack spacing={6}>
+                      <Box borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
+                        <Heading size="sm" mb={3} color={headingColor}>
+                           {t('jarvis.settingsContent.modelSelection', 'Model Selection')}
+                        </Heading>
+                        <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>
+                           {t('jarvis.settingsContent.modelDescription', 'Select the AI model to use for chat. Models requiring an API key are only selectable if the corresponding key is saved below.')}
+                        </Text>
+                        
+                        <FormControl>
+                           <FormLabel htmlFor="modelSelect" srOnly>
+                             {t('jarvis.settingsContent.model', 'Model')}
+                           </FormLabel>
+                           <HStack>
+                             {modelLoading ? (
+                               <Skeleton height="40px" flex="1" />
+                             ) : (
+                               <Select
+                                 id="modelSelect"
+                                 value={selectedModel}
+                                 onChange={handleModelChange}
+                                 flex="1"
+                                 bg={inputBg}
+                                 borderColor={borderColor}
+                               >
+                                 {AVAILABLE_MODELS.map((model) => {
+                                   const hasRequiredKey = !model.requiresKey || !!apiKeys[model.provider];
+                                   return (
+                                     <option
+                                       key={model.id}
+                                       value={model.id}
+                                       disabled={!hasRequiredKey}
+                                     >
+                                       {model.name} {!hasRequiredKey ? ` (${t('jarvis.requiresKey', 'Requires API Key')})` : ''}
+                                     </option>
+                                   );
+                                 })}
+                               </Select>
+                             )}
+                             <Button
+                               colorScheme="blue"
+                               onClick={setModelAsDefault}
+                               isLoading={savingDefaultModel}
+                               isDisabled={modelLoading || !selectedModel}
+                             >
+                               {t('jarvis.setAsDefault', 'Set as Default')}
+                             </Button>
+                           </HStack>
+                           <FormHelperText mt={2}>
+                             {t('jarvis.settingsContent.modelDefaultHelp', 'The selected model will be used for new chat sessions. You can change it anytime.')}
+                           </FormHelperText>
+                        </FormControl>
+                      </Box>
+                      
+                      <Text color={useColorModeValue('gray.600', 'gray.400')} pt={2}>
+                        {t('jarvis.apiKeyDescription', 'To use certain models, provide API keys from the respective providers:')}
+                      </Text>
+                      
+                      <VStack spacing={4} align="stretch">
+                         {(['openai', 'anthropic', 'google'] as ApiProvider[]).map(provider => {
+                           const hasModels = AVAILABLE_MODELS.some(model => model.provider === provider && model.requiresKey);
+                           if (!hasModels) return null;
+                           
+                           return (
+                             <Box key={provider} borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
+                               <Heading size="sm" mb={3} color={headingColor}>{provider.toUpperCase()} {t('jarvis.settingsContent.apiKeyTitle')}</Heading>
+                               <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>
+                                 {t(`jarvis.settingsContent.${provider}ApiKeyDescription`,
+                                    `Enter your ${provider.toUpperCase()} API key to enable ${provider.toUpperCase()}-powered models.`)}
+                               </Text>
+                               
+                                <Stack direction={{ base: 'column', sm: 'row' }} spacing={3} align="center">
+                                  <FormControl flex={1}>
+                                    <FormLabel htmlFor={`${provider}-apiKey`} srOnly>
+                                      {t('jarvis.settingsContent.apiKey', { provider: provider.toUpperCase() })}
+                                    </FormLabel>
+                                    <InputGroup size="md">
+                                      <Input
+                                        id={`${provider}-apiKey`}
+                                        type="password"
+                                        value={apiKeys[provider] || ''}
+                                        onChange={(e) => handleApiKeyUpdate(provider, e.target.value)}
+                                        placeholder={t('jarvis.settingsContent.apiKeyPlaceholder')}
+                                        bg={inputBg}
+                                        borderColor={borderColor}
+                                        pr="6rem"
+                                      />
+                                      <InputRightElement width="auto" pr={1}>
+                                         <HStack spacing={1}> 
+                                             {apiKeys[provider] && (
+                                                <IconButton
+                                                  aria-label={t('jarvis.delete', 'Delete Key')}
+                                                  icon={<FaTrashAlt />}
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  colorScheme="red"
+                                                  onClick={() => handleDeleteApiKey(provider)}
+                                                  title={t('jarvis.deleteApiKeyTooltip', 'Delete Saved Key')}
+                                                />
+                                             )}
+                                             <Button h="1.75rem" size="sm"
+                                              onClick={() => handleSaveApiKey(provider)}
+                                              isDisabled={!apiKeys[provider] || apiKeys[provider].length < 5}
+                                              colorScheme={apiKeys[provider] ? 'green' : 'blue'}
+                                              title={t('jarvis.saveApiKeyTooltip', 'Save This Key')}
+                                            >
+                                              {t('common.save', 'Save')}
+                                            </Button>
+                                          </HStack>
+                                      </InputRightElement>
+                                    </InputGroup>
+                                  </FormControl>
+                                </Stack>
+                                
+                                {apiKeys[provider] && (
+                                   <HStack mt={2}>
+                                     <Icon as={FaCheckCircle} color="green.500" />
+                                     <Text fontSize="xs" color="green.500">
+                                      {t('jarvis.apiKeySet', 'API key is set')}
+                                     </Text>
+                                   </HStack>
+                                )}
+                                 <FormControl> 
+                                   <FormHelperText mt={2}>
+                                     {t(`jarvis.settingsContent.${provider}ApiKeyHelp`, `Needed for models like ${AVAILABLE_MODELS.filter(m => m.provider === provider).map(m => m.name).join(', ')}.`)}
+                                   </FormHelperText>
+                                 </FormControl>
+                               </Box>
+                             );
+                           })}
+                        </VStack>
+                        {apiKeyError && (
+                          <Alert status="error" borderRadius="md">
+                            <AlertIcon />
+                            {apiKeyError}
+                          </Alert>
+                        )}
+                   </Stack>
+                )}
               </VStack>
             </TabPanel>
           </TabPanels>

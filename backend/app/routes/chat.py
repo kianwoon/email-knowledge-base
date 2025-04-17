@@ -15,6 +15,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     message: str
     chat_history: Optional[List[Dict[str, str]]] = None
+    model_id: Optional[str] = None  # Model to use for this chat session
 
 class ChatResponse(BaseModel):
     reply: str
@@ -29,10 +30,11 @@ async def chat_endpoint(
     try:
         # Call the RAG function, passing the user object and db session
         response_text = await generate_openai_rag_response(
-            message=request.message, 
+            message=request.message,
+            chat_history=request.chat_history,
             user=current_user,
-            db=db, # Pass the db session
-            chat_history=request.chat_history # Pass history if provided
+            db=db,
+            model_id=request.model_id
         )
         return ChatResponse(reply=response_text)
     except HTTPException as he:
