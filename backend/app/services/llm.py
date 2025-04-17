@@ -241,24 +241,6 @@ async def generate_openai_rag_response(
             logger.warning(f"Chunk classification failed, using original hits: {e}", exc_info=True)
         # --- End: LLM-based classification ---
 
-        # --- Start: Enhanced filtering to drop wrong table chunks for monthly vs conversion queries ---
-        query_lower = message.lower()
-        # If the user requests monthly rates or rate card, only keep chunks that mention monthly rate (or B1)
-        if 'monthly rate' in query_lower or 'rate card' in query_lower:
-            monthly_terms = ['monthly rate', 'monthly rates by individual', 'b1:']
-            search_results = [
-                hit for hit in search_results
-                if any(term in hit.get('payload', {}).get('content', '').lower() for term in monthly_terms)
-            ]
-        # If the user requests conversion fees, only keep chunks that mention conversion fee (or B4)
-        elif 'conversion fee' in query_lower:
-            conversion_terms = ['conversion fee', 'conversion fees by individual', 'b4:']
-            search_results = [
-                hit for hit in search_results
-                if any(term in hit.get('payload', {}).get('content', '').lower() for term in conversion_terms)
-            ]
-        # --- End: Enhanced filtering ---
-
         # Local reranking using OpenAI embeddings and cosine similarity
         if settings.ENABLE_RERANK:
             try:
@@ -317,14 +299,14 @@ If the context lacks enough information, respond that you don't have sufficient 
 
 **Output Modes (use exactly one):**
 - Markdown list
+- Plain text bullet list (use hyphens for clients without markdown support)
 - JSON object
 - Code block (triple‑backticks)
-- Plain text
 
 **Instructions (in order):**
-1. If the user's question includes "list," "what are," etc., use a Markdown list.
+1. If the user's question includes "list", "what are", "rate card", or asks for multiple items, present a bullet list. Use markdown hyphens if supported; otherwise plain hyphens.
 2. If the user's question requests structured data for code, output valid JSON.
-3. For other direct questions, answer in plain text paragraphs.
+3. For direct questions or single-item info, answer in friendly plain text paragraphs or bullet list.
 4. If you cannot answer from context, ask exactly one clarifying question.
 
 --- START RAG CONTEXT ---
