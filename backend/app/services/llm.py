@@ -213,13 +213,13 @@ async def generate_openai_rag_response(
             class_messages = [
                 {"role": "system", "content": (
                     "You are a classification assistant. Given a user question and a list of text chunks, "
-                    "respond with a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
-                    "each chunk is useful to answer the question."
+                    "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
+                    "each chunk is useful to answer the question. Do not include any additional text or markdown."
                 )},
                 {"role": "user", "content": (
                     f"User question: {message}\nChunks:\n" +
                     "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
-                    "\nRespond with valid JSON like {\"1\":\"yes\", \"2\":\"no\", ...}."
+                    "\nRespond with exactly the JSON object (e.g. {\\"1\\":\\"yes\\",\\"2\\":\\"no\\"})."
                 )}
             ]
             class_resp = await user_client.chat.completions.create(
@@ -227,6 +227,8 @@ async def generate_openai_rag_response(
                 messages=class_messages,
                 temperature=0.0
             )
+            # Debug: log raw classification response
+            logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
             import json
             decisions = json.loads(class_resp.choices[0].message.content)
             # Filter only chunks marked 'yes'
