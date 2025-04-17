@@ -1685,11 +1685,12 @@
     }
   },
   "azureBlobBrowser": {
-    "title": "Azure Blob Storage Management",
+    "title": "Azure Blob Storage Browser",
     "tabs": {
       "browseAndSync": "Browse & Sync",
       "history": "History",
-      "settings": "Settings"
+      "settings": "Settings",
+      "connections": "Connections"
     },
     "connectionLabel": "Select Connection",
     "connectionSelectPlaceholder": "Select an Azure Connection...",

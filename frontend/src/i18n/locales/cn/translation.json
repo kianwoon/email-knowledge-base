@@ -1071,7 +1071,8 @@
     "tabs": {
       "browseAndSync": "浏览和同步",
       "history": "历史记录",
-      "settings": "设置"
+      "settings": "设置",
+      "connections": "连接"
     },
     "connectionLabel": "选择连接",
     "connectionSelectPlaceholder": "选择一个 Azure 连接...",
@@ -1090,6 +1091,7 @@
     "syncCompleteDetail": "项目处理成功 (任务 ID: {{taskId}})。",
     "ingestionStatusTitle": "同步状态",
     "errors": {
+      "loadHistoryError": "加载历史记录时出错。",
       "loadConnections": "加载连接失败。",
       "loadContainers": "加载容器失败。",
       "loadBlobs": "加载 Blob 失败。",
