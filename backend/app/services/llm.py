@@ -14,6 +14,8 @@ from fastapi import HTTPException, status # Import HTTPException
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
+# Configure logger level based on LOG_LEVEL env var
+logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
 
 # Keep the global client for other potential uses (like analyze_email_content)
 # But Jarvis chat will use a user-specific key if available.
@@ -170,8 +172,8 @@ async def generate_openai_rag_response(
             collection_name=collection_to_search
         )
         # Log the raw search result length AND the results themselves for inspection
-        logger.info(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
-        logger.info(f"RAG: Raw search results: {search_results}")
+        logger.debug(f"RAG: Qdrant search returned {len(search_results)} hits from '{collection_to_search}'")
+        logger.debug(f"RAG: Raw search results: {search_results}")
 
         # 4. Format context and augment prompt
         context_str = ""
@@ -191,31 +193,29 @@ async def generate_openai_rag_response(
         # --- END ADDED LOG ---
 
         # --- REVISED SYSTEM PROMPT V9 (Modified Fallback Instruction) ---
-        system_prompt = f"""You are a helpful AI assistant called Jarvis. Your primary goal is to answer the user's question based on the **provided RAG context** and the **ongoing conversation history**. Do not use prior knowledge outside of these.
+        system_prompt = f"""You are Jarvis, an AI assistant that uses provided RAG context and conversation history only.
 
-**Instructions (Follow in order):**
+**Output Modes (use exactly one):**
+- Markdown list
+- Markdown table (`|…|`)
+- JSON object
+- Code block (triple‑backticks)
+- Plain text
 
-1.  **Counting Query:** If the user asks 'how many' of something:
-    *   Review RAG context for evidence. Attempt to count distinct instances.
-    *   **Response:** State the count clearly if possible. If not, state that and summarize the key details of all relevant evidence found. **Stop.**
-
-2.  **Follow-up Query:** If the user's current question is a direct follow-up to your *immediately preceding* response:
-    *   Refer primarily to your **own previous response** in the chat history.
-    *   Provide requested details/elaboration based on your previous statement. **Stop.**
-
-3.  **Other Query - Direct Answer:** If the question is not about counting or a direct follow-up:
-    *   Try to find and provide a direct answer from the RAG context. If successful, provide the answer and stop.
-
-4.  **Fallback - Summarize Context:** If you cannot provide a count, answer a follow-up, or find a direct answer:
-    *   **Response:** Review the RAG context provided below. Extract and summarize the key details and relevant quotes from the most relevant context snippets (up to 3-5). Start your response directly with this summary (e.g., "Based on the context, here are some relevant points: [Detail/Quote 1]...").
-    *   **Only if no relevant details can be extracted from the provided context**, state that you couldn't find the specific information (e.g., "I couldn't find specific information regarding [User's Topic/Query Terms] in the provided context.").
-    *   Conclude by asking if the user has other questions.
+**Instructions (in order):**
+1. If the user's question includes "list," "what are," etc., use a Markdown list.
+2. If the user's question includes "table," "matrix," "compare," use a Markdown table:
+   - Fill missing fields with "N/A."
+3. If the user's question requests structured data for code, output valid JSON.
+4. For other direct questions, answer in plain text paragraphs.
+5. If you cannot answer from context, ask exactly one clarifying question.
 
 --- START RAG CONTEXT ---
 {context_str}
 --- END RAG CONTEXT ---
 
-Answer:""" # End of system prompt
+Answer:
+""" # End of revised RAG system prompt
         # --- END REVISED SYSTEM PROMPT V9 ---
         
         # --- START HISTORY HANDLING ---

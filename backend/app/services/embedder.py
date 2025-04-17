@@ -10,6 +10,8 @@ from app.db.qdrant_client import get_qdrant_client
 
 # Set up logging
 logger = logging.getLogger(__name__)
+# Configure logger level based on LOG_LEVEL env var
+logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
 
 # Initialize default client using system key
 openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -49,8 +51,9 @@ async def search_qdrant_knowledge(
     Returns a list of results including payload.
     """
     qdrant_client: QdrantClient = get_qdrant_client()
+    logger.debug(f"Qdrant Query Embedding (first 5 elements): {query_embedding[:5]}...")
     
-    logger.debug(f"Attempting Qdrant search in collection '{collection_name}' with limit {limit}")
+    logger.debug(f"Attempting Qdrant search in collection '{collection_name}' with limit {limit} and filter {qdrant_filter}")
     try:
         search_result = qdrant_client.search(
             collection_name=collection_name,
