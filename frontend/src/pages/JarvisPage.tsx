@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, memo } from 'react';
 import {
   Box,
   Container,
@@ -43,6 +43,8 @@ import {
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { sendChatMessage } from '../api/chat';
 import { getOpenAIApiKey, saveOpenAIApiKey, getAllApiKeys, getProviderApiKey, saveProviderApiKey, ApiProvider, deleteProviderApiKey, saveDefaultModel, getDefaultModel } from '../api/user';
 import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/customKnowledge';
@@ -114,6 +116,64 @@ const ItemTableSkeleton = ({ headers }: { headers: string[] }) => (
   </TableContainer>
 );
 
+// --- Define chat message type ---
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+// --- Props for ChatMessageItem ---
+interface ChatMessageItemProps {
+  msg: ChatMessage;
+  components: any; // Type for ReactMarkdown components object
+  // Add color props needed inside the item
+  userBg: string;
+  assistantBg: string;
+  textColor: string;
+}
+
+// --- Memoized Chat Message Item Component ---
+const ChatMessageItem = memo<ChatMessageItemProps>(({ 
+  msg, 
+  components, 
+  userBg, 
+  assistantBg, 
+  textColor 
+}) => {
+  console.log(`Rendering message: ${msg.content.substring(0, 20)}...`); // Add console log for debugging renders
+  return (
+    <Flex
+      w="full"
+      justify={msg.role === 'user' ? 'flex-end' : 'flex-start'}
+      mb={3}
+    >
+      <Box
+        maxW="80%"
+        bg={msg.role === 'user' ? userBg : assistantBg}
+        color={textColor}
+        px={4}
+        py={2}
+        borderRadius="lg"
+        boxShadow="sm"
+      >
+        <HStack align="flex-start">
+          <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
+          <Box flex="1">
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]} 
+              components={components}
+            >
+              {msg.content}
+            </ReactMarkdown>
+          </Box>
+        </HStack>
+      </Box>
+    </Flex>
+  );
+});
+// Add display name for better debugging
+ChatMessageItem.displayName = 'ChatMessageItem';
+
 const JarvisPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -122,7 +182,7 @@ const JarvisPage: React.FC = () => {
   const bgColor = useColorModeValue('gray.50', 'gray.800');
   const boxBgColor = useColorModeValue('white', 'gray.700');
   const tableHoverBg = useColorModeValue('gray.100', 'gray.600');
-  const borderColor = useColorModeValue('gray.200', 'gray.600');
+  const borderColor = useColorModeValue('gray.200', 'gray.700');
   const userBg = useColorModeValue('blue.50', 'blue.900');
   const assistantBg = useColorModeValue('gray.100', 'gray.700');
   const textColor = useColorModeValue('gray.800', 'whiteAlpha.900');
@@ -135,7 +195,7 @@ const JarvisPage: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>(''); // Initialize as empty, loaded from default
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>('');
-  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKeyLoading, setApiKeyLoading] = useState(false); 
   const [modelLoading, setModelLoading] = useState(true); // Added loading state for model
@@ -164,12 +224,6 @@ const JarvisPage: React.FC = () => {
 
   // Reference for the refresh interval
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Define chat message type
-  type ChatMessage = {
-    role: 'user' | 'assistant';
-    content: string;
-  };
 
   // Initialize with a welcome message or load existing chat history
   useEffect(() => {
@@ -635,6 +689,20 @@ const JarvisPage: React.FC = () => {
     }
   };
 
+  // --- Memoized Markdown Components ---
+  const markdownComponents = useMemo(() => ({
+    table: (props: any) => (
+      <TableContainer whiteSpace="normal" borderWidth="1px" borderColor={borderColor} borderRadius="md" my={4}>
+        <Table variant="striped" size="sm" {...props} />
+      </TableContainer>
+    ),
+    thead: (props: any) => <Thead {...props} />,
+    tbody: (props: any) => <Tbody {...props} />,
+    tr: (props: any) => <Tr {...props} />,
+    th: (props: any) => <Th sx={{ border: `1px solid ${borderColor}` }} {...props} />,
+    td: (props: any) => <Td sx={{ border: `1px solid ${borderColor}` }} {...props} />,
+  }), [borderColor]);
+
   return (
     <Container maxW="container.xl" py={5} bg={bgColor}>
       <VStack spacing={5} align="stretch">
@@ -678,27 +746,14 @@ const JarvisPage: React.FC = () => {
                   shadow="sm"
                 >
                   {chatHistory.map((msg, idx) => (
-                    <Flex
-                      key={idx}
-                      w="full"
-                      justify={msg.role === 'user' ? 'flex-end' : 'flex-start'}
-                      mb={3}
-                    >
-                      <Box
-                        maxW="80%"
-                        bg={msg.role === 'user' ? userBg : assistantBg}
-                        color={textColor}
-                        px={4}
-                        py={2}
-                        borderRadius="lg"
-                        boxShadow="sm"
-                      >
-                        <HStack align="flex-start">
-                          <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
-                          <Text whiteSpace="pre-wrap" flex="1">{msg.content}</Text>
-                        </HStack>
-                      </Box>
-                    </Flex>
+                    <ChatMessageItem 
+                      key={idx} 
+                      msg={msg} 
+                      components={markdownComponents} 
+                      userBg={userBg}
+                      assistantBg={assistantBg}
+                      textColor={textColor}
+                    />
                   ))}
                   {isLoading && (
                     <Flex w="full" justify="flex-start" mb={3}>

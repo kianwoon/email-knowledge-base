@@ -1,5 +1,6 @@
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
+from qdrant_client.http.models import Distance, PointStruct
+from qdrant_client.models import VectorParams, VectorsConfig
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 from app.config import settings
 import logging
@@ -13,6 +14,7 @@ def get_qdrant_client() -> QdrantClient:
     client = QdrantClient(
         url=settings.QDRANT_URL,
         api_key=settings.QDRANT_API_KEY, # Will be None if not set, which is handled by the client
+        timeout=60.0, # Increased timeout to 60 seconds
         # prefer_grpc=True, # Optional: Can be faster for large data transfers
     )
     logger.info("Qdrant client initialized.")
@@ -22,7 +24,7 @@ def ensure_collection_exists(client: QdrantClient, collection_name: str = None):
     """Checks if the collection exists and creates it if not. Handles potential client-side parsing errors gracefully."""
     collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
     vector_size = settings.EMBEDDING_DIMENSION
-    distance_metric = models.Distance.COSINE
+    distance_metric = Distance.COSINE
 
     logger.info(f"[ensure_collection_exists] Starting check for collection '{collection_name}'...")
     try:
@@ -56,9 +58,17 @@ def ensure_collection_exists(client: QdrantClient, collection_name: str = None):
             logger.warning(f"[ensure_collection_exists] Client-side exception might indicate non-existence (Status: {status_code}). Falling through to general check...")
             # Explicitly create the collection if not found (404)
             logger.info(f"[ensure_collection_exists] Creating collection '{collection_name}' with vector size {vector_size} and distance {distance_metric}...")
+            # Prepare a multi-vector schema for dense, colbertv2.0, and bm25 embeddings
+            multi_vectors_config = VectorsConfig(
+                default=VectorParams(size=vector_size, distance=distance_metric),
+                additional={
+                    "colbertv2.0": VectorParams(size=settings.COLBERT_EMBEDDING_DIMENSION, distance=distance_metric),
+                    "bm25":        VectorParams(size=settings.BM25_EMBEDDING_DIMENSION,    distance=distance_metric),
+                }
+            )
             client.recreate_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=distance_metric)
+                vectors_config=multi_vectors_config
             )
             logger.info(f"[ensure_collection_exists] Collection '{collection_name}' created.")
             return
@@ -83,7 +93,7 @@ def ensure_collection_exists(client: QdrantClient, collection_name: str = None):
              try:
                  client.create_collection(
                      collection_name=collection_name,
-                     vectors_config=models.VectorParams(size=vector_size, distance=distance_metric)
+                     vectors_config=multi_vectors_config
                  )
                  logger.info(f"[ensure_collection_exists] SUCCESS: Created collection '{collection_name}'.")
                  return # Collection created successfully

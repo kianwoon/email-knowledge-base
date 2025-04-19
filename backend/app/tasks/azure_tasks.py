@@ -156,7 +156,12 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
             except Exception as e: 
                  if "not found" in str(e).lower() or "status_code=404" in str(e).lower(): collection_exists = False
                  else: raise e
-            if not collection_exists: qdrant_client.create_collection(collection_name=collection_name, vectors_config=qdrant_models.VectorParams(size=settings.EMBEDDING_DIMENSION, distance=qdrant_models.Distance.COSINE))
+            if not collection_exists:
+                # Use fixed dimension 768 for collection schema
+                qdrant_client.create_collection(
+                    collection_name=collection_name, 
+                    vectors_config=qdrant_models.VectorParams(size=768, distance=qdrant_models.Distance.COSINE) # Use 768 explicitly
+                )
             logger.info(f"Task {task_id}: Ensured Qdrant collection '{collection_name}' exists.")
         except Exception as q_err:
             raise Exception(f'Qdrant check/create failed: {q_err}') # Re-raise for sync wrapper to catch
@@ -184,7 +189,8 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
                 items_by_connection[item.connection_id] = []
             items_by_connection[item.connection_id].append(item)
         
-        zero_vector = [0.0] * settings.EMBEDDING_DIMENSION
+        # Use fixed dimension 768 for placeholder vector
+        zero_vector = [0.0] * 768
 
         # 3. Process Items per Connection
         for conn_id, items in items_by_connection.items():

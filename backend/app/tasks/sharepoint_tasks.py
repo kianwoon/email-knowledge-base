@@ -169,14 +169,16 @@ class SharePointProcessingTask(Task):
                 logger.info(f"Task {self.request.id}: Attempting **direct blocking** token refresh for {user_email}.")
                 try:
                     msal_instance = get_msal_app()
-                    required_scopes = settings.MS_SCOPES.split()
+                    required_scopes = settings.MS_SCOPE
 
-                    # --- Execute the blocking MSAL call directly ---
-                    # Note: MSAL's underlying HTTP client might have its own timeouts.
-                    # Consider adding explicit timeout to msal_instance if possible or wrap this call.
+                    # Filter out reserved scopes before requesting token refresh
+                    reserved_scopes = {'openid', 'profile', 'offline_access', 'email'} # Added 'email'
+                    filtered_scopes = [s for s in required_scopes if s.lower() not in reserved_scopes]
+                    logger.debug(f"Filtered MS Scopes for refresh: {filtered_scopes}")
+
                     token_result = msal_instance.acquire_token_by_refresh_token(
                         refresh_token=decrypted_refresh_token,
-                        scopes=required_scopes
+                        scopes=filtered_scopes
                         # If msal allows passing timeout, add it here e.g. timeout=MS_REFRESH_TIMEOUT_SECONDS
                     )
                     # --- End direct call ---
@@ -367,7 +369,8 @@ async def _run_processing_logic(
             content_b64_string = base64.b64encode(file_content_bytes).decode('utf-8')
 
             # Process content (Embedding placeholder)
-            vector_size = settings.EMBEDDING_DIMENSION
+            # Use fixed dimension 768 for placeholder, decoupling from settings
+            vector_size = 768 
             vector = [0.1] * vector_size # Placeholder
 
             # Construct payload
@@ -488,11 +491,13 @@ def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any
         logger.info(f"Task {task_id}: Ensuring collection '{target_collection_name}'.")
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 5, 'status': 'Checking collection...'})
         try:
+            # Try to create the collection with a FIXED dimension (768)
+            # This decouples the SharePoint collection schema from settings.EMBEDDING_DIMENSION
             qdrant_client.create_collection(
                 collection_name=target_collection_name,
-                vectors_config=models.VectorParams(size=settings.EMBEDDING_DIMENSION, distance=models.Distance.COSINE)
+                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE) # Use 768 explicitly
             )
-            logger.info(f"Task {task_id}: Collection '{target_collection_name}' created.")
+            logger.info(f"Task {task_id}: Collection '{target_collection_name}' created with fixed dimension 768.")
         except UnexpectedResponse as e:
             if e.status_code == 400 and "already exists" in str(e.content).lower() or e.status_code == 409:
                  logger.warning(f"Task {task_id}: Collection '{target_collection_name}' already exists.")

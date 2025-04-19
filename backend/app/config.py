@@ -93,7 +93,15 @@ class Settings(BaseSettings):
     # OpenAI settings
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY") # validated by check_required_env_vars
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") # validated by check_required_env_vars
-    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION")) # validated by pydantic & check_required
+
+    # Per-field embedding configuration
+    DENSE_EMBEDDING_MODEL: str = os.getenv("DENSE_EMBEDDING_MODEL", EMBEDDING_MODEL)
+    DENSE_EMBEDDING_DIMENSION: int = int(os.getenv("DENSE_EMBEDDING_DIMENSION", str(EMBEDDING_DIMENSION)))
+    COLBERT_EMBEDDING_MODEL: str = os.getenv("COLBERT_EMBEDDING_MODEL", "colbert-ir/colbertv2.0")
+    COLBERT_EMBEDDING_DIMENSION: int = int(os.getenv("COLBERT_EMBEDDING_DIMENSION", "512"))
+    BM25_EMBEDDING_MODEL: str = os.getenv("BM25_EMBEDDING_MODEL", "Qdrant/bm25")
+    BM25_EMBEDDING_DIMENSION: int = int(os.getenv("BM25_EMBEDDING_DIMENSION", "188"))
 
     # HuggingFace reranker settings
     HUGGINGFACE_API_TOKEN: Optional[str] = os.getenv("HUGGINGFACE_API_TOKEN")  # Token for HuggingFace inference
@@ -117,13 +125,13 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME") # validated by check_required_env_vars
     QDRANT_RAW_COLLECTION_NAME: str = "email_knowledge"
     # --- ADDED Qdrant Vector Params ---
-    QDRANT_VECTOR_SIZE: int = 1536 # Default for text-embedding-3-small, adjust if needed
+    QDRANT_VECTOR_SIZE: int = 768  # Updated default to match BAAI/bge-base-en-v1.5 embedding dims
     QDRANT_DISTANCE_METRIC: str = "Cosine" # Default for OpenAI embeddings
     # --- END ADDED ---
 
     # Email processing settings
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS")) # validated by pydantic & check_required
-    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION")) # validated by pydantic & check_required
+    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
     # --- AWS Settings --- ADDED
     APP_AWS_ACCESS_KEY_ID: str = os.getenv("APP_AWS_ACCESS_KEY_ID") # validated by check_required_env_vars

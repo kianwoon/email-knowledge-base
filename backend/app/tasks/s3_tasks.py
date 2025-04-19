@@ -303,7 +303,8 @@ async def _run_s3_processing_logic(
 
             # 5. Prepare Qdrant point
             point_id = generate_s3_qdrant_point_id(obj_bucket, obj_key)
-            vector_size = settings.EMBEDDING_DIMENSION
+            # Use fixed dimension 768 for placeholder, decoupling from settings
+            vector_size = 768 
             placeholder_vector = [0.0] * vector_size # Use 0.0 for S3 placeholder
 
             point = models.PointStruct(
@@ -389,12 +390,13 @@ def process_s3_ingestion_task(self: Task, user_email: str):
         logger.info(f"Task {task_id}: Ensuring collection '{collection_name}'.")
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 3, 'status': 'Preparing knowledge base...'})
         try:
-            # Try to create the collection
+            # Try to create the collection with a FIXED dimension (768)
+            # This decouples the S3 collection schema from settings.EMBEDDING_DIMENSION
             qdrant_client.create_collection(
                 collection_name=collection_name,
-                vectors_config=models.VectorParams(size=settings.EMBEDDING_DIMENSION, distance=models.Distance.COSINE)
+                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE) # Use 768 explicitly
             )
-            logger.info(f"Task {task_id}: Collection '{collection_name}' created.")
+            logger.info(f"Task {task_id}: Collection '{collection_name}' created with fixed dimension 768.")
         except (UnexpectedResponse, Exception) as e:
             # Check if the error is because it already exists (common pattern)
             already_exists = False
@@ -437,9 +439,11 @@ def process_s3_ingestion_task(self: Task, user_email: str):
             logger.debug(f"Task {task_id}: Point IDs being upserted: {point_ids_to_log}")
             # --- END LOGGING --- 
             try:
+                # Revert previous change: Pass the original points_to_upsert list
+                # which already contains PointStructs with placeholder vectors.
                 qdrant_client.upsert(
                     collection_name=collection_name,
-                    points=points_to_upsert,
+                    points=points_to_upsert, # Pass original list
                     wait=True
                 )
                 logger.info(f"Task {task_id}: Successfully upserted points.")
