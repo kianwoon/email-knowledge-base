@@ -13,6 +13,7 @@ from app.services.embedder import create_embedding, search_qdrant_knowledge, cre
 from app.crud import api_key_crud # Import API key CRUD
 from fastapi import HTTPException, status # Import HTTPException
 from qdrant_client import models
+from qdrant_client.http.models import PayloadField, Filter, IsEmptyCondition
 import itertools  # for merging hybrid search results
 
 # Set up logger for this module
@@ -266,80 +267,80 @@ async def generate_openai_rag_response(
         # --- START: Two-Phase Retrieval (PDFs then Emails) ---
         logger.info(f"RAG: Starting two-phase retrieval (Phase 1: PDFs, Phase 2: Emails).")
 
-        pdf_hits = [] # Initialize pdf_hits here
+        doc_hits = [] # Initialize doc_hits here
         email_hits = []
 
-        # Phase 1: Search PDFs (Dense + BM25)
-        # Define the PDF filter
-        # --- Use correct nested key for content_type --- 
-        pdf_filter = models.Filter(
-            must=[
-                models.FieldCondition(key="metadata.content_type", match=models.MatchValue(value="application/pdf")) # Corrected nested key
+        # Define the Document filter (Phase 1)
+        # Filter for points where metadata.content_type field exists (is not empty)
+        doc_filter = Filter(
+            must_not=[
+                IsEmptyCondition(
+                    is_empty=PayloadField(key="metadata.content_type")
+                )
             ]
         )
-        pdf_k = 20 # Reverted K back to 20
-        # --- Restore original filter usage --- 
-        logger.debug(f"RAG Phase 1: Searching PDFs with k={pdf_k} and filter={pdf_filter}")
-        pdf_dense_hits = []
-        pdf_bm25_hits = []
-        try:
-            pdf_dense_hits = await search_qdrant_knowledge(
-                query_embedding=dense_emb, # Use dense embedding
-                limit=pdf_k,
-                collection_name=bm_collection,
-                qdrant_filter=pdf_filter, # Restored pdf_filter
-                vector_name="dense" # Using dense search as primary
-            )
-            logger.debug(f"RAG Phase 1 (Dense): Found {len(pdf_dense_hits)} PDF hits.")
-        except Exception as e:
-            logger.warning(f"RAG Phase 1 (Dense PDF search) failed: {e}", exc_info=True)
-            pdf_dense_hits = []
+        doc_k = 20 
+        logger.debug(f"RAG Phase 1: Searching Documents (metadata.content_type exists) with k={doc_k} and filter={doc_filter}")
 
-        # Also try BM25 for PDFs in Phase 1
+        # Initialize result lists
+        doc_dense_hits = []
+        doc_bm25_hits = []
+
+        # Phase 1a: Dense search for Documents
         try:
-            pdf_bm25_hits = await search_qdrant_knowledge_sparse(
-                query_text=retrieval_query, # Use original/refined/expanded query text for BM25
-                limit=pdf_k, # Use same k for now
+            doc_dense_hits = await search_qdrant_knowledge(
+                query_embedding=dense_emb, 
+                limit=doc_k,
                 collection_name=bm_collection,
-                qdrant_filter=pdf_filter, # Apply the same PDF filter
+                qdrant_filter=doc_filter, 
+                vector_name="dense"
+            )
+            logger.debug(f"RAG Phase 1 (Dense): Found {len(doc_dense_hits)} Document hits.")
+        except Exception as e:
+            logger.warning(f"RAG Phase 1 (Dense Document search) failed: {e}", exc_info=True)
+            doc_dense_hits = []
+
+        # Phase 1b: BM25 search for Documents
+        try:
+            doc_bm25_hits = await search_qdrant_knowledge_sparse(
+                query_text=retrieval_query, 
+                limit=doc_k, 
+                collection_name=bm_collection,
+                qdrant_filter=doc_filter, # Apply the same Document filter
                 vector_name="bm25"
             )
-            logger.debug(f"RAG Phase 1 (BM25): Found {len(pdf_bm25_hits)} PDF hits.")
+            logger.debug(f"RAG Phase 1 (BM25): Found {len(doc_bm25_hits)} Document hits.")
         except Exception as e:
-            logger.warning(f"RAG Phase 1 (BM25 PDF search) failed: {e}", exc_info=True)
-            pdf_bm25_hits = []
+            logger.warning(f"RAG Phase 1 (BM25 Document search) failed: {e}", exc_info=True)
+            doc_bm25_hits = []
 
-        # Merge Dense and BM25 PDF hits, deduplicating by ID
-        pdf_merged = {}
-        for hit in itertools.chain(pdf_dense_hits, pdf_bm25_hits):
+        # Merge Dense and BM25 Document hits, deduplicating by ID
+        doc_merged = {}
+        for hit in itertools.chain(doc_dense_hits, doc_bm25_hits):
             hit_id = hit.get('id')
-            payload = hit.get('payload') # Check payload exists
+            payload = hit.get('payload') 
             if hit_id and payload:
-                 if hit_id in pdf_merged:
-                      # Keep the highest score if duplicate found
-                      pdf_merged[hit_id]['score'] = max(pdf_merged[hit_id].get('score', 0.0), hit.get('score', 0.0))
+                 if hit_id in doc_merged:
+                     doc_merged[hit_id]['score'] = max(doc_merged[hit_id].get('score', 0.0), hit.get('score', 0.0))
                  else:
-                      pdf_merged[hit_id] = hit
-        # pdf_hits becomes the list of unique, highest-scoring PDF hits from dense+BM25
-        pdf_hits = list(pdf_merged.values())
-        # Optional: Sort merged PDF hits by score? Reranker will do it anyway.
-        # pdf_hits.sort(key=lambda x: x.get('score', 0.0), reverse=True)
-        logger.debug(f"RAG Phase 1 (Merged Dense+BM25): Found {len(pdf_hits)} unique PDF hits.")
-
-        # --- End Restore --- 
+                     doc_merged[hit_id] = hit
+        # doc_hits becomes the list of unique, highest-scoring Document hits from dense+BM25
+        doc_hits = list(doc_merged.values())
+        logger.debug(f"RAG Phase 1 (Merged Dense+BM25): Found {len(doc_hits)} unique Document hits.")
 
         # Phase 2: Search Emails
-        # Assuming 'source' is directly in the payload based on user info
+        email_hits = [] # Initialize here
         email_filter = models.Filter(
             must=[
-                models.FieldCondition(key="source", match=models.MatchValue(value="email"))
+                models.FieldCondition(key="metadata.source", match=models.MatchValue(value="email")) # Check metadata.source
             ]
         )
         email_k = 10
         logger.debug(f"RAG Phase 2: Searching Emails with k={email_k} and filter={email_filter}")
         try:
+            # Perform only dense search for emails for now, unless BM25 is also desired
             email_hits = await search_qdrant_knowledge(
-                query_embedding=dense_emb, # Use dense embedding
+                query_embedding=dense_emb, 
                 limit=email_k,
                 collection_name=bm_collection,
                 qdrant_filter=email_filter,
@@ -350,23 +351,17 @@ async def generate_openai_rag_response(
             logger.warning(f"RAG Phase 2 (Email search) failed: {e}", exc_info=True)
             email_hits = []
 
-        # Merge and Deduplicate Results
+        # Merge and Deduplicate Results (Documents first, then Emails)
         merged_hits_dict = {}
-        # Add PDFs first, then emails. If an email ID already exists from PDF phase, it won't be overwritten.
-        for hit in pdf_hits + email_hits:
-            # Use .get('id', None) for safety
+        for hit in doc_hits + email_hits: # Add Docs first
             hit_id = hit.get('id')
             if hit_id and hit_id not in merged_hits_dict:
-                 merged_hits_dict[hit_id] = hit # Store the whole hit object
+                 merged_hits_dict[hit_id] = hit 
 
-        # The final list of candidates for reranking etc.
         search_results = list(merged_hits_dict.values())
-
-        # Sort merged results by score descending before passing to reranker?
-        # While reranker *will* sort, pre-sorting gives a slightly better initial order view in logs.
         search_results.sort(key=lambda x: x.get('score', 0.0), reverse=True)
 
-        logger.info(f"RAG: Two-phase retrieval merged {len(search_results)} unique hits ({len(pdf_hits)} PDFs initially, {len(email_hits)} Emails initially). Passing to reranking/filtering.")
+        logger.info(f"RAG: Two-phase retrieval merged {len(search_results)} unique hits ({len(doc_hits)} Docs initially, {len(email_hits)} Emails initially). Passing to reranking/filtering.")
         logger.debug(f"RAG: Merged search results (pre-reranking): {search_results}")
 
         # --- END: Two-Phase Retrieval ---
