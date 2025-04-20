@@ -257,340 +257,337 @@ async def generate_openai_rag_response(
         embedding_snippet = str(dense_emb[:5]) + "..." if dense_emb else "None"
         logger.debug(f"RAG: Using query embedding (first 5 elements): {embedding_snippet}")
         
-        # --- Existing Search Logic Starts Here ---
-        # 3. Determine user-specific collection name and search
+        # --- Determine user-specific collection name ---
         sanitized_email = user.email.replace('@', '_').replace('.', '_')
         # Derive BM hybrid collection for dense, colbertv2.0, and bm25 embeddings
         bm_collection = f"{sanitized_email}_knowledge_base_bm"
-        logger.info(f"RAG: Targeting hybrid Qdrant collection: '{bm_collection}' for user {user.email}")
+        logger.info(f"RAG: Targeting Qdrant collection: '{bm_collection}' for user {user.email}")
 
-        # Build a generic tag filter: honor only explicit 'tag:<value>' directives
-        tag_filter = None
-        directive_match = re.search(r'\btag[:=]\s*([A-Za-z0-9 _-]+)', message, re.IGNORECASE)
-        if directive_match:
-            tag_val = directive_match.group(1).strip().lower()
-            tag_filter = models.Filter(
-                must=[models.FieldCondition(key="tag", match=models.MatchValue(value=tag_val))]
-            )
-            logger.debug(f"RAG: Applying metadata filter for tag directive '{tag_val}'")
-        # Log and run Qdrant search with optional metadata filter
-        logger.debug(f"RAG: Running Qdrant search for query: '{retrieval_query[:50]}...' with limit {settings.RAG_SEARCH_LIMIT} and filter={tag_filter}")
-        
-        # --- Dense search uses embedding from HyDE or retrieval_query ---
-        dense_hits = await search_qdrant_knowledge(
-            query_embedding=dense_emb, # Use dense_emb (from HyDE or retrieval_query)
-            limit=settings.RAG_SEARCH_LIMIT * 2,
-            collection_name=bm_collection,
-            qdrant_filter=tag_filter,
-            vector_name="dense"
+        # --- START: Two-Phase Retrieval (PDFs then Emails) ---
+        logger.info(f"RAG: Starting two-phase retrieval (Phase 1: PDFs, Phase 2: Emails).")
+
+        pdf_hits = [] # Initialize pdf_hits here
+        email_hits = []
+
+        # Phase 1: Search PDFs (Dense + BM25)
+        # Define the PDF filter
+        # --- Use correct nested key for content_type --- 
+        pdf_filter = models.Filter(
+            must=[
+                models.FieldCondition(key="metadata.content_type", match=models.MatchValue(value="application/pdf")) # Corrected nested key
+            ]
         )
-        # --- Attempt ColBERT embedding & search; skip if NotImplemented --- 
+        pdf_k = 20 # Reverted K back to 20
+        # --- Restore original filter usage --- 
+        logger.debug(f"RAG Phase 1: Searching PDFs with k={pdf_k} and filter={pdf_filter}")
+        pdf_dense_hits = []
+        pdf_bm25_hits = []
         try:
-            colbert_emb = await create_retrieval_embedding(hyde_document, "colbertv2.0") # Use same source as dense
-            colbert_hits = await search_qdrant_knowledge(
-                query_embedding=colbert_emb, 
-                limit=settings.RAG_SEARCH_LIMIT * 2,
+            pdf_dense_hits = await search_qdrant_knowledge(
+                query_embedding=dense_emb, # Use dense embedding
+                limit=pdf_k,
                 collection_name=bm_collection,
-                qdrant_filter=tag_filter,
-                vector_name="colbertv2.0"
+                qdrant_filter=pdf_filter, # Restored pdf_filter
+                vector_name="dense" # Using dense search as primary
             )
-        except NotImplementedError:
-            logger.warning("ColBERT embedding not implemented; skipping colbertv2.0 search")
-            colbert_hits = []
-        
-        # --- Attempt BM25 sparse search using original retrieval_query --- 
-        try:
-            # Note: BM25 uses the text query directly (retrieval_query), not a dense embedding or HyDE doc
-            bm25_hits = await search_qdrant_knowledge_sparse( # New function call
-                query_text=retrieval_query, # USE ORIGINAL/REFINED QUERY for sparse
-                limit=settings.RAG_SEARCH_LIMIT * 2, # Consider separate limit?
-                collection_name=bm_collection,
-                qdrant_filter=tag_filter,
-                vector_name="bm25" # Specify the sparse vector name
-            )
-            logger.debug(f"BM25 search (using retrieval_query) returned {len(bm25_hits)} hits.")
+            logger.debug(f"RAG Phase 1 (Dense): Found {len(pdf_dense_hits)} PDF hits.")
         except Exception as e:
-            logger.warning(f"BM25 search failed: {e}", exc_info=True)
-            bm25_hits = []
+            logger.warning(f"RAG Phase 1 (Dense PDF search) failed: {e}", exc_info=True)
+            pdf_dense_hits = []
 
-        # Merge and dedupe by ID, keeping the highest score
-        merged = {}
-        # Include bm25_hits in the merge process
-        for hit in itertools.chain(dense_hits, colbert_hits, bm25_hits):
-            if hit['id'] in merged:
-                merged[hit['id']]['score'] = max(merged[hit['id']]['score'], hit['score'])
-            else:
-                merged[hit['id']] = hit
-        # Sort merged hits and select top results
-        search_results = sorted(merged.values(), key=lambda x: x['score'], reverse=True)[:settings.RAG_SEARCH_LIMIT * 2]
-        logger.debug(f"RAG: Hybrid Qdrant search returned {len(search_results)} merged hits from '{bm_collection}' before reranking/filtering")
-        # For rate-card queries, try snippet-only filter first
-        if ('rate card' in message.lower() or 'rate for' in message.lower()):
-            try:
-                snippet_filter = models.Filter(
-                    must=[models.FieldCondition(key="source", match=models.MatchValue(value="snippet"))]
-                )
-                snippet_hits = await search_qdrant_knowledge(
-                    query_embedding=dense_emb, # Use dense_emb (from HyDE or retrieval_query)
-                    limit=settings.RAG_SEARCH_LIMIT,
-                    collection_name=bm_collection,
-                    qdrant_filter=snippet_filter,
-                    vector_name="dense"
-                )
-                if snippet_hits:
-                    search_results = snippet_hits
-                    logger.debug(f"RAG: Using snippet-only hits for rate-card query, found {len(search_results)} chunks")
-            except Exception as e:
-                logger.warning(f"Snippet-only Qdrant search failed: {e}", exc_info=True)
-        # Log the raw search result length AND the results themselves for inspection
-        logger.debug(f"RAG: Qdrant search returned {len(search_results)} hits from '{bm_collection}'")
-        logger.debug(f"RAG: Raw search results: {search_results}")
-        # Fallback: if we filtered by tag but got zero hits, retry without tag filter
-        if tag_filter and not search_results:
-            logger.warning("RAG: No hits with tag filter, falling back to unfiltered search")
-            # Fallback needs embedding based on hyde_document or retrieval_query
-            search_results = await search_qdrant_knowledge(
-                query_embedding=dense_emb, # Use existing dense_emb
-                limit=settings.RAG_SEARCH_LIMIT,
+        # Also try BM25 for PDFs in Phase 1
+        try:
+            pdf_bm25_hits = await search_qdrant_knowledge_sparse(
+                query_text=retrieval_query, # Use original/refined/expanded query text for BM25
+                limit=pdf_k, # Use same k for now
                 collection_name=bm_collection,
-                vector_name="default"
+                qdrant_filter=pdf_filter, # Apply the same PDF filter
+                vector_name="bm25"
             )
-        # --- Fallback logic for Query Expansion (unrelated to HyDE skip) ---
-        if not search_results and getattr(settings, 'ENABLE_QUERY_EXPANSION', False):
-            logger.warning("RAG: No results after query expansion, retrying with original query")
-            # Recreate embedding for original query - **Use original retrieval query for embedding here**
-            orig_query_embedding = await create_embedding(orig_retrieval_query, client=user_client)
+            logger.debug(f"RAG Phase 1 (BM25): Found {len(pdf_bm25_hits)} PDF hits.")
+        except Exception as e:
+            logger.warning(f"RAG Phase 1 (BM25 PDF search) failed: {e}", exc_info=True)
+            pdf_bm25_hits = []
+
+        # Merge Dense and BM25 PDF hits, deduplicating by ID
+        pdf_merged = {}
+        for hit in itertools.chain(pdf_dense_hits, pdf_bm25_hits):
+            hit_id = hit.get('id')
+            payload = hit.get('payload') # Check payload exists
+            if hit_id and payload:
+                 if hit_id in pdf_merged:
+                      # Keep the highest score if duplicate found
+                      pdf_merged[hit_id]['score'] = max(pdf_merged[hit_id].get('score', 0.0), hit.get('score', 0.0))
+                 else:
+                      pdf_merged[hit_id] = hit
+        # pdf_hits becomes the list of unique, highest-scoring PDF hits from dense+BM25
+        pdf_hits = list(pdf_merged.values())
+        # Optional: Sort merged PDF hits by score? Reranker will do it anyway.
+        # pdf_hits.sort(key=lambda x: x.get('score', 0.0), reverse=True)
+        logger.debug(f"RAG Phase 1 (Merged Dense+BM25): Found {len(pdf_hits)} unique PDF hits.")
+
+        # --- End Restore --- 
+
+        # Phase 2: Search Emails
+        # Assuming 'source' is directly in the payload based on user info
+        email_filter = models.Filter(
+            must=[
+                models.FieldCondition(key="source", match=models.MatchValue(value="email"))
+            ]
+        )
+        email_k = 10
+        logger.debug(f"RAG Phase 2: Searching Emails with k={email_k} and filter={email_filter}")
+        try:
+            email_hits = await search_qdrant_knowledge(
+                query_embedding=dense_emb, # Use dense embedding
+                limit=email_k,
+                collection_name=bm_collection,
+                qdrant_filter=email_filter,
+                vector_name="dense"
+            )
+            logger.debug(f"RAG Phase 2: Found {len(email_hits)} Email hits.")
+        except Exception as e:
+            logger.warning(f"RAG Phase 2 (Email search) failed: {e}", exc_info=True)
+            email_hits = []
+
+        # Merge and Deduplicate Results
+        merged_hits_dict = {}
+        # Add PDFs first, then emails. If an email ID already exists from PDF phase, it won't be overwritten.
+        for hit in pdf_hits + email_hits:
+            # Use .get('id', None) for safety
+            hit_id = hit.get('id')
+            if hit_id and hit_id not in merged_hits_dict:
+                 merged_hits_dict[hit_id] = hit # Store the whole hit object
+
+        # The final list of candidates for reranking etc.
+        search_results = list(merged_hits_dict.values())
+
+        # Sort merged results by score descending before passing to reranker?
+        # While reranker *will* sort, pre-sorting gives a slightly better initial order view in logs.
+        search_results.sort(key=lambda x: x.get('score', 0.0), reverse=True)
+
+        logger.info(f"RAG: Two-phase retrieval merged {len(search_results)} unique hits ({len(pdf_hits)} PDFs initially, {len(email_hits)} Emails initially). Passing to reranking/filtering.")
+        logger.debug(f"RAG: Merged search results (pre-reranking): {search_results}")
+
+        # --- END: Two-Phase Retrieval ---
+
+        # Check if results are empty *after* the two phases
+        if not search_results:
+             logger.warning("RAG: Two-phase retrieval (PDF+Email) yielded no results. Proceeding without context.")
+             # Consider if a fallback search for *all* types is needed here if results are empty. For now, just proceed.
+
+        # --- Fallback logic for Query Expansion (Keep this, it's separate) ---
+        # NOTE: This fallback might need reconsideration. It currently reruns a dense search
+        # with the original query if the *expanded* query yielded zero results from the two-phase search.
+        # This might be okay, but it bypasses the PDF/Email filtering on the fallback.
+        if not search_results and getattr(settings, 'ENABLE_QUERY_EXPANSION', False) and retrieval_query != orig_retrieval_query:
+            logger.warning("RAG: No results after query expansion with two-phase retrieval, retrying dense search with original query (NO PDF/EMAIL filter)")
+            # Recreate embedding for original query
+            orig_query_embedding = await create_retrieval_embedding(orig_retrieval_query, "dense") # Use dense
             logger.debug(f"RAG: Running Qdrant fallback search for original query: '{orig_retrieval_query[:50]}...' with limit {settings.RAG_SEARCH_LIMIT}")
+            # Perform a simple dense search without PDF/Email filters for this fallback
             search_results = await search_qdrant_knowledge(
                 query_embedding=orig_query_embedding,
-                limit=settings.RAG_SEARCH_LIMIT,
+                limit=settings.RAG_SEARCH_LIMIT, # Use standard limit for fallback
                 collection_name=bm_collection,
-                vector_name="default"
+                qdrant_filter=None, # No filter in this specific fallback
+                vector_name="dense"
             )
-            logger.debug(f"RAG: Qdrant fallback search returned {len(search_results)} hits from '{bm_collection}'")
+            logger.debug(f"RAG: Qdrant fallback search (original query) returned {len(search_results)} hits.")
+        # --- End Fallback logic for Query Expansion ---
+
 
         # --- Start: LLM-based chunk classification to handle arbitrary layouts ---
+        # (This and subsequent steps like reranking, dollar filtering now operate on the 'search_results' from the two-phase retrieval)
         if 'rate card' not in message.lower() and 'rate for' not in message.lower():
             # Only classify chunks for non-rate-card queries
             try:
                 # Prepare chunks for classification
-                chunk_texts = [hit['payload']['content'] for hit in search_results]
-                class_messages = [
-                    {"role": "system", "content": (
-                        "You are a classification assistant. Given a user question and a list of text chunks, "
-                        "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
-                        "each chunk is useful to answer the question. Do not include any additional text or markdown."
-                    )},
-                    {"role": "user", "content": (
-                        f"User question: {message}\nChunks:\n" +
-                        "\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
-                        "\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
-                    )}
+                # Ensure payload and content exist before accessing
+                chunk_texts = [
+                    hit['payload']['content'] for hit in search_results
+                    if hit.get('payload') and hit['payload'].get('content')
                 ]
-                class_resp = await user_client.chat.completions.create(
-                    model=chat_model,
-                    messages=class_messages,
-                    temperature=0.0
-                )
-                # Debug: log raw classification response
-                logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
-                decisions = json.loads(class_resp.choices[0].message.content)
-                # Filter only chunks marked 'yes'
-                classified = [hit for idx, hit in enumerate(search_results, start=1)
-                              if decisions.get(str(idx), "no").lower() == "yes"]
-                if classified:
-                    search_results = classified
-                logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
+                if not chunk_texts:
+                     logger.debug("RAG: No valid chunks found to send for classification.")
+                else:
+                    class_messages = [
+                        {"role": "system", "content": (
+                            "You are a classification assistant. Given a user question and a list of text chunks, "
+                            "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
+                            "each chunk is useful to answer the question. Do not include any additional text or markdown."
+                        )},
+                        {"role": "user", "content": (
+                            f"User question: {message}\\nChunks:\\n" +
+                            "\\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
+                            "\\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
+                        )}
+                    ]
+                    class_resp = await user_client.chat.completions.create(
+                        model=chat_model,
+                        messages=class_messages,
+                        temperature=0.0
+                    )
+                    # Debug: log raw classification response
+                    logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
+                    try:
+                        decisions = json.loads(class_resp.choices[0].message.content)
+                        # Filter only chunks marked 'yes'
+                        # Align indices correctly with the potentially filtered chunk_texts
+                        original_indices = [
+                            idx for idx, hit in enumerate(search_results)
+                            if hit.get('payload') and hit['payload'].get('content')
+                        ]
+                        classified_hits = []
+                        for i, original_idx in enumerate(original_indices):
+                             if decisions.get(str(i + 1), "no").lower() == "yes":
+                                 classified_hits.append(search_results[original_idx])
+
+                        if classified_hits: # Only overwrite if classification succeeded and found relevant chunks
+                            search_results = classified_hits
+                            logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
+                        else:
+                             logger.debug("RAG: Classification marked all chunks as 'no' or failed to find matches. Keeping original results.")
+                    except json.JSONDecodeError as json_e:
+                         logger.warning(f"Chunk classification response was not valid JSON: {json_e}", exc_info=True)
+                    except Exception as class_e: # Catch other potential errors during classification processing
+                        logger.warning(f"Error processing classification decisions: {class_e}", exc_info=True)
+
             except Exception as e:
-                logger.warning(f"Chunk classification failed, using original hits: {e}", exc_info=True)
+                logger.warning(f"Chunk classification step failed entirely: {e}", exc_info=True)
         else:
             # Skip classification for rate-card queries to preserve table chunks
             logger.debug("RAG: Skipping chunk classification for rate-card/table style query")
         # --- End: LLM-based classification ---
 
-        # --- START: MAS-Specific Context Filtering (Moved earlier) --- 
-        mas_filter_applied = False # Flag to track if MAS filter reduced chunks
-        if 'mas' in message.lower():
-            original_count = len(search_results)
-            pre_mas_filter_results = search_results.copy() # Keep a copy before filtering
-            search_results = [
-                hit for hit in search_results 
-                if 'mas' in hit.get('payload', {}).get('metadata', {}).get('original_filename', '').lower()
-            ]
-            if len(search_results) < original_count:
-                logger.debug(f"RAG: Applied PRE-RERANK MAS-specific context filter. Kept {len(search_results)}/{original_count} chunks from MAS documents.")
-                # If filtering removed everything, fallback to original results before MAS filter to avoid empty context later
-                if not search_results:
-                    logger.warning("RAG: MAS-specific filter removed all chunks, reverting to pre-MAS-filter results to avoid empty context.")
-                    search_results = pre_mas_filter_results
-                else:
-                    mas_filter_applied = True # Set flag only if filter actually removed chunks
-            else:
-                logger.debug("RAG: PRE-RERANK MAS-specific context filter applied, but all retrieved chunks were already from MAS documents.")
-        # --- END: MAS-Specific Context Filtering ---
-
-        # --- START: GIC-Specific Context Filtering ---
-        gic_filter_applied = False # Flag to track if GIC filter reduced chunks
-        # Apply if 'gic' is in query AND 'mas' is NOT, to avoid conflict if comparing
-        if 'gic' in message.lower() and 'mas' not in message.lower():
-            original_count = len(search_results)
-            pre_gic_filter_results = search_results.copy() # Keep a copy before filtering
-            gic_doc_name = "SOW - Data Vendor Resource Augmentation DVRA (Beyondsoft) - 3.pdf" # Define the target GIC doc filename
-            search_results = [
-                hit for hit in search_results
-                if gic_doc_name.lower() in hit.get('payload', {}).get('metadata', {}).get('original_filename', '').lower()
-            ]
-            if len(search_results) < original_count:
-                logger.debug(f"RAG: Applied PRE-RERANK GIC-specific context filter. Kept {len(search_results)}/{original_count} chunks from GIC document ('{gic_doc_name}').")
-                # Fallback if GIC filter removed everything
-                if not search_results:
-                    logger.warning("RAG: GIC-specific filter removed all chunks, reverting to pre-GIC-filter results to avoid empty context.")
-                    search_results = pre_gic_filter_results
-                else:
-                    gic_filter_applied = True # Set flag only if filter actually removed chunks
-            else:
-                logger.debug("RAG: PRE-RERANK GIC-specific context filter applied, but all retrieved chunks were already from the GIC document.")
-        # --- END: GIC-Specific Context Filtering ---
-
-        # Currency-value filtering for rate-card queries: keep only relevant chunks
-        # --- MODIFICATION: Skip if MAS or GIC filter already applied ---
-        logger.debug(f"RAG: Checking currency filter. mas_filter_applied = {mas_filter_applied}, gic_filter_applied = {gic_filter_applied}") # Log the flags
-        if not mas_filter_applied and not gic_filter_applied and ('rate card' in message.lower() or 'rate for' in message.lower()):
-            logger.debug("RAG: Applying currency-value filter (MAS/GIC filter was not applied or did not reduce chunks)") # Modified log
-            orig_chunks = search_results.copy()
-            # Match $, S$, or SGD amounts or comma-formatted numbers (e.g., 4,600)
-            pattern = re.compile(r"(?:\\$\\s?\\d|S\\$\\s?\\d|SGD\\s?\\d|\\d{1,3}(?:,\\d{3})+)")
-            filtered = [hit for hit in search_results if pattern.search(hit.get('payload', {}).get('content', ''))]
-            if filtered:
-                search_results = filtered
-                logger.debug(f"RAG: Applied currency-value filter, kept {len(search_results)}/{len(orig_chunks)} chunks")
-            else:
-                logger.debug("RAG: No currency-value chunks found, skipping currency-value filter and keeping all chunks")
-            # Fallback substring match for the extracted role if present
-            # -- MODIFICATION: Skip fallback if role seems generic like 'rate card' --
-            role_extracted = False
-            role = None
-            if isinstance(refined, dict) and refined.get('role'): # Check if refined exists
-                role = refined['role'].strip().lower()
-                # Check if the role is likely generic (e.g., is 'rate card' or very short)
-                if role and role != 'rate card' and len(role) > 3:
-                    role_extracted = True
-                else:
-                    logger.debug(f"RAG: Skipping role fallback filter because extracted role '{role}' seems generic.")
-                    role = None # Prevent using the generic role
-            
-            if role_extracted and role: # Only apply if we have a specific, non-generic role
-            # -- END MODIFICATION --
-                substring_hits = [
-                    hit for hit in orig_chunks # Apply to original chunks before currency filter? Let's stick to applying it AFTER currency filter for now.
-                    if role in hit.get('payload', {}).get('content', '').lower()
-                ]
-                # Only apply if it finds something AND it's different from the currency filter result
-                if substring_hits and len(substring_hits) != len(search_results):
-                    search_results = substring_hits
-                    logger.debug(f"RAG: Applied specific role substring filter for '{role}', kept {len(search_results)}/{len(orig_chunks)} chunks")
-                elif not substring_hits:
-                     logger.debug(f"RAG: Specific role '{role}' not found in currency-filtered chunks, keeping currency results.")
-                else:
-                    logger.debug(f"RAG: Specific role '{role}' filter matched all currency chunks, no change.")
-
-            # If 'tag:' directive was used, reapply that filter after fallback
-            if directive_match:
-                tag_val = directive_match.group(1).strip().lower()
-                tag_hits = [hit for hit in search_results
-                            if hit.get('payload', {}).get('tag', '').lower() == tag_val]
-                if tag_hits:
-                    search_results = tag_hits
-                    logger.debug(f"RAG: Reapplied tag filter '{tag_val}', kept {len(tag_hits)}/{len(orig_chunks)} chunks")
-        elif mas_filter_applied: # Added log for skipping
-            logger.debug("RAG: Skipping currency-value filter because MAS filter was applied and reduced chunks.")
-        # --- End: LLM-based classification ---
-
         # Local reranking using OpenAI embeddings and cosine similarity
         if settings.ENABLE_RERANK and search_results:
             try:
-                # Extract document texts
-                docs = [hit["payload"]["content"] for hit in search_results]
-                # Generate embeddings for each doc using user's API key
-                doc_embeddings = [
-                    await create_embedding(text, client=user_client)
-                    for text in docs
+                # Extract document texts, ensuring payload and content exist
+                docs = [
+                    hit["payload"]["content"] for hit in search_results
+                    if hit.get("payload") and hit["payload"].get("content")
                 ]
-                # Cosine similarity helper
-                import math
-                def cos_sim(a, b):
-                    dot = sum(x*y for x, y in zip(a, b))
-                    norm_a = math.sqrt(sum(x*x for x in a))
-                    norm_b = math.sqrt(sum(y*y for y in b))
-                    return dot/(norm_a*norm_b) if norm_a and norm_b else 0.0
-                # Compute similarities using the DENSE embedding (from HyDE or retrieval_query)
-                sims = [cos_sim(dense_emb, emb) for emb in doc_embeddings] # Use dense_emb 
-                # Blend Qdrant's native score with cosine similarity
-                qdrant_scores = [hit.get('score', 0.0) for hit in search_results]
-                min_s, max_s = min(qdrant_scores), max(qdrant_scores)
-                if max_s > min_s:
-                    norm_scores = [(s - min_s)/(max_s - min_s) for s in qdrant_scores]
+                # Skip reranking if no valid docs found
+                if not docs:
+                    logger.warning("RAG: No valid document content found for reranking. Skipping.")
                 else:
-                    norm_scores = [1.0] * len(qdrant_scores)
-                alpha = getattr(settings, 'RERANK_WEIGHT', 0.5)
-                raw_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
-                
-                # --- ADD BOOST for filename match on specific queries ---
-                if 'mas' in message.lower(): # Check if query is about MAS
-                    boost_amount = 0.1 # Define boost amount
-                    boosted_indices = []
-                    for i, hit in enumerate(search_results):
-                        filename = hit.get('payload', {}).get('metadata', {}).get('original_filename', '').lower()
-                        if 'mas' in filename:
-                            raw_scores[i] += boost_amount
-                            boosted_indices.append(i)
-                    if boosted_indices:
-                        logger.debug(f"RAG: Applied rerank score boost (+{boost_amount}) for MAS filename match on indices: {boosted_indices}")
-                # --- END BOOST ---
-                
-                # Apply optional threshold filtering
-                min_score = getattr(settings, 'RERANK_MIN_SCORE', None)
-                if min_score is not None:
-                    # filter out low-scoring hits
-                    scored = [(idx, sc) for idx, sc in enumerate(raw_scores) if sc >= min_score]
-                    if scored:
-                        order = [idx for idx, _ in sorted(scored, key=lambda x: x[1], reverse=True)]
-                    else:
-                        # fallback to sorting all if none meet threshold
-                        order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
-                else:
-                    order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
-                # Optional MMR diversification for diversity
-                if getattr(settings, 'ENABLE_MMR', False):
-                    mmr_lambda = getattr(settings, 'MMR_LAMBDA', 0.5)
-                    mmr_top_k = getattr(settings, 'MMR_TOP_K', len(order))
-                    selected = []
-                    candidates = order.copy()
-                    # first pick highest relevance
-                    if sims: # Check if sims is not empty
-                        first = max(candidates, key=lambda idx: sims[idx])
-                        selected.append(first)
-                        candidates.remove(first)
-                    while len(selected) < mmr_top_k and candidates:
-                        mmr_scores = []
-                        for cand in candidates:
-                            max_sim = max(cos_sim(doc_embeddings[cand], doc_embeddings[sel]) for sel in selected)
-                            score_mmr = mmr_lambda * sims[cand] - (1 - mmr_lambda) * max_sim
-                            mmr_scores.append((cand, score_mmr))
-                        next_cand = max(mmr_scores, key=lambda x: x[1])[0]
-                        selected.append(next_cand)
-                        candidates.remove(next_cand)
-                    order = selected
-                    logger.debug(f"Applied MMR diversification: final order {order}")
-                search_results = [search_results[i] for i in order]
-                logger.debug(f"Locally reranked Qdrant hits with blending and threshold, new order: {order}")
+                    # Generate embeddings for each doc using user's API key
+                    doc_embeddings = [
+                        await create_embedding(text, client=user_client)
+                        for text in docs
+                    ]
+                    # Cosine similarity helper
+                    import math
+                    def cos_sim(a, b):
+                        # Ensure embeddings are valid lists/tuples of numbers
+                        if not (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple))): return 0.0
+                        if len(a) != len(b) or len(a) == 0: return 0.0
+                        try:
+                            dot = sum(x*y for x, y in zip(a, b))
+                            norm_a = math.sqrt(sum(x*x for x in a))
+                            norm_b = math.sqrt(sum(y*y for y in b))
+                            # Avoid division by zero
+                            return dot/(norm_a*norm_b) if norm_a and norm_b else 0.0
+                        except TypeError: # Handle case where embeddings might contain non-numeric types
+                             logger.warning("RAG: TypeError during cosine similarity calculation. Skipping similarity.")
+                             return 0.0
 
-                # --- START: MAS-Specific Context Filtering --- 
-                # MOVED EARLIER - This block is now before currency filtering
-                # --- END: MAS-Specific Context Filtering ---
+                    # Compute similarities using the DENSE embedding (from HyDE or retrieval_query)
+                    sims = [cos_sim(dense_emb, emb) for emb in doc_embeddings] 
+
+                    # Blend Qdrant's native score with cosine similarity
+                    qdrant_scores = [hit.get('score', 0.0) for hit in search_results if hit.get("payload") and hit["payload"].get("content")] # Align with filtered docs
+                    # Normalize Qdrant scores (handle division by zero if all scores are same)
+                    min_s, max_s = (min(qdrant_scores), max(qdrant_scores)) if qdrant_scores else (0.0, 0.0) # Simplified initialization
+                    if max_s > min_s:
+                        norm_scores = [(s - min_s)/(max_s - min_s) for s in qdrant_scores]
+                    else:
+                        norm_scores = [1.0] * len(qdrant_scores) # Assign 1 if all scores are equal or list empty
+
+                    alpha = getattr(settings, 'RERANK_WEIGHT', 0.5)
+                    # Ensure lists have the same length before blending
+                    if len(norm_scores) == len(sims):
+                         raw_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
+                    else:
+                         logger.warning("RAG: Mismatch between number of scores and similarities. Skipping score blending.")
+                         raw_scores = sims # Fallback to similarity scores only
+
+                    # --- NOTE: PDF BOOST logic removed as prioritization happens earlier ---
+                    # boosted_scores = raw_scores # Use raw blended scores directly now
+                    # --- END PDF BOOST REMOVAL --- 
+
+                    # Apply optional threshold filtering (using raw_scores)
+                    min_score = getattr(settings, 'RERANK_MIN_SCORE', None)
+                    if min_score is not None:
+                        # filter out low-scoring hits based on raw score
+                        scored_indices = [(idx, sc) for idx, sc in enumerate(raw_scores) if sc >= min_score]
+                        if scored_indices:
+                            # Sort remaining based on score
+                            order = [idx for idx, _ in sorted(scored_indices, key=lambda x: x[1], reverse=True)]
+                        else:
+                            # fallback to sorting all raw scores if none meet threshold
+                            logger.debug(f"RAG: No hits met rerank threshold {min_score}. Sorting all {len(raw_scores)} hits by score.")
+                            order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
+                    else:
+                        # Sort based on raw scores if no threshold
+                        order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
+
+                    # Optional MMR diversification for diversity (uses raw_scores for relevance term)
+                    if getattr(settings, 'ENABLE_MMR', False):
+                        mmr_lambda = getattr(settings, 'MMR_LAMBDA', 0.5)
+                        mmr_top_k = getattr(settings, 'MMR_TOP_K', len(order)) # Base K on potentially thresholded list
+                        selected_indices = []
+                        candidate_indices = order.copy() # Indices remaining after potential thresholding
+
+                        # Ensure we have embeddings and scores for the candidates
+                        valid_candidates = [idx for idx in candidate_indices if idx < len(doc_embeddings) and idx < len(raw_scores)]
+
+                        if valid_candidates:
+                            # Pick the highest scoring candidate first
+                            first_idx = max(valid_candidates, key=lambda idx: raw_scores[idx])
+                            selected_indices.append(first_idx)
+                            valid_candidates.remove(first_idx)
+
+                            while len(selected_indices) < mmr_top_k and valid_candidates:
+                                mmr_scores = []
+                                selected_embeddings = [doc_embeddings[sel_idx] for sel_idx in selected_indices]
+                                for cand_idx in valid_candidates:
+                                    cand_embedding = doc_embeddings[cand_idx]
+                                    cand_score = raw_scores[cand_idx]
+                                    # Ensure selected_embeddings is not empty before calculating max_sim
+                                    if selected_embeddings:
+                                         max_sim_with_selected = max(cos_sim(cand_embedding, sel_emb) for sel_emb in selected_embeddings)
+                                    else:
+                                         max_sim_with_selected = 0.0 # No similarity if nothing selected yet
+                                    score_mmr = mmr_lambda * cand_score - (1 - mmr_lambda) * max_sim_with_selected
+                                    mmr_scores.append((cand_idx, score_mmr))
+
+                                if not mmr_scores: break # Exit if no more candidates can be scored
+
+                                next_cand_idx = max(mmr_scores, key=lambda x: x[1])[0]
+                                selected_indices.append(next_cand_idx)
+                                valid_candidates.remove(next_cand_idx)
+
+                            order = selected_indices # Final order determined by MMR
+                            logger.debug(f"Applied MMR diversification: final order indices {order}")
+                        else:
+                             logger.warning("RAG: Skipping MMR due to no valid candidates (check embeddings/scores alignment).")
+
+                    # Reorder search_results based on the final order (from reranking/MMR)
+                    # First, get the subset of search_results corresponding to the `docs` used
+                    valid_search_results = [
+                        hit for hit in search_results
+                        if hit.get("payload") and hit["payload"].get("content")
+                    ]
+                    # Apply the final order, making sure indices are valid
+                    final_ordered_results = [valid_search_results[i] for i in order if i < len(valid_search_results)]
+                    # Replace the original search_results with the reranked/filtered/diversified list
+                    search_results = final_ordered_results
+                    logger.debug(f"Locally reranked/diversified Qdrant hits, final count: {len(search_results)}") # Updated log
 
             except Exception as e:
-                logger.warning(f"Local rerank or MAS filtering failed, proceeding with original Qdrant order: {e}", exc_info=True)
+                logger.warning(f"Local rerank or diversification failed, proceeding with original Qdrant order: {e}", exc_info=True)
 
         # 4. Format context and augment prompt
         context_str = ""
@@ -669,7 +666,7 @@ Answer:
         # 5. Call OpenAI using the USER-specific client
         # Choose the model: user-specified or default
         logger.debug(f"Calling OpenAI model '{chat_model}' with user key...")
-        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}")
+        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}") 
         response = await user_client.chat.completions.create(
             model=chat_model,
             messages=messages,

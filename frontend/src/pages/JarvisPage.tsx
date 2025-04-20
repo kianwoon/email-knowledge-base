@@ -692,15 +692,19 @@ const JarvisPage: React.FC = () => {
   // --- Memoized Markdown Components ---
   const markdownComponents = useMemo(() => ({
     table: (props: any) => (
-      <TableContainer whiteSpace="normal" borderWidth="1px" borderColor={borderColor} borderRadius="md" my={4}>
-        <Table variant="striped" size="sm" {...props} />
+      <TableContainer whiteSpace="normal" my={4}>
+        <Table 
+          variant="striped"
+          size="sm"
+          {...props} 
+        />
       </TableContainer>
     ),
     thead: (props: any) => <Thead {...props} />,
     tbody: (props: any) => <Tbody {...props} />,
     tr: (props: any) => <Tr {...props} />,
-    th: (props: any) => <Th sx={{ border: `1px solid ${borderColor}` }} {...props} />,
-    td: (props: any) => <Td sx={{ border: `1px solid ${borderColor}` }} {...props} />,
+    th: (props: any) => <Th {...props} />,
+    td: (props: any) => <Td {...props} />,
   }), [borderColor]);
 
   return (
