@@ -201,7 +201,7 @@ const KnowledgeManagementPage: React.FC = () => {
   let s3RawCollectionNameDisplay = `{email}_aws_s3_knowledge`;
   let azureBlobRawCollectionNameDisplay = `{email}_azure_blob_knowledge`;
   let customRawCollectionNameDisplay = `{email}_custom_knowledge`;
-  let vectorCollectionNameDisplay = `{email}_knowledge_base`;
+  let vectorCollectionNameDisplay = `{email}_knowledge_base_bm`;
   if (currentUser && currentUser.email) {
       const sanitizedEmail = currentUser.email.replace(/[@.]/g, '_');
       rawCollectionNameDisplay = `${sanitizedEmail}_email_knowledge`;
@@ -209,7 +209,7 @@ const KnowledgeManagementPage: React.FC = () => {
       s3RawCollectionNameDisplay = `${sanitizedEmail}_aws_s3_knowledge`;
       azureBlobRawCollectionNameDisplay = `${sanitizedEmail}_azure_blob_knowledge`;
       customRawCollectionNameDisplay = `${sanitizedEmail}_custom_knowledge`;
-      vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base`;
+      vectorCollectionNameDisplay = `${sanitizedEmail}_knowledge_base_bm`;
   }
   
   return (
