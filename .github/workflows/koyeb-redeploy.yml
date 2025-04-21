@@ -28,7 +28,7 @@ jobs:
         run: python -m pip install --upgrade pip
 
       - name: Install Koyeb CLI
-        run: pip install koyeb-cli
+        run: pip install -v koyeb-cli
 
       - name: Trigger Koyeb Deployment
         env:
