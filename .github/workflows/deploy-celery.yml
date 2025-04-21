@@ -35,7 +35,7 @@ jobs:
 
       # Use the official Koyeb Deploy Action
       - name: Trigger Koyeb Service Redeployment
-        uses: koyeb/action-deploy@v2
+        uses: koyeb/action-deploy@v2.0.0
         with:
           # Koyeb API Token stored as a GitHub Secret
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
