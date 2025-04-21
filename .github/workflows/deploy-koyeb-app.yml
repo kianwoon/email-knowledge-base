@@ -6,10 +6,9 @@ on:
       - main # Or your primary deployment branch
     paths:
       # Trigger workflow if ANY relevant code/config changes:
-      - 'frontend/**'             # Added frontend path
-      - 'backend/**'              # Broadened backend path
-      # Removed specific backend paths as they are covered by backend/**
-      - '.koyeb.yml'                # Koyeb configuration changes
+      - 'frontend/**'
+      - 'backend/**'
+      - '.koyeb.yml'
 
 jobs:
   deploy:
@@ -19,25 +18,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Removed Python setup, pip upgrade, and CLI install steps
-
       # Use curl to trigger deployment via Koyeb API
       - name: Trigger Koyeb Deployment via API
         env:
           KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
-          KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }} # Use the app name secret
+          KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
         run: |
           echo "Triggering deployment for app: $KOYEB_APP_NAME"
           DEPLOY_URL="https://app.koyeb.com/v1/apps/$KOYEB_APP_NAME/deployments"
           echo "Calling URL: $DEPLOY_URL"
           
           # Note: This API call might just trigger a deployment based on the app's existing Git settings.
-          # It might not explicitly force a build like the CLI command did.
           # Check Koyeb API docs if more specific control (like force build) is needed via API.
           curl -s -X POST $DEPLOY_URL \
             -H "Authorization: Bearer $KOYEB_TOKEN" \
             -H "Content-Type: application/json" \
-            -d '{"git": {"branch": "main"}}' # Trigger deployment from main branch
+            -d '{"git": {"branch": "main"}}'
           
           echo "Deployment trigger request sent."
 
