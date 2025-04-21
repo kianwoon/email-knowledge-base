@@ -401,13 +401,6 @@ const KnowledgeManagementPage: React.FC = () => {
                 </CardBody>
             </Card>
         )}
-
-        <Divider my={6} />
-
-        <Box>
-          <Heading size="md" mb={3}>{t('knowledgeManagement.actionsTitle', 'Management Actions')}</Heading>
-          <Text>{t('knowledgeManagement.actionsPlaceholder', 'Further actions related to knowledge base management can be added here.')}</Text>
-        </Box>
       </VStack>
     </Box>
   );
