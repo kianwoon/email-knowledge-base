@@ -1,29 +1,23 @@
 name: Deploy Celery Worker to Koyeb
 
 # Trigger this workflow only when changes are pushed to the main branch
-# AND affect files relevant to the Celery worker
+# REMOVED paths filter for testing
 on:
   push:
     branches:
       - main  # Or change to your primary deployment branch if different
-    paths:
-      - 'backend/Dockerfile.worker'    # The worker's Dockerfile
-      - 'backend/celery_app.py'        # Celery app setup
-      - 'backend/tasks/**'             # Any changes within the tasks directory
-      - 'backend/requirements.txt'     # Dependency changes affect the worker build
-      # --- Add other backend paths if your Celery tasks import code from them ---
-      - 'backend/app/config.py'        # Core settings
-      - 'backend/app/db/**'            # Database session, engine, qdrant client
-      - 'backend/app/crud/**'          # CRUD operations used by tasks
-      - 'backend/app/models/**'        # Database/Pydantic models used by tasks
-      - 'backend/app/services/**'      # Service logic used by tasks
-      - 'backend/app/utils/**'         # Utility functions (e.g., security)
-      # Example: If tasks use models directly:
-      # - 'backend/app/models/**'
-      # Example: If tasks use specific services:
-      # - 'backend/app/services/some_task_service.py'
-      # - 'backend/app/crud/some_task_crud.py'
-      # - 'backend/app/config.py' # If celery config depends on it directly
+#    paths: # <-- Temporarily removed
+#      - 'backend/Dockerfile.worker'    # The worker's Dockerfile
+#      - 'backend/celery_app.py'        # Celery app setup
+#      - 'backend/tasks/**'             # Any changes within the tasks directory
+#      - 'backend/requirements.txt'     # Dependency changes affect the worker build
+#      # --- Add other backend paths if your Celery tasks import code from them ---
+#      - 'backend/app/config.py'        # Core settings
+#      - 'backend/app/db/**'            # Database session, engine, qdrant client
+#      - 'backend/app/crud/**'          # CRUD operations used by tasks
+#      - 'backend/app/models/**'        # Database/Pydantic models used by tasks
+#      - 'backend/app/services/**'      # Service logic used by tasks
+#      - 'backend/app/utils/**'         # Utility functions (e.g., security)
 
 jobs:
   deploy-worker:
