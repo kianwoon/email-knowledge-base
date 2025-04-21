@@ -48,16 +48,16 @@ jobs:
           KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
         run: koyeb service redeploy $KOYEB_APP_NAME/celery-worker
 
-      # Optionally add a message:
-      # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}"
+      # Temporarily comment out the failing Koyeb action step
+      # - name: Trigger Koyeb App Deployment
+      #   uses: koyeb/action-deploy@v2
+      #   with:
+      #     koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
+      #     app: ${{ secrets.KOYEB_APP_NAME }}
 
-      - name: Trigger Koyeb App Deployment
-        uses: koyeb/action-deploy@v2
-        with:
-          koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
-          app: ${{ secrets.KOYEB_APP_NAME }} # Ensure this secret exists
-          # By default, the action deploys the app based on the latest commit,
-          # matching the behavior of 'koyeb apps deploy'. Koyeb intelligently
-          # determines which services need rebuilding/restarting.
-          # Optionally add a message:
-          # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
+      # Add a simple test step
+      - name: Run Test Step
+        run: echo "Workflow executed successfully"
+
+      # Optionally add a message:
+      # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
