@@ -80,3 +80,42 @@ services:
       - path: /
         port: 3000
     public: true
+
+  - name: celery-worker
+    instance_type: nano  # Adjust instance type as needed
+    instance_count: 1    # Adjust count as needed
+    git:
+      repository: kianwoon/email-knowledge-base
+      branch: main
+    build:
+      dockerfile: backend/Dockerfile.worker
+    # No 'run' command needed here, as CMD is in the Dockerfile
+    env:
+      # Copy relevant environment variables from backend-service
+      - name: ENVIRONMENT
+        value: "production"
+      - name: MS_CLIENT_ID
+        value: "a4b11a39-ee9e-42b6-ab30-788ccef14d89" # Consider using secrets
+      - name: MS_TENANT_ID
+        value: "fda15b03-7d0b-4604-b6a0-00a0712abcf5" # Consider using secrets
+      - name: MS_CLIENT_SECRET
+        secret: MS_CLIENT_SECRET
+      - name: FRONTEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - name: BACKEND_URL
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app"
+      - name: MS_REDIRECT_URI
+        value: "https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/auth/callback"
+      - name: JWT_SECRET
+        secret: JWT_SECRET
+      - name: DEBUG
+        value: "true" # Consider setting to false for production workers
+      # Add other environment variables needed by Celery tasks (e.g., Broker/Backend URLs)
+      # Ensure these match what's configured in backend/app/celery_app.py
+      # - name: CELERY_BROKER_URL
+      #   secret: CELERY_BROKER_URL
+      # - name: CELERY_RESULT_BACKEND
+      #   secret: CELERY_RESULT_BACKEND
+    restart_policy:
+      type: on-failure
+      max_retries: 10

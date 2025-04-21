@@ -12,17 +12,15 @@ WORKDIR /app
 # RUN apt-get update && apt-get install -y --no-install-recommends some-package && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
-# Copy only requirements first to leverage Docker cache
-COPY ./requirements.txt /app/requirements.txt
+# Copy requirements from the backend directory
+COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire backend application code
-# Assumes your tasks might import from various parts of the 'app' directory
-COPY . /app/
+# Copy the backend application code specifically
+COPY backend/ /app/
 
 # Command to run the Celery worker
-# Make sure 'app.celery_app:celery_app' correctly points to your Celery instance
-# It assumes celery_app.py is directly under the 'app' directory copied above
-# and the Celery instance inside it is named 'celery_app'. Adjust if needed.
-CMD ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=info", "-P", "solo"] 
+# The working directory is /app, and the code is copied into /app,
+# so 'app.celery_app' should now correctly resolve to /app/app/celery_app.py
+CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-P", "solo"] 
