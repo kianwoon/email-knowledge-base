@@ -19,6 +19,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Or your preferred Python version
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
       - name: Install Koyeb CLI
         run: pip install koyeb-cli
 
