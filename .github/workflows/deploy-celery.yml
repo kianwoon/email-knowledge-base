@@ -32,6 +32,9 @@ jobs:
 
     steps:
       # No checkout needed if using Koyeb's native Git deployment trigger
+      # Explicitly checkout the code to ensure the runner sees the latest workflow file
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # Use the official Koyeb Deploy Action
       - name: Trigger Koyeb Service Redeployment
