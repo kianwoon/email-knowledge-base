@@ -406,4 +406,5 @@ const KnowledgeManagementPage: React.FC = () => {
   );
 };
 
+// Trigger workflow test
 export default KnowledgeManagementPage; 
