@@ -637,19 +637,22 @@ Answer:
         # --- MODIFICATION: Temporarily skip history for rate card queries to test interference ---
         if 'rate card' not in message.lower():
             # Add chat history (last 3 messages), ensuring alternating user/assistant roles
-        if chat_history:
+            if chat_history:
                 # Take the last 3 entries (or fewer if history is shorter)
                 history_to_use = chat_history[-3:]
-            logger.debug(f"RAG: Adding {len(history_to_use)} messages from history to prompt.")
-            # Basic validation of history items
-            validated_history = [
-                item for item in history_to_use
-                if isinstance(item, dict) and 'role' in item and 'content' in item and item['role'] in ["user", "assistant"]
-            ]
-            # Log skipped items
-            if len(validated_history) < len(history_to_use):
-                logger.warning(f"RAG: Skipped {len(history_to_use) - len(validated_history)} invalid history entries.")
-            messages.extend(validated_history)
+                logger.debug(f"RAG: Adding {len(history_to_use)} messages from history to prompt.")
+                # Basic validation of history items
+                validated_history = [
+                    item for item in history_to_use
+                    if isinstance(item, dict) and 'role' in item and 'content' in item and item['role'] in ["user", "assistant"]
+                ]
+                # Log skipped items
+                if len(validated_history) < len(history_to_use):
+                    logger.warning(f"RAG: Skipped {len(history_to_use) - len(validated_history)} invalid history entries.")
+                messages.extend(validated_history)
+            # History handling if condition is skipped:
+            # else:
+            #     logger.debug("RAG: No chat history provided.") # Optional: Add else block if needed
         else:
             logger.debug("RAG: Skipping chat history for rate card query to avoid interference.")
         # --- END MODIFICATION ---
