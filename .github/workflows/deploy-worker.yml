@@ -37,3 +37,13 @@ jobs:
           service: 'celery-worker'
           # Optional: Add a message to the deployment history on Koyeb
           # message: "Deploying Celery worker triggered by commit ${{ github.sha }}"
+<<<<<<< Updated upstream
+=======
+
+          # We don't need to specify type, dockerfile path etc. here,
+          # because the Koyeb service 'celery-worker' is already configured
+          # in the Koyeb UI to use the correct Dockerfile ('backend/Dockerfile.worker')
+          # when deploying from the Git source. This action just tells Koyeb
+          # to "redeploy this service using its existing configuration". 
+          # test 2
+>>>>>>> Stashed changes
