@@ -21,3 +21,4 @@ psycopg2-binary==2.9.10
 boto3
 aiohttp
 celery[redis]>=5.0
+sentence-transformers
