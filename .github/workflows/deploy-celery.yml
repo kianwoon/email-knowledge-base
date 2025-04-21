@@ -12,6 +12,12 @@ on:
       - 'backend/tasks/**'             # Any changes within the tasks directory
       - 'backend/requirements.txt'     # Dependency changes affect the worker build
       # --- Add other backend paths if your Celery tasks import code from them ---
+      - 'backend/app/config.py'        # Core settings
+      - 'backend/app/db/**'            # Database session, engine, qdrant client
+      - 'backend/app/crud/**'          # CRUD operations used by tasks
+      - 'backend/app/models/**'        # Database/Pydantic models used by tasks
+      - 'backend/app/services/**'      # Service logic used by tasks
+      - 'backend/app/utils/**'         # Utility functions (e.g., security)
       # Example: If tasks use models directly:
       # - 'backend/app/models/**'
       # Example: If tasks use specific services:
