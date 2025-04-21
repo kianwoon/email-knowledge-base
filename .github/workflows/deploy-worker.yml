@@ -37,7 +37,7 @@ jobs:
 
       # Use the official Koyeb Deploy Action
       - name: Trigger Koyeb Service Redeployment
-        uses: koyeb/action-deploy@v1       # Test if v1 can be downloaded
+        uses: koyeb/action-deploy@v2       # Revert back to v2
         with:
           # Koyeb API Token stored as a GitHub Secret
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
@@ -56,4 +56,3 @@ jobs:
           # in the Koyeb UI to use the correct Dockerfile ('backend/Dockerfile.worker')
           # when deploying from the Git source. This action just tells Koyeb
           # to "redeploy this service using its existing configuration". 
-          # test
