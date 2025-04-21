@@ -33,6 +33,56 @@ services:
         secret: JWT_SECRET
       - name: DEBUG
         value: "true"
+      - name: MS_AUTH_BASE_URL
+        secret: MS_AUTH_BASE_URL
+      - name: MS_SCOPE_STR
+        secret: MS_SCOPE
+      - name: MS_GRAPH_BASE_URL
+        secret: MS_GRAPH_BASE_URL
+      - name: JWT_ALGORITHM
+        secret: JWT_ALGORITHM
+      - name: JWT_EXPIRATION
+        secret: JWT_EXPIRATION
+      - name: OPENAI_API_KEY
+        secret: OPENAI_API_KEY
+      - name: EMBEDDING_MODEL
+        secret: EMBEDDING_MODEL
+      - name: EMBEDDING_DIMENSION
+        secret: EMBEDDING_DIMENSION
+      - name: QDRANT_URL
+        secret: QDRANT_URL
+      - name: QDRANT_API_KEY
+        secret: QDRANT_API_KEY
+      - name: QDRANT_COLLECTION_NAME
+        secret: QDRANT_COLLECTION_NAME
+      - name: MAX_PREVIEW_EMAILS
+        secret: MAX_PREVIEW_EMAILS
+      - name: APP_AWS_ACCESS_KEY_ID
+        secret: APP_AWS_ACCESS_KEY_ID
+      - name: APP_AWS_SECRET_ACCESS_KEY
+        secret: APP_AWS_SECRET_ACCESS_KEY
+      - name: AWS_REGION
+        secret: AWS_REGION
+      - name: EXTERNAL_ANALYSIS_URL
+        secret: EXTERNAL_ANALYSIS_URL
+      - name: EXTERNAL_ANALYSIS_API_KEY
+        secret: EXTERNAL_ANALYSIS_API_KEY
+      - name: CORS_ALLOWED_ORIGINS_STR
+        secret: CORS_ALLOWED_ORIGINS
+      - name: WEBHOOK_PREFIX
+        secret: WEBHOOK_PREFIX
+      - name: EXTERNAL_WEBHOOK_BASE_URL
+        secret: EXTERNAL_WEBHOOK_BASE_URL
+      - name: ALLOWED_REDIRECT_DOMAINS_STR
+        secret: ALLOWED_REDIRECT_DOMAINS
+      - name: ENCRYPTION_KEY
+        secret: ENCRYPTION_KEY
+      - name: SQLALCHEMY_DATABASE_URI
+        secret: SQLALCHEMY_DATABASE_URI
+      - name: CELERY_BROKER_URL
+        secret: CELERY_BROKER_URL
+      - name: CELERY_RESULT_BACKEND
+        secret: CELERY_RESULT_BACKEND
     health_check:
       port: 8000
       path: /api/health
