@@ -19,12 +19,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Trigger Koyeb App Deployment
-        uses: koyeb/action-deploy@v2
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
-          app: ${{ secrets.KOYEB_APP_NAME }}
-          # By default, the action deploys the app based on the latest commit,
-          # matching the behavior of 'koyeb apps deploy'. No need to specify service.
-          # Optionally add a message:
-          # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
+          python-version: '3.11'
+
+      - name: Upgrade pip & Install setuptools
+        run: python -m pip install --upgrade pip setuptools
+
+      - name: Install Koyeb CLI from GitHub
+        run: pip install git+https://github.com/koyeb/koyeb-cli.git
+
+      - name: Trigger Koyeb Deployment
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: koyeb apps deploy ${{ secrets.KOYEB_APP_NAME }} --git-branch main --force-build
+
+      # Optionally add a message:
+      # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
