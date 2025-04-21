@@ -31,14 +31,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # No checkout needed if using Koyeb's native Git deployment trigger
       # Explicitly checkout the code to ensure the runner sees the latest workflow file
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # Use the official Koyeb Deploy Action
       - name: Trigger Koyeb Service Redeployment
-        uses: koyeb/action-deploy@v2.0.0
+        uses: koyeb/action-deploy@v1       # Test if v1 can be downloaded
         with:
           # Koyeb API Token stored as a GitHub Secret
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
