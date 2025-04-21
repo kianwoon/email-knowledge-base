@@ -1,4 +1,7 @@
-name: Deploy to Koyeb on Change (Official Action)
+# Trigger deployment of a Koyeb app when changes are pushed to the main branch
+# This workflow uses the official Koyeb deploy action.
+# Force re-evaluation trigger
+name: Deploy Koyeb App Official
 
 on:
   push:
