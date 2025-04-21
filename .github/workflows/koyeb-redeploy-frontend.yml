@@ -1,0 +1,34 @@
+name: Deploy to Koyeb on Frontend Change
+
+on:
+  push:
+    branches:
+      - main # Or your primary deployment branch
+    paths:
+      # Trigger workflow if files change in these frontend paths:
+      - 'frontend/src/**'
+      - 'frontend/public/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json' # Or yarn.lock if you use Yarn
+      - 'frontend/Dockerfile'       # If you use a Dockerfile for the frontend
+      - 'frontend/vite.config.js'   # Or other frontend build config (e.g., next.config.js)
+      # Add other relevant frontend config/build files if needed
+      - '.koyeb.yml'                # Koyeb configuration changes
+
+jobs:
+  deploy:
+    name: Redeploy Koyeb Services (Frontend Change)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Koyeb CLI
+        run: pip install koyeb-cli
+
+      - name: Trigger Koyeb Deployment
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }} # Store your Koyeb API token as a GitHub Secret
+        # This command re-deploys the entire app based on the latest commit
+        # which will rebuild and restart services as needed according to .koyeb.yml
+        run: koyeb apps deploy email-knowledge-base --git-branch main --force-build 
