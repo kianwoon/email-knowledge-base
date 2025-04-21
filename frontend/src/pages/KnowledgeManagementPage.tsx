@@ -214,7 +214,7 @@ const KnowledgeManagementPage: React.FC = () => {
   
   return (
     <Box p={5}>
-      <PageBanner title={t('knowledgeManagement.title', 'Knowledge Base Management')} />
+      <PageBanner title={t('knowledgeManagement.title', 'Knowledge Base Overview')} />
       <VStack spacing={6} align="stretch">
         <HStack justify="space-between" align="center">
           <Box>
