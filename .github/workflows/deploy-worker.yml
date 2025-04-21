@@ -1,11 +1,9 @@
 name: Deploy Celery Worker to Koyeb
 
-# Trigger this workflow only when changes are pushed to the main branch
-# AND affect files relevant to the Celery worker
 on:
   push:
     branches:
-      - main  # This ensures the deployment only triggers when changes are pushed to the 'main' branch
+      - main
     paths:
       - 'backend/Dockerfile.worker'
       - 'backend/celery_app.py'
@@ -24,13 +22,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Explicitly checkout the code to ensure the runner sees the latest workflow file
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Use the official Koyeb Deploy Action
+      - name: Debugging Info (Optional)
+        run: |
+          echo "Koyeb API Token: ${{ secrets.KOYEB_API_TOKEN }}"
+          echo "Koyeb App Name: ${{ secrets.KOYEB_APP_NAME }}"
+
       - name: Trigger Koyeb Service Redeployment
-        uses: koyeb/action-deploy@v1   # Use the correct version of the action
+        uses: koyeb/action-deploy@main  # Use 'main' if 'v1' causes issues
         with:
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
           app: ${{ secrets.KOYEB_APP_NAME }}
