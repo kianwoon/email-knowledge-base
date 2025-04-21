@@ -1,22 +1,22 @@
 name: Deploy Celery Worker to Koyeb
 
 # Trigger this workflow only when changes are pushed to the main branch
-# AND affect files relevant to the Celery worker
+# REMOVED paths filter for testing trigger
 on:
   push:
     branches:
-      - main  # This ensures the deployment only triggers when changes are pushed to the 'main' branch
-    paths:
-      - 'backend/Dockerfile.worker'
-      - 'backend/celery_app.py'
-      - 'backend/tasks/**'
-      - 'backend/requirements.txt'
-      - 'backend/app/config.py'
-      - 'backend/app/db/**'
-      - 'backend/app/crud/**'
-      - 'backend/app/models/**'
-      - 'backend/app/services/**'
-      - 'backend/app/utils/**'
+      - main
+#    paths: # <-- Temporarily removed
+#      - 'backend/Dockerfile.worker'
+#      - 'backend/celery_app.py'
+#      - 'backend/tasks/**'
+#      - 'backend/requirements.txt'
+#      - 'backend/app/config.py'
+#      - 'backend/app/db/**'
+#      - 'backend/app/crud/**'
+#      - 'backend/app/models/**'
+#      - 'backend/app/services/**'
+#      - 'backend/app/utils/**'
 
 jobs:
   deploy-worker:
@@ -28,9 +28,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Use the official Koyeb Deploy Action with the newly created tag
+      # Use the official Koyeb Deploy Action
       - name: Trigger Koyeb Service Redeployment
-        uses: koyeb/action-deploy@v1   # Use the 'v1' tag you created
+        uses: koyeb/action-deploy@v2 # Use correct version
         with:
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
           app: ${{ secrets.KOYEB_APP_NAME }}
