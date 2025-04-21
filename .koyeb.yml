@@ -109,13 +109,13 @@ services:
       - name: JWT_SECRET
         secret: JWT_SECRET
       - name: DEBUG
-        value: "true" # Consider setting to false for production workers
+        value: "false" # Consider setting to false for production workers
       # Add other environment variables needed by Celery tasks (e.g., Broker/Backend URLs)
       # Ensure these match what's configured in backend/app/celery_app.py
-      # - name: CELERY_BROKER_URL
-      #   secret: CELERY_BROKER_URL
-      # - name: CELERY_RESULT_BACKEND
-      #   secret: CELERY_RESULT_BACKEND
+      - name: CELERY_BROKER_URL
+        secret: CELERY_BROKER_URL # Make sure this secret exists in Koyeb
+      - name: CELERY_RESULT_BACKEND
+        secret: CELERY_RESULT_BACKEND # Make sure this secret exists in Koyeb
     restart_policy:
       type: on-failure
       max_retries: 10
