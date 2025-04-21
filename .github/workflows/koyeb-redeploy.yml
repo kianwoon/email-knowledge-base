@@ -1,0 +1,33 @@
+name: Deploy to Koyeb on Celery Task Change
+
+on:
+  push:
+    branches:
+      - main # Or your primary deployment branch
+    paths:
+      # Trigger workflow if files change in these backend paths:
+      - 'backend/app/tasks/**'     # Any file within the tasks directory
+      - 'backend/app/celery_app.py' # Celery app definition (might contain tasks)
+      - 'backend/Dockerfile.worker' # Worker Dockerfile changes
+      - 'backend/requirements.txt'  # Backend dependencies change
+      # You might add other backend paths if task dependencies live elsewhere
+      # - 'backend/some_other_module/**'
+      - '.koyeb.yml'               # Koyeb configuration changes
+
+jobs:
+  deploy:
+    name: Redeploy Koyeb Services
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Koyeb CLI
+        run: pip install koyeb-cli
+
+      - name: Trigger Koyeb Deployment
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }} # Store your Koyeb API token as a GitHub Secret
+        # This command re-deploys the entire app based on the latest commit
+        # which will rebuild and restart services as needed according to .koyeb.yml
+        run: koyeb apps deploy email-knowledge-base --git-branch main --force-build 
