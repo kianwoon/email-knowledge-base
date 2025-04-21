@@ -1,4 +1,4 @@
-name: Deploy to Koyeb on Change (Service Redeploy Attempt)
+name: Deploy to Koyeb on Change (Official Action)
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   deploy:
-    name: Redeploy Koyeb Services
+    name: Redeploy Koyeb App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -49,4 +49,15 @@ jobs:
         run: koyeb service redeploy $KOYEB_APP_NAME/celery-worker
 
       # Optionally add a message:
-      # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
+      # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}"
+
+      - name: Trigger Koyeb App Deployment
+        uses: koyeb/action-deploy@v2 # Use the official Koyeb Deploy Action
+        with:
+          koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
+          app: ${{ secrets.KOYEB_APP_NAME }} # Ensure this secret exists
+          # By default, the action deploys the app based on the latest commit,
+          # matching the behavior of 'koyeb apps deploy'. Koyeb intelligently
+          # determines which services need rebuilding/restarting.
+          # Optionally add a message:
+          # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}" 
