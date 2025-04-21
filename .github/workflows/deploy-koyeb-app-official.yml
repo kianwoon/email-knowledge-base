@@ -13,7 +13,7 @@ on:
 jobs:
   deploy:
     name: Redeploy Koyeb App
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
       # message: "Deploy triggered by commit ${{ github.sha }} on ${{ github.ref_name }}"
 
       - name: Trigger Koyeb App Deployment
-        uses: koyeb/action-deploy@v2 # Use the official Koyeb Deploy Action
+        uses: koyeb/action-deploy@v2
         with:
           koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
           app: ${{ secrets.KOYEB_APP_NAME }} # Ensure this secret exists
