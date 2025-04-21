@@ -1,18 +1,15 @@
-name: Deploy to Koyeb on Celery Task Change
+name: Deploy to Koyeb on Change
 
 on:
   push:
     branches:
       - main # Or your primary deployment branch
     paths:
-      # Trigger workflow if files change in these backend paths:
-      - 'backend/app/tasks/**'     # Any file within the tasks directory
-      - 'backend/app/celery_app.py' # Celery app definition (might contain tasks)
-      - 'backend/Dockerfile.worker' # Worker Dockerfile changes
-      - 'backend/requirements.txt'  # Backend dependencies change
-      # You might add other backend paths if task dependencies live elsewhere
-      # - 'backend/some_other_module/**'
-      - '.koyeb.yml'               # Koyeb configuration changes
+      # Trigger workflow if ANY relevant code/config changes:
+      - 'frontend/**'             # Added frontend path
+      - 'backend/**'              # Broadened backend path
+      # Removed specific backend paths as they are covered by backend/**
+      - '.koyeb.yml'                # Koyeb configuration changes
 
 jobs:
   deploy:
