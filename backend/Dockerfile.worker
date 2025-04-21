@@ -1,0 +1,28 @@
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies if needed (e.g., for database connectors)
+# RUN apt-get update && apt-get install -y --no-install-recommends some-package && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+# Copy only requirements first to leverage Docker cache
+COPY ./requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire backend application code
+# Assumes your tasks might import from various parts of the 'app' directory
+COPY . /app/
+
+# Command to run the Celery worker
+# Make sure 'app.celery_app:celery_app' correctly points to your Celery instance
+# It assumes celery_app.py is directly under the 'app' directory copied above
+# and the Celery instance inside it is named 'celery_app'. Adjust if needed.
+CMD ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=info", "-P", "solo"] 

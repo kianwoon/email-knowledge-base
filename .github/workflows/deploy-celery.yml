@@ -1,0 +1,50 @@
+name: Deploy Celery Worker to Koyeb
+
+# Trigger this workflow only when changes are pushed to the main branch
+# AND affect files relevant to the Celery worker
+on:
+  push:
+    branches:
+      - main  # Or change to your primary deployment branch if different
+    paths:
+      - 'backend/Dockerfile.worker'    # The worker's Dockerfile
+      - 'backend/celery_app.py'        # Celery app setup
+      - 'backend/tasks/**'             # Any changes within the tasks directory
+      - 'backend/requirements.txt'     # Dependency changes affect the worker build
+      # --- Add other backend paths if your Celery tasks import code from them ---
+      # Example: If tasks use models directly:
+      # - 'backend/app/models/**'
+      # Example: If tasks use specific services:
+      # - 'backend/app/services/some_task_service.py'
+      # - 'backend/app/crud/some_task_crud.py'
+      # - 'backend/app/config.py' # If celery config depends on it directly
+
+jobs:
+  deploy-worker:
+    name: Deploy Celery Worker Service
+    runs-on: ubuntu-latest
+
+    steps:
+      # No checkout needed if using Koyeb's native Git deployment trigger
+
+      # Use the official Koyeb Deploy Action
+      - name: Trigger Koyeb Service Redeployment
+        uses: koyeb/action-deploy@v2
+        with:
+          # Koyeb API Token stored as a GitHub Secret
+          koyeb_api_token: ${{ secrets.KOYEB_API_TOKEN }}
+
+          # The name of your Koyeb Application that contains the services
+          app: ${{ secrets.KOYEB_APP_NAME }}
+
+          # The specific name of the Celery Worker service on Koyeb
+          service: 'celery-worker'
+
+          # Optional: Add a message to the deployment history on Koyeb
+          # message: "Deploying Celery worker triggered by commit ${{ github.sha }}"
+
+          # We don't need to specify type, dockerfile path etc. here,
+          # because the Koyeb service 'celery-worker' is already configured
+          # in the Koyeb UI to use the correct Dockerfile ('backend/Dockerfile.worker')
+          # when deploying from the Git source. This action just tells Koyeb
+          # to "redeploy this service using its existing configuration". 
