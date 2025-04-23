@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Tuple, Optional, Set
 import uuid
 from datetime import datetime, timezone
 import os
+import json # Import json
 
 from celery import Task
 from celery.utils.log import get_task_logger
@@ -16,27 +17,31 @@ from botocore.exceptions import ClientError
 from ..celery_app import celery_app
 from ..config import settings
 from app.services import s3 as s3_service # For AssumeRole logic
-from app.db.qdrant_client import get_qdrant_client
+# Remove Qdrant client import
+# from app.db.qdrant_client import get_qdrant_client
+# Import Milvus client and helpers
+from pymilvus import MilvusClient
+from app.db.milvus_client import get_milvus_client, ensure_collection_exists
 from app.crud import crud_aws_credential, crud_s3_sync_item # To get Role ARN and CRUD operations
 from app.db.session import SessionLocal, get_db
 from app.db.models.s3_sync_item import S3SyncItem # Model import
 
-# Qdrant imports
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
+# Remove Qdrant imports
+# from qdrant_client import QdrantClient, models
+# from qdrant_client.http.exceptions import UnexpectedResponse
 
 logger = get_task_logger(__name__)
 
-def generate_s3_qdrant_collection_name(user_email: str) -> str:
-    """Generates a sanitized, user-specific Qdrant collection name for S3."""
+def generate_s3_milvus_collection_name(user_email: str) -> str: # Renamed
+    """Generates a sanitized, user-specific Milvus collection name for S3."""
     sanitized_email = user_email.replace('@', '_').replace('.', '_')
     return f"{sanitized_email}_aws_s3_knowledge"
 
 # Define a namespace for generating UUIDs based on S3 objects
 S3_NAMESPACE_UUID = uuid.UUID('a5b8e4a1-7c4f-4d1a-8b0e-3f4d1a7c4f0d') # Example random namespace
 
-def generate_s3_qdrant_point_id(bucket: str, key: str) -> str:
-    """Generates a deterministic Qdrant UUID point ID from the S3 bucket and key."""
+def generate_s3_milvus_pk(bucket: str, key: str) -> str: # Renamed
+    """Generates a deterministic Milvus UUID PK from the S3 bucket and key."""
     unique_id_string = f"s3://{bucket}/{key}"
     return str(uuid.uuid5(S3_NAMESPACE_UUID, unique_id_string))
 
@@ -89,7 +94,8 @@ async def _list_all_objects_recursive(s3_client, bucket: str, prefix: str, task_
 
 class S3ProcessingTask(Task):
     _db: Optional[Session] = None
-    _qdrant_client: Optional[QdrantClient] = None
+    # _qdrant_client: Optional[QdrantClient] = None # Removed Qdrant client
+    _milvus_client: Optional[MilvusClient] = None # Added Milvus client
     # No persistent service needed as session is per-task via AssumeRole
 
     def after_return(self, status, retval, task_id, args, kwargs, einfo):
@@ -104,21 +110,22 @@ class S3ProcessingTask(Task):
         return self._db
 
     @property
-    def qdrant_client(self) -> QdrantClient:
-        if self._qdrant_client is None:
-            logger.debug(f"Task {self.request.id}: Getting Qdrant client instance.")
-            self._qdrant_client = get_qdrant_client()
-        return self._qdrant_client
+    def milvus_client(self) -> MilvusClient: # Renamed property and updated type hint
+        if self._milvus_client is None:
+            logger.debug(f"Task {self.request.id}: Getting Milvus client instance.")
+            self._milvus_client = get_milvus_client() # Use Milvus getter
+        return self._milvus_client
 
 async def _run_s3_processing_logic(
     task_instance: Task,
     db_session: Session,
     user_email: str,
-    pending_sync_items: List[S3SyncItem]
-) -> Tuple[int, int, List[models.PointStruct]]:
-    """Orchestrates fetching, processing, and preparing S3 data for Qdrant based on pending sync items."""
-    task_id = task_instance.request.id
-    points_to_upsert: List[models.PointStruct] = []
+    pending_sync_items: List[S3SyncItem],
+    task_id: str # Pass task_id explicitly
+) -> Tuple[int, int, List[Dict[str, Any]]]: # Updated return type hint (List of Dicts for Milvus)
+    """Orchestrates fetching, processing, and preparing S3 data for Milvus based on pending sync items."""
+    # task_id = task_instance.request.id # Passed as parameter
+    data_to_insert: List[Dict[str, Any]] = [] # Changed from points_to_upsert
     total_processed_count = 0
     total_failed_count = 0
     # Map S3 key to its corresponding sync item DB ID for easy status updates
@@ -232,7 +239,7 @@ async def _run_s3_processing_logic(
         # Ensure any remaining 'processing' items (e.g., prefixes that yielded no files) are marked failed?
         # Or maybe completed if no files found is expected?
         # For now, just return the counts. The task caller handles overall status.
-        return total_processed_count, total_failed_count, points_to_upsert
+        return total_processed_count, total_failed_count, data_to_insert # Return empty list for Milvus
 
     # --- Process Each Unique File --- 
     current_file_num = 0
@@ -261,7 +268,7 @@ async def _run_s3_processing_logic(
 
         if not target_sync_item:
              logger.warning(f"Task {task_id}: Could not find corresponding SyncItem in map for processed file s3://{obj_bucket}/{obj_key}. Skipping status update for this file.")
-             # Continue processing the file for Qdrant, but we can't update the DB status
+             # Continue processing the file for Milvus, but we can't update the DB status
 
         file_processed_successfully = False
         try:
@@ -276,43 +283,40 @@ async def _run_s3_processing_logic(
                     logger.error(f"Task {task_id}: Failed getting metadata for s3://{obj_bucket}/{obj_key} during processing: {e}", exc_info=True)
                     raise # Re-raise to mark file as failed
 
-            # 2. Download content
-            logger.debug(f"Task {task_id}: Downloading s3://{obj_bucket}/{obj_key}")
-            get_object_response = s3_client.get_object(Bucket=obj_bucket, Key=obj_key)
-            file_content_bytes = get_object_response['Body'].read()
-            logger.debug(f"Task {task_id}: Downloaded {len(file_content_bytes)} bytes for {obj_key}")
-            
-            # 3. Base64 encode
-            content_b64 = base64.b64encode(file_content_bytes).decode('utf-8')
-
-            # 4. Prepare Qdrant payload
-            payload = {
-                "source": "s3",
+            # 2. Prepare Milvus payload (NO download or b64 encode needed)
+            metadata_payload = {
                 "s3_bucket": obj_bucket,
                 "s3_key": obj_key,
                 "original_filename": obj_filename,
-                "user_email": user_email,
                 "last_modified": obj_meta.get('last_modified').isoformat() if obj_meta.get('last_modified') else None,
                 "content_type": obj_meta.get('content_type'),
                 "size": obj_meta.get('size'),
-                "ingested_at": datetime.now(timezone.utc).isoformat(),
-                "analysis_status": "pending",
-                "content_b64": content_b64
+                "analysis_status": "pending" # No content stored
             }
-            payload = {k: v for k, v in payload.items() if v is not None}
+            metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
 
-            # 5. Prepare Qdrant point
-            point_id = generate_s3_qdrant_point_id(obj_bucket, obj_key)
-            # Use fixed dimension 768 for placeholder, decoupling from settings
-            vector_size = 768 
-            placeholder_vector = [0.0] * vector_size # Use 0.0 for S3 placeholder
+            # 3. Prepare Milvus data dictionary
+            milvus_pk = generate_s3_milvus_pk(obj_bucket, obj_key) # Renamed function
+            # Use DENSE_EMBEDDING_DIMENSION from settings
+            vector_size = settings.DENSE_EMBEDDING_DIMENSION
+            placeholder_vector = [0.0] * vector_size # Use float 0.0 for placeholder
 
-            point = models.PointStruct(
-                id=point_id,
-                vector=placeholder_vector,
-                payload=payload
-            )
-            points_to_upsert.append(point)
+            data_dict = {
+                "pk": milvus_pk,
+                "vector": placeholder_vector,
+                "owner": user_email,
+                "source": "aws_s3",
+                "type": "s3_knowledge",
+                "email_id": user_email,
+                "job_id": task_id,
+                "subject": obj_filename,
+                "date": obj_meta.get('last_modified', datetime.now(timezone.utc)).isoformat() if obj_meta.get('last_modified') else "",
+                "status": "processed",
+                "folder": os.path.dirname(obj_key), # Use dirname as folder
+                "metadata_json": metadata_payload # Store prepared dict
+            }
+
+            data_to_insert.append(data_dict)
             total_processed_count += 1
             file_processed_successfully = True
 
@@ -347,7 +351,7 @@ async def _run_s3_processing_logic(
             except Exception as final_update_err:
                  logger.error(f"Task {task_id}: Failed final status update for prefix SyncItem {item.id}: {final_update_err}", exc_info=True)
 
-    return total_processed_count, total_failed_count, points_to_upsert
+    return total_processed_count, total_failed_count, data_to_insert # Return list of dicts
 
 @celery_app.task(bind=True, base=S3ProcessingTask, name='tasks.s3.process_ingestion')
 def process_s3_ingestion_task(self: Task, user_email: str):
@@ -356,9 +360,9 @@ def process_s3_ingestion_task(self: Task, user_email: str):
     logger.info(f"Starting S3 ingestion task {task_id} for user {user_email}")
     self.update_state(state='STARTED', meta={'user': user_email, 'progress': 0, 'status': 'Initializing...'})
 
-    qdrant_client: QdrantClient = self.qdrant_client # Get from Task base class property
-    db: Session = self.db # Get from Task base class property
-    collection_name = generate_s3_qdrant_collection_name(user_email)
+    milvus_client: MilvusClient = self.milvus_client # Get Milvus client
+    db: Session = self.db # Get DB session
+    collection_name = generate_s3_milvus_collection_name(user_email) # Use renamed function
     total_processed = 0
     total_failed = 0
     pending_sync_items: List[S3SyncItem] = []
@@ -386,76 +390,53 @@ def process_s3_ingestion_task(self: Task, user_email: str):
             # For now, fail the whole task if we can't even mark as processing.
             raise Exception(f"Failed to mark items as processing: {status_update_err}")
 
-        # 3. Ensure Qdrant collection exists (create/recreate)
-        logger.info(f"Task {task_id}: Ensuring collection '{collection_name}'.")
+        # 3. Ensure Milvus collection exists
+        logger.info(f"Task {task_id}: Ensuring Milvus collection '{collection_name}' with dim {settings.DENSE_EMBEDDING_DIMENSION}.")
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 3, 'status': 'Preparing knowledge base...'})
         try:
-            # Try to create the collection with a FIXED dimension (768)
-            # This decouples the S3 collection schema from settings.EMBEDDING_DIMENSION
-            qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE) # Use 768 explicitly
-            )
-            logger.info(f"Task {task_id}: Collection '{collection_name}' created with fixed dimension 768.")
-        except (UnexpectedResponse, Exception) as e:
-            # Check if the error is because it already exists (common pattern)
-            already_exists = False
-            if isinstance(e, UnexpectedResponse):
-                 # Qdrant < 1.8 might return 400, >= 1.8 might return 409
-                if e.status_code == 400 and "already exists" in str(e.content).lower():
-                    already_exists = True
-                elif e.status_code == 409:
-                     already_exists = True
-            elif "already exists" in str(e).lower(): # Generic check
-                 already_exists = True
-                 
-            if already_exists:
-                logger.warning(f"Task {task_id}: Collection '{collection_name}' already exists. Proceeding.")
-            else:
-                # If it's a different error, log and fail
-                logger.error(f"Task {task_id}: Failed to ensure Qdrant collection '{collection_name}': {e}", exc_info=True)
-                # Mark items back to failed?
-                for item_id in processed_ids_for_status_update:
-                    item = db.query(S3SyncItem).get(item_id)
-                    if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
-                raise Exception(f"Qdrant collection setup failed: {e}")
+            # Use Milvus helper
+            ensure_collection_exists(milvus_client, collection_name, settings.DENSE_EMBEDDING_DIMENSION)
+            logger.info(f"Task {task_id}: Milvus collection '{collection_name}' is ready.")
+        except Exception as create_err: 
+            # Catch potential errors from ensure_collection_exists (e.g., connection, schema mismatch)
+            logger.error(f"Task {task_id}: Failed to ensure Milvus collection '{collection_name}': {create_err}", exc_info=True)
+            # Mark items back to failed
+            for item_id in processed_ids_for_status_update:
+                item = db.query(S3SyncItem).get(item_id)
+                if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
+            raise Exception(f"Milvus collection setup failed: {create_err}")
 
         # 4. Run the main processing logic (async part)
         # Use asyncio.run() to execute the async helper from the sync task function
-        total_processed, total_failed, points_to_upsert = asyncio.run(
+        total_processed, total_failed, data_to_insert = asyncio.run( # Renamed variable
              _run_s3_processing_logic(
                 task_instance=self,
                 db_session=db, # Pass the session
                 user_email=user_email,
-                pending_sync_items=pending_sync_items # Pass the DB items
+                pending_sync_items=pending_sync_items, # Pass the DB items
+                task_id=task_id # Pass task_id
             )
         )
         
-        # 5. Upsert points to Qdrant
-        if points_to_upsert:
-            logger.info(f"Task {task_id}: Upserting {len(points_to_upsert)} points to '{collection_name}'.")
-            # +++ ADD LOGGING FOR POINT IDs +++
-            point_ids_to_log = [p.id for p in points_to_upsert]
-            logger.debug(f"Task {task_id}: Point IDs being upserted: {point_ids_to_log}")
-            # --- END LOGGING --- 
+        # 5. Insert data into Milvus
+        if data_to_insert:
+            logger.info(f"Task {task_id}: Inserting {len(data_to_insert)} data points into Milvus collection '{collection_name}'.")
             try:
-                # Revert previous change: Pass the original points_to_upsert list
-                # which already contains PointStructs with placeholder vectors.
-                qdrant_client.upsert(
+                # Use Milvus client insert
+                insert_result = milvus_client.insert(
                     collection_name=collection_name,
-                    points=points_to_upsert, # Pass original list
-                    wait=True
+                    data=data_to_insert
                 )
-                logger.info(f"Task {task_id}: Successfully upserted points.")
-            except Exception as q_err:
-                logger.error(f"Task {task_id}: Failed to upsert points to Qdrant collection '{collection_name}': {q_err}", exc_info=True)
-                # Mark processed items as failed if upsert fails
+                logger.info(f"Task {task_id}: Successfully called Milvus insert for {len(data_to_insert)} points.")
+            except Exception as q_err: # Renamed exception variable for clarity
+                logger.error(f"Task {task_id}: Failed to insert points into Milvus collection '{collection_name}': {q_err}", exc_info=True)
+                # Mark processed items as failed if insert fails
                 for item_id in processed_ids_for_status_update:
                     item = db.query(S3SyncItem).get(item_id)
                     if item: crud_s3_sync_item.update_item_status(db=db, db_item=item, status='failed')
-                raise Exception(f"Qdrant upsert failed: {q_err}")
+                raise Exception(f"Milvus insert failed: {q_err}")
         else:
-            logger.info(f"Task {task_id}: No points generated to upsert.")
+            logger.info(f"Task {task_id}: No data generated to insert.")
 
         # 6. Final update and result
         logger.info(f"Task {task_id}: Ingestion complete. Processed: {total_processed}, Failed: {total_failed}.")

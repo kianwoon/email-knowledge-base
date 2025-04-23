@@ -1,23 +1,30 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, BackgroundTasks
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
 import httpx
 from pydantic import BaseModel
 
-# Qdrant imports
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct
+# Milvus imports (replacing Qdrant)
+from pymilvus import MilvusClient
+# from qdrant_client import QdrantClient
+# from qdrant_client.http.models import PointStruct # Keep for now, replace later
 
-from app.models.email import EmailPreview, EmailFilter, EmailContent, PaginatedEmailPreviewResponse
+from app.models.email import EmailPreview, EmailFilter, EmailContent, PaginatedEmailPreviewResponse, EmailUpdateRequest, PreviewResponse, PreviewEmail, EmailAnalysisJob
 from app.services.outlook import OutlookService
 from app.dependencies.auth import get_current_active_user
 from app.models.user import User
 from app.config import settings
 from app.routes.vector import get_db
-from ..db.qdrant_client import get_qdrant_client
-from app.db.job_mapping_db import insert_mapping as insert_sqlite_mapping
+# Import Milvus client (replacing Qdrant)
+from app.db.milvus_client import get_milvus_client
+# from app.db.qdrant_client import get_qdrant_client
+# Corrected import for job mapping
+from app.db.job_mapping_db import insert_mapping as insert_sqlite_mapping, get_mapping
+
+# Import Celery task (Corrected name)
+from app.tasks.email_tasks import process_user_emails
 
 router = APIRouter()
 
@@ -178,7 +185,7 @@ async def analyze_emails(
     background_tasks: BackgroundTasks,
     request: Request,
     current_user: User = Depends(get_current_active_user),
-    qdrant: QdrantClient = Depends(get_qdrant_client)
+    vector_db_client: MilvusClient = Depends(get_milvus_client) # Updated dependency
 ):
     """
     Initiates the email analysis process:
@@ -225,28 +232,29 @@ async def analyze_emails(
         "criteria": filter_criteria_obj,
         "status": "submitted"
     }
-    query_point = PointStruct(
-        id=query_point_id,
-        payload=query_payload,
-        vector=[0.0] * settings.EMBEDDING_DIMENSION
-    )
+    query_point = {
+        "id": query_point_id,
+        "vector": [0.0] * settings.EMBEDDING_DIMENSION,
+        "payload": query_payload
+    }
 
     try:
-        qdrant.upsert(
+        vector_db_client.insert(
             collection_name=settings.QDRANT_COLLECTION_NAME,
             points=[query_point],
-            wait=True
+            timeout=60.0
         )
         logger.info(f"Stored query criteria for job_id {job_id} with owner {owner} (Qdrant Point ID: {query_point_id})")
 
         # Immediate retrieval check for the query_criteria point RIGHT AFTER initial upsert
         try:
-            retrieved_query = qdrant.retrieve(
+            retrieved_query = vector_db_client.query(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
-                ids=[query_point_id],
-                with_payload=True
+                vector=query_point["vector"],
+                output_fields=["id", "payload"],
+                limit=1
             )
-            if retrieved_query and retrieved_query[0].id == query_point_id:
+            if retrieved_query and retrieved_query[0]["id"] == query_point_id:
                 logger.info(f"[IMMEDIATE QUERY CRITERIA RETRIEVAL CONFIRMED IN MAIN] Query criteria point {query_point_id} found immediately after initial upsert.")
             else:
                  logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Query criteria point {query_point_id} NOT found immediately after initial upsert.")

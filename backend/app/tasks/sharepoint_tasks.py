@@ -5,6 +5,7 @@ from asyncio import TimeoutError # Import TimeoutError
 from typing import List, Dict, Any, Tuple, Optional
 import uuid
 from datetime import datetime, timedelta, timezone
+import json # Import json for metadata serialization
 
 from celery import Task
 from celery.utils.log import get_task_logger
@@ -15,7 +16,14 @@ import httpx # Import httpx for potential timeout configuration
 from ..celery_app import celery_app
 from ..config import settings
 from app.services.sharepoint import SharePointService # Assuming exists and can be initialized with token
-from app.db.qdrant_client import get_qdrant_client
+# Remove Qdrant imports
+# from app.db.qdrant_client import get_qdrant_client
+# from qdrant_client import QdrantClient, models
+# from qdrant_client.http.exceptions import UnexpectedResponse
+# Import Milvus
+from pymilvus import MilvusClient
+from app.db.milvus_client import get_milvus_client, ensure_collection_exists # Import Milvus helpers
+
 from app.crud import user_crud # To get user tokens if needed indirectly
 from app.db.session import SessionLocal # For getting user tokens
 from app.utils.security import decrypt_token # For user tokens
@@ -23,25 +31,21 @@ from app.crud import crud_sharepoint_sync_item # Import sync item CRUD and model
 from app.db.models.sharepoint_sync_item import SharePointSyncItem as SharePointSyncItemDBModel # Import SharePointSyncItem model
 from .email_tasks import get_msal_app # CORRECTED Import from the sibling email_tasks module
 
-# Qdrant imports
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
-
 # Ensure SQLAlchemy update is imported if not already
 from sqlalchemy import update # Add this near other SQLAlchemy imports if missing
 
 logger = get_task_logger(__name__)
 
-def generate_qdrant_collection_name(user_email: str) -> str:
-    """Generates a sanitized, user-specific Qdrant collection name."""
+def generate_milvus_collection_name(user_email: str) -> str: # Renamed function
+    """Generates a sanitized, user-specific Milvus collection name."""
     sanitized_email = user_email.replace('@', '_').replace('.', '_')
     return f"{sanitized_email}_sharepoint_knowledge"
 
 # Define a namespace for generating UUIDs
 SHAREPOINT_NAMESPACE_UUID = uuid.UUID('c7e9aab9-17e4-4f75-8559-40ac7d046c1c') # Example random namespace
 
-def generate_qdrant_point_id(sharepoint_item_id: str) -> str:
-    """Generates a deterministic Qdrant UUID point ID from the SharePoint item ID."""
+def generate_milvus_pk(sharepoint_item_id: str) -> str: # Renamed function
+    """Generates a deterministic Milvus UUID PK from the SharePoint item ID."""
     return str(uuid.uuid5(SHAREPOINT_NAMESPACE_UUID, sharepoint_item_id))
 
 async def _recursively_get_files_from_folder(service: SharePointService, drive_id: str, folder_id: str, processed_ids: set) -> List[Dict[str, Any]]:
@@ -97,7 +101,8 @@ MS_REFRESH_TIMEOUT_SECONDS = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
 
 class SharePointProcessingTask(Task):
     _db = None
-    _qdrant_client = None
+    # _qdrant_client = None # Remove Qdrant client instance variable
+    _milvus_client = None # Add Milvus client instance variable
     _sharepoint_service = None # Service instance per task potentially
 
     def after_return(self, status, retval, task_id, args, kwargs, einfo):
@@ -106,6 +111,7 @@ class SharePointProcessingTask(Task):
             self._db.close()
             logger.debug(f"Task {task_id}: DB session closed.")
         # Cleanup other resources if necessary
+        # Milvus client cleanup might not be needed here if managed globally
 
     @property
     def db(self):
@@ -114,11 +120,11 @@ class SharePointProcessingTask(Task):
         return self._db
 
     @property
-    def qdrant_client(self) -> QdrantClient:
-        if self._qdrant_client is None:
-            logger.debug(f"Task {self.request.id}: Getting Qdrant client instance.")
-            self._qdrant_client = get_qdrant_client()
-        return self._qdrant_client
+    def milvus_client(self) -> MilvusClient: # Renamed property and updated type hint
+        if self._milvus_client is None:
+            logger.debug(f"Task {self.request.id}: Getting Milvus client instance.")
+            self._milvus_client = get_milvus_client() # Use Milvus getter
+        return self._milvus_client
 
     def get_sharepoint_service(self, user_email: str) -> SharePointService:
         """Gets or creates a SharePoint service instance, handling token refresh."""
@@ -236,10 +242,11 @@ async def _run_processing_logic(
     db_session: Session,
     sp_service: SharePointService,
     items_to_process: List[Dict[str, Any]], # This is the original list including folders
-    user_email: str
-) -> Tuple[int, int, List[models.PointStruct]]:
-    """Orchestrates the async fetching and processing of files."""
-    task_id = task_instance.request.id
+    user_email: str,
+    task_id: str # Added task_id parameter
+) -> Tuple[int, int, List[Dict[str, Any]]]: # Updated return type hint
+    """Orchestrates the async fetching and processing of files, preparing Milvus data dicts."""
+    # task_id = task_instance.request.id # Get task_id from parameter instead
     all_files_to_process: List[Dict[str, Any]] = []
     processed_item_ids = set() # Track all processed IDs (files and folders)
     total_failed_discovery = 0
@@ -324,7 +331,7 @@ async def _run_processing_logic(
          pass # Handled later
 
     # --- Process Each File --- 
-    points_to_upsert: List[models.PointStruct] = []
+    data_to_insert: List[Dict[str, Any]] = [] # Changed from points_to_upsert
     total_processed_files = 0
     # Start file failures count with discovery failures
     total_failed_files_or_folders = total_failed_discovery 
@@ -363,22 +370,45 @@ async def _run_processing_logic(
             logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}")
             task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10 + int(80 * (current_file_num / total_files)), 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
 
-            # Download content
-            file_content_bytes = await sp_service.download_file_content(drive_id=drive_id, item_id=file_id)
-            if file_content_bytes is None: raise ValueError("File content was None")
-            content_b64_string = base64.b64encode(file_content_bytes).decode('utf-8')
-
             # Process content (Embedding placeholder)
-            # Use fixed dimension 768 for placeholder, decoupling from settings
-            vector_size = 768 
-            vector = [0.1] * vector_size # Placeholder
+            # Use DENSE_EMBEDDING_DIMENSION from settings
+            vector_size = settings.DENSE_EMBEDDING_DIMENSION 
+            vector = [0.0] * vector_size # Use float 0.0 for placeholder
 
-            # Construct payload
-            payload = { "source": "sharepoint", "document_type": "file", "sharepoint_item_id": file_id, "sharepoint_drive_id": drive_id, "filename": file_info.get("name"), "webUrl": file_info.get("webUrl"), "createdDateTime": file_info.get("createdDateTime"), "lastModifiedDateTime": file_info.get("lastModifiedDateTime"), "size": file_info.get("size"), "mimeType": file_info.get("file", {}).get("mimeType"), "content_b64": content_b64_string, "analysis_status": "pending" }
-            payload = {k: v for k, v in payload.items() if v is not None}
-            qdrant_point_id = generate_qdrant_point_id(file_id)
-            point = models.PointStruct(id=qdrant_point_id, vector=vector, payload=payload)
-            points_to_upsert.append(point)
+            # --- Prepare Milvus data dictionary --- 
+            milvus_pk = generate_milvus_pk(file_id) # Renamed function call
+
+            # Construct metadata dict (excluding b64 content)
+            metadata_payload = {
+                "sharepoint_item_id": file_id,
+                "sharepoint_drive_id": drive_id,
+                "filename": file_info.get("name"),
+                "webUrl": file_info.get("webUrl"),
+                "createdDateTime": file_info.get("createdDateTime"),
+                "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
+                "size": file_info.get("size"),
+                "mimeType": file_info.get("file", {}).get("mimeType"),
+                "analysis_status": "pending"
+            }
+            metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
+
+            data_dict = {
+                "pk": milvus_pk,
+                "vector": vector, # Placeholder vector
+                "owner": user_email,
+                "source": "sharepoint", 
+                "type": "sharepoint_knowledge", # Type indicating raw sharepoint data
+                "email_id": user_email, # ADDED: Match schema requirement
+                "job_id": task_id, # Use task_id from parameter
+                "subject": file_info.get("name"), # Use filename as subject
+                "date": file_info.get("lastModifiedDateTime") or "", # Use last modified OR empty string
+                "status": "processed", # Simplified status
+                "folder": "", # Leave blank for now
+                # Store the rest in the JSON field, ensuring it's serializable
+                "metadata_json": metadata_payload # Store prepared dict directly
+            }
+            
+            data_to_insert.append(data_dict) # Add the dictionary
             
             # Mark as successful for status update
             file_processed_successfully = True
@@ -470,9 +500,9 @@ async def _run_processing_logic(
              
     logger.info(f"Task {task_id}: === Finished Final Folder Status Update Section ===")
 
-    # Return counts and points
+    # Return counts and data dicts
     logger.info(f"Task {task_id}: Returning final counts. Processed Files: {total_processed_files}, Failed Items (Files+Folders): {total_failed_files_or_folders}")
-    return total_processed_files, total_failed_files_or_folders, points_to_upsert
+    return total_processed_files, total_failed_files_or_folders, data_to_insert # Return list of dicts
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')
 def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str):
@@ -480,29 +510,25 @@ def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any
     logger.info(f"Starting SharePoint batch task {task_id} for user {user_email} ({len(items_for_task)} items).")
     self.update_state(state='STARTED', meta={'user': user_email, 'progress': 0, 'status': 'Initializing...'})
 
-    qdrant_client = self.qdrant_client
+    milvus_client = self.milvus_client # Use Milvus client property
     db_session = self.db # Get DB session from Task base class
-    target_collection_name = generate_qdrant_collection_name(user_email)
+    target_collection_name = generate_milvus_collection_name(user_email) # Use renamed function
     total_processed = 0
     total_failed = 0
 
     try:
-        # --- Ensure Qdrant Collection Exists --- 
-        logger.info(f"Task {task_id}: Ensuring collection '{target_collection_name}'.")
+        # --- Ensure Milvus Collection Exists --- 
+        logger.info(f"Task {task_id}: Ensuring Milvus collection '{target_collection_name}' with dim {settings.DENSE_EMBEDDING_DIMENSION}.") # Updated log
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 5, 'status': 'Checking collection...'})
         try:
-            # Try to create the collection with a FIXED dimension (768)
-            # This decouples the SharePoint collection schema from settings.EMBEDDING_DIMENSION
-            qdrant_client.create_collection(
-                collection_name=target_collection_name,
-                vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE) # Use 768 explicitly
-            )
-            logger.info(f"Task {task_id}: Collection '{target_collection_name}' created with fixed dimension 768.")
-        except UnexpectedResponse as e:
-            if e.status_code == 400 and "already exists" in str(e.content).lower() or e.status_code == 409:
-                 logger.warning(f"Task {task_id}: Collection '{target_collection_name}' already exists.")
-            else: raise
-        except Exception as create_err: raise create_err
+            # Use Milvus helper ensure_collection_exists
+            ensure_collection_exists(milvus_client, target_collection_name, settings.DENSE_EMBEDDING_DIMENSION) # Use setting dimension
+            logger.info(f"Task {task_id}: Milvus collection '{target_collection_name}' is ready.")
+        except Exception as create_err: 
+            # Catch potential errors from ensure_collection_exists (e.g., connection, schema mismatch)
+            logger.error(f"Task {task_id}: Failed to ensure Milvus collection '{target_collection_name}': {create_err}", exc_info=True)
+            self.update_state(state='FAILURE', meta={'user': user_email, 'status': f'Failed to prepare vector collection: {create_err}'})
+            raise Exception(f"Failed to prepare target collection: {create_err}") # Reraise
 
         # --- Get SharePoint Service --- 
         sp_service = self.get_sharepoint_service(user_email)
@@ -511,29 +537,31 @@ def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any
 
         # --- Run Async Logic --- 
         # Note: total_failed now includes folder discovery failures AND file processing failures
-        total_processed, total_failed, points_to_upsert = asyncio.run(
+        total_processed, total_failed, data_to_insert = asyncio.run( # Renamed points_to_upsert
             _run_processing_logic(
                 task_instance=self, 
                 db_session=db_session, 
                 sp_service=sp_service, 
                 items_to_process=items_for_task, # Pass the original list
-                user_email=user_email
+                user_email=user_email,
+                task_id=task_id # Pass task_id
             )
         )
 
-        # --- Batch Upsert to Qdrant --- 
-        logger.info(f"Task {task_id}: Upserting {len(points_to_upsert)} points.")
+        # --- Batch Insert into Milvus --- 
+        logger.info(f"Task {task_id}: Inserting {len(data_to_insert)} data points into Milvus.") # Updated log
         self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 95, 'status': 'Saving data...'})
-        if points_to_upsert:
+        if data_to_insert:
             try:
-                qdrant_client.upsert(
+                # Use Milvus insert
+                insert_result = milvus_client.insert(
                     collection_name=target_collection_name, 
-                    points=points_to_upsert, wait=True
+                    data=data_to_insert
                 )
-                logger.info(f"Task {task_id}: Qdrant upsert successful.")
+                logger.info(f"Task {task_id}: Milvus insert call successful for {len(data_to_insert)} points.") # Simplified log
             except Exception as upsert_err:
-                logger.error(f"Task {task_id}: Qdrant upsert failed: {upsert_err}", exc_info=True)
-                total_failed += len(points_to_upsert) # Count these as failed
+                logger.error(f"Task {task_id}: Milvus insert failed: {upsert_err}", exc_info=True) # Updated log
+                total_failed += len(data_to_insert) # Count these as failed
                 self.update_state(state='FAILURE', meta={'user': user_email, 'progress': 98, 'status': 'Failed to save data.'})
                 return {'status': 'ERROR', 'message': f'Failed final save: {upsert_err}', 'processed': total_processed, 'failed': total_failed}
 

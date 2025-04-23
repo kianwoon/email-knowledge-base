@@ -1,14 +1,20 @@
 # backend/app/tasks/azure_tasks.py
 import logging
 import uuid
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 import base64 # Import base64
 import asyncio
+import json # Import json
+import os # ADDED: Import os module
 
 from celery import Task
 from sqlalchemy.orm import Session
-from qdrant_client import QdrantClient
-from qdrant_client import models as qdrant_models
+# Remove Qdrant imports
+# from qdrant_client import QdrantClient
+# from qdrant_client import models as qdrant_models
+# Import Milvus
+from pymilvus import MilvusClient
+from app.db.milvus_client import get_milvus_client, ensure_collection_exists
 
 from app.db.session import SessionLocal
 from app.celery_app import celery_app
@@ -22,13 +28,14 @@ from app.services.azure_blob_service import AzureBlobService
 
 logger = logging.getLogger(__name__)
 
-def get_qdrant_client() -> QdrantClient:
-    # Helper to get Qdrant client instance based on settings
-    return QdrantClient(
-        url=settings.QDRANT_URL,
-        api_key=settings.QDRANT_API_KEY,
-        timeout=60 # Increase timeout for potentially large uploads
-    )
+# Remove Qdrant client helper
+# def get_qdrant_client() -> QdrantClient:
+#     # Helper to get Qdrant client instance based on settings
+#     return QdrantClient(
+#         url=settings.QDRANT_URL,
+#         api_key=settings.QDRANT_API_KEY,
+#         timeout=60 # Increase timeout for potentially large uploads
+#     )
 
 # Remove get_embeddings_client if not used
 # def get_embeddings_client() -> EmbeddingsClient:
@@ -40,10 +47,11 @@ async def _process_items_for_connection(
     items: List[AzureBlobSyncItem], 
     db: Session, 
     task_id: str, 
-    zero_vector: List[float]
-) -> Tuple[List[qdrant_models.PointStruct], int, int]:
-    """Processes a list of sync items for a single Azure connection."""
-    points_for_connection: List[qdrant_models.PointStruct] = []
+    zero_vector: List[float],
+    user_email: str # Added user_email
+) -> Tuple[List[Dict[str, Any]], int, int]: # Updated return type hint
+    """Processes a list of sync items for a single Azure connection, preparing Milvus data dicts."""
+    data_for_connection: List[Dict[str, Any]] = [] # Renamed points_for_connection
     processed_count = 0
     failed_count = 0
 
@@ -53,24 +61,42 @@ async def _process_items_for_connection(
             # Note: update_state is called from the main task, not here, to avoid complex state passing
             crud_azure_blob_sync_item.update_sync_item_status(db, db_item=item, status='processing')
 
-            point_to_add: Optional[qdrant_models.PointStruct] = None
-            points_for_prefix: List[qdrant_models.PointStruct] = []
-            item_processed_successfully = False # Track if points were generated for this item
+            data_dict_to_add: Optional[Dict[str, Any]] = None # Renamed point_to_add
+            data_dicts_for_prefix: List[Dict[str, Any]] = [] # Renamed points_for_prefix
+            item_processed_successfully = False # Track if data dicts were generated for this item
 
             if item.item_type == 'blob':
-                blob_content_bytes = await azure_service.download_blob_content(item.container_name, item.item_path)
-                if blob_content_bytes:
-                    content_b64 = base64.b64encode(blob_content_bytes).decode('utf-8')
-                    point_id = str(uuid.uuid4())
-                    metadata = { 
-                        "source": "azure_blob", "document_id": item.item_path, "connection_id": str(item.connection_id),
-                        "container": item.container_name, "path": item.item_path, "filename": item.item_name,
-                        "analysis_status": "pending", "content_b64": content_b64,
-                    }
-                    point_to_add = qdrant_models.PointStruct(id=point_id, vector=zero_vector, payload=metadata)
-                    item_processed_successfully = True
-                else:
-                    logger.warning(f"Task {task_id}: No content downloaded for blob {item.item_path}. Skipping.")
+                # No need to download content for raw storage
+                # blob_content_bytes = await azure_service.download_blob_content(item.container_name, item.item_path)
+                # if blob_content_bytes:
+                #     content_b64 = base64.b64encode(blob_content_bytes).decode('utf-8')
+                point_id = str(uuid.uuid4()) # Generate PK
+                metadata = { 
+                    "azure_connection_id": str(item.connection_id),
+                    "container": item.container_name,
+                    "path": item.item_path,
+                    "filename": item.item_name,
+                    "analysis_status": "pending"
+                }
+                metadata = {k: v for k, v in metadata.items() if v is not None}
+
+                data_dict_to_add = {
+                    "pk": point_id,
+                    "vector": zero_vector,
+                    "owner": user_email,
+                    "source": "azure_blob",
+                    "type": "azure_blob_knowledge",
+                    "email_id": user_email,
+                    "job_id": task_id,
+                    "subject": item.item_name, # Use filename as subject
+                    "date": "", # Azure service doesn't easily provide this, use empty string
+                    "status": "processed",
+                    "folder": os.path.dirname(item.item_path) if item.item_path else "",
+                    "metadata_json": metadata # Store the dict
+                }
+                item_processed_successfully = True
+                # else:
+                #     logger.warning(f"Task {task_id}: No content downloaded for blob {item.item_path}. Skipping.")
             
             elif item.item_type == 'prefix':
                 blobs_under_prefix = await azure_service.list_blobs(item.container_name, item.item_path)
@@ -78,28 +104,47 @@ async def _process_items_for_connection(
                     if not blob_info.get('isDirectory'):
                         blob_path = blob_info.get('path'); blob_name = blob_info.get('name')
                         if not blob_path or not blob_name: continue
-                        blob_content_bytes = await azure_service.download_blob_content(item.container_name, blob_path)
-                        if blob_content_bytes:
-                            content_b64 = base64.b64encode(blob_content_bytes).decode('utf-8')
-                            point_id = str(uuid.uuid4())
-                            metadata = { 
-                                "source": "azure_blob", "document_id": blob_path, "connection_id": str(item.connection_id),
-                                "container": item.container_name, "path": blob_path, "filename": blob_name,
-                                "analysis_status": "pending", "content_b64": content_b64,
-                            }
-                            points_for_prefix.append(qdrant_models.PointStruct(id=point_id, vector=zero_vector, payload=metadata))
-                        else:
-                            logger.warning(f"Task {task_id}: No content downloaded for blob {blob_path} under prefix. Skipping.")
-                if points_for_prefix:
-                     points_for_connection.extend(points_for_prefix)
-                     logger.info(f"Task {task_id}: Generated {len(points_for_prefix)} points for prefix item {item.id} ('{item.item_path}')")
+                        # No download needed
+                        # blob_content_bytes = await azure_service.download_blob_content(item.container_name, blob_path)
+                        # if blob_content_bytes:
+                        #    content_b64 = base64.b64encode(blob_content_bytes).decode('utf-8')
+                        point_id = str(uuid.uuid4())
+                        metadata = { 
+                            "azure_connection_id": str(item.connection_id),
+                            "container": item.container_name,
+                            "path": blob_path,
+                            "filename": blob_name,
+                            "analysis_status": "pending"
+                        }
+                        metadata = {k: v for k, v in metadata.items() if v is not None}
+                        
+                        data_dict_for_blob = {
+                            "pk": point_id,
+                            "vector": zero_vector,
+                            "owner": user_email,
+                            "source": "azure_blob",
+                            "type": "azure_blob_knowledge",
+                            "email_id": user_email,
+                            "job_id": task_id,
+                            "subject": blob_name,
+                            "date": "", # Use empty string
+                            "status": "processed",
+                            "folder": os.path.dirname(blob_path) if blob_path else "",
+                            "metadata_json": metadata
+                        }
+                        data_dicts_for_prefix.append(data_dict_for_blob)
+                        # else:
+                        #     logger.warning(f"Task {task_id}: No content downloaded for blob {blob_path} under prefix. Skipping.")
+                if data_dicts_for_prefix:
+                     data_for_connection.extend(data_dicts_for_prefix)
+                     logger.info(f"Task {task_id}: Generated {len(data_dicts_for_prefix)} data dicts for prefix item {item.id} ('{item.item_path}')")
                      item_processed_successfully = True # Mark prefix as processed if it yielded points
                 else:
                      logger.info(f"Task {task_id}: No processable blobs found under prefix item {item.id} ('{item.item_path}').")
 
-            if point_to_add:
-                points_for_connection.append(point_to_add)
-                logger.info(f"Task {task_id}: Generated 1 point for blob item {item.id} ('{item.item_path}')")
+            if data_dict_to_add:
+                data_for_connection.append(data_dict_to_add)
+                logger.info(f"Task {task_id}: Generated 1 data dict for blob item {item.id} ('{item.item_path}')")
                 item_processed_successfully = True
             
             crud_azure_blob_sync_item.update_sync_item_status(db, db_item=item, status='completed')
@@ -114,7 +159,7 @@ async def _process_items_for_connection(
             except Exception as status_update_err:
                  logger.error(f"Task {task_id}: Additionally failed to mark item {item.id} as failed: {status_update_err}")
     
-    return points_for_connection, processed_count, failed_count
+    return data_for_connection, processed_count, failed_count
 
 
 # Renamed async function containing the core logic
@@ -123,16 +168,16 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
     logger.info(f"Task {task_id}: Starting async Azure Blob ingestion logic for user ID {user_id_str}")
     user_id = uuid.UUID(user_id_str)
     db: Session = SessionLocal()
-    qdrant_client = get_qdrant_client() 
+    milvus_client = get_milvus_client() # Get Milvus client
     cumulative_processed = 0
     cumulative_failed = 0
-    all_points_to_upsert: List[qdrant_models.PointStruct] = [] # Define here
+    all_data_to_insert: List[Dict[str, Any]] = [] # Renamed
     final_status = "UNKNOWN" # Default status
     final_message = "Task did not complete fully." # Default message
     pending_items = None # Initialize pending_items
 
     try:
-        # 1. Get User Info & Setup Qdrant Collection
+        # 1. Get User Info & Setup Milvus Collection
         user = user_crud.get_user_by_id(db, user_id=user_id)
         if not user:
             logger.error(f"Task {task_id}: User {user_id} not found.")
@@ -145,26 +190,14 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
             # Fallback if email is somehow missing (shouldn't happen for Azure/MS users)
             safe_email_prefix = str(user.id) 
         collection_name = f"{safe_email_prefix}_azure_blob_knowledge"
-        logger.info(f"Task {task_id}: Target Qdrant collection: {collection_name}")
+        logger.info(f"Task {task_id}: Target Milvus collection: {collection_name}")
         
-        # Simplified: Assume Qdrant check/create is synchronous for this example
-        # In reality, if the client supports async, this should be awaited too.
-        # We'll keep the synchronous check/create logic as before for now.
+        # Use ensure_collection_exists helper for Milvus
         try: 
-            collection_exists = False
-            try: qdrant_client.get_collection(collection_name=collection_name); collection_exists = True
-            except Exception as e: 
-                 if "not found" in str(e).lower() or "status_code=404" in str(e).lower(): collection_exists = False
-                 else: raise e
-            if not collection_exists:
-                # Use fixed dimension 768 for collection schema
-                qdrant_client.create_collection(
-                    collection_name=collection_name, 
-                    vectors_config=qdrant_models.VectorParams(size=768, distance=qdrant_models.Distance.COSINE) # Use 768 explicitly
-                )
-            logger.info(f"Task {task_id}: Ensured Qdrant collection '{collection_name}' exists.")
-        except Exception as q_err:
-            raise Exception(f'Qdrant check/create failed: {q_err}') # Re-raise for sync wrapper to catch
+            ensure_collection_exists(milvus_client, collection_name, settings.DENSE_EMBEDDING_DIMENSION)
+            logger.info(f"Task {task_id}: Ensured Milvus collection '{collection_name}' exists.")
+        except Exception as q_err: # Keep variable name for now
+            raise Exception(f'Milvus check/create failed: {q_err}') # Updated message
 
         # 2. Get Pending Items
         # Fetch pending items for *all* connections for this user
@@ -189,8 +222,8 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
                 items_by_connection[item.connection_id] = []
             items_by_connection[item.connection_id].append(item)
         
-        # Use fixed dimension 768 for placeholder vector
-        zero_vector = [0.0] * 768
+        # Use DENSE_EMBEDDING_DIMENSION from settings for placeholder
+        zero_vector = [0.0] * settings.DENSE_EMBEDDING_DIMENSION
 
         # 3. Process Items per Connection
         for conn_id, items in items_by_connection.items():
@@ -227,10 +260,10 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
                 # Initialize service with the decrypted string
                 async with AzureBlobService(connection_string=decrypted_connection_string) as azure_service:
                     # Await the helper
-                    points, processed, failed = await _process_items_for_connection(
-                        azure_service, items, db, task_id, zero_vector
+                    data_dicts, processed, failed = await _process_items_for_connection(
+                        azure_service, items, db, task_id, zero_vector, user.email # Pass user email
                     )
-                    all_points_to_upsert.extend(points)
+                    all_data_to_insert.extend(data_dicts)
                     cumulative_processed += processed
                     cumulative_failed += failed
             except Exception as conn_err:
@@ -246,20 +279,20 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
                         logger.error(f"Task {task_id}: Failed marking item {item.id} as failed: {status_err}")
                 continue # Continue to next connection
 
-        # 4. Upsert to Qdrant (sync)
-        if all_points_to_upsert:
-            logger.info(f"Task {task_id}: Upserting {len(all_points_to_upsert)} points...")
-            # Upsert logic (remains sync)
+        # 4. Insert into Milvus (sync)
+        if all_data_to_insert:
+            logger.info(f"Task {task_id}: Inserting {len(all_data_to_insert)} data points into Milvus...")
+            # Insert logic (remains sync)
             try:
                 BATCH_SIZE = 100
-                for i in range(0, len(all_points_to_upsert), BATCH_SIZE):
-                    batch = all_points_to_upsert[i:i + BATCH_SIZE]
-                    qdrant_client.upsert(collection_name=collection_name, points=batch, wait=True)
-                logger.info(f"Task {task_id}: Upsert successful.")
-            except Exception as upsert_err:
-                raise Exception(f'Qdrant upsert failed: {upsert_err}') # Re-raise for sync wrapper
+                for i in range(0, len(all_data_to_insert), BATCH_SIZE):
+                    batch = all_data_to_insert[i:i + BATCH_SIZE]
+                    milvus_client.insert(collection_name=collection_name, data=batch)
+                logger.info(f"Task {task_id}: Milvus insert successful.")
+            except Exception as insert_err:
+                raise Exception(f'Milvus insert failed: {insert_err}') # Re-raise for sync wrapper
         else:
-             logger.info(f"Task {task_id}: No points to upsert.")
+             logger.info(f"Task {task_id}: No data to insert into Milvus.")
         
         # 5. Determine final status and message
         final_status = 'COMPLETE' if cumulative_failed == 0 else 'PARTIAL_COMPLETE'

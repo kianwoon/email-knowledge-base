@@ -5,9 +5,11 @@ import base64
 from typing import List, Dict, Any, Callable, Tuple
 
 import openai
-from qdrant_client import QdrantClient, models
-# Re-import PointStruct
-from qdrant_client.http.models import PointStruct
+# Remove Qdrant imports
+# from qdrant_client import QdrantClient, models
+# from qdrant_client.http.models import PointStruct
+# Import Milvus types if needed (MilvusClient for type hint)
+from pymilvus import MilvusClient
 
 from app.services.outlook import OutlookService
 from app.models.email import EmailFilter
@@ -20,17 +22,15 @@ async def _process_and_store_emails(
     owner_email: str,
     filter_criteria: EmailFilter,
     outlook_service: OutlookService,
-    qdrant_client: QdrantClient,
+    vector_db_client: MilvusClient, # Updated type hint
     target_collection_name: str,
     update_state_func: Callable = None
-) -> Tuple[int, int, List[PointStruct]]: # Revert return type
+) -> Tuple[int, int, List[Dict[str, Any]]]: # Updated return type hint
     """
-    Fetches emails, generates tags via OpenAI, and prepares Qdrant PointStructs
-    with a PLACEHOLDER VECTOR for storage.
+    Fetches emails, generates tags via OpenAI, and prepares dictionaries matching
+    the Milvus schema with a PLACEHOLDER VECTOR for later storage.
     """
-    points_to_upsert: List[PointStruct] = [] # Revert to PointStruct list
-    # ids_list: List[str] = [] # Removed
-    # payloads_list: List[Dict[str, Any]] = [] # Removed
+    points_to_insert: List[Dict[str, Any]] = [] # Changed from PointStruct list
     processed_email_count = 0
     failed_email_count = 0
     all_email_ids = []
@@ -40,8 +40,9 @@ async def _process_and_store_emails(
     if not settings.OPENAI_API_KEY:
         logger.warning(f"[Op:{operation_id}] OPENAI_API_KEY not set. Tag generation skipped.")
 
-    # Create placeholder vector based on settings
-    placeholder_vector = [0.0] * settings.QDRANT_VECTOR_SIZE
+    # Create placeholder vector using DENSE_EMBEDDING_DIMENSION
+    # Assuming placeholder vector should match the actual embedding dimension
+    placeholder_vector = [0.0] * settings.DENSE_EMBEDDING_DIMENSION 
 
     if update_state_func:
         update_state_func(state='PROGRESS', meta={'progress': 25, 'status': 'Fetching email IDs...'})
@@ -66,7 +67,6 @@ async def _process_and_store_emails(
             else: logger.info(f"[Op:{operation_id}] No items on page {page_num}.")
             if not current_next_link: logger.info(f"[Op:{operation_id}] Finished fetching IDs."); break
             page_num += 1
-        # --- End Email ID Fetching ---
 
         total_emails_found = len(all_email_ids)
         logger.info(f"[Op:{operation_id}] Found {total_emails_found} email IDs. Processing content...")
@@ -88,7 +88,6 @@ async def _process_and_store_emails(
                 subject = email_content.subject or ""
                 if subject and openai_client.api_key:
                     try:
-                        # Refined prompt for more meaningful tags
                         prompt = f"Analyze the following email subject and generate 3-5 concise, descriptive tags suitable for categorization and filtering. Focus on the main topic, project names, document types, or key entities mentioned. Output as a JSON object with a single key 'tags' containing a list of lowercased strings. Subject: '{subject}'"
                         response = await openai_client.chat.completions.create(
                             model=settings.OPENAI_MODEL_NAME,
@@ -100,7 +99,7 @@ async def _process_and_store_emails(
                                 content_json = json.loads(response.choices[0].message.content)
                                 tags_list = content_json.get("tags", [])
                                 if isinstance(tags_list, list) and all(isinstance(tag, str) for tag in tags_list):
-                                    generated_tags = tags_list
+                                    generated_tags = [tag.lower() for tag in tags_list] # Ensure lowercase
                                 else: logger.warning(f"[Op:{operation_id}] OpenAI response for subject '{subject}' had unexpected 'tags' format: {tags_list}")
                             except json.JSONDecodeError as json_err: logger.error(f"[Op:{operation_id}] Failed to parse OpenAI JSON for subject '{subject}': {json_err}. Content: {response.choices[0].message.content}")
                             except Exception as parse_err: logger.error(f"[Op:{operation_id}] Error processing OpenAI content for subject '{subject}': {parse_err}. Content: {response.choices[0].message.content}")
@@ -109,57 +108,69 @@ async def _process_and_store_emails(
                     except Exception as e: logger.error(f"[Op:{operation_id}] Unexpected OpenAI error for subject '{subject}': {e}")
                 elif not subject: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: empty subject.")
                 elif not openai_client.api_key: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: API key not set.")
-                # --- End Tag Generation ---
 
                 # --- Prepare Metadata & Full Text ---
                 attachments_payload = []
+                # Graph API uses contentBytes for attachments
                 if email_content.attachments:
                     for att in email_content.attachments:
+                         # Check for contentBytes attribute
                         content_base64 = att.contentBytes if hasattr(att, 'contentBytes') and att.contentBytes is not None else None
-                        attachments_payload.append({"filename": att.name, "mimetype": att.content_type, "size": att.size, "content_base64": content_base64})
-                has_attachments_bool = bool(email_content.attachments)
+                        attachments_payload.append({
+                            "filename": att.name,
+                            "mimetype": att.contentType if hasattr(att, 'contentType') else 'unknown', # Use contentType
+                            "size": att.size,
+                            # "content_base64": content_base64 # REMOVED to avoid exceeding Milvus JSON field limit
+                        })
+                has_attachments_bool = bool(attachments_payload)
 
                 raw_text_content = email_content.body or ""
-                if not raw_text_content and subject: # Use subject only if body is empty
+                if not raw_text_content and subject:
                     logger.warning(f"[Op:{operation_id}] Email {email_id} has empty body, using subject for raw_text.")
                     raw_text_content = subject
                 
-                # Skip email if both body and subject are empty, as there's nothing useful to store
                 if not raw_text_content and not subject:
                      logger.warning(f"[Op:{operation_id}] Email {email_id} has empty body and subject. Skipping.")
                      failed_email_count += 1
                      continue
 
-                email_metadata_payload = {
-                    "type": "email_knowledge",
-                    "owner": owner_email,
+                # Consolidate all metadata into a single dictionary for the JSON field
+                metadata_for_json = {
                     "sender": email_content.sender or "unknown@sender.com",
-                    "subject": subject,
-                    "date": email_content.received_date or "",
                     "has_attachments": has_attachments_bool,
-                    "folder": filter_criteria.folder_id,
-                    "tags": generated_tags, # Store generated tags
-                    "status": "processed", # Simplified status
-                    "source": "email",
-                    "raw_text": raw_text_content, # Store the full raw text
-                    "attachments": attachments_payload, # Store attachments payload
+                    "tags": generated_tags,
+                    "raw_text": raw_text_content, # Use potentially truncated text
+                    "attachments": attachments_payload, 
                     "attachment_count": len(attachments_payload),
                     "query_criteria": filter_criteria.model_dump(exclude={'next_link'}),
                     'original_email_id': email_id,
                     "analysis_status": "pending"
+                    # Add any other relevant fields from email_content if needed
                 }
 
-                # --- Prepare PointStruct with Placeholder Vector ---
-                qdrant_point_id = str(uuid.uuid4()) # Use UUID for ID
+                # --- Prepare Milvus data dictionary --- 
+                point_pk = str(uuid.uuid4()) # Use UUID for PK
 
-                point = PointStruct(
-                    id=qdrant_point_id,
-                    vector=placeholder_vector, # Use the placeholder vector
-                    payload=email_metadata_payload
-                )
-                points_to_upsert.append(point)
+                data_dict = {
+                    "pk": point_pk,
+                    "vector": placeholder_vector, # Use the placeholder vector
+                    # Required schema fields
+                    "owner": owner_email,
+                    "source": "email", 
+                    "type": "email_knowledge", # Type indicating raw email data
+                    "email_id": email_id,
+                    "job_id": operation_id, # Use operation_id as job_id
+                    "subject": subject,
+                    "date": email_content.received_date or "",
+                    "status": "processed", # Simplified status
+                    "folder": filter_criteria.folder_id or "",
+                    # Store the rest in the JSON field
+                    "metadata_json": metadata_for_json
+                }
+                
+                points_to_insert.append(data_dict)
                 processed_email_count += 1
-                logger.debug(f"[Op:{operation_id}] Prepared PointStruct {qdrant_point_id} with placeholder vector. Tags: {generated_tags}")
+                logger.debug(f"[Op:{operation_id}] Prepared Milvus data dict PK {point_pk} with placeholder vector. Tags: {generated_tags}")
 
             except Exception as fetch_err: # Catch errors during individual email processing
                 failed_email_count += 1
@@ -167,11 +178,8 @@ async def _process_and_store_emails(
         # --- End Email Content Processing Loop ---
 
     except Exception as outer_loop_err:
-        # Catch errors during setup or the ID fetching loop
         logger.error(f"[Op:{operation_id}] Error during main processing setup/loop: {str(outer_loop_err)}", exc_info=True)
-        # Depending on where the error occurs, counts might be 0
-        # Re-raise or handle to set task state to FAILURE? For now, log and return counts.
 
-    logger.info(f"[Op:{operation_id}] Email processing loop finished. Processed: {processed_email_count}, Failed: {failed_email_count}. Total points generated: {len(points_to_upsert)}")
-    # Return the list of PointStructs
-    return processed_email_count, failed_email_count, points_to_upsert
+    logger.info(f"[Op:{operation_id}] Email processing loop finished. Processed: {processed_email_count}, Failed: {failed_email_count}. Total points generated: {len(points_to_insert)}")
+    # Return the list of dictionaries
+    return processed_email_count, failed_email_count, points_to_insert

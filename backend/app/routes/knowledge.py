@@ -4,15 +4,22 @@ from typing import Literal, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone # Import datetime
 
+# Milvus imports (replacing Qdrant)
+from pymilvus import MilvusClient
+# from qdrant_client import QdrantClient
+# from qdrant_client.http.exceptions import UnexpectedResponse
+# from qdrant_client.http.models import PointStruct # Keep for now, replace later
+
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.db.qdrant_client import get_qdrant_client # Assuming Qdrant client dependency
-from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import UnexpectedResponse
+# Import Milvus client (replacing Qdrant)
+from app.db.milvus_client import get_milvus_client
+# from app.db.qdrant_client import get_qdrant_client # Assuming Qdrant client dependency
+
 from app.config import settings
 import uuid
 from app.services.embedder import create_embedding
-from qdrant_client.http.models import PointStruct
+
 # Import the service function we will create
 # from app.services.knowledge_service import fetch_collection_summary 
 
@@ -20,11 +27,31 @@ router = APIRouter()
 logger = logging.getLogger("app")
 
 # Define valid collection names using Literal for validation
+# TODO: Update this based on Milvus collections if needed
 ValidCollectionName = Literal['email_knowledge', 'email_knowledge_base']
 
 # Response model for the existing single collection summary endpoint
 class CollectionSummaryResponseModel(BaseModel):
     count: int
+    # Add other relevant summary fields as needed
+    # e.g., last_updated: Optional[datetime] = None
+
+# Combined response model for all collections
+class AllCollectionsSummaryResponseModel(BaseModel):
+    # Using Dict where key is collection name, value is summary
+    collections: Dict[ValidCollectionName, CollectionSummaryResponseModel]
+
+# Placeholder Request model for adding text
+class AddTextRequest(BaseModel):
+    text: str
+    metadata: Optional[Dict[str, Any]] = None
+    # Add collection name if needed, or derive from user/context
+    collection_name: Optional[ValidCollectionName] = None 
+
+# Placeholder Response model for adding text
+class AddTextResponse(BaseModel):
+    id: str
+    status: str
 
 # NEW: Response model for the combined knowledge base summary
 class KnowledgeSummaryResponseModel(BaseModel):
@@ -45,7 +72,7 @@ class SnippetRequest(BaseModel):
 async def get_collection_summary_route(
     collection_name: ValidCollectionName, # Use Literal for path param validation
     current_user: User = Depends(get_current_user),
-    qdrant: QdrantClient = Depends(get_qdrant_client) # Inject Qdrant client
+    vector_db_client: MilvusClient = Depends(get_milvus_client) # Updated dependency
 ):
     """Get summary statistics (item count) for a user-specific knowledge collection."""
     # Construct the user-specific collection name AGAIN
@@ -69,27 +96,32 @@ async def get_collection_summary_route(
         # --- Direct Qdrant Call (Using user-specific collection name, NO filter) ---
         logger.debug(f"Calling qdrant_client.count for user-specific collection: {actual_collection_name}")
         try:
-            count_result = qdrant.count(
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=actual_collection_name) and not vector_db_client.get_load_state(collection_name=actual_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {actual_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=actual_collection_name)
+            
+            count_result = vector_db_client.count(
                 collection_name=actual_collection_name, # Use user-specific name
                 # count_filter=owner_filter,     # REMOVED owner filter
                 exact=True
             )
             logger.debug(f"Qdrant count result: {count_result}")
             summary_data = {"count": count_result.count}
-        except UnexpectedResponse as e:
+        except Exception as e:
             # If Qdrant returns 404, the user-specific collection doesn't exist
-            if e.status_code == 404:
-                logger.warning(f"User-specific collection '{actual_collection_name}' not found in Qdrant. Returning count 0.")
+            if isinstance(e, ValueError) and "collection not found" in str(e):
+                logger.warning(f"User-specific collection '{actual_collection_name}' not found in Milvus. Returning count 0.")
                 summary_data = {"count": 0}
             else:
-                # Re-raise other unexpected Qdrant errors
+                # Re-raise other unexpected Milvus errors
                 raise e 
         # --- End Direct Qdrant Call --- 
 
         logger.info(f"Successfully retrieved summary for {actual_collection_name}: Count={summary_data.get('count')}")
         return summary_data
     except Exception as e:
-        # Catch errors from the try block above (like non-404 Qdrant errors) or other unexpected issues
+        # Catch errors from the try block above (like non-404 Milvus errors) or other unexpected issues
         logger.error(f"Error fetching summary for user-specific collection {actual_collection_name}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -101,7 +133,7 @@ async def get_collection_summary_route(
 @router.get("/summary", response_model=KnowledgeSummaryResponseModel)
 async def get_knowledge_summary_route(
     current_user: User = Depends(get_current_user),
-    qdrant: QdrantClient = Depends(get_qdrant_client)
+    vector_db_client: MilvusClient = Depends(get_milvus_client)
 ):
     """Get combined summary statistics (item counts) for user's knowledge collections."""
     sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
@@ -116,7 +148,7 @@ async def get_knowledge_summary_route(
     # Collection for CUSTOM KNOWLEDGE raw data items
     custom_knowledge_collection_name = f"{sanitized_email}_custom_knowledge"
     # Collection for vector data (RAG)
-    vector_collection_name = f"{sanitized_email}_knowledge_base"
+    vector_collection_name = f"{sanitized_email}_knowledge_base_bm" # CORRECTED NAME
     
     # Log all collections being queried
     logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {s3_raw_collection_name}, {azure_blob_raw_collection_name}, {custom_knowledge_collection_name}, {vector_collection_name}")
@@ -130,115 +162,140 @@ async def get_knowledge_summary_route(
     last_update_time = None
 
     try:
-        # Get EMAIL raw data count
+        # Get EMAIL raw data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for EMAIL raw data collection: {email_raw_collection_name}")
-            count_result_raw = qdrant.count(collection_name=email_raw_collection_name, exact=True)
-            email_raw_count = count_result_raw.count
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=email_raw_collection_name) and not vector_db_client.get_load_state(collection_name=email_raw_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {email_raw_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=email_raw_collection_name)
+            
+            logger.debug(f"Calling MilvusClient.get_collection_stats for EMAIL raw data collection: {email_raw_collection_name}")
+            stats_raw = vector_db_client.get_collection_stats(collection_name=email_raw_collection_name)
+            email_raw_count = int(stats_raw.get('row_count', 0))
             logger.debug(f"EMAIL raw data count for {email_raw_collection_name}: {email_raw_count}")
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+        except Exception as e:
+            # Check if error indicates collection not found (Milvus might raise different exceptions)
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"EMAIL raw data collection '{email_raw_collection_name}' not found. Setting count to 0.")
                 email_raw_count = 0
             else:
-                logger.error(f"Qdrant error counting {email_raw_collection_name}: {e}")
+                logger.error(f"Unexpected Milvus error occurred while getting stats for {email_raw_collection_name}. Error: {e}", exc_info=True) # More detailed log
+                # Log the error before potentially raising
+                # logger.error(f"Milvus error getting stats for {email_raw_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing email raw data storage.")
 
-        # Get SHAREPOINT raw data count
+        # Get SHAREPOINT raw data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for SHAREPOINT raw data collection: {sharepoint_raw_collection_name}")
-            count_result_sharepoint = qdrant.count(collection_name=sharepoint_raw_collection_name, exact=True)
-            sharepoint_raw_count = count_result_sharepoint.count
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=sharepoint_raw_collection_name) and not vector_db_client.get_load_state(collection_name=sharepoint_raw_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {sharepoint_raw_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=sharepoint_raw_collection_name)
+
+            logger.debug(f"Calling MilvusClient.get_collection_stats for SHAREPOINT raw data collection: {sharepoint_raw_collection_name}")
+            stats_sharepoint = vector_db_client.get_collection_stats(collection_name=sharepoint_raw_collection_name)
+            sharepoint_raw_count = int(stats_sharepoint.get('row_count', 0))
             logger.debug(f"SHAREPOINT raw data count for {sharepoint_raw_collection_name}: {sharepoint_raw_count}")
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+        except Exception as e:
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"SHAREPOINT raw data collection '{sharepoint_raw_collection_name}' not found. Setting count to 0.")
                 sharepoint_raw_count = 0
             else:
-                logger.error(f"Qdrant error counting {sharepoint_raw_collection_name}: {e}")
+                logger.error(f"Milvus error getting stats for {sharepoint_raw_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing SharePoint raw data storage.")
 
-        # Get S3 raw data count - NEW LOGIC
+        # Get S3 raw data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for S3 raw data collection: {s3_raw_collection_name}")
-            count_result_s3 = qdrant.count(collection_name=s3_raw_collection_name, exact=True)
-            s3_raw_count = count_result_s3.count
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=s3_raw_collection_name) and not vector_db_client.get_load_state(collection_name=s3_raw_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {s3_raw_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=s3_raw_collection_name)
+
+            logger.debug(f"Calling MilvusClient.get_collection_stats for S3 raw data collection: {s3_raw_collection_name}")
+            stats_s3 = vector_db_client.get_collection_stats(collection_name=s3_raw_collection_name)
+            s3_raw_count = int(stats_s3.get('row_count', 0))
             logger.debug(f"S3 raw data count for {s3_raw_collection_name}: {s3_raw_count}")
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+        except Exception as e:
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"S3 raw data collection '{s3_raw_collection_name}' not found. Setting count to 0.")
                 s3_raw_count = 0
             else:
-                logger.error(f"Qdrant error counting {s3_raw_collection_name}: {e}")
-                # Don't necessarily fail the whole request, just log and return 0 for S3
+                logger.error(f"Milvus error getting stats for {s3_raw_collection_name}: {e}")
                 s3_raw_count = 0 
-                logger.warning(f"Non-404 Qdrant error counting {s3_raw_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if S3 count is critical:
-                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing S3 raw data storage.")
-        
-        # Get AZURE BLOB raw data count
+                logger.warning(f"Non-not-found Milvus error getting stats for {s3_raw_collection_name}: {e}. Setting count to 0.")
+                # Optionally re-raise if S3 count is critical
+
+        # Get AZURE BLOB raw data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for AZURE BLOB raw data collection: {azure_blob_raw_collection_name}")
-            count_result_azure = qdrant.count(collection_name=azure_blob_raw_collection_name, exact=True)
-            azure_blob_raw_count = count_result_azure.count
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=azure_blob_raw_collection_name) and not vector_db_client.get_load_state(collection_name=azure_blob_raw_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {azure_blob_raw_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=azure_blob_raw_collection_name)
+
+            logger.debug(f"Calling MilvusClient.get_collection_stats for AZURE BLOB raw data collection: {azure_blob_raw_collection_name}")
+            stats_azure = vector_db_client.get_collection_stats(collection_name=azure_blob_raw_collection_name)
+            azure_blob_raw_count = int(stats_azure.get('row_count', 0))
             logger.debug(f"AZURE BLOB raw data count for {azure_blob_raw_collection_name}: {azure_blob_raw_count}")
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+        except Exception as e:
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"AZURE BLOB raw data collection '{azure_blob_raw_collection_name}' not found. Setting count to 0.")
                 azure_blob_raw_count = 0
             else:
-                logger.error(f"Qdrant error counting {azure_blob_raw_collection_name}: {e}")
-                # Don't necessarily fail the whole request, just log and return 0 for Azure
+                logger.error(f"Milvus error getting stats for {azure_blob_raw_collection_name}: {e}")
                 azure_blob_raw_count = 0 
-                logger.warning(f"Non-404 Qdrant error counting {azure_blob_raw_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if Azure Blob count is critical:
-                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing Azure Blob raw data storage.")
+                logger.warning(f"Non-not-found Milvus error getting stats for {azure_blob_raw_collection_name}: {e}. Setting count to 0.")
+                # Optionally re-raise if Azure Blob count is critical
 
-        # Get CUSTOM raw data count - NEW LOGIC
+        # Get CUSTOM raw data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for CUSTOM raw data collection: {custom_knowledge_collection_name}")
-            count_result_custom = qdrant.count(collection_name=custom_knowledge_collection_name, exact=True)
-            custom_raw_count = count_result_custom.count
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=custom_knowledge_collection_name) and not vector_db_client.get_load_state(collection_name=custom_knowledge_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {custom_knowledge_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=custom_knowledge_collection_name)
+
+            logger.debug(f"Calling MilvusClient.get_collection_stats for CUSTOM raw data collection: {custom_knowledge_collection_name}")
+            stats_custom = vector_db_client.get_collection_stats(collection_name=custom_knowledge_collection_name)
+            custom_raw_count = int(stats_custom.get('row_count', 0))
             logger.debug(f"CUSTOM raw data count for {custom_knowledge_collection_name}: {custom_raw_count}")
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+        except Exception as e:
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"CUSTOM raw data collection '{custom_knowledge_collection_name}' not found. Setting count to 0.")
                 custom_raw_count = 0
             else:
-                logger.error(f"Qdrant error counting {custom_knowledge_collection_name}: {e}")
-                # Don't necessarily fail the whole request, just log and return 0 for Custom
+                logger.error(f"Milvus error getting stats for {custom_knowledge_collection_name}: {e}")
                 custom_raw_count = 0 
-                logger.warning(f"Non-404 Qdrant error counting {custom_knowledge_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if custom count is critical:
-                # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing Custom raw data storage.")
+                logger.warning(f"Non-not-found Milvus error getting stats for {custom_knowledge_collection_name}: {e}. Setting count to 0.")
+                # Optionally re-raise if custom count is critical
 
-        # Get vector data count
+        # Get vector data count using Milvus API
         try:
-            logger.debug(f"Calling qdrant_client.count for vector data collection: {vector_collection_name}")
-            count_result_vector = qdrant.count(collection_name=vector_collection_name, exact=True)
-            vector_count = count_result_vector.count
-            logger.debug(f"Vector data count for {vector_collection_name}: {vector_count}")
-            # Update last_update_time if vector collection exists and has info
-            try:
-                collection_info = qdrant.get_collection(collection_name=vector_collection_name)
-                # Assuming Qdrant might store some update time metadata, adjust as needed
-                # This part is speculative based on Qdrant features
-                # last_update_time = collection_info.get('last_updated', datetime.now(timezone.utc))
-                pass # If no specific update time available, keep default
-            except Exception: # Catch potential errors getting collection info
-                 logger.warning(f"Could not get collection info for {vector_collection_name} to determine last update time.")
-                 pass
+            # Ensure collection is loaded before getting stats
+            if vector_db_client.has_collection(collection_name=vector_collection_name) and not vector_db_client.get_load_state(collection_name=vector_collection_name).get("state", "") == "Loaded":
+                logger.info(f"Loading collection {vector_collection_name} into memory for stats...")
+                vector_db_client.load_collection(collection_name=vector_collection_name)
 
-        except UnexpectedResponse as e:
-            if e.status_code == 404:
+            logger.debug(f"Calling MilvusClient.get_collection_stats for vector data collection: {vector_collection_name}")
+            stats_vector = vector_db_client.get_collection_stats(collection_name=vector_collection_name)
+            vector_count = int(stats_vector.get('row_count', 0))
+            logger.debug(f"Vector data count for {vector_collection_name}: {vector_count}")
+            # Update last_update_time if vector collection exists (Milvus stats doesn't provide this directly)
+            # We might need another way to track updates if required.
+            last_update_time = datetime.now(timezone.utc) # Use current time as approximation
+
+        except Exception as e:
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
                 logger.warning(f"Vector data collection '{vector_collection_name}' not found. Setting count to 0.")
                 vector_count = 0
             else:
-                logger.error(f"Qdrant error counting {vector_collection_name}: {e}")
+                logger.error(f"Milvus error getting stats for {vector_collection_name}: {e}")
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.")
 
         logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, S3Raw={s3_raw_count}, AzureBlobRaw={azure_blob_raw_count}, CustomRaw={custom_raw_count}, Vector={vector_count}")
-        # Return counts including S3 and Azure Blob raw data
+        
+        # Ensure last_update_time has a value before returning
+        if last_update_time is None:
+            last_update_time = datetime.now(timezone.utc)
+            logger.debug("Setting last_update_time to current time as no vector collection info was available.")
+            
         return KnowledgeSummaryResponseModel(
             raw_data_count=email_raw_count,
             sharepoint_raw_data_count=sharepoint_raw_count,
@@ -246,9 +303,12 @@ async def get_knowledge_summary_route(
             azure_blob_raw_data_count=azure_blob_raw_count,
             custom_raw_data_count=custom_raw_count,
             vector_data_count=vector_count,
-            last_updated=last_update_time if last_update_time else datetime.now(timezone.utc) # Use fetched or default time
+            last_updated=last_update_time # Use the approximated time
         )
 
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions raised within the specific try-except blocks
+        raise http_exc
     except Exception as e:
         logger.error(f"Unexpected error fetching combined summary for user '{current_user.email}': {e}", exc_info=True)
         raise HTTPException(
@@ -260,7 +320,7 @@ async def get_knowledge_summary_route(
 async def ingest_snippet(
     snippet: SnippetRequest,
     current_user: User = Depends(get_current_user),
-    qdrant: QdrantClient = Depends(get_qdrant_client)
+    vector_db_client: MilvusClient = Depends(get_milvus_client)
 ):
     """
     Ingest a freeform text snippet into the user's RAG knowledge base.
@@ -288,5 +348,58 @@ async def ingest_snippet(
         payload={"content": text, **metadata}
     )
     # Upsert into Qdrant
-    qdrant.upsert(collection_name=collection, points=[point], wait=True)
+    vector_db_client.upsert(collection_name=collection, points=[point], wait=True)
     return {"status": "success", "id": point.id, "collection": collection} 
+
+@router.post("/add_text", response_model=AddTextResponse, status_code=status.HTTP_201_CREATED)
+async def add_text_to_knowledge(
+    request_data: AddTextRequest,
+    current_user: User = Depends(get_current_user),
+    vector_db_client: MilvusClient = Depends(get_milvus_client) # Updated dependency
+):
+    # Implementation for adding text and embedding to Milvus goes here
+    logger.info(f"Received request to add text from user {current_user.email}")
+    
+    # Determine target collection (use request or default based on user/logic)
+    target_collection = request_data.collection_name or f"{current_user.email.replace('@','_').replace('.','_')}_knowledge_base"
+    
+    try:
+        # 1. Generate embedding for the text
+        embedding = await create_embedding(request_data.text)
+        logger.debug(f"Generated embedding for text snippet.")
+
+        # 2. Prepare data for Milvus
+        point_id = str(uuid.uuid4())
+        payload = request_data.metadata or {}
+        # Add the raw text itself to the payload if desired
+        payload["text"] = request_data.text 
+        # Ensure basic user/source info is present
+        payload["owner"] = current_user.email
+        payload["source"] = "manual_text_input"
+        payload["added_at"] = datetime.now(timezone.utc).isoformat()
+
+        milvus_data = {
+            "id": point_id,
+            "vector": embedding,
+            "payload": payload
+        }
+        logger.debug(f"Prepared data for Milvus insertion: ID={point_id}")
+
+        # 3. Ensure collection exists (optional, depending on setup)
+        # ensure_collection_exists(vector_db_client, target_collection, settings.EMBEDDING_DIMENSION)
+
+        # 4. Insert into Milvus
+        # Note: MilvusClient insert expects a list of dicts or a list of lists/tuples
+        # Adjust based on the specific schema you'll define for the collection
+        # Assuming schema matches the dict structure for now
+        vector_db_client.insert(collection_name=target_collection, data=[milvus_data])
+        logger.info(f"Successfully inserted text snippet with ID {point_id} into collection '{target_collection}'")
+        
+        return AddTextResponse(id=point_id, status="success")
+
+    except Exception as e:
+        logger.error(f"Failed to add text snippet to collection '{target_collection}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add text to knowledge base: {str(e)}"
+        ) 

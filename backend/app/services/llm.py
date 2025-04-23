@@ -8,12 +8,14 @@ import logging # Import logging
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
 from app.models.user import User # Assuming User model is here
-# Import RAG components
-from app.services.embedder import create_embedding, search_qdrant_knowledge, create_retrieval_embedding, search_qdrant_knowledge_sparse
+# Import RAG components - Updated for Milvus
+from app.services.embedder import create_embedding, search_milvus_knowledge, create_retrieval_embedding
+# Removed: search_qdrant_knowledge, search_qdrant_knowledge_sparse
 from app.crud import api_key_crud # Import API key CRUD
 from fastapi import HTTPException, status # Import HTTPException
-from qdrant_client import models
-from qdrant_client.http.models import PayloadField, Filter, IsEmptyCondition
+# Qdrant specific imports (no longer needed for search in llm.py)
+# from qdrant_client import models
+# from qdrant_client.http.models import PayloadField, Filter, IsEmptyCondition
 import itertools  # for merging hybrid search results
 
 # Set up logger for this module
@@ -151,16 +153,13 @@ async def generate_openai_rag_response(
         
         logger.debug(f"Using user's personal OpenAI key for {user.email}")
         # Initialize a client SPECIFICALLY with the user's key for this request
-        # --- Increased timeout to 30 seconds --- 
         user_client = AsyncOpenAI(
             api_key=user_openai_key, 
             timeout=30.0 # Set timeout to 30 seconds
         )
-        # --- End Timeout Increase ---
 
-        # 2. Create embedding for the user message (can still use system key client? Let's use user key)
-        # Potentially switch embedding to use user_client too if needed, or keep using global client
-        # For now, let's use the user_client for embedding as well for consistency
+        # 2. Create embedding for the user message/HyDE doc
+        # ... (Query refinement, expansion, HyDE logic remains the same) ...
         # --- START: Query refinement step to extract table and role for retrieval ---
         retrieval_query = message
         refined = None # Initialize refined variable
@@ -248,444 +247,342 @@ async def generate_openai_rag_response(
              logger.debug("RAG: Skipping HyDE generation for rate card query.")
         # --- END MODIFICATION ---
         # --- END: HyDE Generation ---
-
-        # --- Use HyDE document (or retrieval_query if HyDE skipped/failed) for DENSE/COLBERT embeddings ---
-        logger.debug(f"Creating dense/colbert embeddings based on: '{hyde_document[:50]}...' using user key")
-        # Generate field-specific embeddings using hyde_document
-        dense_emb = await create_retrieval_embedding(hyde_document, "dense")
-
-        # Log a snippet of the query embedding (now potentially based on retrieval_query if HyDE skipped)
-        embedding_snippet = str(dense_emb[:5]) + "..." if dense_emb else "None"
-        logger.debug(f"RAG: Using query embedding (first 5 elements): {embedding_snippet}")
-
-        # --- Determine user-specific collection name ---
-        sanitized_email = user.email.replace('@', '_').replace('.', '_')
-        # Derive BM hybrid collection for dense, colbertv2.0, and bm25 embeddings
-        bm_collection = f"{sanitized_email}_knowledge_base_bm"
-        logger.info(f"RAG: Targeting Qdrant collection: '{bm_collection}' for user {user.email}")
-
-        # --- START: Two-Phase Retrieval (PDFs then Emails) ---
-        logger.info(f"RAG: Starting two-phase retrieval (Phase 1: PDFs, Phase 2: Emails).")
-
-        doc_hits = [] # Initialize doc_hits here
-        email_hits = []
-
-        # Define the Document filter (Phase 1)
-        # Filter for points where metadata.content_type field exists (is not empty)
-        doc_filter = Filter(
-            must_not=[
-                IsEmptyCondition(
-                    is_empty=PayloadField(key="metadata.content_type")
-                )
-            ]
-        )
-        doc_k = 20 
-        logger.debug(f"RAG Phase 1: Searching Documents (metadata.content_type exists) with k={doc_k} and filter={doc_filter}")
-
-        # Initialize result lists
-        doc_dense_hits = []
-        doc_bm25_hits = []
-
-        # Phase 1a: Dense search for Documents
-        try:
-            doc_dense_hits = await search_qdrant_knowledge(
-                query_embedding=dense_emb, 
-                limit=doc_k,
-                collection_name=bm_collection,
-                qdrant_filter=doc_filter, 
-                vector_name="dense"
-            )
-            logger.debug(f"RAG Phase 1 (Dense): Found {len(doc_dense_hits)} Document hits.")
-        except Exception as e:
-            logger.warning(f"RAG Phase 1 (Dense Document search) failed: {e}", exc_info=True)
-            doc_dense_hits = []
-
-        # Phase 1b: BM25 search for Documents
-        try:
-            doc_bm25_hits = await search_qdrant_knowledge_sparse(
-                query_text=retrieval_query, 
-                limit=doc_k, 
-                collection_name=bm_collection,
-                qdrant_filter=doc_filter, # Apply the same Document filter
-                vector_name="bm25"
-            )
-            logger.debug(f"RAG Phase 1 (BM25): Found {len(doc_bm25_hits)} Document hits.")
-        except Exception as e:
-            logger.warning(f"RAG Phase 1 (BM25 Document search) failed: {e}", exc_info=True)
-            doc_bm25_hits = []
-
-        # Merge Dense and BM25 Document hits, deduplicating by ID
-        doc_merged = {}
-        for hit in itertools.chain(doc_dense_hits, doc_bm25_hits):
-            hit_id = hit.get('id')
-            payload = hit.get('payload') 
-            if hit_id and payload:
-                 if hit_id in doc_merged:
-                     doc_merged[hit_id]['score'] = max(doc_merged[hit_id].get('score', 0.0), hit.get('score', 0.0))
-                 else:
-                     doc_merged[hit_id] = hit
-        # doc_hits becomes the list of unique, highest-scoring Document hits from dense+BM25
-        doc_hits = list(doc_merged.values())
-        logger.debug(f"RAG Phase 1 (Merged Dense+BM25): Found {len(doc_hits)} unique Document hits.")
-
-        # Phase 2: Search Emails
-        email_hits = [] # Initialize here
-        email_filter = models.Filter(
-            must=[
-                models.FieldCondition(key="metadata.source", match=models.MatchValue(value="email")) # Check metadata.source
-            ]
-        )
-        email_k = 10
-        logger.debug(f"RAG Phase 2: Searching Emails with k={email_k} and filter={email_filter}")
-        try:
-            # Perform only dense search for emails for now, unless BM25 is also desired
-            email_hits = await search_qdrant_knowledge(
-                query_embedding=dense_emb, 
-                limit=email_k,
-                collection_name=bm_collection,
-                qdrant_filter=email_filter,
-                vector_name="dense"
-            )
-            logger.debug(f"RAG Phase 2: Found {len(email_hits)} Email hits.")
-        except Exception as e:
-            logger.warning(f"RAG Phase 2 (Email search) failed: {e}", exc_info=True)
-            email_hits = []
-
-        # Merge and Deduplicate Results (Documents first, then Emails)
-        merged_hits_dict = {}
-        for hit in doc_hits + email_hits: # Add Docs first
-            hit_id = hit.get('id')
-            if hit_id and hit_id not in merged_hits_dict:
-                 merged_hits_dict[hit_id] = hit 
-
-        search_results = list(merged_hits_dict.values())
-        search_results.sort(key=lambda x: x.get('score', 0.0), reverse=True)
-
-        logger.info(f"RAG: Two-phase retrieval merged {len(search_results)} unique hits ({len(doc_hits)} Docs initially, {len(email_hits)} Emails initially). Passing to reranking/filtering.")
-        logger.debug(f"RAG: Merged search results (pre-reranking): {search_results}")
-
-        # --- END: Two-Phase Retrieval ---
-
-        # Check if results are empty *after* the two phases
-        if not search_results:
-             logger.warning("RAG: Two-phase retrieval (PDF+Email) yielded no results. Proceeding without context.")
-             # Consider if a fallback search for *all* types is needed here if results are empty. For now, just proceed.
-
-        # --- Fallback logic for Query Expansion (Keep this, it's separate) ---
-        # NOTE: This fallback might need reconsideration. It currently reruns a dense search
-        # with the original query if the *expanded* query yielded zero results from the two-phase search.
-        # This might be okay, but it bypasses the PDF/Email filtering on the fallback.
-        if not search_results and getattr(settings, 'ENABLE_QUERY_EXPANSION', False) and retrieval_query != orig_retrieval_query:
-            logger.warning("RAG: No results after query expansion with two-phase retrieval, retrying dense search with original query (NO PDF/EMAIL filter)")
-            # Recreate embedding for original query
-            orig_query_embedding = await create_retrieval_embedding(orig_retrieval_query, "dense") # Use dense
-            logger.debug(f"RAG: Running Qdrant fallback search for original query: '{orig_retrieval_query[:50]}...' with limit {settings.RAG_SEARCH_LIMIT}")
-            # Perform a simple dense search without PDF/Email filters for this fallback
-            search_results = await search_qdrant_knowledge(
-                query_embedding=orig_query_embedding,
-                limit=settings.RAG_SEARCH_LIMIT, # Use standard limit for fallback
-                collection_name=bm_collection,
-                qdrant_filter=None, # No filter in this specific fallback
-                vector_name="dense"
-            )
-            logger.debug(f"RAG: Qdrant fallback search (original query) returned {len(search_results)} hits.")
-        # --- End Fallback logic for Query Expansion ---
-
-
-        # --- Start: LLM-based chunk classification to handle arbitrary layouts ---
-        # (This and subsequent steps like reranking, dollar filtering now operate on the 'search_results' from the two-phase retrieval)
-        if 'rate card' not in message.lower() and 'rate for' not in message.lower():
-            # Only classify chunks for non-rate-card queries
-            try:
-                # Prepare chunks for classification
-                # Ensure payload and content exist before accessing
-                chunk_texts = [
-                    hit['payload']['content'] for hit in search_results
-                    if hit.get('payload') and hit['payload'].get('content')
-                ]
-                if not chunk_texts:
-                     logger.debug("RAG: No valid chunks found to send for classification.")
-                else:
-                    class_messages = [
-                        {"role": "system", "content": (
-                            "You are a classification assistant. Given a user question and a list of text chunks, "
-                            "return ONLY a JSON object mapping chunk indices to \"yes\" or \"no\" indicating whether "
-                            "each chunk is useful to answer the question. Do not include any additional text or markdown."
-                        )},
-                        {"role": "user", "content": (
-                            f"User question: {message}\\nChunks:\\n" +
-                            "\\n".join(f"Chunk {i+1}: {txt}" for i, txt in enumerate(chunk_texts)) +
-                            "\\nRespond with only a JSON object mapping each chunk number to 'yes' or 'no'. No extra text."
-                        )}
-                    ]
-                    class_resp = await user_client.chat.completions.create(
-                        model=chat_model,
-                        messages=class_messages,
-                        temperature=0.0
-                    )
-                    # Debug: log raw classification response
-                    logger.debug(f"Classification response content: {class_resp.choices[0].message.content}")
-                    try:
-                        decisions = json.loads(class_resp.choices[0].message.content)
-                        # Filter only chunks marked 'yes'
-                        # Align indices correctly with the potentially filtered chunk_texts
-                        original_indices = [
-                            idx for idx, hit in enumerate(search_results)
-                            if hit.get('payload') and hit['payload'].get('content')
-                        ]
-                        classified_hits = []
-                        for i, original_idx in enumerate(original_indices):
-                             if decisions.get(str(i + 1), "no").lower() == "yes":
-                                 classified_hits.append(search_results[original_idx])
-
-                        if classified_hits: # Only overwrite if classification succeeded and found relevant chunks
-                            search_results = classified_hits
-                            logger.debug(f"RAG: Post-classification filtered hits: {len(search_results)}")
-                        else:
-                             logger.debug("RAG: Classification marked all chunks as 'no' or failed to find matches. Keeping original results.")
-                    except json.JSONDecodeError as json_e:
-                         logger.warning(f"Chunk classification response was not valid JSON: {json_e}", exc_info=True)
-                    except Exception as class_e: # Catch other potential errors during classification processing
-                        logger.warning(f"Error processing classification decisions: {class_e}", exc_info=True)
-
-            except Exception as e:
-                logger.warning(f"Chunk classification step failed entirely: {e}", exc_info=True)
-        else:
-            # Skip classification for rate-card queries to preserve table chunks
-            logger.debug("RAG: Skipping chunk classification for rate-card/table style query")
-        # --- End: LLM-based classification ---
-
-        # Local reranking using OpenAI embeddings and cosine similarity
-        if settings.ENABLE_RERANK and search_results:
-            try:
-                # Extract document texts, ensuring payload and content exist
-                docs = [
-                    hit["payload"]["content"] for hit in search_results
-                    if hit.get("payload") and hit["payload"].get("content")
-                ]
-                # Skip reranking if no valid docs found
-                if not docs:
-                    logger.warning("RAG: No valid document content found for reranking. Skipping.")
-                else:
-                    # Generate embeddings for each doc using user's API key
-                    doc_embeddings = [
-                        await create_embedding(text, client=user_client)
-                        for text in docs
-                    ]
-                    # Cosine similarity helper
-                    import math
-                    def cos_sim(a, b):
-                        # Ensure embeddings are valid lists/tuples of numbers
-                        if not (isinstance(a, (list, tuple)) and isinstance(b, (list, tuple))): return 0.0
-                        if len(a) != len(b) or len(a) == 0: return 0.0
-                        try:
-                            dot = sum(x*y for x, y in zip(a, b))
-                            norm_a = math.sqrt(sum(x*x for x in a))
-                            norm_b = math.sqrt(sum(y*y for y in b))
-                            # Avoid division by zero
-                            return dot/(norm_a*norm_b) if norm_a and norm_b else 0.0
-                        except TypeError: # Handle case where embeddings might contain non-numeric types
-                             logger.warning("RAG: TypeError during cosine similarity calculation. Skipping similarity.")
-                             return 0.0
-
-                    # Compute similarities using the DENSE embedding (from HyDE or retrieval_query)
-                    sims = [cos_sim(dense_emb, emb) for emb in doc_embeddings] 
-
-                    # Blend Qdrant's native score with cosine similarity
-                    qdrant_scores = [hit.get('score', 0.0) for hit in search_results if hit.get("payload") and hit["payload"].get("content")] # Align with filtered docs
-                    # Normalize Qdrant scores (handle division by zero if all scores are same)
-                    min_s, max_s = (min(qdrant_scores), max(qdrant_scores)) if qdrant_scores else (0.0, 0.0) # Simplified initialization
-                    if max_s > min_s:
-                        norm_scores = [(s - min_s)/(max_s - min_s) for s in qdrant_scores]
-                    else:
-                        norm_scores = [1.0] * len(qdrant_scores) # Assign 1 if all scores are equal or list empty
-
-                    alpha = getattr(settings, 'RERANK_WEIGHT', 0.5)
-                    # Ensure lists have the same length before blending
-                    if len(norm_scores) == len(sims):
-                         raw_scores = [alpha * norm_scores[i] + (1 - alpha) * sims[i] for i in range(len(sims))]
-                    else:
-                         logger.warning("RAG: Mismatch between number of scores and similarities. Skipping score blending.")
-                         raw_scores = sims # Fallback to similarity scores only
-
-                    # --- NOTE: PDF BOOST logic removed as prioritization happens earlier ---
-                    # boosted_scores = raw_scores # Use raw blended scores directly now
-                    # --- END PDF BOOST REMOVAL --- 
-
-                    # Apply optional threshold filtering (using raw_scores)
-                    min_score = getattr(settings, 'RERANK_MIN_SCORE', None)
-                    if min_score is not None:
-                        # filter out low-scoring hits based on raw score
-                        scored_indices = [(idx, sc) for idx, sc in enumerate(raw_scores) if sc >= min_score]
-                        if scored_indices:
-                            # Sort remaining based on score
-                            order = [idx for idx, _ in sorted(scored_indices, key=lambda x: x[1], reverse=True)]
-                        else:
-                            # fallback to sorting all raw scores if none meet threshold
-                            logger.debug(f"RAG: No hits met rerank threshold {min_score}. Sorting all {len(raw_scores)} hits by score.")
-                            order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
-                    else:
-                        # Sort based on raw scores if no threshold
-                        order = sorted(range(len(raw_scores)), key=lambda i: raw_scores[i], reverse=True)
-
-                    # Optional MMR diversification for diversity (uses raw_scores for relevance term)
-                    if getattr(settings, 'ENABLE_MMR', False):
-                        mmr_lambda = getattr(settings, 'MMR_LAMBDA', 0.5)
-                        mmr_top_k = getattr(settings, 'MMR_TOP_K', len(order)) # Base K on potentially thresholded list
-                        selected_indices = []
-                        candidate_indices = order.copy() # Indices remaining after potential thresholding
-
-                        # Ensure we have embeddings and scores for the candidates
-                        valid_candidates = [idx for idx in candidate_indices if idx < len(doc_embeddings) and idx < len(raw_scores)]
-
-                        if valid_candidates:
-                            # Pick the highest scoring candidate first
-                            first_idx = max(valid_candidates, key=lambda idx: raw_scores[idx])
-                            selected_indices.append(first_idx)
-                            valid_candidates.remove(first_idx)
-
-                            while len(selected_indices) < mmr_top_k and valid_candidates:
-                                mmr_scores = []
-                                selected_embeddings = [doc_embeddings[sel_idx] for sel_idx in selected_indices]
-                                for cand_idx in valid_candidates:
-                                    cand_embedding = doc_embeddings[cand_idx]
-                                    cand_score = raw_scores[cand_idx]
-                                    # Ensure selected_embeddings is not empty before calculating max_sim
-                                    if selected_embeddings:
-                                         max_sim_with_selected = max(cos_sim(cand_embedding, sel_emb) for sel_emb in selected_embeddings)
-                                    else:
-                                         max_sim_with_selected = 0.0 # No similarity if nothing selected yet
-                                    score_mmr = mmr_lambda * cand_score - (1 - mmr_lambda) * max_sim_with_selected
-                                    mmr_scores.append((cand_idx, score_mmr))
-
-                                if not mmr_scores: break # Exit if no more candidates can be scored
-
-                                next_cand_idx = max(mmr_scores, key=lambda x: x[1])[0]
-                                selected_indices.append(next_cand_idx)
-                                valid_candidates.remove(next_cand_idx)
-
-                            order = selected_indices # Final order determined by MMR
-                            logger.debug(f"Applied MMR diversification: final order indices {order}")
-                        else:
-                             logger.warning("RAG: Skipping MMR due to no valid candidates (check embeddings/scores alignment).")
-
-                    # Reorder search_results based on the final order (from reranking/MMR)
-                    # First, get the subset of search_results corresponding to the `docs` used
-                    valid_search_results = [
-                        hit for hit in search_results
-                        if hit.get("payload") and hit["payload"].get("content")
-                    ]
-                    # Apply the final order, making sure indices are valid
-                    final_ordered_results = [valid_search_results[i] for i in order if i < len(valid_search_results)]
-                    # Replace the original search_results with the reranked/filtered/diversified list
-                    search_results = final_ordered_results
-                    logger.debug(f"Locally reranked/diversified Qdrant hits, final count: {len(search_results)}") # Updated log
-
-            except Exception as e:
-                logger.warning(f"Local rerank or diversification failed, proceeding with original Qdrant order: {e}", exc_info=True)
-
-        # 4. Format context and augment prompt
-        context_str = ""
-        if search_results:
-            context_str += "Relevant Context From Knowledge Base:\n---\n"
-            for i, result in enumerate(search_results):
-                payload_text = result.get('payload', {}).get('content', '') 
-                context_str += f"Context {i+1} (Score: {result.get('score'):.4f}):\n{payload_text}\n---\n"
-            context_str += "End of Context\n\n"
-        else:
-            # Log if no results were found (shouldn't happen based on INFO log, but good practice)
-            logger.warning(f"RAG: search_qdrant_knowledge returned 0 results for collection '{bm_collection}'.")
-            context_str = "No relevant context found in the knowledge base.\n\n"
         
-        # --- ADDED LOG: Show the final constructed context --- 
-        logger.debug(f"RAG: Final context string being sent to LLM:\n---\n{context_str}\n---")
-        # --- END ADDED LOG ---
+        hyde_embedding = await create_retrieval_embedding(hyde_document)
+        logger.debug("RAG: Created HyDE embedding.")
 
-        # --- REVISED SYSTEM PROMPT V15 (Pleasant Table Formatting) ---
-        system_prompt = f"""You are Jarvis, an AI assistant that uses provided RAG context and conversation history only.
-Always answer strictly from the provided context; do not fabricate or infer any details not present in the context. The context often comes from specific documents like SOWs (Statement of Work) between parties (e.g., GIC and a Vendor).
-
-**PRIORITY: If the user's query mentions 'MAS', prioritize information found in context chunks associated with 'MAS' documents.**
-
-**CRITICAL INSTRUCTION - RATE CARD FORMATTING AND ACCURACY:** If the context below contains rate card tables (e.g., Exhibit C or Annex B from an SOW), you MUST extract the data with **absolute precision** and present it clearly. **Failure to follow these steps accurately is unacceptable.**
-1.  **Identify Table:** Locate the relevant rate table (e.g., `B1: Monthly Rates`, `B4: Conversion Fees`) mentioned or implied by the user's query within the context's Annex B or Exhibit C.
-2.  **Match Role EXACTLY:** Find the row that **precisely matches** the role name requested by the user (e.g., "ICT Infrastructure Engineer"). **DO NOT** use data from a different role's row. If the exact role is not listed, state that clearly and **DO NOT GUESS**.
-3.  **Extract Verbatim:** Extract the numerical values for the matched role **exactly as they appear** in the context. **DO NOT** modify, calculate, estimate, or infer any numbers.
-4.  **Present Clearly:** Format the extracted data using a **Markdown Table**.
-5.  **Simplify Complex Tables:** For tables with sub-levels (e.g., Associate, Consultant, Senior), restructure the output table for clarity. Create separate columns for each level (e.g., | Role | Year 1 Assoc. | Year 1 Consult. | ... |). Avoid cramming multiple values into one cell.
-6.  **Add Introduction:** Add a brief introductory sentence identifying the source (e.g., "Here are the conversion fees for [Role Name] from Annex B4:").
-7.  **Strict Context Adherence:** **ONLY** use information present in the provided context. **DO NOT HALLUCINATE** or provide data not explicitly found in the relevant table row for the requested role.
-
-**General Instructions (Apply *after* checking for rate cards):**
-- If **no relevant Exhibit C/Annex B rate table applies**, and the user's question includes "list", "what are", or asks for multiple items, present a bullet list (markdown or plain hyphens).
-- If **no relevant table applies**, and the user's question requests structured data for code, output valid JSON.
-- If **no relevant table applies**, answer direct questions or single-item info requests in friendly plain text.
-- **ONLY IF** the information is TRULY absent from the entire context **AFTER THOROUGHLY CHECKING ALL TABLES** (especially Exhibit C/Annex B within the SOW context), respond that you don't have sufficient context or ask ONE clarifying question.
-
---- START RAG CONTEXT ---
-{context_str}
---- END RAG CONTEXT ---
-
-Answer:
-""" # End of revised RAG system prompt V15
-        # --- END REVISED SYSTEM PROMPT V15 ---
+        # 2.5 Build Filter (Moved filter construction here)
+        search_filter_parts = []
+        # --- START: Rate card filtering --- 
+        if 'rate card' in message.lower():
+            # Extract dollar amount if present
+            match = re.search(r'\$?(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?', message)
+            if match:
+                amount_str = match.group(1).replace(',', '')
+                try:
+                    amount = int(amount_str)
+                    # Add a filter condition for rate_card_amount if the field exists in payload
+                    # NOTE: Adjust "payload.rate_card_amount" if the field name is different
+                    search_filter_parts.append(f"metadata_json['rate_card_amount'] >= {amount}")
+                    logger.debug(f"RAG: Added rate card filter: amount >= {amount}")
+                except ValueError:
+                    logger.warning(f"Could not parse amount from rate card query: {match.group(1)}")
+            else:
+                 logger.debug("RAG: 'rate card' detected but no dollar amount found for filtering.")
+        # --- END: Rate card filtering ---
         
-        # --- START HISTORY HANDLING ---
-        messages = []
-        messages.append({"role": "system", "content": system_prompt})
+        # Example: Filter by role if extracted during refinement
+        if refined and refined.get('role'):
+            # Assuming role is stored in metadata_json['role']
+            search_filter_parts.append(f'metadata_json["role"] == "{refined["role"]}"')
+            logger.debug(f"RAG: Added filter for role: {refined['role']}")
+            
+        # Combine filters with ' and '
+        search_filter = " and ".join(search_filter_parts) if search_filter_parts else None
+        logger.debug(f"RAG: Constructed search filter: {search_filter}")
 
-        # --- MODIFICATION: Temporarily skip history for rate card queries to test interference ---
-        if 'rate card' not in message.lower():
-            # Add chat history (last 3 messages), ensuring alternating user/assistant roles
-            if chat_history:
-                # Take the last 3 entries (or fewer if history is shorter)
-                history_to_use = chat_history[-3:]
-                logger.debug(f"RAG: Adding {len(history_to_use)} messages from history to prompt.")
-                # Basic validation of history items
-                validated_history = [
-                    item for item in history_to_use
-                    if isinstance(item, dict) and 'role' in item and 'content' in item and item['role'] in ["user", "assistant"]
-                ]
-                # Log skipped items
-                if len(validated_history) < len(history_to_use):
-                    logger.warning(f"RAG: Skipped {len(history_to_use) - len(validated_history)} invalid history entries.")
-                messages.extend(validated_history)
-            # History handling if condition is skipped:
-            # else:
-            #     logger.debug("RAG: No chat history provided.") # Optional: Add else block if needed
-        else:
-            logger.debug("RAG: Skipping chat history for rate card query to avoid interference.")
-        # --- END MODIFICATION ---
 
-        # Add the *current* user message AFTER the history (or system prompt if history skipped)
+        # 3. Search Milvus for relevant context (dense search using HyDE embedding)
+        k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', 5))
+        logger.debug(f"RAG: Performing dense search with HyDE embedding for query: {message[:50]}... (k={k_dense})")
+        dense_search_results = await search_milvus_knowledge(
+            user_email=user.email,
+            query_vector=hyde_embedding,
+            query_text=hyde_document, # Pass HyDE doc for potential metadata logging/debugging
+            k=k_dense, # Number of results for dense search
+            filter_criteria=search_filter # Apply the constructed filter (now a string)
+        )
+        logger.debug(f"RAG: Dense search returned {len(dense_search_results)} results.")
+
+        # 4. Perform sparse search (REMOVED) 
+        # sparse_search_results = [] # Set sparse results to empty list (no longer needed)
+
+        # 5. Combine and Rank Results using Reciprocal Rank Fusion (RRF)
+        # --- MODIFIED RRF TO HANDLE ONLY DENSE RESULTS --- 
+        logger.debug("RAG: Combining results (using only dense search results).")
+        combined_results = {}
+        rrf_k = 60  # Constant factor for RRF scoring, as described in papers
+
+        # Process dense results
+        for rank, hit in enumerate(dense_search_results):
+            doc_id = hit["id"]
+            # Milvus returns distance; lower is better. 
+            # We use rank directly for RRF scoring (higher is better)
+            score = 1.0 / (rank + 1 + rrf_k) # Add 1 because rank is 0-indexed
+            if doc_id not in combined_results:
+                combined_results[doc_id] = {"score": 0, "metadata": hit["metadata"], "id": doc_id}
+            combined_results[doc_id]["score"] += score
+            logger.debug(f"RAG: Dense Result ID: {doc_id}, Rank: {rank}, Score Contribution: {score}")
+        
+        # --- REMOVED Sparse result processing --- 
+
+        # Sort combined results by RRF score in descending order
+        ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
+        logger.debug(f"RAG: Combined {len(ranked_results)} unique results after RRF.")
+
+        # 6. Format context and build prompt
+        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['metadata'])}" for res in ranked_results[:5]]) # Limit context window
+        logger.debug(f"RAG: Formatted context (top {len(ranked_results[:5])} results):\n{context[:500]}...") # Log snippet of context
+
+        # --- Existing history formatting logic --- 
+        formatted_history = []
+        for msg in chat_history:
+            role = "user" if msg["role"] == "user" else "assistant"
+            formatted_history.append({"role": role, "content": msg["content"]})
+        # --- End history formatting ---
+
+        system_prompt = f"""You are Jarvis, an AI assistant. 
+        You are chatting with {user.display_name or user.email}. 
+        Use the following retrieved context to answer the user's question.
+        If the context doesn't contain the answer, say you don't have enough information from the knowledge base.
+        Do not make up information not present in the context.
+        Be concise and helpful.
+
+        Context:
+        {context}
+        """
+        
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ]
+        messages.extend(formatted_history) # Add formatted history
         messages.append({"role": "user", "content": message})
-        # --- END HISTORY HANDLING ---
-
-        # 5. Call OpenAI using the USER-specific client
-        # Choose the model: user-specified or default
-        logger.debug(f"Calling OpenAI model '{chat_model}' with user key...")
-        logger.debug(f"RAG: Final messages structure sent to OpenAI: {messages}") 
+        
+        logger.debug(f"RAG: Sending final prompt to {chat_model}...")
+        
+        # 7. Call OpenAI API with context and user message (using user's key)
         response = await user_client.chat.completions.create(
             model=chat_model,
             messages=messages,
-            temperature=0.1,
+            temperature=0.1 # Low temperature for factual RAG response
         )
-        response_content = response.choices[0].message.content
-        logger.debug(f"Received response from OpenAI using user key for {user.email}.")
-        return response_content if response_content else "Sorry, I couldn't generate a response based on the context."
-    
-    except HTTPException as he:
-        # Re-raise HTTP exceptions (like the 400 for missing key)
-        raise he
-    except Exception as e:
-        logger.error(f"Error during RAG generation for user {user.email} using their key: {str(e)}", exc_info=True)
-        # Log the specific collection searched during the error
-        collection_name_on_error = f"{user.email.replace('@', '_').replace('.', '_')}_knowledge_base"
-        # Return a generic error, hide specific details unless needed for debugging
-        # Consider raising a 500 error instead of returning a string for better handling
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-                            detail=f"Sorry, an error occurred while searching the '{collection_name_on_error}' knowledge base.")
+        
+        final_response = response.choices[0].message.content
+        logger.debug(f"RAG: Received final response from {chat_model}.")
+        return final_response
 
-# Keep the old simple chat function for now, or remove if replaced by RAG
-# async def generate_openai_chat_response(message: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
-#    ... (previous implementation) ...
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions directly (like the API key missing error)
+        raise http_exc
+    except Exception as e:
+        logger.error(f"Error generating RAG response for user {user.email}: {e}", exc_info=True)
+        # Generic error for other unexpected issues
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"An error occurred while generating the response: {str(e)}"
+        )
+
+# --- Helper function for cosine similarity ---
+import numpy as np
+
+def cos_sim(a, b):
+    # Ensure embeddings are valid lists/tuples of numbers
+    if not isinstance(a, (list, tuple, np.ndarray)) or not isinstance(b, (list, tuple, np.ndarray)):
+        logger.warning(f"Invalid input types for cosine similarity: {type(a)}, {type(b)}")
+        return 0.0 # Or raise an error?
+        
+    # Check if elements are numeric (simple check)
+    if not all(isinstance(x, (int, float)) for x in a) or not all(isinstance(x, (int, float)) for x in b):
+        logger.warning("Non-numeric elements found in embeddings for cosine similarity.")
+        return 0.0
+        
+    # Convert to numpy arrays
+    a = np.array(a)
+    b = np.array(b)
+    
+    # Check for zero vectors or dimension mismatch
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0 or a.shape != b.shape:
+        logger.warning("Invalid vectors for cosine similarity (zero vector or shape mismatch).")
+        return 0.0
+        
+    # Calculate cosine similarity
+    similarity = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    return similarity
+# --- End Helper --- 
+
+# --- START: ADVANCED RAG FOR RATE CARDS --- 
+async def get_rate_card_response_advanced(
+    message: str,
+    user: User,
+    db: Session
+) -> str:
+    """Advanced RAG pipeline specifically for rate card queries."""
+    
+    logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
+    
+    try:
+        # 1. User API Key & Client Setup (same as standard RAG)
+        user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
+        if not user_openai_key:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OpenAI API key required.")
+        user_client = AsyncOpenAI(api_key=user_openai_key, timeout=30.0)
+        chat_model = settings.OPENAI_MODEL_NAME
+        
+        # 2. Query Analysis & Feature Extraction (Tailored for Rate Cards)
+        logger.debug("RateCardRAG: Analyzing query for key features...")
+        analysis_prompt = (
+            f"Analyze the following rate card query: '{message}'. "
+            "Extract key features like role, experience level (e.g., junior, mid, senior, principal), specific skills mentioned, "
+            "location/region (if any), and requested dollar amount (if any). "
+            "Return a JSON object with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer). "
+            "If a feature is not mentioned, use null or an empty list."
+        )
+        analysis_response = await user_client.chat.completions.create(
+            model=chat_model,
+            messages=[
+                {"role": "system", "content": "You are a query analyzer specializing in rate card requests."},
+                {"role": "user", "content": analysis_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        query_features = json.loads(analysis_response.choices[0].message.content)
+        logger.debug(f"RateCardRAG: Extracted query features: {query_features}")
+        
+        # 3. Construct Multi-Vector Retrieval Queries
+        retrieval_queries = []
+        # Base query from features
+        base_query_parts = [query_features.get(k) for k in ['role', 'experience', 'location'] if query_features.get(k)]
+        if query_features.get('skills'):
+            base_query_parts.extend(query_features['skills'])
+        base_query = " ".join(base_query_parts) if base_query_parts else message # Fallback to original message
+        retrieval_queries.append(base_query)
+        logger.debug(f"RateCardRAG: Base retrieval query: {base_query}")
+        
+        # Additional queries (e.g., focusing only on role and experience)
+        if query_features.get('role') and query_features.get('experience'):
+            role_exp_query = f"{query_features['role']} {query_features['experience']}"
+            retrieval_queries.append(role_exp_query)
+            logger.debug(f"RateCardRAG: Role/Experience query: {role_exp_query}")
+        # Consider adding queries focusing only on skills if present
+        if query_features.get('skills'):
+            skills_query = " ".join(query_features['skills'])
+            retrieval_queries.append(skills_query)
+            logger.debug(f"RateCardRAG: Skills query: {skills_query}")
+            
+        # Deduplicate retrieval queries
+        retrieval_queries = list(set(retrieval_queries))
+        logger.debug(f"RateCardRAG: Final unique retrieval queries: {retrieval_queries}")
+
+        # 4. Generate Embeddings (potentially HyDE for each query)
+        query_vectors = []
+        hyde_docs = {}
+        for q in retrieval_queries:
+            # Optional: Generate HyDE doc for each retrieval query
+            hyde_doc = q # Default if HyDE fails
+            try:
+                hyde_msgs = [
+                    {"role": "system", "content": "Generate a concise, factual hypothetical rate card document answering the query."}, 
+                    {"role": "user", "content": q}
+                ]
+                hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
+                gen_doc = hyde_resp.choices[0].message.content.strip()
+                if gen_doc: hyde_doc = gen_doc
+            except Exception: pass # Ignore HyDE failure for individual queries
+            hyde_docs[q] = hyde_doc
+            
+            # Create embedding using the HyDE document (or original query if HyDE failed)
+            embedding = await create_retrieval_embedding(hyde_doc)
+            query_vectors.append(embedding)
+            logger.debug(f"RateCardRAG: Generated embedding for query: '{q}' (using HyDE: {hyde_doc[:50]}...)")
+
+        # 5. Perform Multi-Vector Search in Milvus
+        k_per_query = int(getattr(settings, 'RATE_CARD_RESULTS_PER_QUERY', 3)) # Retrieve fewer per query initially
+        all_search_results = [] 
+        
+        # Build filter based on extracted amount
+        search_filter = None
+        requested_amount = query_features.get('amount')
+        if requested_amount is not None and isinstance(requested_amount, int):
+            # Assuming rate is stored in metadata_json.rate_card_amount
+            search_filter = f"metadata_json['rate_card_amount'] >= {requested_amount}"
+            logger.debug(f"RateCardRAG: Applying search filter: {search_filter}")
+        else:
+            logger.debug("RateCardRAG: No amount filter applied.")
+
+        for i, vector in enumerate(query_vectors):
+            logger.debug(f"RateCardRAG: Searching with vector {i+1} for query: '{retrieval_queries[i]}'")
+            results = await search_milvus_knowledge(
+                user_email=user.email,
+                query_vector=vector,
+                query_text=hyde_docs[retrieval_queries[i]], # Pass associated HyDE doc
+                k=k_per_query,
+                filter_criteria=search_filter # Apply amount filter if applicable
+            )
+            all_search_results.extend(results) # Combine results from all queries
+            logger.debug(f"RateCardRAG: Found {len(results)} results for vector {i+1}.")
+            
+        logger.info(f"RateCardRAG: Total raw results from multi-vector search: {len(all_search_results)}")
+
+        # 6. Deduplicate and Re-rank Results
+        unique_results = {res['id']: res for res in all_search_results} # Simple deduplication by ID
+        ranked_results = list(unique_results.values())
+        logger.info(f"RateCardRAG: Unique results after deduplication: {len(ranked_results)}")
+        
+        # Re-ranking based on relevance to the *original* user message
+        if ranked_results:
+            logger.debug("RateCardRAG: Re-ranking based on original query similarity...")
+            original_query_embedding = await create_retrieval_embedding(message)
+            
+            # Calculate similarity between original query and each result's content/embedding
+            for result in ranked_results:
+                result_embedding = result.get('vector') # Assuming search_milvus_knowledge can return vectors
+                result_text = json.dumps(result.get('metadata', {})) # Use metadata text
+                
+                if result_embedding:
+                    # Option 1: Use pre-computed embedding from result if available
+                    similarity = cos_sim(original_query_embedding, result_embedding)
+                else:
+                    # Option 2: Re-embed result text (less efficient but fallback)
+                    logger.warning(f"RateCardRAG: Re-embedding result ID {result['id']} for re-ranking as vector not found.")
+                    result_embedding_rerank = await create_retrieval_embedding(result_text)
+                    similarity = cos_sim(original_query_embedding, result_embedding_rerank)
+                
+                # Assign similarity score for sorting (can combine with original distance if needed)
+                result['rerank_score'] = similarity 
+                logger.debug(f"RateCardRAG: Result ID {result['id']} rerank similarity: {similarity:.4f}")
+            
+            # Sort by the new rerank_score (higher is better)
+            ranked_results.sort(key=lambda x: x.get('rerank_score', 0.0), reverse=True)
+            logger.debug("RateCardRAG: Completed re-ranking.")
+        
+        # 7. Context Selection & Formatting (Select top N re-ranked results)
+        final_context_limit = int(getattr(settings, 'RATE_CARD_FINAL_CONTEXT_LIMIT', 5))
+        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['metadata'])}" for res in ranked_results[:final_context_limit]])
+        logger.debug(f"RateCardRAG: Formatted final context (top {len(ranked_results[:final_context_limit])}):\n{context[:500]}...")
+
+        # 8. Generate Final Response using LLM
+        system_prompt = (
+            "You are Jarvis, an AI assistant specializing in providing rate card information. "
+            f"You are chatting with {user.display_name or user.email}. "
+            "Use the provided context containing relevant rate card entries to answer the user's query accurately. "
+            "Directly quote rates and associated details (like role, experience, skills, location) from the context. "
+            "If the context doesn't contain a precise match, state that clearly but offer the closest information available in the context. "
+            "Do not make up rates or information not present in the context."
+            "Structure your answer clearly, perhaps listing relevant entries found."
+            f"\n\nContext:\n{context}"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message}
+        ]
+        
+        logger.debug(f"RateCardRAG: Sending final prompt to {chat_model}...")
+        response = await user_client.chat.completions.create(
+            model=chat_model,
+            messages=messages,
+            temperature=0.0 # Very low temp for factual rate card response
+        )
+        final_response = response.choices[0].message.content
+        logger.info("RateCardRAG: Generated final response.")
+        return final_response
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise specific errors
+    except Exception as e:
+        logger.error(f"Error during advanced rate card RAG for user {user.email}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while processing your rate card request."
+        )
+# --- END: ADVANCED RAG FOR RATE CARDS --- 

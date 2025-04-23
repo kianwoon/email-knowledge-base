@@ -97,7 +97,7 @@ class Settings(BaseSettings):
 
     # Per-field embedding configuration
     DENSE_EMBEDDING_MODEL: str = os.getenv("DENSE_EMBEDDING_MODEL", EMBEDDING_MODEL)
-    DENSE_EMBEDDING_DIMENSION: int = int(os.getenv("DENSE_EMBEDDING_DIMENSION", str(EMBEDDING_DIMENSION)))
+    DENSE_EMBEDDING_DIMENSION: int = int(os.getenv("DENSE_EMBEDDING_DIMENSION", EMBEDDING_DIMENSION)) # Ensure result is int
     COLBERT_EMBEDDING_MODEL: str = os.getenv("COLBERT_EMBEDDING_MODEL", "colbert-ir/colbertv2.0")
     COLBERT_EMBEDDING_DIMENSION: int = int(os.getenv("COLBERT_EMBEDDING_DIMENSION", "512"))
     BM25_EMBEDDING_MODEL: str = os.getenv("BM25_EMBEDDING_MODEL", "Qdrant/bm25")
@@ -119,14 +119,20 @@ class Settings(BaseSettings):
     # Maximum number of Qdrant hits to retrieve (configurable RAG search limit)
     RAG_SEARCH_LIMIT: int = int(os.getenv("RAG_SEARCH_LIMIT", "10"))
 
-    # Qdrant settings
-    QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars
-    QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY") # Optional, not validated by helper
-    QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME") # validated by check_required_env_vars
-    QDRANT_RAW_COLLECTION_NAME: str = "email_knowledge"
+    # Milvus settings
+    MILVUS_URI: str = os.getenv("MILVUS_URI") # validated by check_required_env_vars
+    MILVUS_TOKEN: str = os.getenv("MILVUS_TOKEN") # validated by check_required_env_vars
+    # You might need a default collection name for Milvus as well
+    MILVUS_DEFAULT_COLLECTION: str = os.getenv("MILVUS_DEFAULT_COLLECTION", "default_knowledge")
+
+    # Qdrant settings (Commented out for Milvus migration)
+    # QDRANT_URL: str = os.getenv("QDRANT_URL") # validated by check_required_env_vars
+    # QDRANT_API_KEY: Optional[str] = os.getenv("QDRANT_API_KEY") # Optional, not validated by helper
+    # QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME") # validated by check_required_env_vars
+    # QDRANT_RAW_COLLECTION_NAME: str = "email_knowledge"
     # --- ADDED Qdrant Vector Params ---
-    QDRANT_VECTOR_SIZE: int = 768  # Updated default to match BAAI/bge-base-en-v1.5 embedding dims
-    QDRANT_DISTANCE_METRIC: str = "Cosine" # Default for OpenAI embeddings
+    # QDRANT_VECTOR_SIZE: int = 768  # Updated default to match BAAI/bge-base-en-v1.5 embedding dims
+    # QDRANT_DISTANCE_METRIC: str = "Cosine" # Default for OpenAI embeddings
     # --- END ADDED ---
 
     # Email processing settings

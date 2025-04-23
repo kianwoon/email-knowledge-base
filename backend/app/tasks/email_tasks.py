@@ -5,9 +5,11 @@ import asyncio # Import asyncio
 from asyncio import TimeoutError # Explicit import for clarity
 from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
 
-# Qdrant Imports
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
+# Remove Qdrant Imports
+# from qdrant_client import QdrantClient, models
+# from qdrant_client.http.exceptions import UnexpectedResponse
+# Import Milvus
+from pymilvus import MilvusClient
 
 from app.celery_app import celery_app
 # from ..core.config import settings # OLD Relative import (wrong path)
@@ -16,10 +18,10 @@ from app.db.session import SessionLocal # Assuming SessionLocal is available for
 from app.crud import user_crud # Assuming user_crud is available
 from app.services.outlook import OutlookService # Assuming OutlookService is available
 from app.models.email import EmailFilter # Import EmailFilter
-# Import the new service function and Qdrant client getter
+# Import the new service function and Milvus client getter
 from app.services.knowledge_service import _process_and_store_emails
-from app.db.qdrant_client import get_qdrant_client, ensure_collection_exists
-# Add other necessary imports for email processing (e.g., Qdrant client, analysis service)
+from app.db.milvus_client import get_milvus_client, ensure_collection_exists
+# Add other necessary imports for email processing (e.g., Milvus client, analysis service)
 # from app.services.qdrant_service import QdrantService
 # from app.services.analysis_service import AnalysisService
 # --- Import for manual encryption/decryption --- 
@@ -56,7 +58,7 @@ class EmailProcessingTask(Task):
 def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
     """
     Celery task to fetch, process (generate tags), and store emails based on criteria.
-    Uses OutlookService for fetching, OpenAI for tagging, and Qdrant for storage.
+    Uses OutlookService for fetching, OpenAI for tagging, and Milvus for storage.
     Args:
         user_id (str): The email address of the user whose emails are being processed.
         filter_criteria_dict (dict): A dictionary representation of EmailFilter criteria.
@@ -78,16 +80,16 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Invalid filter criteria provided'})
             return {'status': 'ERROR', 'message': 'Invalid filter criteria'}
 
-        # --- Get DB Session & Qdrant Client ---
+        # --- Get DB Session & Milvus Client ---
         db = SessionLocal()
         if not db:
              raise Exception("Could not create database session.")
         logger.debug(f"Task {task_id}: Database session created.")
 
-        qdrant_client = get_qdrant_client() # Get Qdrant client instance
-        if not qdrant_client:
-            raise Exception("Could not create Qdrant client.")
-        logger.debug(f"Task {task_id}: Qdrant client obtained.")
+        milvus_client = get_milvus_client() # Get Milvus client instance
+        if not milvus_client:
+            raise Exception("Could not create Milvus client.")
+        logger.debug(f"Task {task_id}: Milvus client obtained.")
 
         # --- Retrieve User and Refresh Token ---
         db_user = user_crud.get_user_full_instance(db=db, email=user_id)
@@ -182,30 +184,23 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
         # --- Initialize Outlook Service ---
         outlook_service = OutlookService(access_token)
 
-        # --- Define Target Qdrant Collection --- 
+        # --- Define Target Milvus Collection --- 
         sanitized_email = user_id.replace('@', '_').replace('.', '_')
         target_collection_name = f"{sanitized_email}_email_knowledge"
-        logger.info(f"Task {task_id}: Target Qdrant collection: {target_collection_name}")
+        logger.info(f"Task {task_id}: Target Milvus collection: {target_collection_name}")
 
         # --- Ensure Target Collection Exists --- 
         try:
-            logger.info(f"Task {task_id}: Ensuring collection '{target_collection_name}' exists.")
-            qdrant_client.create_collection(
-                collection_name=target_collection_name,
-                vectors_config=models.VectorParams(
-                    size=settings.EMBEDDING_DIMENSION, # Use settings
-                    distance=models.Distance.COSINE  # Use settings or default
-                )
-            )
-            logger.info(f"Task {task_id}: Collection '{target_collection_name}' created.")
-        except UnexpectedResponse as e:
-            if e.status_code == 409 or (e.status_code == 400 and "already exists" in str(e.content).lower()):
-                logger.warning(f"Task {task_id}: Collection '{target_collection_name}' already exists.")
-                pass 
-            else: raise e
+            logger.info(f"Task {task_id}: Ensuring Milvus collection '{target_collection_name}' exists with dim {settings.DENSE_EMBEDDING_DIMENSION}.")
+            # Use the Milvus helper function ensure_collection_exists
+            ensure_collection_exists(milvus_client, target_collection_name, settings.DENSE_EMBEDDING_DIMENSION)
+            logger.info(f"Task {task_id}: Milvus collection '{target_collection_name}' is ready.")
         except Exception as create_err:
-             logger.error(f"Task {task_id}: Failed to ensure/create collection '{target_collection_name}': {create_err}", exc_info=True)
-             raise Exception(f"Failed to create target collection: {create_err}")
+             # Catch potential errors from ensure_collection_exists (e.g., connection, schema mismatch)
+             logger.error(f"Task {task_id}: Failed to ensure Milvus collection '{target_collection_name}': {create_err}", exc_info=True)
+             self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to prepare vector collection: {create_err}'})
+             # Propagate exception to main handler
+             raise Exception(f"Failed to prepare target collection: {create_err}")
 
         # --- Perform Email Processing using Knowledge Service --- 
         logger.info(f"Task {task_id}: Calling knowledge service to process emails for user {user_id}")
@@ -215,66 +210,66 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             full_meta = {'user_email': user_id, **meta}
             self.update_state(state=state, meta=full_meta)
         
-        processed_count, failed_count, points_to_upsert = asyncio.run(
+        processed_count, failed_count, data_to_insert = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,
                 owner_email=user_id,
                 filter_criteria=filter_criteria,
                 outlook_service=outlook_service,
-                qdrant_client=qdrant_client, 
+                vector_db_client=milvus_client, # Pass Milvus client
                 target_collection_name=target_collection_name, 
                 update_state_func=update_progress 
             )
         )
 
-        logger.info(f"Task {task_id}: Email processing completed. Processed: {processed_count}, Failed: {failed_count}. Points to upsert: {len(points_to_upsert)}")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Upserting data...'})
+        logger.info(f"Task {task_id}: Email processing completed. Processed: {processed_count}, Failed: {failed_count}. Data points to insert: {len(data_to_insert)}")
+        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Inserting data...'})
 
-        # --- Upsert Points to Qdrant ---
-        if points_to_upsert:
+        # --- Insert Data into Milvus ---
+        if data_to_insert:
             try:
-                qdrant_client.upsert(
+                logger.info(f"Task {task_id}: Inserting {len(data_to_insert)} data points into Milvus collection {target_collection_name}.")
+                # Use Milvus client insert method
+                insert_result = milvus_client.insert(
                     collection_name=target_collection_name,
-                    points=points_to_upsert,
-                    wait=True # Wait for operation to complete
+                    data=data_to_insert
                 )
-                logger.info(f"Task {task_id}: Successfully upserted {len(points_to_upsert)} points to {target_collection_name}.")
-            except Exception as upsert_err:
-                logger.error(f"Task {task_id}: Failed to upsert points to Qdrant: {upsert_err}", exc_info=True)
-                # Decide how to handle upsert failure (e.g., mark task as failed?)
-                # For now, log error and potentially update status
-                failed_count += len(points_to_upsert) # Count these as failed
-                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed to save data: {upsert_err}'})
-                return {'status': 'ERROR', 'message': f'Failed final save: {upsert_err}', 'processed': processed_count, 'failed': failed_count}
+                # Log success based on input length, as result structure might vary
+                logger.info(f"Task {task_id}: Successfully called Milvus insert for {len(data_to_insert)} points into {target_collection_name}.")
+            except Exception as insert_err:
+                logger.error(f"Task {task_id}: Failed to insert data into Milvus: {insert_err}", exc_info=True)
+                failed_count += len(data_to_insert) # Count these as failed
+                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed to save data: {insert_err}'})
+                # Consider if we need to return partial success or just failure
+                return {'status': 'ERROR', 'message': f'Failed final save step: {insert_err}', 'processed': processed_count, 'failed': failed_count}
+        else:
+             logger.warning(f"Task {task_id}: No data points were generated by the processing service, nothing to insert.")
 
         # --- Task Completion ---
-        final_status = 'SUCCESS' if failed_count == 0 else 'PARTIAL_FAILURE'
-        final_message = f"Completed. Processed: {processed_count}, Failed: {failed_count}."
-        result = {'status': final_status, 'message': final_message, 'processed': processed_count, 'failed': failed_count}
-        logger.info(f"Task {task_id}: {final_message}")
+        final_status = 'SUCCESS'
+        final_message = f"Email processing completed. Processed: {processed_count}, Failed: {failed_count}"
+        if failed_count > 0:
+             final_status = 'PARTIAL_SUCCESS'
+             logger.warning(f"Task {task_id}: Completed with {failed_count} failures.")
         
-        self.update_state(state='SUCCESS' if final_status == 'SUCCESS' else 'FAILURE', meta={
-            'user_email': user_id, 
-            'progress': 100, 
-            'status': 'Completed' if final_status == 'SUCCESS' else 'Completed with errors', 
-            'result': result
-        })
-        return result
+        logger.info(f"Task {task_id}: {final_message}")
+        self.update_state(state='SUCCESS', meta={'user_email': user_id, 'progress': 100, 'status': final_message, 'processed_count': processed_count, 'failed_count': failed_count})
+        return {'status': final_status, 'message': final_message, 'processed': processed_count, 'failed': failed_count}
 
     except Exception as e:
-        logger.exception(f"Task {task_id}: An unexpected error occurred during email processing for user '{user_id}': {e}")
-        failure_meta = {'user_email': user_id, 'status': f'Failed: {str(e)}'}
+        task_id_exc = getattr(self.request, 'id', 'UNKNOWN_TASK_ID')
+        user_id_exc = user_id if 'user_id' in locals() else 'UNKNOWN_USER'
+        logger.error(f"Task {task_id_exc} failed for user '{user_id_exc}': {e}", exc_info=True)
         try:
-             self.update_state(state='FAILURE', meta=failure_meta)
-        except Exception as state_update_err:
-             logger.error(f"Task {task_id}: Could not update task state to FAILURE after exception: {state_update_err}")
-        raise e
-
+            # Attempt to update state one last time on general failure
+            self.update_state(state='FAILURE', meta={'user_email': user_id_exc, 'status': f'Internal task error: {str(e)}'})
+        except Exception as state_update_error:
+            logger.error(f"Task {task_id_exc}: Failed to update state during exception handling: {state_update_error}")
+        # Reraise the exception to let Celery handle it (logging, retries etc.)
+        raise e # Reraise after logging and state update attempt
     finally:
+        # Ensure DB session is closed
         if db:
-            try:
-                db.close()
-                logger.debug(f"Task {task_id}: Database session closed successfully.")
-            except Exception as close_err:
-                logger.error(f"Task {task_id}: Error closing database session: {close_err}", exc_info=True)
-        # Qdrant client closing might not be needed if managed elsewhere 
+            db.close()
+            logger.debug(f"Task {getattr(self.request, 'id', 'UNKNOWN')}: Database session closed.")
+        # Milvus client closing might not be needed if managed elsewhere 

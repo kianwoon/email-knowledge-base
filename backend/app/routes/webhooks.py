@@ -5,17 +5,19 @@ import uuid
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
-# Qdrant imports
-# Import client and necessary models separately
-from qdrant_client import QdrantClient
-# Import models, removing ScrollResponse as it causes import errors 
-from qdrant_client.models import PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue, ScrollRequest # Common models
-from qdrant_client.http.models import PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue
+# Milvus imports (replacing Qdrant)
+from pymilvus import MilvusClient
+# from qdrant_client import QdrantClient
+# Import models, removing ScrollResponse as it causes import errors
+# from qdrant_client.models import PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue, ScrollRequest # Common models
+# from qdrant_client.http.models import PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue
 
 from app.config import settings
 from app.models.analysis import WebhookPayload, SubjectAnalysisResultItem # Corrected import path, removed AnalysisResult
 from app.websocket import manager
-from app.db.qdrant_client import get_qdrant_client
+# Import Milvus client (replacing Qdrant)
+from app.db.milvus_client import get_milvus_client
+# from app.db.qdrant_client import get_qdrant_client
 from app.db.job_mapping_db import get_mapping as get_sqlite_mapping # Import SQLite getter
 
 # Add asyncio for sleep
@@ -29,17 +31,22 @@ class AnalysisResultItem(BaseModel):
     tag: str
     cluster: str
     subject: str
+    email_id: str # Added email_id
 
-class WebhookPayload(BaseModel):
+class AnalysisPayload(BaseModel):
+    job_id: str
     results: List[AnalysisResultItem]
-    job_id: str | int # Accept int or str, will convert to str
-    status: str | None = None # Optional status field
 
-@router.post("/analysis", status_code=202) # Use 202 Accepted 
-async def handle_analysis_webhook(
-    webhook_data: WebhookPayload,
-    request: Request,
-    qdrant: QdrantClient = Depends(get_qdrant_client) # <-- Add Qdrant dependency
+# Define the structure for the webhook payload for updating charts
+class ChartUpdatePayload(BaseModel):
+    job_id: str
+    chart_data: Dict[str, Any] # Using Dict for flexible chart structure
+
+@router.post("/analysis_complete")
+async def handle_analysis_complete(
+    payload: AnalysisPayload, 
+    request: Request, 
+    vector_db_client: MilvusClient = Depends(get_milvus_client) # Updated dependency
 ):
     """
     Handles incoming webhook callbacks from the external analysis service.
@@ -54,10 +61,9 @@ async def handle_analysis_webhook(
         # raw_body = await request.body()
         # logger.info(f"[WEBHOOK-DEBUG] Raw body received: {raw_body.decode()}")
 
-        external_job_id = str(webhook_data.job_id) # Ensure it's a string
+        external_job_id = str(payload.job_id) # Ensure it's a string
         logger.info(f"[WEBHOOK] Received analysis results for EXTERNAL job_id: {external_job_id}")
-        logger.debug(f"[WEBHOOK] Status received: {webhook_data.status}")
-        logger.debug(f"[WEBHOOK] Payload results count: {len(webhook_data.results)}")
+        logger.debug(f"[WEBHOOK] Payload results count: {len(payload.results)}")
 
         # --- Find Internal Job ID and Owner using SQLite --- 
         internal_job_id, owner = get_sqlite_mapping(external_job_id)
@@ -117,8 +123,8 @@ async def handle_analysis_webhook(
             "type": "analysis_chart",
             "job_id": internal_job_id, # Store the INTERNAL job ID
             "owner": owner,
-            "results": [item.model_dump() for item in webhook_data.results],
-            "status": webhook_data.status or "completed" # Use provided status or default
+            "results": [item.model_dump() for item in payload.results],
+            "status": "completed" # Use provided status or default
         }
         chart_point = PointStruct(
             id=chart_point_id,
@@ -126,7 +132,7 @@ async def handle_analysis_webhook(
             vector=[0.0] * settings.EMBEDDING_DIMENSION # ADDED dummy vector
         )
         try:
-            qdrant.upsert(
+            vector_db_client.upsert(
                 collection_name=settings.QDRANT_COLLECTION_NAME,
                 points=[chart_point],
                 wait=True
@@ -158,11 +164,20 @@ async def handle_analysis_webhook(
          logger.error(f"[WEBHOOK] HTTPException during processing: {http_exc.status_code} - {http_exc.detail}")
          raise http_exc
     except Exception as e:
-        external_job_id_for_log = webhook_data.job_id if 'webhook_data' in locals() else 'unknown'
+        external_job_id_for_log = payload.job_id if 'payload' in locals() else 'unknown'
         logger.error(f"[WEBHOOK] Unexpected error processing webhook for external job ID '{external_job_id_for_log}': {str(e)}", exc_info=True)
         # Return 202 anyway? Or a 500?
         # Let's return 500 for unexpected errors
         raise HTTPException(status_code=500, detail="Internal server error processing webhook.")
+
+@router.post("/chart_update")
+async def handle_chart_update(
+    payload: ChartUpdatePayload, 
+    request: Request, 
+    vector_db_client: MilvusClient = Depends(get_milvus_client) # Updated dependency
+):
+    # Implementation for handling chart update
+    pass
 
 # Simple endpoint to retrieve stored results (for debugging/polling fallback)
 @router.get("/results/{job_id}")

@@ -22,3 +22,5 @@ boto3
 aiohttp
 celery[redis]>=5.0
 sentence-transformers
+pymilvus
+marshmallow==3.21.3

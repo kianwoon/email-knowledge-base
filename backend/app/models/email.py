@@ -127,3 +127,41 @@ class EmailVectorData(BaseModel):
     metadata: Dict[str, Any]
     embedding: Optional[List[float]] = None
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class EmailUpdateRequest(BaseModel):
+    """Model for updating specific fields of an email record (e.g., status, tags)."""
+    status: Optional[ReviewStatus] = None
+    tags: Optional[List[str]] = None
+    # Add other fields that might need updating
+    review_notes: Optional[str] = None
+
+
+class EmailAnalysisJob(BaseModel):
+    job_id: str
+    status: str
+    owner: str
+    filter_criteria: EmailFilter
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+
+# Added to resolve import error in routes/email.py
+class PreviewResponse(BaseModel):
+    """Response model for email previews (potentially non-paginated or legacy)."""
+    items: List[EmailPreview] = Field(default_factory=list)
+    # Add other fields if necessary based on usage, e.g., total count
+    # total: Optional[int] = None
+
+
+# Added to resolve import error in routes/email.py
+# Potentially redundant with EmailPreview, added for compatibility
+class PreviewEmail(BaseModel):
+    """Model for email preview data (potentially legacy or alternative)."""
+    id: str
+    subject: str
+    sender: str
+    received_date: str
+    snippet: str
+    importance: str = "normal"
+    has_attachments: bool = False
