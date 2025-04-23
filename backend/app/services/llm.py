@@ -9,7 +9,7 @@ from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
 from app.models.user import User # Assuming User model is here
 # Import RAG components - Updated for Milvus
-from app.services.embedder import create_embedding, search_milvus_knowledge, create_retrieval_embedding
+from app.services.embedder import create_embedding, search_milvus_knowledge, search_milvus_knowledge_sparse, create_retrieval_embedding
 # Removed: search_qdrant_knowledge, search_qdrant_knowledge_sparse
 from app.crud import api_key_crud # Import API key CRUD
 from fastapi import HTTPException, status # Import HTTPException
@@ -238,7 +238,7 @@ async def generate_openai_rag_response(
                 generated_doc = hyde_resp.choices[0].message.content.strip()
                 if generated_doc:
                     hyde_document = generated_doc
-                    logger.debug(f"RAG: Generated HyDE document: {hyde_document[:100]}...") # Log snippet
+                    logger.debug(f"RAG: Generated HyDE document: {hyde_document[:50]}...")
                 else:
                     logger.warning("HyDE generation returned empty content, using original retrieval_query for embedding.")
             except Exception as e:
@@ -248,8 +248,9 @@ async def generate_openai_rag_response(
         # --- END MODIFICATION ---
         # --- END: HyDE Generation ---
         
-        hyde_embedding = await create_retrieval_embedding(hyde_document)
-        logger.debug("RAG: Created HyDE embedding.")
+        # Create embedding for the HyDE document using the dense model
+        hyde_embedding = await create_retrieval_embedding(hyde_document, field='dense')
+        logger.debug(f"RAG: Generated HyDE embedding for retrieval query: '{message[:50]}...'")
 
         # 2.5 Build Filter (Moved filter construction here)
         search_filter_parts = []
@@ -278,50 +279,83 @@ async def generate_openai_rag_response(
             logger.debug(f"RAG: Added filter for role: {refined['role']}")
             
         # Combine filters with ' and '
-        search_filter = " and ".join(search_filter_parts) if search_filter_parts else None
+        # search_filter = " and ".join(search_filter_parts) if search_filter_parts else None
+        search_filter = None # TEMPORARILY DISABLED filter based on non-existent metadata_json
         logger.debug(f"RAG: Constructed search filter: {search_filter}")
 
 
         # 3. Search Milvus for relevant context (dense search using HyDE embedding)
         k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', 5))
         logger.debug(f"RAG: Performing dense search with HyDE embedding for query: {message[:50]}... (k={k_dense})")
+        # Determine target collection name (RAG collection)
+        sanitized_email = user.email.replace('@', '_').replace('.', '_')
+        target_collection_name = f"{sanitized_email}_knowledge_base_bm"
+        logger.info(f"RAG: Targeting search in collection: {target_collection_name}")
         dense_search_results = await search_milvus_knowledge(
-            user_email=user.email,
-            query_vector=hyde_embedding,
-            query_text=hyde_document, # Pass HyDE doc for potential metadata logging/debugging
-            k=k_dense, # Number of results for dense search
-            filter_criteria=search_filter # Apply the constructed filter (now a string)
+            collection_name=target_collection_name, # ADDED collection name
+            query_embedding=hyde_embedding, # Use correct argument name 'query_embedding'
+            limit=k_dense, 
+            filter_expression=search_filter
         )
         logger.debug(f"RAG: Dense search returned {len(dense_search_results)} results.")
 
-        # 4. Perform sparse search (REMOVED) 
-        # sparse_search_results = [] # Set sparse results to empty list (no longer needed)
+        # 4. Perform sparse search (RE-ENABLED)
+        k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', 5)) # Use separate setting if desired, default 5
+        logger.debug(f"RAG: Performing sparse search for query: {message[:50]}... (k={k_sparse})")
+
+        # --- START: Modified Sparse Search Call ---
+        sparse_search_results = []
+        try:
+            # Pass the retrieval_query text directly
+            sparse_search_results = await search_milvus_knowledge_sparse(
+                collection_name=target_collection_name, 
+                query_text=retrieval_query, # Pass text
+                limit=k_sparse,
+                filter_expression=search_filter
+            )
+        except Exception as search_e:
+                logger.error(f"Milvus sparse search execution failed: {search_e}", exc_info=True)
+                sparse_search_results = [] # Ensure empty on error
+        # --- END: Modified Sparse Search Call ---
+            
+        logger.debug(f"RAG: Sparse search returned {len(sparse_search_results)} results.")
 
         # 5. Combine and Rank Results using Reciprocal Rank Fusion (RRF)
-        # --- MODIFIED RRF TO HANDLE ONLY DENSE RESULTS --- 
-        logger.debug("RAG: Combining results (using only dense search results).")
+        # --- RESTORED RRF TO HANDLE DENSE AND SPARSE RESULTS --- 
+        logger.debug("RAG: Combining results using RRF (dense + sparse).")
         combined_results = {}
         rrf_k = 60  # Constant factor for RRF scoring, as described in papers
 
         # Process dense results
         for rank, hit in enumerate(dense_search_results):
             doc_id = hit["id"]
-            # Milvus returns distance; lower is better. 
-            # We use rank directly for RRF scoring (higher is better)
+            # Milvus dense search (COSINE) returns distance/similarity (higher is better in this setup)
+            # We use rank directly for RRF scoring (higher rank contribution is better)
             score = 1.0 / (rank + 1 + rrf_k) # Add 1 because rank is 0-indexed
             if doc_id not in combined_results:
-                combined_results[doc_id] = {"score": 0, "metadata": hit["metadata"], "id": doc_id}
+                combined_results[doc_id] = {"score": 0, "payload": hit["payload"], "id": doc_id}
             combined_results[doc_id]["score"] += score
             logger.debug(f"RAG: Dense Result ID: {doc_id}, Rank: {rank}, Score Contribution: {score}")
         
-        # --- REMOVED Sparse result processing --- 
+        # Process sparse results
+        for rank, hit in enumerate(sparse_search_results):
+            doc_id = hit["id"]
+            # Milvus sparse search (IP) returns score (higher is better)
+            # Use rank for RRF scoring
+            score = 1.0 / (rank + 1 + rrf_k) 
+            if doc_id not in combined_results:
+                # Make sure payload exists, default to empty dict if not
+                combined_results[doc_id] = {"score": 0, "payload": hit.get("payload", {}), "id": doc_id}
+            combined_results[doc_id]["score"] += score
+            logger.debug(f"RAG: Sparse Result ID: {doc_id}, Rank: {rank}, Score Contribution: {score}")
 
         # Sort combined results by RRF score in descending order
         ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
         logger.debug(f"RAG: Combined {len(ranked_results)} unique results after RRF.")
 
         # 6. Format context and build prompt
-        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['metadata'])}" for res in ranked_results[:5]]) # Limit context window
+        # Use 'payload' key which holds the content, instead of 'metadata'
+        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}" for res in ranked_results[:5]]) # Limit context window
         logger.debug(f"RAG: Formatted context (top {len(ranked_results[:5])} results):\n{context[:500]}...") # Log snippet of context
 
         # --- Existing history formatting logic --- 
@@ -491,23 +525,26 @@ async def get_rate_card_response_advanced(
         all_search_results = [] 
         
         # Build filter based on extracted amount
-        search_filter = None
-        requested_amount = query_features.get('amount')
-        if requested_amount is not None and isinstance(requested_amount, int):
-            # Assuming rate is stored in metadata_json.rate_card_amount
-            search_filter = f"metadata_json['rate_card_amount'] >= {requested_amount}"
-            logger.debug(f"RateCardRAG: Applying search filter: {search_filter}")
-        else:
-            logger.debug("RateCardRAG: No amount filter applied.")
+        # search_filter = None
+        # requested_amount = query_features.get('amount')
+        # if requested_amount is not None and isinstance(requested_amount, int):
+        #     # Assuming rate is stored in metadata_json.rate_card_amount
+        #     search_filter = f"metadata_json['rate_card_amount'] >= {requested_amount}"
+        #     logger.debug(f"RateCardRAG: Applying search filter: {search_filter}")
+        # else:
+        #     logger.debug("RateCardRAG: No amount filter applied.")
+        search_filter = None # TEMPORARILY DISABLED filter
 
         for i, vector in enumerate(query_vectors):
             logger.debug(f"RateCardRAG: Searching with vector {i+1} for query: '{retrieval_queries[i]}'")
+            # Determine target collection name (RAG collection)
+            sanitized_email = user.email.replace('@', '_').replace('.', '_')
+            target_collection_name = f"{sanitized_email}_knowledge_base_bm"
             results = await search_milvus_knowledge(
-                user_email=user.email,
-                query_vector=vector,
-                query_text=hyde_docs[retrieval_queries[i]], # Pass associated HyDE doc
-                k=k_per_query,
-                filter_criteria=search_filter # Apply amount filter if applicable
+                collection_name=target_collection_name, # ADDED collection name
+                query_embedding=vector, # Use correct argument name 'query_embedding'
+                limit=k_per_query, 
+                filter_expression=search_filter
             )
             all_search_results.extend(results) # Combine results from all queries
             logger.debug(f"RateCardRAG: Found {len(results)} results for vector {i+1}.")
@@ -527,7 +564,8 @@ async def get_rate_card_response_advanced(
             # Calculate similarity between original query and each result's content/embedding
             for result in ranked_results:
                 result_embedding = result.get('vector') # Assuming search_milvus_knowledge can return vectors
-                result_text = json.dumps(result.get('metadata', {})) # Use metadata text
+                # Use 'payload' key which holds the content, instead of 'metadata'
+                result_text = json.dumps(result.get('payload', {})) # Use payload text
                 
                 if result_embedding:
                     # Option 1: Use pre-computed embedding from result if available
@@ -548,7 +586,8 @@ async def get_rate_card_response_advanced(
         
         # 7. Context Selection & Formatting (Select top N re-ranked results)
         final_context_limit = int(getattr(settings, 'RATE_CARD_FINAL_CONTEXT_LIMIT', 5))
-        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['metadata'])}" for res in ranked_results[:final_context_limit]])
+        # Use 'payload' key which holds the content, instead of 'metadata'
+        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}" for res in ranked_results[:final_context_limit]])
         logger.debug(f"RateCardRAG: Formatted final context (top {len(ranked_results[:final_context_limit])}):\n{context[:500]}...")
 
         # 8. Generate Final Response using LLM

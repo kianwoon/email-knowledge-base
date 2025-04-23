@@ -3,16 +3,21 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Security
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
-from qdrant_client import QdrantClient
-from qdrant_client import models as qdrant_models
+# Removed Qdrant imports
+# from qdrant_client import QdrantClient
+# from qdrant_client import models as qdrant_models
+# Import Milvus client
+from pymilvus import MilvusClient
 from datetime import datetime, timezone
 import bcrypt
 
 from ..db.session import get_db
-from ..db.qdrant_client import get_qdrant_client # Using the existing dependency
+# Use Milvus client dependency
+from ..db.milvus_client import get_milvus_client
 from ..models.token_models import TokenDB
 from ..crud import token_crud
-from ..services.embedder import create_embedding 
+# Import the specific search function we need
+from ..services.embedder import create_embedding, search_milvus_knowledge 
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -78,7 +83,8 @@ async def search_shared_knowledge(
     query: str = Query(..., description="The search query string."),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results to return."),
     token: TokenDB = Depends(get_validated_token), # Use the dependency to get the validated token
-    qdrant: QdrantClient = Depends(get_qdrant_client) # Use existing Qdrant client dependency
+    # Change dependency to Milvus client
+    milvus_client: MilvusClient = Depends(get_milvus_client) 
 ):
     """
     Performs a semantic search on the knowledge base using a valid API token.
@@ -89,8 +95,8 @@ async def search_shared_knowledge(
     try:
         # 1. Determine target collection based on token owner
         sanitized_email = token.owner_email.replace('@', '_').replace('.', '_')
-        # Construct the collection name as owner_email_knowledge_base
-        target_collection_name = f"{sanitized_email}_knowledge_base"
+        # Construct the collection name as owner_email_knowledge_base_bm (using the RAG collection name)
+        target_collection_name = f"{sanitized_email}_knowledge_base_bm"
         logger.info(f"Targeting search in collection: {target_collection_name} based on token owner.")
 
         # 2. Generate embedding for the query
@@ -98,29 +104,21 @@ async def search_shared_knowledge(
         if not query_embedding:
              raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate query embedding.")
 
-        # 3. Generate Qdrant filter based on token rules
-        qdrant_filter = token_crud.create_qdrant_filter_from_token(token)
-        logger.debug(f"Generated Qdrant filter for token {token.id}: {qdrant_filter}")
+        # 3. Generate Milvus filter based on token rules
+        # Placeholder - Assumes a function exists in token_crud
+        milvus_filter_expression = token_crud.create_milvus_filter_from_token(token)
+        logger.debug(f"Generated Milvus filter for token {token.id}: {milvus_filter_expression}")
 
-        # 4. Perform the search
-        search_result = qdrant.search(
+        # 4. Perform the search using the search_milvus_knowledge helper
+        results = await search_milvus_knowledge(
             collection_name=target_collection_name,
-            query_vector=query_embedding,
-            query_filter=qdrant_filter,
+            query_embedding=query_embedding,
             limit=limit,
-            with_payload=True  # Include payload/metadata in results
+            filter_expression=milvus_filter_expression
         )
         
-        # 5. Format results (Extract payload and score)
-        results = []
-        for hit in search_result:
-            results.append({
-                "id": hit.id,
-                "score": hit.score,
-                "payload": hit.payload
-            })
-            
         logger.info(f"Found {len(results)} results for query '{query}' using token {token.id}.")
+        # The helper already formats results correctly
         return results
 
     except HTTPException as http_exc:

@@ -24,3 +24,16 @@ celery[redis]>=5.0
 sentence-transformers
 pymilvus
 marshmallow==3.21.3
+requests
+redis
+flower
+beautifulsoup4
+lxml
+html5lib
+loguru
+alembic
+greenlet
+unstructured[md,csv,docx,pdf,xlsx,eml,msg]
+unstructured-client
+msg_parser
+rank-bm25

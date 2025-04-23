@@ -256,7 +256,8 @@ async def create_bundled_token(db: Session, name: str, description: Optional[str
         allow_rules=allow_rules,
         deny_rules=deny_rules,
         allow_embeddings=allow_embeddings_db,
-        deny_embeddings=deny_embeddings_db
+        deny_embeddings=deny_embeddings_db,
+        bundled_from=bundle_data.get('original_token_ids') # Store original IDs if passed in bundle_data
     )
     db.add(db_token)
     db.commit()
@@ -264,5 +265,107 @@ async def create_bundled_token(db: Session, name: str, description: Optional[str
 
     setattr(db_token, 'token_value', raw_token_value)
     return db_token
+
+# --- Qdrant Filter Generation (Keep for reference or potential future use) ---
+def create_qdrant_filter_from_token(token: TokenDB) -> Optional[qdrant_models.Filter]:
+    """Creates a Qdrant Filter object based on token rules."""
+    must_conditions = []
+    must_not_conditions = [] # Usually unused for Qdrant standard filters
+
+    # Sensitivity Filtering
+    token_rank = SENSITIVITY_RANK.get(token.sensitivity, -1)
+    if token_rank < 0:
+        logger.warning(f"Token {token.id} has invalid sensitivity '{token.sensitivity}'. Applying most restrictive filter (no results).")
+        return qdrant_models.Filter(must=[qdrant_models.FieldCondition(key="non_existent_field", match=qdrant_models.MatchValue(value="impossible"))])
+
+    allowed_levels = SENSITIVITY_ORDER[:token_rank + 1]
+    if allowed_levels:
+        # Assuming sensitivity is stored directly in payload
+        must_conditions.append(
+            qdrant_models.FieldCondition(
+                key="sensitivity", # ADJUST FIELD NAME IN PAYLOAD IF NEEDED
+                match=qdrant_models.MatchAny(any=allowed_levels)
+            )
+        )
+    else:
+        return qdrant_models.Filter(must=[qdrant_models.FieldCondition(key="non_existent_field", match=qdrant_models.MatchValue(value="impossible"))])
+
+    # Department Filtering (Allow Rules)
+    if token.allow_rules:
+         # Assuming departments stored directly in payload as 'department'
+        must_conditions.append(
+            qdrant_models.FieldCondition(
+                key="department", # ADJUST FIELD NAME IN PAYLOAD IF NEEDED
+                match=qdrant_models.MatchAny(any=token.allow_rules)
+            )
+        )
+
+    # Deny Rules are generally not handled by Qdrant filters directly for semantic content
+
+    if not must_conditions:
+        return None # No filters needed
+
+    return qdrant_models.Filter(must=must_conditions)
+
+
+# --- NEW FUNCTION FOR MILVUS ---
+def create_milvus_filter_from_token(token: TokenDB) -> Optional[str]:
+    """
+    Creates a Milvus boolean filter expression string based on token rules.
+    Assumes metadata is stored within a 'metadata_json' field in Milvus.
+    """
+    filter_parts = []
+
+    # --- Sensitivity Filtering ---
+    # Assuming sensitivity is stored in metadata_json.sensitivity
+    token_rank = SENSITIVITY_RANK.get(token.sensitivity, -1)
+    if token_rank < 0:
+        logger.warning(f"Token {token.id} has invalid sensitivity '{token.sensitivity}'. Applying most restrictive filter (no results).")
+        # Return a filter that matches nothing, e.g., check a non-existent value
+        return 'pk == "impossible_value"' # Use pk for a definite non-match
+
+    allowed_levels = SENSITIVITY_ORDER[:token_rank + 1]
+    if not allowed_levels:
+        # Should not happen with valid rank, but safety check
+        return 'pk == "impossible_value"'
+
+    # Create an 'in' condition for allowed sensitivity levels
+    # Ensure proper quoting for string values in the list
+    allowed_levels_str = ", ".join([f'"{level}"' for level in allowed_levels])
+    # IMPORTANT: Assuming sensitivity is stored at the top level of metadata_json
+    filter_parts.append(f'metadata_json["sensitivity"] in [{allowed_levels_str}]')
+
+    # --- Department Filtering (Allow Rules) ---
+    # IMPORTANT: Assuming departments are stored as a list OR single string
+    # in metadata_json.department
+    if token.allow_rules:
+        # Create an 'in' condition for allowed department strings
+        # Ensure proper quoting for string values in the list
+        allowed_departments_str = ", ".join([f'"{dept}"' for dept in token.allow_rules])
+        # IMPORTANT: Assuming department is stored at the top level of metadata_json
+        filter_parts.append(f'metadata_json["department"] in [{allowed_departments_str}]')
+
+        # Alternate if department is a list within JSON (e.g., ["sales", "emea"])
+        # Requires Milvus support for JSON array checks (e.g., json_contains)
+        # Make sure the field metadata_json.department is indexed appropriately if using this.
+        # conditions = [f'json_contains(metadata_json["department"], \\"{dept}\\")' for dept in token.allow_rules]
+        # filter_parts.append(f'({" or ".join(conditions)})')
+
+
+    # --- Deny Rules ---
+    # Milvus filters primarily work on scalar or array fields within the JSON or top-level fields.
+    # Filtering based on semantic *denial* (deny_rules/embeddings) is complex and not directly
+    # supported by simple filter expressions. We will omit deny rules for now.
+    if token.deny_rules:
+         logger.warning(f"Token {token.id} has deny_rules, but Milvus filter generation currently does not support semantic denial based on rules.")
+
+
+    # Combine conditions with 'and'
+    if not filter_parts:
+        return "" # Return empty string for no filters
+
+    final_filter = " and ".join(filter_parts)
+    logger.debug(f"Generated Milvus filter expression for token {token.id}: {final_filter}")
+    return final_filter
 
 # --- End Token Bundling Logic --- 

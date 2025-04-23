@@ -65,36 +65,59 @@ async def search_milvus_knowledge(
 
     logger.debug(f"Attempting Milvus search in collection '{collection_name}' with limit {limit} and filter: '{filter_expression}'")
 
-    # Define search parameters (example, adjust as needed)
-    search_params = {
-        "metric_type": "COSINE", 
-        "params": {"nprobe": 10} 
+    # Ensure structure matches MilvusClient.search requirements (anns_field inside search_params)
+    search_params_for_call = {
+        # "anns_field": "dense",      # REMOVED: Vector field name from params dict based on documentation parameter list
+        "metric_type": "COSINE",
+        "params": {"nprobe": 10}     # Index-specific parameters
     }
 
     try:
-        # Execute vector search via Milvus client
-        search_result = milvus_client.search(
-            collection_name=collection_name,
-            data=[query_embedding],       # List of query vectors
-            anns_field="vector",        # Vector field name in schema
-            param=search_params,        # Search parameters
-            limit=limit,
-            filter=filter_expression,   # Milvus filter expression string
-            output_fields=["pk", "metadata_json"] # Retrieve PK and the JSON metadata blob
-        )
-        
+        # Use keyword arguments ONLY for the MilvusClient.search call
+        search_kwargs = {
+            "collection_name": collection_name,
+            "data": [query_embedding],
+            "anns_field": "dense", # ADDED as a separate top-level argument based on documentation parameter list
+            "limit": limit,
+            "search_params": search_params_for_call, # search_params dict no longer includes anns_field
+            "output_fields": ["id", "content"] # Corrected PK to 'id' and payload to 'content'
+        }
+
+        # Conditionally add the filter using the 'filter' keyword
+        if filter_expression:
+            search_kwargs['filter'] = filter_expression
+            logger.debug(f"Adding filter expression to search: {filter_expression}")
+        else:
+            logger.debug("No filter expression provided for search.")
+
+        # Execute vector search via Milvus client using only keyword arguments
+        search_result = milvus_client.search(**search_kwargs)
+
         # Format and return results
         formatted_results = []
         if search_result:
             hits = search_result[0] # Results for the first query
             for hit in hits:
-                 # Ensure entity and metadata_json exist before accessing
-                metadata = hit.entity.get('metadata_json', {}) if hit.entity else {}
-                formatted_results.append({
-                    "id": hit.id,        # Primary Key (pk)
-                    "score": hit.distance, # Score/Distance
-                    "payload": metadata  # The full metadata blob
-                })
+                 # --- ADDED DEBUG LOG --- 
+                 logger.debug(f"Raw Milvus search hit: {hit}")
+                 # --- END DEBUG LOG ---
+                 # Access results as dictionary keys, getting content from nested entity
+                 hit_id = hit.get('id') 
+                 score = hit.get('distance') 
+                 entity_dict = hit.get('entity', {}) # Get the nested entity dict
+                 payload_content = entity_dict.get('content', '') # Get content from entity dict
+
+                 # Handle potential missing fields gracefully 
+                 if hit_id is None or score is None:
+                     logger.warning(f"Skipping hit due to missing 'id' or 'distance': {hit}")
+                     continue
+                 
+                 formatted_results.append({
+                     "id": hit_id,       
+                     "score": score, 
+                     # Pass the extracted content string as payload
+                     "payload": payload_content 
+                 })
 
         logger.debug(f"Milvus search successful. Returning {len(formatted_results)} formatted results.")
         return formatted_results
@@ -108,6 +131,111 @@ async def search_milvus_knowledge(
         # You might want to check for other specific Milvus errors here
         # For now, raise a generic HTTPException for other errors
         raise HTTPException(status_code=500, detail=f"Milvus search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
+
+# NEW FUNCTION for Sparse Search (using simplified token ID approach)
+async def search_milvus_knowledge_sparse(
+    query_text: str, # Accept raw query text
+    # query_sparse_vector: Dict[int, float], # REMOVE - generated internally now
+    limit: int = 5,
+    collection_name: str = settings.MILVUS_DEFAULT_COLLECTION, 
+    filter_expression: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Search using a simplified sparse vector approach based on dense model token IDs.
+    NOTE: This is NOT true BM25 and unlikely to match the Milvus sparse index.
+    It uses token IDs as indices and assigns a uniform value of 1.0.
+    Returns a list of results including payload.
+    """
+    milvus_client: MilvusClient = get_milvus_client()
+    
+    logger.debug(f"Attempting Milvus SPARSE search (Simplified Token ID method) in collection '{collection_name}' for query: '{query_text[:50]}...'")
+
+    # --- START: Simplified Sparse Vector Generation (from Qdrant approach) ---
+    sparse_query_dict = {}
+    try:
+        if _dense_model and hasattr(_dense_model, 'tokenizer'):
+            tokenizer = _dense_model.tokenizer
+            token_ids = tokenizer.encode(query_text, add_special_tokens=False)
+            unique_indices = sorted(list(set(token_ids)))
+            
+            if not unique_indices:
+                 logger.warning(f"Simplified sparse search: Query '{query_text[:50]}...' produced no unique tokens.")
+                 return [] # Return empty if no tokens
+
+            # Use unique token IDs as indices and assign a value of 1.0 to each
+            sparse_query_dict = {index: 1.0 for index in unique_indices}
+            logger.debug(f"Simplified sparse search: Created SparseVector dict with {len(unique_indices)} unique indices.")
+        else:
+            logger.warning("Simplified sparse search: Dense model or its tokenizer not available. Cannot create sparse query vector.")
+            return [] # Return empty if tokenizer missing
+            
+    except Exception as e:
+        logger.error(f"Simplified sparse search: Error during tokenization or sparse vector creation: {e}", exc_info=True)
+        return [] # Return empty on error
+    # --- END: Simplified Sparse Vector Generation ---
+
+    # Define search parameters - MIGHT NEED ADJUSTMENT FOR SPARSE
+    search_params_for_call = {
+        "metric_type": "IP",  # Inner Product is common for sparse
+        "params": {} # Sparse indexes might not need specific params like nprobe
+    }
+
+    # Proceed only if we have a valid sparse dict
+    if not sparse_query_dict:
+        logger.error("Simplified sparse search: sparse_query_dict is empty, cannot proceed.")
+        return []
+
+    try:
+        search_kwargs = {
+            "collection_name": collection_name,
+            "data": [sparse_query_dict], # Use the generated dict
+            "anns_field": "sparse", # Target the sparse field
+            "limit": limit,
+            "search_params": search_params_for_call,
+            "output_fields": ["id", "content"] # Assuming same output fields needed
+        }
+
+        if filter_expression:
+            search_kwargs['filter'] = filter_expression
+            logger.debug(f"Adding filter expression to SPARSE search: {filter_expression}")
+        else:
+            logger.debug("No filter expression provided for SPARSE search.")
+
+        search_result = milvus_client.search(**search_kwargs)
+
+        # Format results (same logic as dense for now)
+        formatted_results = []
+        if search_result:
+            hits = search_result[0] 
+            for hit in hits:
+                logger.debug(f"Raw Milvus SPARSE search hit: {hit}") # Log raw hit
+                # Access results as dictionary keys, getting content from nested entity
+                hit_id = hit.get('id')
+                score = hit.get('distance') 
+                entity_dict = hit.get('entity', {}) # Get the nested entity dict
+                payload_content = entity_dict.get('content', '') # Get content from entity dict
+
+                if hit_id is None or score is None:
+                    logger.warning(f"Skipping SPARSE hit due to missing 'id' or 'distance': {hit}")
+                    continue
+                formatted_results.append({
+                    "id": hit_id, 
+                    "score": score, 
+                    # Pass the extracted content string as payload
+                    "payload": payload_content
+                })
+
+        logger.debug(f"Milvus SPARSE search successful. Returning {len(formatted_results)} formatted results.")
+        return formatted_results
+    
+    except Exception as e:
+        logger.error(f"Milvus SPARSE search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
+        # Basic error handling, similar to dense search
+        if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+            logger.warning(f"Milvus collection '{collection_name}' not found during SPARSE search.")
+            return [] 
+        # Raise generic error for others
+        raise HTTPException(status_code=500, detail=f"Milvus SPARSE search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
 
 # Removed search_qdrant_knowledge_sparse function
 # Removed _httpx_search function
