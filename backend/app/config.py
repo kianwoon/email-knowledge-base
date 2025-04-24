@@ -200,14 +200,6 @@ class Settings(BaseSettings):
     # Optional: Add CELERY_RESULT_BACKEND if you use results
     CELERY_RESULT_BACKEND: Optional[str] = os.getenv("CELERY_RESULT_BACKEND") # Uncommented and made Optional
     
-    # --- SharePoint Specific Storage Settings --- ADDED
-    # Base URL of the SharePoint instance (e.g., https://yourtenant.sharepoint.com)
-    SHAREPOINT_STORAGE_BASE_URL: str = os.getenv("SHAREPOINT_STORAGE_BASE_URL")
-    # Drive ID of the target SharePoint Document Library 
-    SHAREPOINT_STORAGE_DRIVE_ID: str = os.getenv("SHAREPOINT_STORAGE_DRIVE_ID")
-    # Item ID of the target FOLDER within the drive (use "root" for drive root)
-    SHAREPOINT_STORAGE_FOLDER_ID: str = os.getenv("SHAREPOINT_STORAGE_FOLDER_ID", "root")
-
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,
