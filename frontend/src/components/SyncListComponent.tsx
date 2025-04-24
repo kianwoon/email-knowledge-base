@@ -55,6 +55,8 @@ const SyncListComponent: React.FC<SyncListComponentProps> = ({
   const bgColor = useColorModeValue('gray.50', 'gray.700');
   const hoverBg = useColorModeValue('gray.100', 'gray.600');
 
+  console.log('[SyncListComponent] Rendering with items:', items);
+
   // Only show pending items in this component
   const pendingItems = items.filter(item => item.status === 'pending');
 

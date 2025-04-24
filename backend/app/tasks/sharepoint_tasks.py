@@ -21,8 +21,8 @@ from app.services.sharepoint import SharePointService, AppSharePointService, get
 # from qdrant_client import QdrantClient, models
 # from qdrant_client.http.exceptions import UnexpectedResponse
 # Import Milvus
-from pymilvus import MilvusClient
-from app.db.milvus_client import get_milvus_client, ensure_collection_exists # Import Milvus helpers
+# from pymilvus import MilvusClient
+# from app.db.milvus_client import get_milvus_client, ensure_collection_exists # Import Milvus helpers
 
 from app.crud import user_crud # To get user tokens if needed indirectly
 from app.db.session import SessionLocal # For getting user tokens
@@ -42,19 +42,21 @@ import pathlib # For getting file extension
 
 from ..services import s3 as s3_service # Import the s3 service module
 
-logger = get_task_logger(__name__)
+# --- Add relevant imports --- 
+from app.crud import crud_ingestion_job, crud_processed_file # <-- Added CRUDs
+from app.db.models.processed_file import ProcessedFile # <-- Import the SQLAlchemy Model
+from app.db.models.ingestion_job import IngestionJob # <-- Added Job Model
 
-def generate_milvus_collection_name(user_email: str) -> str: # Renamed function
-    """Generates a sanitized, user-specific Milvus collection name."""
-    sanitized_email = user_email.replace('@', '_').replace('.', '_')
-    return f"{sanitized_email}_sharepoint_knowledge"
+logger = get_task_logger(__name__)
 
 # Define a namespace for generating UUIDs
 SHAREPOINT_NAMESPACE_UUID = uuid.UUID('c7e9aab9-17e4-4f75-8559-40ac7d046c1c') # Example random namespace
 
-def generate_milvus_pk(sharepoint_item_id: str) -> str: # Renamed function
-    """Generates a deterministic Milvus UUID PK from the SharePoint item ID."""
-    return str(uuid.uuid5(SHAREPOINT_NAMESPACE_UUID, sharepoint_item_id))
+def generate_sp_r2_key(sharepoint_item_id: str, original_file_name: str) -> str:
+    """Generates a unique R2 object key for a SharePoint file."""
+    deterministic_id = str(uuid.uuid5(SHAREPOINT_NAMESPACE_UUID, sharepoint_item_id))
+    original_extension = "".join(pathlib.Path(original_file_name).suffixes)
+    return f"sharepoint/{deterministic_id}{original_extension}"
 
 async def _recursively_get_files_from_folder(service: SharePointService, drive_id: str, folder_id: str, processed_ids: set) -> List[Dict[str, Any]]:
     """Helper to recursively fetch file items within a folder, avoiding cycles/duplicates."""
@@ -110,7 +112,7 @@ MS_REFRESH_TIMEOUT_SECONDS = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
 class SharePointProcessingTask(Task):
     _db = None
     # _qdrant_client = None # Remove Qdrant client instance variable
-    _milvus_client = None # Add Milvus client instance variable
+    # _milvus_client = None # Add Milvus client instance variable
     _sharepoint_service = None # Service instance per task potentially
     _app_sp_service: Optional[AppSharePointService] = None # Add instance variable for AppSharePointService
 
@@ -136,12 +138,12 @@ class SharePointProcessingTask(Task):
             self._db = SessionLocal()
         return self._db
 
-    @property
-    def milvus_client(self) -> MilvusClient: # Renamed property and updated type hint
-        if self._milvus_client is None:
-            logger.debug(f"Task {self.request.id}: Getting Milvus client instance.")
-            self._milvus_client = get_milvus_client() # Use Milvus getter
-        return self._milvus_client
+    # @property
+    # def milvus_client(self) -> MilvusClient: # Renamed property and updated type hint
+    #     if self._milvus_client is None:
+    #         logger.debug(f"Task {self.request.id}: Getting Milvus client instance.")
+    #         self._milvus_client = get_milvus_client() # Use Milvus getter
+    #     return self._milvus_client
 
     def get_sharepoint_service(self, user_email: str) -> SharePointService:
         """Gets or creates a SharePoint service instance, handling token refresh."""
@@ -269,17 +271,19 @@ async def _run_processing_logic(
     task_instance: Task,
     db_session: Session,
     sp_service: SharePointService,
-    items_to_process: List[Dict[str, Any]], # This is the original list including folders
+    items_to_process: List[Dict[str, Any]], # Original list including folders passed to task
     user_email: str,
-    task_id: str # Added task_id parameter
-) -> Tuple[int, int, List[Dict[str, Any]]]: # Updated return type hint
-    """Orchestrates the async fetching and processing of files, preparing Milvus data dicts."""
-    # task_id = task_instance.request.id # Get task_id from parameter instead
+    task_id: str,
+    ingestion_job_id: int # <<< Added ingestion_job_id parameter
+) -> Tuple[int, int]:
+    """Orchestrates the async fetching and processing of files, saving to ProcessedFile table."""
+    # --- Removed Milvus data list --- 
+    # data_to_insert: List[Dict[str, Any]] = []
+
     all_files_to_process: List[Dict[str, Any]] = []
     processed_item_ids = set() # Track all processed IDs (files and folders)
     total_failed_discovery = 0
-    # +++ Keep track of original folder DB IDs and their expansion outcome +++
-    folder_outcomes: Dict[int, str] = {} # {item_db_id: "success" | "failed"}
+    folder_outcomes: Dict[int, str] = {}
 
     # --- Expand Folders to Files (Async) ---
     logger.info(f"Task {task_id}: Expanding folders...")
@@ -359,7 +363,6 @@ async def _run_processing_logic(
          pass # Handled later
 
     # --- Process Each File --- 
-    data_to_insert: List[Dict[str, Any]] = []
     total_processed_files = 0
     total_failed_files_or_folders = total_failed_discovery
     current_file_num = 0
@@ -368,24 +371,25 @@ async def _run_processing_logic(
         current_file_num += 1
         file_id = item_data_from_api['sharepoint_item_id']
         drive_id = item_data_from_api['sharepoint_drive_id']
-        item_db_id = item_data_from_api.get('item_db_id') 
+        item_db_id = item_data_from_api.get('item_db_id') # DB ID of original sync item (if file was added directly)
         file_name = item_data_from_api.get('item_name', 'Unknown')
         
         file_processed_successfully = False
         db_sync_item: Optional[SharePointSyncItemDBModel] = None
-        r2_object_key: Optional[str] = None # To store the key of the uploaded R2 object
-        
-        # --- Update DB Status for the file item (if it has a direct DB entry) ---
+        r2_object_key: Optional[str] = None
+
+        # --- Update DB Status for the sync item (if it has a direct DB entry) --- 
         if item_db_id:
             try:
                 db_sync_item = db_session.get(SharePointSyncItemDBModel, item_db_id)
-                if db_sync_item:
+                if db_sync_item and db_sync_item.status != 'processing':
                     db_sync_item.status = 'processing'
                     db_session.add(db_sync_item)
                     db_session.commit()
-                else: logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status.")
+                elif not db_sync_item:
+                     logger.warning(f"Task {task_id}: Could not find DB sync item with DB ID {item_db_id} (SP ID: {file_id}) to update status.")
             except Exception as db_err: logger.error(f"Task {task_id}: DB error updating status to 'processing' for DB ID {item_db_id}: {db_err}", exc_info=True); db_session.rollback()
-        
+
         # --- Process the file --- 
         try:
             # --- Fetch Original File Details (using USER service) --- 
@@ -393,124 +397,115 @@ async def _run_processing_logic(
             file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
             if not file_details: raise ValueError("Could not fetch file details")
             file_info = file_details.model_dump()
-            original_file_name = file_info.get('name', file_name) 
+            original_file_name = file_info.get('name', file_name)
             logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{original_file_name}' ...")
             task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10 + int(80 * (current_file_num / total_files)), 'status': f'Processing file {current_file_num}/{total_files}: {original_file_name[:30]}...'})
 
-            # --- Download Original Content (using USER service) ---
+            # --- Download Original Content (using USER service) --- 
             file_content_bytes = await sp_service.download_file_content(drive_id, file_id)
-            
-            upload_successful = False # Flag for upload outcome
-            
+
+            upload_successful = False
             if file_content_bytes:
                 logger.debug(f"Task {task_id}: Downloaded {len(file_content_bytes)} bytes for file {file_id}. Attempting upload to R2.")
-                
                 # --- Upload Copy to R2 Storage --- 
-                milvus_pk = generate_milvus_pk(file_id) # Use Milvus PK for uniqueness
-                original_extension = "".join(pathlib.Path(original_file_name).suffixes) # Get extension
-                # Define R2 object key 
-                # Using a structured path: source_type/unique_id/filename_with_ext
-                generated_r2_key = f"sharepoint/{milvus_pk}{original_extension}"
+                generated_r2_key = generate_sp_r2_key(file_id, original_file_name) # <-- Use new key gen function
                 target_r2_bucket = settings.R2_BUCKET_NAME
-                
                 logger.info(f"Task {task_id}: Uploading copy as '{generated_r2_key}' to R2 Bucket '{target_r2_bucket}'")
-                
-                # Call the R2 upload function (run blocking function in threadpool)
-                # upload_bytes_to_r2 is synchronous, needs threadpool
                 upload_successful = await run_in_threadpool(
                     s3_service.upload_bytes_to_r2,
                     bucket_name=target_r2_bucket,
                     object_key=generated_r2_key,
                     data_bytes=file_content_bytes
                 )
-                
                 if upload_successful:
-                    r2_object_key = generated_r2_key # Store the key on success
+                    r2_object_key = generated_r2_key
                     logger.info(f"Task {task_id}: Upload to R2 successful. Object Key: {r2_object_key}")
                 else:
                     logger.error(f"Task {task_id}: Failed to upload copy of file {file_id} to R2.")
             else:
                 logger.warning(f"Task {task_id}: Failed to download original content for file {file_id}. Cannot upload copy to R2.")
 
-            # --- Determine Overall Success --- 
-            # Success requires download AND upload
+            # --- Determine Overall Success (Download + R2 Upload) --- 
             if file_content_bytes and upload_successful and r2_object_key:
-                file_processed_successfully = True
-            else:
-                file_processed_successfully = False
-                # Avoid double counting if download already failed
-                if file_content_bytes: 
-                    total_failed_files_or_folders += 1 # Count failure only if download succeeded but upload failed
-
-            # --- Prepare Milvus Data --- 
-            if file_processed_successfully: # Only prepare data if successful
-                milvus_pk = generate_milvus_pk(file_id) 
-                vector_size = settings.DENSE_EMBEDDING_DIMENSION
-                vector = [0.0] * vector_size
-
-                # Construct metadata_payload (info about ORIGINAL file)
-                metadata_payload = {
+                # --- Save to ProcessedFile Table --- 
+                logger.debug(f"Task {task_id}: Preparing ProcessedFile data for SP item {file_id}")
+                source_metadata = { # Gather relevant original file info
+                    "name": original_file_name,
                     "sharepoint_item_id": file_id,
                     "sharepoint_drive_id": drive_id,
-                    "filename": original_file_name,
-                    "webUrl": file_info.get("webUrl"), # Original WebURL
+                    "webUrl": file_info.get("webUrl"),
                     "createdDateTime": file_info.get("createdDateTime"),
                     "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
                     "size": file_info.get("size"),
                     "mimeType": file_info.get("file", {}).get("mimeType"),
                 }
-                metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
-
-                # Construct final data_dict for Milvus
-                data_dict = {
-                    "pk": milvus_pk,
-                    "vector": vector, 
-                    "owner": user_email,
-                    "source": "sharepoint", 
-                    "type": "sharepoint_knowledge", 
-                    "email_id": user_email, 
-                    "job_id": task_id, 
-                    "subject": original_file_name, 
-                    "date": file_info.get("lastModifiedDateTime") or "", 
-                    "folder": "", 
-                    "analysis_status": "pending", 
-                    # Add reference to the R2 object
-                    "r2_object_key": r2_object_key, 
-                    "status": "pending", # Set based on user preference, matches analysis_status
-                    # Removed SharePoint copy fields
-                    # "storage_copy_webUrl": ...,
-                    "metadata_json": metadata_payload # Metadata of ORIGINAL file
+                source_metadata_cleaned = {k: v for k, v in source_metadata.items() if v is not None}
+                
+                # --- Create data dictionary matching ProcessedFile model --- 
+                processed_file_dict = {
+                    "ingestion_job_id": ingestion_job_id,
+                    "source_type": 'sharepoint',
+                    "source_identifier": file_id,
+                    "additional_data": source_metadata_cleaned,
+                    "r2_object_key": r2_object_key,
+                    "owner_email": user_email,
+                    "status": 'pending_analysis',
+                    "original_filename": original_file_name,
+                    "content_type": file_info.get("file", {}).get("mimeType"),
+                    "size_bytes": file_info.get("size")
                 }
-                data_to_insert.append(data_dict)
-                total_processed_files += 1 
-            # else: If not successful, failure is counted above, do not insert to Milvus
+                # Remove top-level keys with None values before instantiation
+                processed_file_dict_cleaned = {k: v for k, v in processed_file_dict.items() if v is not None}
+                # --- End Create data dictionary ---
+                
+                try:
+                    # --- Instantiate the Model and call CRUD --- 
+                    processed_file_model = ProcessedFile(**processed_file_dict_cleaned)
+                    created_processed_file = crud_processed_file.create_processed_file_entry(db=db_session, file_data=processed_file_model)
+                    # --- End Instantiate and call CRUD --- 
+                    
+                    if not created_processed_file:
+                         # This path might not be reachable if create_processed_file_entry raises exceptions on failure
+                         raise Exception(f"CRUD function create_processed_file_entry did not return an object for SP item {file_id}")
+
+                    logger.info(f"Task {task_id}: Saved ProcessedFile record {created_processed_file.id} for SP item {file_id}")
+                    file_processed_successfully = True
+                    total_processed_files += 1
+                except Exception as db_write_err:
+                    logger.error(f"Task {task_id}: Failed to save ProcessedFile record for SP item {file_id}: {db_write_err}", exc_info=True)
+                    db_session.rollback()
+                    file_processed_successfully = False
+                    total_failed_files_or_folders += 1
+            else:
+                # Download or upload failed
+                file_processed_successfully = False
+                # Count failure only if download succeeded but upload failed, or if download failed
+                # (Avoid double counting if download already failed and we reach here)
+                if not file_processed_successfully: # Check if already counted
+                     total_failed_files_or_folders += 1
 
         except Exception as e:
             logger.error(f"Task {task_id}: Unhandled exception processing file '{original_file_name if 'original_file_name' in locals() else file_name}' (ID: {file_id}): {e}", exc_info=True)
-            # Ensure failure is counted if exception happens before upload attempt
-            if not upload_successful and file_content_bytes: 
-                 total_failed_files_or_folders += 1
-            elif not file_content_bytes: # Also count if download failed and led here
-                 total_failed_files_or_folders += 1 # (Might double count if download already incremented, needs check)
-                 # Safest to check if it was already counted: find a way to mark download failure distinctly if needed.
+            if not file_processed_successfully: # Ensure failure is counted if exception occurred
+                total_failed_files_or_folders += 1
             file_processed_successfully = False # Ensure marked as failed
 
-        # --- Update DB Status (based on combined download/upload success) --- 
+        # --- Update original SharePointSyncItem status --- 
         if db_sync_item:
             final_file_status = 'completed' if file_processed_successfully else 'failed'
-            if db_sync_item.status != final_file_status: # Avoid redundant updates
-                 try:
-                     db_sync_item.status = final_file_status
-                     db_session.add(db_sync_item)
-                     db_session.commit()
-                     logger.info(f"Task {task_id}: Set file status to '{final_file_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
-                 except Exception as db_err_final:
-                     logger.error(f"Task {task_id}: DB error updating final status to '{final_file_status}' for DB ID {item_db_id}: {db_err_final}", exc_info=True)
-                     db_session.rollback() 
-                     # REVERTED: Adjust counters if DB update fails after successful download
-                     if file_processed_successfully:
-                         total_processed_files -= 1
-                         total_failed_files_or_folders += 1
+            if db_sync_item.status != final_file_status:
+                try:
+                    db_sync_item.status = final_file_status
+                    db_session.add(db_sync_item)
+                    db_session.commit()
+                    logger.info(f"Task {task_id}: Set sync item status to '{final_file_status}' for DB ID {item_db_id} (SP ID: {file_id})")
+                except Exception as db_err_final:
+                    logger.error(f"Task {task_id}: DB error updating final sync item status to '{final_file_status}' for DB ID {item_db_id}: {db_err_final}", exc_info=True)
+                    db_session.rollback()
+                    # If DB update fails, revert success count if needed
+                    if file_processed_successfully:
+                        total_processed_files -= 1
+                        total_failed_files_or_folders += 1
 
     # --- Update Original Folder Item Statuses --- 
     logger.info(f"Task {task_id}: === Starting Final Folder Status Update Section ===")
@@ -576,79 +571,112 @@ async def _run_processing_logic(
              
     logger.info(f"Task {task_id}: === Finished Final Folder Status Update Section ===")
 
-    # Return counts and data dicts
-    logger.info(f"Task {task_id}: Returning final counts. Processed Files: {total_processed_files}, Failed Items (Files+Folders): {total_failed_files_or_folders}")
-    return total_processed_files, total_failed_files_or_folders, data_to_insert
+    # --- Return counts --- 
+    logger.info(f"Task {task_id}: Returning final counts. Processed Files (Saved to DB): {total_processed_files}, Failed Items (Discovery/Processing/DB): {total_failed_files_or_folders}")
+    return total_processed_files, total_failed_files_or_folders
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')
-def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str):
+def process_sharepoint_batch_task(self: Task, ingestion_job_id: int): # <<< Changed signature
     task_id = self.request.id
-    logger.info(f"Starting SharePoint batch task {task_id} for user {user_email} ({len(items_for_task)} items).")
-    self.update_state(state='STARTED', meta={'user': user_email, 'progress': 0, 'status': 'Initializing...'})
+    logger.info(f"Starting SharePoint batch task {task_id} for IngestionJob ID {ingestion_job_id}.")
+    self.update_state(state='STARTED', meta={'job_id': ingestion_job_id, 'progress': 0, 'status': 'Initializing...'}) # Add job_id to meta
 
-    milvus_client = self.milvus_client # Use Milvus client property
-    db_session = self.db # Get DB session from Task base class
-    target_collection_name = generate_milvus_collection_name(user_email) # Use renamed function
+    # --- Remove Milvus client setup --- 
+    # milvus_client = self.milvus_client
+    db_session = self.db
     total_processed = 0
     total_failed = 0
+    job = None # Initialize job variable
 
     try:
-        # --- Ensure Milvus Collection Exists --- 
-        logger.info(f"Task {task_id}: Ensuring Milvus collection '{target_collection_name}' with dim {settings.DENSE_EMBEDDING_DIMENSION}.") # Updated log
-        self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 5, 'status': 'Checking collection...'})
-        try:
-            # Use Milvus helper ensure_collection_exists
-            ensure_collection_exists(milvus_client, target_collection_name, settings.DENSE_EMBEDDING_DIMENSION) # Use setting dimension
-            logger.info(f"Task {task_id}: Milvus collection '{target_collection_name}' is ready.")
-        except Exception as create_err: 
-            # Catch potential errors from ensure_collection_exists (e.g., connection, schema mismatch)
-            logger.error(f"Task {task_id}: Failed to ensure Milvus collection '{target_collection_name}': {create_err}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user': user_email, 'status': f'Failed to prepare vector collection: {create_err}'})
-            raise Exception(f"Failed to prepare target collection: {create_err}") # Reraise
+        # --- Fetch IngestionJob --- 
+        job = crud_ingestion_job.get_ingestion_job(db=db_session, job_id=ingestion_job_id)
+        if not job:
+            raise ValueError(f"IngestionJob with ID {ingestion_job_id} not found.")
+        if job.celery_task_id != task_id:
+             logger.warning(f"Task ID mismatch! Job {ingestion_job_id} has Celery ID {job.celery_task_id}, but current task is {task_id}. Updating job.")
+             # Optionally update the job's celery_task_id if this task should own it now
+             crud_ingestion_job.update_job_status(db=db_session, job_id=job.id, status=job.status, celery_task_id=task_id)
+             db_session.commit() # Commit the task ID update
+
+        user_email = job.user_id # Get user email from job
+        logger.info(f"Task {task_id}: Processing for user {user_email} (from Job {ingestion_job_id})")
+
+        # --- Update job status to processing --- 
+        crud_ingestion_job.update_job_status(db=db_session, job_id=job.id, status='processing')
+        db_session.commit()
+
+        # --- Remove Milvus collection check --- 
+        # logger.info(f"Task {task_id}: Ensuring Milvus collection...")
+        # self.update_state(state='PROGRESS', meta={...})
+        # ensure_collection_exists(...)
 
         # --- Get SharePoint Service --- 
         sp_service = self.get_sharepoint_service(user_email)
         logger.info(f"Task {task_id}: SharePoint service initialized.")
-        self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10, 'status': 'Discovering files...'})
+        self.update_state(state='PROGRESS', meta={'job_id': ingestion_job_id, 'user': user_email, 'progress': 5, 'status': 'Fetching sync items...'}) # Updated progress
 
-        # --- Run Async Logic --- 
-        # Note: total_failed now includes folder discovery failures AND file processing failures
-        total_processed, total_failed, data_to_insert = asyncio.run( # Renamed points_to_upsert
+        # --- Fetch Pending SharePointSyncItems for the user --- 
+        # This replaces passing items_for_task directly
+        pending_sync_items_db = crud_sharepoint_sync_item.get_active_sync_list_for_user(db=db_session, user_email=user_email)
+        if not pending_sync_items_db:
+             logger.info(f"Task {task_id}: No pending SharePoint sync items found for user {user_email} associated with job {ingestion_job_id}. Marking job as completed.")
+             crud_ingestion_job.update_job_status(db=db_session, job_id=job.id, status='completed')
+             db_session.commit()
+             self.update_state(state='SUCCESS', meta={'job_id': ingestion_job_id, 'user': user_email, 'progress': 100, 'status': 'No pending items found.'})
+             return {'status': 'SUCCESS', 'message': 'No pending items found.', 'processed': 0, 'failed': 0}
+        
+        # Convert DB models to dicts expected by _run_processing_logic
+        items_to_process = [
+            {
+                "item_db_id": item.id,
+                "sharepoint_item_id": item.sharepoint_item_id,
+                "item_type": item.item_type,
+                "sharepoint_drive_id": item.sharepoint_drive_id,
+                "item_name": item.item_name
+                # Pass other fields if needed by _run_processing_logic
+            }
+            for item in pending_sync_items_db
+        ]
+        logger.info(f"Task {task_id}: Found {len(items_to_process)} pending sync items to process for job {ingestion_job_id}.")
+        self.update_state(state='PROGRESS', meta={'job_id': ingestion_job_id, 'user': user_email, 'progress': 10, 'status': 'Discovering files...'}) # Updated progress
+
+        # --- Run Async Logic ---
+        total_processed, total_failed = asyncio.run(
             _run_processing_logic(
-                task_instance=self, 
-                db_session=db_session, 
-                sp_service=sp_service, 
-                items_to_process=items_for_task, # Pass the original list
+                task_instance=self,
+                db_session=db_session,
+                sp_service=sp_service,
+                items_to_process=items_to_process,
                 user_email=user_email,
-                task_id=task_id # Pass task_id
+                task_id=task_id,
+                ingestion_job_id=ingestion_job_id # Pass job ID
             )
         )
 
-        # --- Batch Insert into Milvus --- 
-        logger.info(f"Task {task_id}: Inserting {len(data_to_insert)} data points into Milvus.") # Updated log
-        self.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 95, 'status': 'Saving data...'})
-        if data_to_insert:
-            try:
-                # Use Milvus insert
-                insert_result = milvus_client.insert(
-                    collection_name=target_collection_name, 
-                    data=data_to_insert
-                )
-                logger.info(f"Task {task_id}: Milvus insert call successful for {len(data_to_insert)} points.") # Simplified log
-            except Exception as upsert_err:
-                logger.error(f"Task {task_id}: Milvus insert failed: {upsert_err}", exc_info=True) # Updated log
-                total_failed += len(data_to_insert) # Count these as failed
-                self.update_state(state='FAILURE', meta={'user': user_email, 'progress': 98, 'status': 'Failed to save data.'})
-                return {'status': 'ERROR', 'message': f'Failed final save: {upsert_err}', 'processed': total_processed, 'failed': total_failed}
-
-        # --- Final Task State --- 
-        final_status_msg = f"Completed. Processed: {total_processed}, Failed: {total_failed}."
+        # --- Final Task State & Job Update --- 
+        final_status_msg = f"Completed. Processed files saved: {total_processed}, Failed items: {total_failed}."
         logger.info(f"Task {task_id}: {final_status_msg}")
-        final_state = 'SUCCESS' if total_failed == 0 else 'PARTIAL_FAILURE'
-        self.update_state(state=final_state, meta={'user': user_email, 'progress': 100, 'status': final_status_msg, 'result': {'processed': total_processed, 'failed': total_failed}})
-        return {'status': final_state, 'message': final_status_msg, 'processed': total_processed, 'failed': total_failed}
+        final_job_status = 'completed' if total_failed == 0 else 'partial_failure'
+        
+        # Update job status in DB
+        crud_ingestion_job.update_job_status(db=db_session, job_id=job.id, status=final_job_status)
+        db_session.commit()
+
+        # Update Celery task state
+        self.update_state(state=final_job_status.upper(), meta={'job_id': ingestion_job_id, 'user': user_email, 'progress': 100, 'status': final_status_msg, 'result': {'processed': total_processed, 'failed': total_failed}})
+        return {'status': final_job_status, 'message': final_status_msg, 'processed': total_processed, 'failed': total_failed}
 
     except Exception as task_err:
         logger.critical(f"Task {task_id}: Unhandled exception: {task_err}", exc_info=True)
-        self.update_state(state='FAILURE', meta={'user': user_email, 'progress': 100, 'status': f'Critical task error: {task_err}'})
+        # Try to update job status to failed if possible
+        if job and db_session: # Check if job and session are available
+             try:
+                 crud_ingestion_job.update_job_status(db=db_session, job_id=job.id, status='failed', error_message=str(task_err))
+                 db_session.commit()
+             except Exception as update_err:
+                 logger.error(f"Task {task_id}: Failed to mark job {ingestion_job_id} as failed after critical error: {update_err}", exc_info=True)
+                 db_session.rollback()
+        # Update Celery state
+        self.update_state(state='FAILURE', meta={'job_id': ingestion_job_id, 'status': f'Critical task error: {task_err}'})
         raise 

@@ -261,10 +261,10 @@ const KnowledgeManagementPage: React.FC = () => {
                   <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
                     <CardBody>
                       <Stat>
-                        <StatLabel>{t('knowledgeManagement.summary.emailRawDataLabel', 'Outlook Raw Data')}</StatLabel>
+                        <StatLabel>{t('knowledgeManagement.summary.rawDataLabel', 'Email Raw Data')}</StatLabel>
                         <StatNumber>{summaryData.rawDataCount}</StatNumber>
-                        <StatHelpText fontSize="xs" noOfLines={1} title={rawCollectionNameDisplay}>
-                          Source: {rawCollectionNameDisplay}
+                        <StatHelpText fontSize="xs" noOfLines={1}>
+                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 'email_attachment' })}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
@@ -277,8 +277,8 @@ const KnowledgeManagementPage: React.FC = () => {
                       <Stat>
                         <StatLabel>{t('knowledgeManagement.summary.sharepointRawDataLabel', 'SharePoint Raw Data')}</StatLabel>
                         <StatNumber>{summaryData.sharepointRawDataCount}</StatNumber>
-                        <StatHelpText fontSize="xs" noOfLines={1} title={sharepointRawCollectionNameDisplay}>
-                          Source: {sharepointRawCollectionNameDisplay}
+                        <StatHelpText fontSize="xs" noOfLines={1}>
+                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 'sharepoint' })}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
@@ -291,8 +291,8 @@ const KnowledgeManagementPage: React.FC = () => {
                       <Stat>
                         <StatLabel>{t('knowledgeManagement.summary.s3RawDataLabel', 'AWS S3 Raw Data')}</StatLabel>
                         <StatNumber>{summaryData.s3RawDataCount}</StatNumber>
-                        <StatHelpText fontSize="xs" noOfLines={1} title={s3RawCollectionNameDisplay}>
-                          Source: {s3RawCollectionNameDisplay}
+                        <StatHelpText fontSize="xs" noOfLines={1}>
+                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 's3' })}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
@@ -305,8 +305,8 @@ const KnowledgeManagementPage: React.FC = () => {
                       <Stat>
                         <StatLabel>{t('knowledgeManagement.summary.azureBlobRawDataLabel', 'Azure Blob Raw Data')}</StatLabel>
                         <StatNumber>{summaryData.azureBlobRawDataCount}</StatNumber>
-                        <StatHelpText fontSize="xs" noOfLines={1} title={azureBlobRawCollectionNameDisplay}>
-                          Source: {azureBlobRawCollectionNameDisplay}
+                        <StatHelpText fontSize="xs" noOfLines={1}>
+                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 'azure_blob' })}
                         </StatHelpText>
                       </Stat>
                     </CardBody>

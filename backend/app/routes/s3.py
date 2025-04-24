@@ -1,17 +1,20 @@
 # backend/app/routes/s3.py
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 import logging
 import boto3 # Import boto3 to use session type hint
+from collections import defaultdict
 
 from app.db.session import get_db
 from app.dependencies.auth import get_current_active_user_or_token_owner # Use the correct dependency
 from app.models.user import UserDB # Import UserDB for type hinting
 from app.schemas.s3 import (
-    S3ConfigCreate, S3ConfigResponse, S3Bucket, S3Object, S3IngestRequest, S3SyncItem, S3SyncItemCreate
+    S3ConfigCreate, S3ConfigResponse, S3Bucket, S3Object, S3IngestRequest, S3SyncItem, S3SyncItemCreate,
+    TriggerIngestResponse # <<< Import the new response schema
 )
-from app.crud import crud_aws_credential, crud_s3_sync_item
+from app.crud import crud_aws_credential, crud_s3_sync_item, crud_ingestion_job
+from app.schemas.ingestion_job import IngestionJobCreate # Need schema for creating jobs
 from app.services import s3 as s3_service # Use alias to avoid name conflict
 from app.tasks.s3_tasks import process_s3_ingestion_task # <<< Import the Celery task
 from app.schemas.tasks import TaskStatusResponse # <<< Import task status schema for response
@@ -156,60 +159,139 @@ async def list_s3_objects(
 
 @router.post(
     "/ingest",
-    response_model=TaskStatusResponse, # Use TaskStatusResponse model
+    response_model=TriggerIngestResponse, # <<< Use the new response model
     status_code=status.HTTP_202_ACCEPTED,
     summary="Process Pending S3 Sync Items",
-    description="Initiates a background task to process all pending S3 files/folders in the user's sync list."
+    description="Groups pending S3 files/folders by source and initiates background tasks for each."
 )
 async def trigger_s3_ingestion(
-    # No request body needed anymore
-    # Verify config works before queueing by depending on the session
-    assumed_session: boto3.Session = Depends(get_assumed_s3_session),
+    # No request body needed
+    assumed_session: boto3.Session = Depends(get_assumed_s3_session), # Verify config first
     current_user: UserDB = Depends(get_current_active_user_or_token_owner),
-    db: Session = Depends(get_db) # <<< Add DB dependency
+    db: Session = Depends(get_db)
 ):
     logger.info(f"User {current_user.email} requested processing of pending S3 sync items.")
 
-    # Check if there are actually pending items for the user
-    pending_items = crud_s3_sync_item.get_pending_items_by_user(db=db, user_id=current_user.email)
-    
-    # +++ ADD DETAILED LOGGING +++
-    logger.info(f"Query for pending items for user {current_user.email} returned: {pending_items}")
-    # Log details of each found item
-    if pending_items:
-        for item in pending_items:
-            logger.info(f"  - Found pending item: ID={item.id}, Bucket={item.s3_bucket}, Key={item.s3_key}, Status={item.status}")
-    # --- END LOGGING --- 
-            
-    if not pending_items:
-        logger.info(f"No pending S3 sync items found for user {current_user.email}. No task submitted.")
-        # Return 200 OK but indicate nothing was started
-        return TaskStatusResponse(
-            task_id=None, # No task ID generated
-            status="NO_OP", 
-            message="No pending S3 items found to process."
-        )
-
-    # We already verified config/STS works by depending on get_assumed_s3_session
-
-    # Prepare payload for Celery task - only needs user_email
-    task_payload = {
-        "user_email": current_user.email,
-    }
-
-    # Submit task to Celery
+    # Attempt to ensure session reads latest data
     try:
-        task = process_s3_ingestion_task.delay(**task_payload)
-        logger.info(f"Submitted S3 ingestion task {task.id} to process pending items for user {current_user.email}")
-        # Return task ID and initial status
-        return TaskStatusResponse(
-            task_id=task.id, 
-            status="PENDING", 
-            message=f"S3 ingestion task submitted to process {len(pending_items)} pending item(s)."
+        logger.debug("Expiring session state before fetching pending items.")
+        db.expire_all()
+    except Exception as expire_err:
+        logger.warning(f"Error calling db.expire_all(): {expire_err}")
+
+    # 1. Fetch Pending Items
+    pending_items = crud_s3_sync_item.get_pending_items_by_user(db=db, user_id=current_user.email)
+    logger.info(f"Found {len(pending_items)} pending items for user {current_user.email}.")
+
+    if not pending_items:
+        logger.info(f"No pending S3 sync items found for user {current_user.email}. No tasks submitted.")
+        # <<< Return the new response type for NO_OP
+        return TriggerIngestResponse(
+            task_id=None,
+            status="NO_OP",
+            message="No pending S3 sync items found."
         )
-    except Exception as e:
-        logger.error(f"Failed to submit S3 ingestion task for user {current_user.email}: {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to start S3 ingestion task.")
+
+    # 2. Group by Source (bucket, key/prefix)
+    # We treat each unique pending sync item as a separate job request
+    # If you want to group items under the same prefix into one job, logic needs adjustment here.
+    jobs_to_submit: Dict[Tuple[str, str], S3SyncItem] = {}
+    for item in pending_items:
+        source_tuple = (item.s3_bucket, item.s3_key)
+        # Prioritize existing entries? Here we just take the first one encountered.
+        if source_tuple not in jobs_to_submit:
+            jobs_to_submit[source_tuple] = item
+            logger.info(f"Identified potential job for s3://{item.s3_bucket}/{item.s3_key} (from item ID {item.id})")
+        else:
+             logger.warning(f"Multiple pending S3SyncItems found for s3://{item.s3_bucket}/{item.s3_key}. Will create job based on first encountered (item ID {jobs_to_submit[source_tuple].id}). Skipping item ID {item.id}.")
+
+    submitted_tasks_details: List[Dict[str, Optional[str]]] = [] # Store basic task info
+    failed_submissions = 0
+
+    # 3. Loop Through Groups (Unique Sources)
+    for (bucket, key_or_prefix), source_item in jobs_to_submit.items():
+        job_created = False
+        task_submitted = False
+        new_job_id = None
+        task_id = None
+        error_detail = None
+
+        try:
+            # 4. Create IngestionJob
+            job_details = {"bucket": bucket}
+            if key_or_prefix.endswith('/'):
+                job_details["prefix"] = key_or_prefix
+            else:
+                job_details["key"] = key_or_prefix
+            
+            job_schema = IngestionJobCreate(source_type='s3', job_details=job_details)
+            
+            logger.info(f"Attempting to create IngestionJob for user {current_user.email}, source s3://{bucket}/{key_or_prefix}")
+            db_job = crud_ingestion_job.create_ingestion_job(db=db, job_in=job_schema, user_id=current_user.email)
+            
+            if not db_job:
+                # Handle potential DB error during job creation
+                logger.error(f"Failed to create IngestionJob DB record for s3://{bucket}/{key_or_prefix}")
+                error_detail = f"Database error creating job for s3://{bucket}/{key_or_prefix}"
+                failed_submissions += 1
+                continue # Skip to next source
+            
+            job_created = True
+            new_job_id = db_job.id
+            logger.info(f"Created IngestionJob ID {new_job_id} for s3://{bucket}/{key_or_prefix}")
+
+            # 5. Trigger Celery Task
+            task = process_s3_ingestion_task.delay(job_id=new_job_id)
+            task_submitted = True
+            task_id = task.id
+            logger.info(f"Submitted Celery task {task_id} for IngestionJob ID {new_job_id}")
+
+            # 6. Optional: Link task ID back to job
+            # Make sure db.commit() happens LATER or is handled by the background task
+            crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, status='pending', celery_task_id=task_id)
+            # No db.commit() here!
+
+            submitted_tasks_details.append({
+                "task_id": task_id,
+                "source": f"s3://{bucket}/{key_or_prefix}"
+            })
+
+        except Exception as e:
+            logger.error(f"Failed processing/submitting task for s3://{bucket}/{key_or_prefix}: {e}", exc_info=True)
+            error_detail = f"Error submitting task for s3://{bucket}/{key_or_prefix}: {e}"
+            failed_submissions += 1
+            # If job was created but task submission failed, mark job as failed
+            if job_created and new_job_id is not None and not task_submitted:
+                try:
+                    crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, status='failed', error_message=f"Celery task submission failed: {e}")
+                except Exception as update_err:
+                    logger.error(f"CRITICAL: Failed to mark IngestionJob {new_job_id} as failed after task submission error: {update_err}")
+            # Don't append to submitted_tasks_details on failure
+
+    # Log summary
+    num_successful = len(submitted_tasks_details)
+    logger.info(f"Finished triggering S3 ingestion jobs for user {current_user.email}. Submitted: {num_successful}, Failed Submissions: {failed_submissions}")
+
+    # Handle outcomes
+    if num_successful == 0:
+        # This means items were found, but ALL submissions failed
+        logger.error(f"Found {len(pending_items)} pending items but failed to submit any tasks for user {current_user.email}.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Found {len(pending_items)} pending S3 items, but failed to submit any processing tasks. Check server logs."
+        )
+    
+    # <<< Return the new response type for PENDING
+    first_task_id = submitted_tasks_details[0]["task_id"]
+    message = f"S3 ingestion task submitted for {submitted_tasks_details[0]['source']} (Task ID: {first_task_id})"
+    if num_successful > 1:
+        message = f"{num_successful} S3 ingestion tasks submitted. First task ID: {first_task_id}"
+        
+    return TriggerIngestResponse(
+        task_id=first_task_id, 
+        status="PENDING",
+        message=message
+    )
 
 # --- S3 Sync List Endpoints ---
 
@@ -251,16 +333,33 @@ def add_s3_sync_item(
 @router.get(
     "/sync-list",
     response_model=List[S3SyncItem],
-    summary="Get S3 Sync List",
-    description="Retrieves the current list of S3 items marked for sync by the user."
+    summary="Get S3 Sync List (Pending Only)",
+    description="Retrieves the current list of PENDING S3 items marked for sync by the user."
 )
 def get_s3_sync_list(
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(get_current_active_user_or_token_owner)
 ):
-    logger.debug(f"Fetching S3 sync list for user {current_user.email}")
-    items = crud_s3_sync_item.get_items_by_user(db=db, user_id=current_user.email)
-    return [S3SyncItem.model_validate(item) for item in items]
+    logger.debug(f"Fetching PENDING S3 sync list for user {current_user.email}")
+    sync_items = crud_s3_sync_item.get_pending_items_by_user(db=db, user_id=current_user.email)
+    return [S3SyncItem.model_validate(item) for item in sync_items]
+
+@router.get(
+    "/sync-list/history",
+    response_model=List[S3SyncItem],
+    summary="Get S3 Sync History",
+    description="Retrieves the most recent completed/failed S3 items for the user."
+)
+def get_s3_sync_history(
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of history items to return."),
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_active_user_or_token_owner)
+):
+    logger.debug(f"Fetching S3 sync history for user {current_user.email} (limit: {limit})")
+    history_items = crud_s3_sync_item.get_completed_or_failed_items_by_user(
+        db=db, user_id=current_user.email, limit=limit
+    )
+    return [S3SyncItem.model_validate(item) for item in history_items]
 
 @router.delete(
     "/sync-list/remove/{item_id}",
@@ -275,24 +374,22 @@ def remove_s3_sync_item(
     current_user: UserDB = Depends(get_current_active_user_or_token_owner)
 ):
     logger.info(f"User {current_user.email} attempting to remove S3 sync item with DB ID: {item_id}")
-    # Fetch the item first to ensure it exists and belongs to the user
-    db_item = db.query(crud_s3_sync_item.S3SyncItem).filter(
-        crud_s3_sync_item.S3SyncItem.id == item_id,
-        crud_s3_sync_item.S3SyncItem.user_id == current_user.email
-    ).first()
-
+    # Fetch the item first to ensure it belongs to the current user
+    db_item = db.get(S3SyncItem, item_id) # Use db.get for primary key lookup
     if not db_item:
-        logger.warning(f"S3 sync item with ID {item_id} not found or does not belong to user {current_user.email}.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 sync item not found.")
+        logger.warning(f"Attempt to remove non-existent S3 sync item ID: {item_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync item not found.")
+    
+    if db_item.user_id != current_user.email:
+        logger.warning(f"User {current_user.email} attempted to remove S3 sync item ID {item_id} belonging to another user ({db_item.user_id}).")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot remove sync item belonging to another user.")
 
-    try:
-        deleted_item_data = S3SyncItem.model_validate(db_item) # Capture data before deletion
-        crud_s3_sync_item.remove_item(db=db, db_item=db_item)
-        logger.info(f"Successfully removed S3 sync item {item_id} for user {current_user.email}.")
-        return deleted_item_data
-    except Exception as e:
-        logger.error(f"Error removing S3 sync item {item_id} for user {current_user.email}: {e}", exc_info=True)
-        db.rollback() # Ensure rollback on error during removal
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to remove S3 sync item.")
+    # If checks pass, remove the item
+    removed_item = crud_s3_sync_item.remove_item(db=db, db_item=db_item)
+    if removed_item is None:
+        # Handle potential deletion error
+        logger.error(f"Failed to remove S3 sync item ID {item_id} from database.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to remove sync item.")
 
-    # <<< REMOVED Placeholder response >>> 
+    logger.info(f"Successfully removed S3 sync item ID {item_id} for user {current_user.email}")
+    return S3SyncItem.model_validate(removed_item) 

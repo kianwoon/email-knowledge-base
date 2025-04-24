@@ -36,6 +36,30 @@ class S3IngestRequest(BaseModel):
     bucket: str
     keys: List[str] = Field(..., description="List of specific object keys or prefixes (folders) to ingest")
 
+# --- NEW: S3 Trigger Ingestion Response Schema ---
+# Mirrors the structure expected by the frontend (frontend/src/api/s3.ts)
+class TriggerIngestResponse(BaseModel):
+    message: str
+    task_id: Optional[str] = None # Task ID is null if no pending items or failed
+    status: str # e.g., PENDING, NO_OP, FAILURE
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "message": "S3 ingestion task submitted. First task: abc-123",
+                    "task_id": "abc-123",
+                    "status": "PENDING"
+                },
+                {
+                    "message": "No pending S3 sync items found.",
+                    "task_id": None,
+                    "status": "NO_OP"
+                }
+            ]
+        }
+    }
+# ---------------------------------------------
 
 # --- S3 Sync Item Schemas (Similar to SharePoint) ---
 

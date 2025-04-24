@@ -23,6 +23,12 @@ from app.services.embedder import create_embedding
 # Import the service function we will create
 # from app.services.knowledge_service import fetch_collection_summary 
 
+# +++ Import SQL Session and CRUD +++
+from sqlalchemy.orm import Session
+from app.db.session import get_db # Corrected import name
+from app.crud import crud_processed_file
+# --- End Import ---
+
 router = APIRouter()
 logger = logging.getLogger("app")
 
@@ -133,12 +139,13 @@ async def get_collection_summary_route(
 @router.get("/summary", response_model=KnowledgeSummaryResponseModel)
 async def get_knowledge_summary_route(
     current_user: User = Depends(get_current_user),
-    vector_db_client: MilvusClient = Depends(get_milvus_client)
+    vector_db_client: MilvusClient = Depends(get_milvus_client),
+    db: Session = Depends(get_db) # Use the correct dependency function
 ):
-    """Get combined summary statistics (item counts) for user's knowledge collections."""
+    """Get combined summary statistics (item counts) for user's knowledge collections and processed files."""
     sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
-    # Collection for EMAIL raw data items
-    email_raw_collection_name = f"{sanitized_email}_email_knowledge"
+    # Collection for EMAIL raw data items - REMOVED as we now use DB
+    # email_raw_collection_name = f"{sanitized_email}_email_knowledge"
     # Collection for SHAREPOINT raw data items
     sharepoint_raw_collection_name = f"{sanitized_email}_sharepoint_knowledge"
     # Collection for S3 raw data items - Use corrected name
@@ -150,108 +157,46 @@ async def get_knowledge_summary_route(
     # Collection for vector data (RAG)
     vector_collection_name = f"{sanitized_email}_knowledge_base_bm" # CORRECTED NAME
     
-    # Log all collections being queried
-    logger.info(f"User '{current_user.email}' requesting combined knowledge summary for collections: {email_raw_collection_name}, {sharepoint_raw_collection_name}, {s3_raw_collection_name}, {azure_blob_raw_collection_name}, {custom_knowledge_collection_name}, {vector_collection_name}")
+    # Log all collections being queried (adjust log message if needed)
+    logger.info(f"User '{current_user.email}' requesting combined knowledge summary from DB and Milvus for collections: {custom_knowledge_collection_name}, {vector_collection_name}")
 
-    email_raw_count = 0
+    email_raw_count = 0 # Initialize Email count (will come from DB)
     sharepoint_raw_count = 0
     s3_raw_count = 0 # Initialize S3 count
     azure_blob_raw_count = 0 # Initialize Azure Blob count
-    custom_raw_count = 0 # Initialize Custom count
+    custom_raw_count = 0 # Initialize Custom count (will come from Milvus)
     vector_count = 0
-    last_update_time = None
+    last_update_time = None # Placeholder, DB doesn't track this globally yet
 
     try:
-        # Get EMAIL raw data count using Milvus API
+        # --- REMOVED Milvus query for EMAIL raw data --- 
+        # --- Get counts from ProcessedFiles table --- 
         try:
-            # Ensure collection is loaded before getting stats
-            if vector_db_client.has_collection(collection_name=email_raw_collection_name) and not vector_db_client.get_load_state(collection_name=email_raw_collection_name).get("state", "") == "Loaded":
-                logger.info(f"Loading collection {email_raw_collection_name} into memory for stats...")
-                vector_db_client.load_collection(collection_name=email_raw_collection_name)
-            
-            logger.debug(f"Calling MilvusClient.get_collection_stats for EMAIL raw data collection: {email_raw_collection_name}")
-            stats_raw = vector_db_client.get_collection_stats(collection_name=email_raw_collection_name)
-            email_raw_count = int(stats_raw.get('row_count', 0))
-            logger.debug(f"EMAIL raw data count for {email_raw_collection_name}: {email_raw_count}")
-        except Exception as e:
-            # Check if error indicates collection not found (Milvus might raise different exceptions)
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"EMAIL raw data collection '{email_raw_collection_name}' not found. Setting count to 0.")
-                email_raw_count = 0
-            else:
-                logger.error(f"Unexpected Milvus error occurred while getting stats for {email_raw_collection_name}. Error: {e}", exc_info=True) # More detailed log
-                # Log the error before potentially raising
-                # logger.error(f"Milvus error getting stats for {email_raw_collection_name}: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing email raw data storage.")
+            logger.info(f"Querying ProcessedFiles table for counts for owner {current_user.email}")
+            email_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='email_attachment') # Get email count from DB
+            sharepoint_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='sharepoint')
+            s3_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='s3')
+            azure_blob_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='azure_blob')
+            # Assuming 'custom' is another source_type to count here? 
+            # custom_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='custom') 
+            logger.info(f"ProcessedFiles counts - Email: {email_raw_count}, SharePoint: {sharepoint_raw_count}, S3: {s3_raw_count}, Azure Blob: {azure_blob_raw_count}")
+        except Exception as db_err:
+            logger.error(f"Error querying ProcessedFiles table counts for owner {current_user.email}: {db_err}", exc_info=True)
+            # Set counts to 0 but don't raise HTTPException, allow other counts to proceed
+            email_raw_count = 0 # Set email count to 0 on DB error
+            sharepoint_raw_count = 0
+            s3_raw_count = 0
+            azure_blob_raw_count = 0
+            # custom_raw_count = 0
+        # --- End ProcessedFiles counts ---
 
-        # Get SHAREPOINT raw data count using Milvus API
-        try:
-            # Ensure collection is loaded before getting stats
-            if vector_db_client.has_collection(collection_name=sharepoint_raw_collection_name) and not vector_db_client.get_load_state(collection_name=sharepoint_raw_collection_name).get("state", "") == "Loaded":
-                logger.info(f"Loading collection {sharepoint_raw_collection_name} into memory for stats...")
-                vector_db_client.load_collection(collection_name=sharepoint_raw_collection_name)
-
-            logger.debug(f"Calling MilvusClient.get_collection_stats for SHAREPOINT raw data collection: {sharepoint_raw_collection_name}")
-            stats_sharepoint = vector_db_client.get_collection_stats(collection_name=sharepoint_raw_collection_name)
-            sharepoint_raw_count = int(stats_sharepoint.get('row_count', 0))
-            logger.debug(f"SHAREPOINT raw data count for {sharepoint_raw_collection_name}: {sharepoint_raw_count}")
-        except Exception as e:
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"SHAREPOINT raw data collection '{sharepoint_raw_collection_name}' not found. Setting count to 0.")
-                sharepoint_raw_count = 0
-            else:
-                logger.error(f"Milvus error getting stats for {sharepoint_raw_collection_name}: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing SharePoint raw data storage.")
-
-        # Get S3 raw data count using Milvus API
-        try:
-            # Ensure collection is loaded before getting stats
-            if vector_db_client.has_collection(collection_name=s3_raw_collection_name) and not vector_db_client.get_load_state(collection_name=s3_raw_collection_name).get("state", "") == "Loaded":
-                logger.info(f"Loading collection {s3_raw_collection_name} into memory for stats...")
-                vector_db_client.load_collection(collection_name=s3_raw_collection_name)
-
-            logger.debug(f"Calling MilvusClient.get_collection_stats for S3 raw data collection: {s3_raw_collection_name}")
-            stats_s3 = vector_db_client.get_collection_stats(collection_name=s3_raw_collection_name)
-            s3_raw_count = int(stats_s3.get('row_count', 0))
-            logger.debug(f"S3 raw data count for {s3_raw_collection_name}: {s3_raw_count}")
-        except Exception as e:
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"S3 raw data collection '{s3_raw_collection_name}' not found. Setting count to 0.")
-                s3_raw_count = 0
-            else:
-                logger.error(f"Milvus error getting stats for {s3_raw_collection_name}: {e}")
-                s3_raw_count = 0 
-                logger.warning(f"Non-not-found Milvus error getting stats for {s3_raw_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if S3 count is critical
-
-        # Get AZURE BLOB raw data count using Milvus API
-        try:
-            # Ensure collection is loaded before getting stats
-            if vector_db_client.has_collection(collection_name=azure_blob_raw_collection_name) and not vector_db_client.get_load_state(collection_name=azure_blob_raw_collection_name).get("state", "") == "Loaded":
-                logger.info(f"Loading collection {azure_blob_raw_collection_name} into memory for stats...")
-                vector_db_client.load_collection(collection_name=azure_blob_raw_collection_name)
-
-            logger.debug(f"Calling MilvusClient.get_collection_stats for AZURE BLOB raw data collection: {azure_blob_raw_collection_name}")
-            stats_azure = vector_db_client.get_collection_stats(collection_name=azure_blob_raw_collection_name)
-            azure_blob_raw_count = int(stats_azure.get('row_count', 0))
-            logger.debug(f"AZURE BLOB raw data count for {azure_blob_raw_collection_name}: {azure_blob_raw_count}")
-        except Exception as e:
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"AZURE BLOB raw data collection '{azure_blob_raw_collection_name}' not found. Setting count to 0.")
-                azure_blob_raw_count = 0
-            else:
-                logger.error(f"Milvus error getting stats for {azure_blob_raw_collection_name}: {e}")
-                azure_blob_raw_count = 0 
-                logger.warning(f"Non-not-found Milvus error getting stats for {azure_blob_raw_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if Azure Blob count is critical
-
-        # Get CUSTOM raw data count using Milvus API
+        # Get CUSTOM raw data count using Milvus API (if still applicable)
         try:
             # Ensure collection is loaded before getting stats
             if vector_db_client.has_collection(collection_name=custom_knowledge_collection_name) and not vector_db_client.get_load_state(collection_name=custom_knowledge_collection_name).get("state", "") == "Loaded":
                 logger.info(f"Loading collection {custom_knowledge_collection_name} into memory for stats...")
                 vector_db_client.load_collection(collection_name=custom_knowledge_collection_name)
-
+            
             logger.debug(f"Calling MilvusClient.get_collection_stats for CUSTOM raw data collection: {custom_knowledge_collection_name}")
             stats_custom = vector_db_client.get_collection_stats(collection_name=custom_knowledge_collection_name)
             custom_raw_count = int(stats_custom.get('row_count', 0))
@@ -266,55 +211,45 @@ async def get_knowledge_summary_route(
                 logger.warning(f"Non-not-found Milvus error getting stats for {custom_knowledge_collection_name}: {e}. Setting count to 0.")
                 # Optionally re-raise if custom count is critical
 
-        # Get vector data count using Milvus API
+        # Get VECTOR data count from Milvus (assuming this is the RAG collection)
         try:
             # Ensure collection is loaded before getting stats
             if vector_db_client.has_collection(collection_name=vector_collection_name) and not vector_db_client.get_load_state(collection_name=vector_collection_name).get("state", "") == "Loaded":
                 logger.info(f"Loading collection {vector_collection_name} into memory for stats...")
                 vector_db_client.load_collection(collection_name=vector_collection_name)
-
-            logger.debug(f"Calling MilvusClient.get_collection_stats for vector data collection: {vector_collection_name}")
+            
+            logger.debug(f"Calling MilvusClient.get_collection_stats for VECTOR data collection: {vector_collection_name}")
             stats_vector = vector_db_client.get_collection_stats(collection_name=vector_collection_name)
             vector_count = int(stats_vector.get('row_count', 0))
-            logger.debug(f"Vector data count for {vector_collection_name}: {vector_count}")
-            # Update last_update_time if vector collection exists (Milvus stats doesn't provide this directly)
-            # We might need another way to track updates if required.
-            last_update_time = datetime.now(timezone.utc) # Use current time as approximation
-
+            logger.debug(f"VECTOR data count for {vector_collection_name}: {vector_count}")
         except Exception as e:
             if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"Vector data collection '{vector_collection_name}' not found. Setting count to 0.")
+                logger.warning(f"VECTOR data collection '{vector_collection_name}' not found. Setting count to 0.")
                 vector_count = 0
             else:
                 logger.error(f"Milvus error getting stats for {vector_collection_name}: {e}")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error accessing vector data storage.")
-
-        logger.info(f"Successfully retrieved combined summary for '{current_user.email}': EmailRaw={email_raw_count}, SharePointRaw={sharepoint_raw_count}, S3Raw={s3_raw_count}, AzureBlobRaw={azure_blob_raw_count}, CustomRaw={custom_raw_count}, Vector={vector_count}")
+                # Log the error but don't raise, return counts obtained so far
+                vector_count = 0
         
-        # Ensure last_update_time has a value before returning
-        if last_update_time is None:
-            last_update_time = datetime.now(timezone.utc)
-            logger.debug("Setting last_update_time to current time as no vector collection info was available.")
-            
-        return KnowledgeSummaryResponseModel(
-            raw_data_count=email_raw_count,
-            sharepoint_raw_data_count=sharepoint_raw_count,
-            s3_raw_data_count=s3_raw_count,
-            azure_blob_raw_data_count=azure_blob_raw_count,
-            custom_raw_data_count=custom_raw_count,
+        # Construct the response
+        response_data = KnowledgeSummaryResponseModel(
+            raw_data_count=email_raw_count, # Use count from DB
+            sharepoint_raw_data_count=sharepoint_raw_count, # Use count from DB
+            s3_raw_data_count=s3_raw_count, # Use count from DB
+            azure_blob_raw_data_count=azure_blob_raw_count, # Use count from DB
+            custom_raw_data_count=custom_raw_count, # Keep custom count from Milvus (if applicable)
             vector_data_count=vector_count,
-            last_updated=last_update_time # Use the approximated time
+            last_updated=datetime.now(timezone.utc) # Use current time as last updated
         )
+        logger.info(f"Returning knowledge summary for user {current_user.email}: {response_data.model_dump()}")
+        return response_data
 
-    except HTTPException as http_exc:
-        # Re-raise HTTPExceptions raised within the specific try-except blocks
-        raise http_exc
     except Exception as e:
-        logger.error(f"Unexpected error fetching combined summary for user '{current_user.email}': {e}", exc_info=True)
+        logger.error(f"General error fetching knowledge summary for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while retrieving the knowledge base summary."
-        ) 
+            detail="Failed to retrieve knowledge base summary."
+        )
 
 @router.post("/snippet")
 async def ingest_snippet(

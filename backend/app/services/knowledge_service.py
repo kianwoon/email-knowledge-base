@@ -6,6 +6,7 @@ import pathlib
 from typing import List, Dict, Any, Callable, Tuple, Optional
 import asyncio
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.orm import Session
 
 import openai
 # Remove Qdrant imports
@@ -18,6 +19,8 @@ from app.services.outlook import OutlookService
 from app.services import s3 as s3_service
 from app.models.email import EmailFilter
 from app.config import settings
+from app.crud import crud_processed_file
+from app.db.models.processed_file import ProcessedFile
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,15 @@ def generate_email_attachment_milvus_pk(email_id: str, attachment_id: str) -> st
     unique_id_string = f"email://{email_id}/attachment/{attachment_id}"
     return str(uuid.uuid5(EMAIL_ATTACHMENT_NAMESPACE_UUID, unique_id_string))
 
+# NEW: R2 key generator for attachments
+def generate_email_attachment_r2_key(email_id: str, attachment_id: str, attachment_name: str) -> str:
+    """Generates a unique R2 object key for an email attachment."""
+    unique_id_string = f"email://{email_id}/attachment/{attachment_id}"
+    deterministic_id = str(uuid.uuid5(EMAIL_ATTACHMENT_NAMESPACE_UUID, unique_id_string))
+    original_extension = "".join(pathlib.Path(attachment_name).suffixes)
+    # Structure: provider/deterministic_id/filename.ext
+    return f"email_attachment/{deterministic_id}{original_extension}"
+
 async def _process_and_store_emails(
     operation_id: str,
     owner_email: str,
@@ -37,14 +49,16 @@ async def _process_and_store_emails(
     outlook_service: OutlookService,
     vector_db_client: MilvusClient, # Updated type hint
     target_collection_name: str,
-    update_state_func: Callable = None
-) -> Tuple[int, int, int, int, List[Dict[str, Any]]]: # Return email_proc, email_fail, att_proc, att_fail, data
+    update_state_func: Callable = None,
+    db_session: Session = None, # Added db_session parameter
+    ingestion_job_id: int = None # Added ingestion_job_id parameter
+) -> Tuple[int, int, int, int, List[Dict[str, Any]]]: # Return email_proc, email_fail, att_proc, att_fail, email_data_for_milvus
     """
     Fetches emails, generates tags via OpenAI, and prepares dictionaries matching
     the Milvus schema with a PLACEHOLDER VECTOR for later storage.
     Also processes attachments: downloads, uploads to R2, creates separate Milvus records.
     """
-    points_to_insert: List[Dict[str, Any]] = [] # Changed from PointStruct list
+    email_data_for_milvus: List[Dict[str, Any]] = [] # Changed from PointStruct list
     processed_email_count = 0
     failed_email_count = 0
     processed_attachment_count = 0 # Added counter
@@ -175,7 +189,7 @@ async def _process_and_store_emails(
                     "source": "email", 
                     "type": "email_knowledge", # Type indicating raw email data
                     "email_id": email_id,
-                    "job_id": operation_id, # Use operation_id as job_id
+                    "job_id": str(ingestion_job_id) if ingestion_job_id else operation_id, # Use Job ID if available
                     "subject": subject,
                     "date": email_content.received_date or "",
                     "status": "processed", # Email body processed, attachments handled separately
@@ -187,11 +201,11 @@ async def _process_and_store_emails(
                     "metadata_json": metadata_for_json
                 }
                 
-                points_to_insert.append(data_dict)
+                email_data_for_milvus.append(data_dict)
                 processed_email_count += 1
                 logger.debug(f"[Op:{operation_id}] Prepared Milvus data dict for EMAIL PK {point_pk}. Tags: {generated_tags}")
 
-                # --- Process Attachments --- 
+                # --- Process Attachments -> R2 + PostgreSQL --- 
                 if email_content.attachments:
                     logger.info(f"[Op:{operation_id}] Processing {len(email_content.attachments)} attachments for email {email_id}.")
                     for attachment in email_content.attachments:
@@ -202,88 +216,85 @@ async def _process_and_store_emails(
                              failed_attachment_count += 1
                              continue
 
-                        # Placeholder for R2 key
-                        r2_object_key_for_milvus: Optional[str] = None
+                        # --- Skip images --- 
+                        attachment_content_type = attachment.contentType.lower() if hasattr(attachment, 'contentType') and attachment.contentType else 'unknown'
+                        filename_lower = attachment_name.lower()
+                        # Check content type OR file extension
+                        if attachment_content_type.startswith('image/') or \
+                           filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp')):
+                            logger.info(f"[Op:{operation_id}] Skipping image attachment: {attachment_id} ('{attachment_name}'), Type: {attachment_content_type}.")
+                            continue
+                        # --- End Skip --- 
 
+                        r2_object_key: Optional[str] = None
+                        attachment_save_succeeded = False
                         try:
-                            # --- ADD CHECK FOR IMAGE TYPES ---
-                            attachment_content_type = attachment.contentType.lower() if hasattr(attachment, 'contentType') and attachment.contentType else 'unknown'
-                            if attachment_content_type.startswith('image/'):
-                                logger.info(f"[Op:{operation_id}] Skipping image attachment: {attachment_id} ('{attachment_name}'), Type: {attachment_content_type}.")
-                                # Do not increment failed count, just skip processing
-                                continue # Skip to the next attachment
-                            # --- END CHECK ---
-
                             # 1. Download attachment content
-                            # Requires a new method in OutlookService
                             logger.debug(f"[Op:{operation_id}] Downloading content for attachment {attachment_id} ('{attachment_name}')")
-                            # Assume new method exists: get_attachment_content(email_id, attachment_id)
-                            # This method should return bytes or None
                             attachment_content_bytes = await outlook_service.get_attachment_content(email_id, attachment_id)
-
                             if not attachment_content_bytes:
-                                logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {attachment_id} ('{attachment_name}'). Skipping.")
-                                # This is not a failure, just an unsupported attachment type (e.g., inline item).
-                                # Do not increment fail count, just skip.
-                                continue # Skip to the next attachment
+                                logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {attachment_id}. Skipping.")
+                                continue
                             logger.debug(f"[Op:{operation_id}] Downloaded {len(attachment_content_bytes)} bytes for attachment {attachment_id}.")
 
                             # 2. Upload content to R2
                             logger.debug(f"[Op:{operation_id}] Attempting upload to R2 for attachment {attachment_id}.")
-                            milvus_att_pk = generate_email_attachment_milvus_pk(email_id, attachment_id)
-                            original_extension = "".join(pathlib.Path(attachment_name).suffixes)
-                            generated_r2_key = f"outlook_attachment/{milvus_att_pk}{original_extension}"
+                            # --- Use new R2 key generator --- 
+                            generated_r2_key = generate_email_attachment_r2_key(email_id, attachment_id, attachment_name)
                             target_r2_bucket = settings.R2_BUCKET_NAME
-
                             logger.info(f"[Op:{operation_id}] Uploading attachment copy as '{generated_r2_key}' to R2 Bucket '{target_r2_bucket}'")
                             upload_successful = await run_in_threadpool(
-                                s3_service.upload_bytes_to_r2, # Assuming R2 upload function
+                                s3_service.upload_bytes_to_r2,
                                 bucket_name=target_r2_bucket,
                                 object_key=generated_r2_key,
                                 data_bytes=attachment_content_bytes
                             )
+                            if not upload_successful:
+                                raise Exception(f"R2 upload failed for attachment {attachment_id}")
+                            r2_object_key = generated_r2_key # Store the key on success
+                            logger.info(f"[Op:{operation_id}] Upload attachment to R2 successful. Object Key: {r2_object_key}")
+                            # --- End R2 Upload --- 
 
-                            if upload_successful:
-                                r2_object_key_for_milvus = generated_r2_key
-                                logger.info(f"[Op:{operation_id}] Upload attachment to R2 successful. Object Key: {r2_object_key_for_milvus}")
-                            else:
-                                logger.error(f"[Op:{operation_id}] Failed to upload attachment copy ('{attachment_name}') to R2.")
-                                raise Exception("Failed to upload attachment copy to R2 storage.")
-
-                            # 3. Prepare Milvus data dictionary FOR ATTACHMENT
-                            attachment_metadata_json = {
-                                "original_email_id": email_id,
+                            # --- ADD ProcessedFile Saving --- 
+                            logger.debug(f"[Op:{operation_id}] Preparing ProcessedFile data for attachment {attachment_id}")
+                            source_identifier = f"email://{email_id}/attachment/{attachment_id}"
+                            additional_metadata = {
+                                "email_id": email_id,
+                                "email_subject": email_content.subject or "",
+                                "email_sender": email_content.sender or "",
                                 "attachment_id": attachment_id,
+                                "attachment_filename": attachment_name,
+                                "attachment_contentType": attachment_content_type,
+                                "attachment_size": attachment.size
+                            }
+                            processed_file_dict = {
+                                "ingestion_job_id": ingestion_job_id,
+                                "source_type": 'email_attachment',
+                                "source_identifier": source_identifier,
+                                "additional_data": additional_metadata,
+                                "r2_object_key": r2_object_key,
+                                "owner_email": owner_email,
+                                "status": 'pending_analysis',
                                 "original_filename": attachment_name,
-                                "content_type": attachment.contentType if hasattr(attachment, 'contentType') else 'unknown',
-                                "size": attachment.size,
-                                # Add other relevant attachment metadata if needed
+                                "content_type": attachment_content_type,
+                                "size_bytes": attachment.size
                             }
-
-                            attachment_data_dict = {
-                                "pk": milvus_att_pk,
-                                "vector": placeholder_vector,
-                                "owner": owner_email,
-                                "source": "outlook_attachment",
-                                "type": "attachment_knowledge",
-                                "email_id": email_id, # Link back to the original email
-                                "job_id": operation_id,
-                                "subject": attachment_name, # Use attachment name as subject
-                                "date": email_content.received_date or "", # Use email date
-                                "status": "pending", # Status for attachment analysis
-                                "folder": filter_criteria.folder_id or "", # Use email folder
-                                "analysis_status": "pending", # Status for attachment analysis
-                                "r2_object_key": r2_object_key_for_milvus,
-                                "metadata_json": attachment_metadata_json
-                            }
-                            points_to_insert.append(attachment_data_dict)
-                            processed_attachment_count += 1
-                            logger.debug(f"[Op:{operation_id}] Prepared Milvus data dict for ATTACHMENT PK {milvus_att_pk}.")
+                            processed_file_dict_cleaned = {k: v for k, v in processed_file_dict.items() if v is not None}
+                            
+                            processed_file_model = ProcessedFile(**processed_file_dict_cleaned)
+                            created_record = crud_processed_file.create_processed_file_entry(db=db_session, file_data=processed_file_model)
+                            if not created_record:
+                                raise Exception(f"CRUD function failed to save ProcessedFile record for attachment {attachment_id}")
+                            logger.info(f"[Op:{operation_id}] Saved ProcessedFile {created_record.id} for attachment {attachment_id}")
+                            attachment_save_succeeded = True # Mark success only after DB save
+                            processed_attachment_count += 1 # Increment count here
+                            # --- End ADD --- 
 
                         except Exception as att_err:
+                            logger.error(f"[Op:{operation_id}] Failed processing attachment {attachment_id} ('{attachment_name}'): {att_err}", exc_info=True)
                             failed_attachment_count += 1
-                            logger.error(f"[Op:{operation_id}] Failed processing attachment {attachment_id} ('{attachment_name}') for email {email_id}: {att_err}", exc_info=True)
-                            # Continue to the next attachment
+                            # No need to increment failed_attachment_count again in outer handler if this fails
+                            # Continue processing other attachments for this email
 
             except Exception as fetch_err: # Catch errors during individual email processing
                 failed_email_count += 1
@@ -293,6 +304,6 @@ async def _process_and_store_emails(
     except Exception as outer_loop_err:
         logger.error(f"[Op:{operation_id}] Error during main processing setup/loop: {str(outer_loop_err)}", exc_info=True)
 
-    logger.info(f"[Op:{operation_id}] Email processing loop finished. Emails: {processed_email_count} processed, {failed_email_count} failed. Attachments: {processed_attachment_count} processed, {failed_attachment_count} failed. Total points generated: {len(points_to_insert)}")
+    logger.info(f"[Op:{operation_id}] Email processing loop finished. Emails: {processed_email_count} processed, {failed_email_count} failed. Attachments: {processed_attachment_count} processed, {failed_attachment_count} failed. Total points generated: {len(email_data_for_milvus)}")
     # Return the list of dictionaries
-    return processed_email_count, failed_email_count, processed_attachment_count, failed_attachment_count, points_to_insert
+    return processed_email_count, failed_email_count, processed_attachment_count, failed_attachment_count, email_data_for_milvus

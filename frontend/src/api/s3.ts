@@ -112,13 +112,15 @@ export const clearS3Config = async (): Promise<void> => {
  * Fetches the current list of S3 items in the sync list for the user.
  */
 export const getS3SyncList = async (): Promise<S3SyncItem[]> => {
-  try {
-    const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list');
-    return response.data;
-  } catch (error) {
-    console.error("Error fetching S3 sync list:", error);
-    throw error; // Re-throw to be handled by the calling component
-  }
+  const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list');
+  return response.data;
+};
+
+export const getS3SyncHistory = async (limit: number = 100): Promise<S3SyncItem[]> => {
+  const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list/history', {
+    params: { limit },
+  });
+  return response.data;
 };
 
 /**
@@ -126,13 +128,8 @@ export const getS3SyncList = async (): Promise<S3SyncItem[]> => {
  * @param itemData The details of the item to add.
  */
 export const addS3SyncItem = async (itemData: S3SyncItemCreate): Promise<S3SyncItem> => {
-  try {
-    const response = await apiClient.post<S3SyncItem>('/s3/sync-list/add', itemData);
-    return response.data;
-  } catch (error) {
-    console.error("Error adding item to S3 sync list:", error);
-    throw error;
-  }
+  const response = await apiClient.post<S3SyncItem>('/s3/sync-list/add', itemData);
+  return response.data;
 };
 
 /**

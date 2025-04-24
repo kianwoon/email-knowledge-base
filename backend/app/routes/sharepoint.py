@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, Path
 from typing import List, Optional, Dict, Any
 import logging
+from datetime import datetime, timezone
 
 # --- Correct DB Session Dependency Import ---
 from sqlalchemy.orm import Session
@@ -31,6 +32,17 @@ from app.dependencies.auth import get_current_active_user_or_token_owner
 from app.services.sharepoint import SharePointService
 # Import TaskManager only if needed and uncommented
 # from app.services.task_manager import TaskManager, get_task_manager 
+
+# --- Import ProcessSyncResponse from tasks schema --- 
+# from app.schemas.sharepoint import (
+#    ProcessSyncResponse
+# )
+from app.schemas.tasks import ProcessSyncResponse # <-- Corrected import location
+# --- End Import Correction --- 
+
+# +++ Add IngestionJob imports +++
+from app.crud import crud_ingestion_job
+from app.schemas.ingestion_job import IngestionJobCreate
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -326,63 +338,94 @@ async def get_sync_history(
 
 @router.post(
     "/sync-list/process",
-    response_model=TaskStatus,
+    response_model=ProcessSyncResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Process User Sync List",
-    description="Initiates a background task to process all items in the user's sync list."
+    description="Creates an ingestion job and initiates a background task to process pending items."
 )
 async def process_sync_list(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user_or_token_owner)
 ):
-    user_email_str = current_user.email # Use email directly
-    # user_id_str = str(current_user.id) # No longer needed for CRUD
+    user_email_str = current_user.email
 
     if not user_email_str:
         logger.error(f"User object for ID {current_user.id} is missing email address.")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email not available.")
 
     logger.info(f"User {user_email_str} initiating processing of sync list.")
-    
-    # 1. Get all items from the user's sync list using user_email
-    sync_items_db = crud_sharepoint_sync_item.get_sync_list_for_user(db=db, user_email=user_email_str)
-    if not sync_items_db:
-        logger.warning(f"Sync list is empty for user {user_email_str}. Nothing to process.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sync list is empty.")
 
-    # 2. Format data for Celery task (include DB ID and necessary fields)
-    items_for_task = [
-        {
-            "item_db_id": item.id,
-            "sharepoint_item_id": item.sharepoint_item_id,
-            "item_type": item.item_type,
-            "sharepoint_drive_id": item.sharepoint_drive_id,
-            "item_name": item.item_name
-        }
-        for item in sync_items_db if item.status == 'pending' # Only process pending items
-    ]
+    # 1. Fetch Pending Items (to check if there's anything to do)
+    pending_sync_items_db = crud_sharepoint_sync_item.get_active_sync_list_for_user(db=db, user_email=user_email_str)
+    if not pending_sync_items_db:
+        logger.info(f"No active (pending/processing) items in sync list for user {user_email_str}. Nothing to process.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No pending items found in the sync list to process."
+        )
     
-    if not items_for_task:
-        logger.info(f"No pending items in sync list for user {user_email_str}. Nothing to process.")
-        # Return 200 OK as there's nothing to queue, maybe a more specific message?
-        # Returning TaskStatus with a specific message might be better than plain dict
-        # For now, keeping simple dict return for minimal change, but consider aligning response model
-        return {"message": "No pending items to process."}
+    # Extract item details for job logging/metadata if desired (optional)
+    job_details = {
+        "item_count": len(pending_sync_items_db),
+        "trigger_time": datetime.now(timezone.utc).isoformat()
+    }
 
-    # 3. Submit batch processing task to Celery
+    # 2. Create IngestionJob Record
+    new_job_id = None
     try:
-        # Pass user_email to the Celery task
-        task = process_sharepoint_batch_task.delay(items_for_task, user_email_str)
-        logger.info(f"Submitted SharePoint batch processing task {task.id} for user {user_email_str}.")
-        
-        # Return a TaskStatus object conforming to the response_model
-        return TaskStatus(task_id=task.id, status=TaskStatusEnum.PENDING, message="Sync list processing submitted.")
-
-    except Exception as e:
-        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_email_str}: {e}", exc_info=True)
+        job_schema = IngestionJobCreate(
+            user_email=user_email_str,
+            source_type='sharepoint',
+            status='pending', # Start as pending, task updates to processing
+            job_details=job_details
+        )
+        db_job = crud_ingestion_job.create_ingestion_job(db=db, job_in=job_schema, user_id=user_email_str)
+        if not db_job:
+             raise Exception("Failed to create IngestionJob record in database.")
+        new_job_id = db_job.id
+        logger.info(f"Created IngestionJob ID {new_job_id} for user {user_email_str} SharePoint sync.")
+        # Commit the job creation here
+        db.commit()
+    except Exception as job_create_err:
+        db.rollback() # Rollback if job creation fails
+        logger.error(f"Failed to create IngestionJob for user {user_email_str}: {job_create_err}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to initiate sync list processing."
+            detail="Failed to create processing job record."
+        )
+
+    # 3. Submit Celery Task with IngestionJob ID
+    task_id = None
+    try:
+        # Pass only the job ID to the task
+        task = process_sharepoint_batch_task.delay(ingestion_job_id=new_job_id)
+        task_id = task.id
+        logger.info(f"Submitted SharePoint batch processing task {task_id} for IngestionJob ID {new_job_id}.")
+
+        # 4. Link Celery Task ID back to IngestionJob
+        try:
+            crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, celery_task_id=task_id)
+            db.commit() # Commit the task ID update
+            logger.info(f"Linked Celery task {task_id} to IngestionJob {new_job_id}.")
+        except Exception as link_err:
+            db.rollback()
+            logger.error(f"Failed to link Celery task {task_id} to IngestionJob {new_job_id}: {link_err}", exc_info=True)
+
+        # 5. Return Response (Celery Task ID)
+        return ProcessSyncResponse(task_id=task_id)
+
+    except Exception as e:
+        logger.error(f"Failed to submit SharePoint sync list processing task for user {user_email_str} / Job {new_job_id}: {e}", exc_info=True)
+        if new_job_id is not None:
+            try:
+                crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, status='failed', error_message=f"Celery task submission failed: {e}")
+                db.commit()
+            except Exception as update_err:
+                 logger.error(f"CRITICAL: Failed to mark IngestionJob {new_job_id} as failed after task submission error: {update_err}", exc_info=True)
+                 db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate sync list processing task."
         )
 
 # +++ End Sync List Routes +++ 

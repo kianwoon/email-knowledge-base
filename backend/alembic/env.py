@@ -9,18 +9,10 @@ from alembic import context
 # +++ Import Base from the single source of truth +++
 from app.db.base_class import Base
 
-# +++ RE-ADD Explicit Model Imports for Alembic ONLY +++
-from app.models.user import UserDB
-from app.models.api_key import APIKeyDB
-from app.models.user_preference import UserPreferenceDB
-from app.db.models.sharepoint_sync_item import SharePointSyncItem
-from app.models.token_models import TokenDB
-from app.db.models.aws_credential import AwsCredential
-from app.db.models.s3_sync_item import S3SyncItem
-# Add Azure Blob models
-from app.models.azure_blob import AzureBlobConnection
-from app.models.azure_blob_sync_item import AzureBlobSyncItem
-# --- End Model Imports ---
+# --- Model Discovery via Base --- 
+# Ensure all your SQLAlchemy models subclass the Base from app.db.base_class
+# and are imported somewhere in your application so that Base.metadata is populated.
+# Explicit imports here are usually not needed and can cause issues.
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

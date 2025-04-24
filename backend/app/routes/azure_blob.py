@@ -1,6 +1,7 @@
 import uuid
 import logging
 from typing import List, Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -18,11 +19,12 @@ from app.schemas.azure_blob import (
     # AzureBlobConnectionUpdate # Import when needed for update endpoint
     AzureIngestRequest
 )
-from app.crud import crud_azure_blob, crud_azure_blob_sync_item
+from app.crud import crud_azure_blob, crud_azure_blob_sync_item, crud_ingestion_job
 from app.services.azure_blob_service import AzureBlobService
 from app.dependencies.auth import get_current_active_user
 from app.tasks.azure_tasks import process_azure_ingestion_task
-from app.schemas.tasks import TaskStatusResponse
+from app.schemas.tasks import ProcessSyncResponse
+from app.schemas.ingestion_job import IngestionJobCreate
 
 logger = logging.getLogger(__name__)
 
@@ -391,10 +393,10 @@ def remove_azure_sync_item(
 
 @router.post(
     "/ingest",
-    response_model=TaskStatusResponse,
+    response_model=ProcessSyncResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Process Pending Azure Blob Sync Items for a Connection",
-    description="Initiates a background task to process pending Azure items for a specific connection."
+    description="Creates an ingestion job and initiates a background task to process pending Azure items for a specific connection."
 )
 def trigger_azure_ingestion_endpoint(
     ingest_request: AzureIngestRequest,
@@ -402,48 +404,92 @@ def trigger_azure_ingestion_endpoint(
     current_user: User = Depends(get_current_active_user)
 ):
     connection_id = ingest_request.connection_id
-    logger.info(f"User {current_user.email} requested processing of pending Azure sync items for connection {connection_id}.")
+    user_id_uuid = current_user.id # Get user ID (UUID)
+    user_email = current_user.email
+    logger.info(f"User {user_email} initiating processing of Azure sync items for connection {connection_id}.")
 
-    # Ensure connection exists and belongs to user (also implicitly checks ownership for items)
-    connection = crud_azure_blob.get_connection(db=db, connection_id=connection_id, user_id=current_user.id)
+    # 1. Ensure connection exists and belongs to user
+    connection = crud_azure_blob.get_connection(db=db, connection_id=connection_id, user_id=user_id_uuid)
     if not connection:
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Azure connection {connection_id} not found or not owned by user.")
 
-    # Fetch pending items for this connection
-    logger.info(f"Fetching pending sync items for connection {ingest_request.connection_id}...")
+    # 2. Check for pending items (optional but good practice)
     pending_items = crud_azure_blob_sync_item.get_items_by_user_and_connection(
         db=db, 
-        connection_id=ingest_request.connection_id, 
-        user_id=current_user.id, 
-        status_filter=['pending'] # Use correct function name and pass status as a list
+        connection_id=connection_id, 
+        user_id=user_id_uuid, 
+        status_filter=['pending']
     )
-
     if not pending_items:
-        logger.info(f"No pending Azure sync items found for connection {ingest_request.connection_id}. Nothing to process.")
-        return TaskStatusResponse(
-            task_id=None,
-            status="NO_OP",
-            message=f"No pending Azure items found for connection {connection.name} to process."
+        logger.info(f"No pending Azure sync items found for connection {connection_id}. Nothing to process.")
+        # Return error consistent with SharePoint/S3
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No pending Azure items found for connection {connection.name} to process."
         )
 
-    # Prepare payload for Celery task (still only needs user_id, task fetches items again)
-    task_payload = {
-        "user_id_str": str(current_user.id),
-        # Consider passing connection_id if the task needs to filter by it initially?
-        # For now, task fetches all pending for user and groups by connection.
+    # 3. Create IngestionJob Record
+    job_details = {
+        "connection_id": str(connection_id),
+        "connection_name": connection.name,
+        "container_name": connection.container_name, # Optional: Include container if set on connection
+        "item_count": len(pending_items), # Store initial pending count
+        "trigger_time": datetime.now(timezone.utc).isoformat()
     }
-
-    # Submit task to Celery
+    new_job_id = None
     try:
-        task = process_azure_ingestion_task.delay(**task_payload)
-        logger.info(f"Submitted Azure ingestion task {task.id} for user {current_user.email} (triggered for conn {connection_id}) to process {len(pending_items)} items.")
-        return TaskStatusResponse(
-            task_id=task.id,
-            status="PENDING",
-            message=f"Azure ingestion task submitted to process {len(pending_items)} pending item(s) for connection {connection.name}."
+        job_schema = IngestionJobCreate(
+            user_id=user_id_uuid, # Pass UUID
+            user_email=user_email, # Pass email for convenience if needed
+            source_type='azure_blob',
+            status='pending',
+            job_details=job_details
         )
+        db_job = crud_ingestion_job.create_ingestion_job(db=db, job_in=job_schema, user_id=user_id_uuid)
+        if not db_job:
+             raise Exception("Failed to create IngestionJob record in database.")
+        new_job_id = db_job.id
+        logger.info(f"Created IngestionJob ID {new_job_id} for user {user_email} Azure Blob sync (Conn: {connection_id}).")
+        db.commit()
+    except Exception as job_create_err:
+        db.rollback()
+        logger.error(f"Failed to create Azure IngestionJob for user {user_email}, conn {connection_id}: {job_create_err}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create processing job record."
+        )
+
+    # 4. Submit Celery Task with IngestionJob ID
+    task_id = None
+    try:
+        # Pass only the job ID
+        task = process_azure_ingestion_task.delay(ingestion_job_id=new_job_id)
+        task_id = task.id
+        logger.info(f"Submitted Azure ingestion task {task_id} for IngestionJob ID {new_job_id}.")
+
+        # 5. Link Celery Task ID back to IngestionJob
+        try:
+            crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, status='pending', celery_task_id=task_id) # Keep status pending
+            db.commit()
+            logger.info(f"Linked Celery task {task_id} to IngestionJob {new_job_id}.")
+        except Exception as link_err:
+            db.rollback()
+            logger.error(f"Failed to link Celery task {task_id} to IngestionJob {new_job_id}: {link_err}", exc_info=True)
+            # Task is running, but job record won't have the Celery ID initially.
+
+        # 6. Return Response (Celery Task ID)
+        return ProcessSyncResponse(task_id=task_id)
+
     except Exception as e:
-        logger.error(f"Failed to submit Azure ingestion task for user {current_user.email}: {e}", exc_info=True)
+        logger.error(f"Failed to submit Azure ingestion task for user {user_email} / Job {new_job_id}: {e}", exc_info=True)
+        # Mark job as failed if task submission fails
+        if new_job_id is not None:
+            try:
+                crud_ingestion_job.update_job_status(db=db, job_id=new_job_id, status='failed', error_message=f"Celery task submission failed: {e}")
+                db.commit()
+            except Exception as update_err:
+                 logger.error(f"CRITICAL: Failed to mark Azure IngestionJob {new_job_id} as failed: {update_err}", exc_info=True)
+                 db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to start Azure ingestion task.")
 
 # TODO: Add endpoints for GET /connections/{id}, PUT/PATCH /connections/{id}, DELETE /connections/{id}

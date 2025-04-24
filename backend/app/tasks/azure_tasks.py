@@ -2,62 +2,40 @@
 import logging
 import uuid
 from typing import List, Tuple, Dict, Optional, Any
-import pathlib # Added pathlib
+import pathlib
 import asyncio
-import os # Standard os import
+import os
 
 from celery import Task
 from sqlalchemy.orm import Session
-# Remove Qdrant imports
-# from qdrant_client import QdrantClient
-# from qdrant_client import models as qdrant_models
-# Import Milvus
-from pymilvus import MilvusClient
-from app.db.milvus_client import get_milvus_client, ensure_collection_exists
-from starlette.concurrency import run_in_threadpool # Added import
+from starlette.concurrency import run_in_threadpool
 
 from app.db.session import SessionLocal
 from app.celery_app import celery_app
 from app.config import settings
-from app.models.azure_blob_sync_item import AzureBlobSyncItem # Reverted model import path
-from app.crud import crud_azure_blob_sync_item, crud_azure_blob, user_crud # Updated CRUD import path
+from app.models.azure_blob_sync_item import AzureBlobSyncItem
+from app.crud import crud_azure_blob_sync_item, crud_azure_blob, user_crud
+from app.crud import crud_ingestion_job, crud_processed_file
+from app.db.models.ingestion_job import IngestionJob
+from app.db.models.processed_file import ProcessedFile
 from app.services.azure_blob_service import AzureBlobService
-from app.services import s3 as s3_service # Import s3_service for R2 upload
-# Remove embedding/processing imports if no longer needed
-# from app.services.embeddings import EmbeddingsClient 
-# from app.services.file_processing import process_file_content 
+from app.services import s3 as s3_service
 
 logger = logging.getLogger(__name__)
 
-# Remove Qdrant client helper
-# def get_qdrant_client() -> QdrantClient:
-#     # Helper to get Qdrant client instance based on settings
-#     return QdrantClient(
-#         url=settings.QDRANT_URL,
-#         api_key=settings.QDRANT_API_KEY,
-#         timeout=60 # Increase timeout for potentially large uploads
-#     )
+# Define a namespace for generating UUIDs based on Azure Blob objects
+AZURE_BLOB_NAMESPACE_UUID = uuid.UUID('b6e3f8a2-8d5e-4c1b-9f7d-4e2a8b0d5f1b')
 
-# Remove get_embeddings_client if not used
-# def get_embeddings_client() -> EmbeddingsClient:
-#    ...
-
-# NEW: Define a namespace for generating UUIDs based on Azure Blob objects
-AZURE_BLOB_NAMESPACE_UUID = uuid.UUID('b6e3f8a2-8d5e-4c1b-9f7d-4e2a8b0d5f1b') # Example random namespace for Azure
-
-# NEW: Helper function to generate Milvus collection name for Azure
-def generate_azure_blob_milvus_collection_name(user_email: str) -> str:
-    """Generates a sanitized, user-specific Milvus collection name for Azure Blob."""
-    sanitized_email = user_email.replace('@', '_').replace('.', '_')
-    return f"{sanitized_email}_azure_blob_knowledge"
-
-# NEW: Helper function to generate deterministic Milvus PK for Azure Blob
-def generate_azure_blob_milvus_pk(container: str, blob_path: str) -> str:
-    """Generates a deterministic Milvus UUID PK from the Azure container and blob path."""
+# NEW: Helper function to generate R2 object key for Azure Blob
+def generate_azure_r2_key(container: str, blob_path: str, blob_name: str) -> str:
+    """Generates a unique R2 object key for an Azure blob."""
     unique_id_string = f"azure://{container}/{blob_path}"
-    return str(uuid.uuid5(AZURE_BLOB_NAMESPACE_UUID, unique_id_string))
+    deterministic_id = str(uuid.uuid5(AZURE_BLOB_NAMESPACE_UUID, unique_id_string))
+    original_extension = "".join(pathlib.Path(blob_name).suffixes)
+    # Structure: provider/deterministic_id/filename.ext
+    return f"azure_blob/{deterministic_id}{original_extension}"
 
-# NEW: Helper function to process items for a single connection
+# Helper function to process items for a single connection (will be modified next)
 async def _process_items_for_connection(
     azure_service: AzureBlobService, 
     items: List[AzureBlobSyncItem], 
@@ -230,12 +208,10 @@ async def _process_items_for_connection(
 
 
 # Renamed async function containing the core logic
-async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
+async def _execute_azure_ingestion_logic(ingestion_job_id: int, task_id: str):
     """Core async logic for Azure Blob ingestion."""
-    logger.info(f"Task {task_id}: Starting async Azure Blob ingestion logic for user ID {user_id_str}")
-    user_id = uuid.UUID(user_id_str)
+    logger.info(f"Task {task_id}: Starting async Azure Blob ingestion logic for job ID {ingestion_job_id}")
     db: Session = SessionLocal()
-    milvus_client = get_milvus_client() # Get Milvus client
     cumulative_processed = 0
     cumulative_failed = 0
     all_data_to_insert: List[Dict[str, Any]] = [] # Renamed
@@ -244,19 +220,19 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
     pending_items = None # Initialize pending_items
 
     try:
-        # 1. Get User Info & Setup Milvus Collection
-        user = user_crud.get_user_by_id(db, user_id=user_id)
-        if not user:
-            logger.error(f"Task {task_id}: User {user_id} not found.")
+        # 1. Get Job Info & Setup Milvus Collection
+        job = crud_ingestion_job.get_ingestion_job(db, job_id=ingestion_job_id)
+        if not job:
+            logger.error(f"Task {task_id}: Job {ingestion_job_id} not found.")
             # Cannot update state here, return specific error info
-            return {"status": "FAILED", "message": "User not found.", "processed": 0, "failed": 0}
+            return {"status": "FAILED", "message": "Job not found.", "processed": 0, "failed": 0}
         
-        # Ensure user has an email
-        if not user.email:
-             logger.error(f"Task {task_id}: User {user_id} has no email address. Cannot generate collection name.")
-             return {"status": "FAILED", "message": "User email is missing.", "processed": 0, "failed": 0}
+        # Ensure job has an email
+        if not job.user.email:
+             logger.error(f"Task {task_id}: Job {ingestion_job_id} has no email address. Cannot generate collection name.")
+             return {"status": "FAILED", "message": "Job email is missing.", "processed": 0, "failed": 0}
 
-        collection_name = generate_azure_blob_milvus_collection_name(user.email)
+        collection_name = generate_azure_blob_milvus_collection_name(job.user.email)
         logger.info(f"Task {task_id}: Target Milvus collection: {collection_name}")
         
         # Use ensure_collection_exists helper for Milvus
@@ -267,17 +243,17 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
             raise Exception(f'Milvus check/create failed: {q_err}') # Updated message
 
         # 2. Get Pending Items
-        logger.info(f"Task {task_id}: Fetching pending sync items for user {user_id} (all connections)") # Updated log message
+        logger.info(f"Task {task_id}: Fetching pending sync items for job {ingestion_job_id} (all connections)") # Updated log message
         pending_items = crud_azure_blob_sync_item.get_items_by_user_and_connection(
             db, 
-            user_id=user_id, 
+            user_id=job.user_id, 
             connection_id=None, 
             status_filter=['pending']
         )
         total_items = len(pending_items)
         logger.info(f"Task {task_id}: Found {total_items} pending item(s).")
         if not pending_items:
-             logger.info(f"Task {task_id}: No pending Azure sync items found for user {user_id}. Task complete.")
+             logger.info(f"Task {task_id}: No pending Azure sync items found for job {ingestion_job_id}. Task complete.")
              return {"status": "COMPLETE", "message": "No pending items.", "processed": 0, "failed": 0}
         
         # Group items by connection_id
@@ -292,7 +268,7 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
         # 3. Process Items per Connection
         for conn_id, items in items_by_connection.items():
             logger.info(f"Task {task_id}: Processing connection {conn_id} with {len(items)} item(s)...")
-            result = crud_azure_blob.get_connection_with_decrypted_credentials(db, connection_id=conn_id, user_id=user_id)
+            result = crud_azure_blob.get_connection_with_decrypted_credentials(db, connection_id=conn_id, user_id=job.user_id)
             
             if not result:
                 logger.error(f"Task {task_id}: Connection {conn_id} not found or decryption failed. Skipping {len(items)} items.")
@@ -320,7 +296,7 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
             try:
                 async with AzureBlobService(connection_string=decrypted_connection_string) as azure_service:
                     data_dicts, processed, failed = await _process_items_for_connection(
-                        azure_service, items, db, task_id, zero_vector, user.email # Pass user email
+                        azure_service, items, db, task_id, zero_vector, job.user.email # Pass user email
                     )
                     all_data_to_insert.extend(data_dicts)
                     cumulative_processed += processed
@@ -406,7 +382,7 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
         if pending_items: # Ensure we have the list
             try:
                 processing_items = db.query(AzureBlobSyncItem).filter(
-                    AzureBlobSyncItem.user_id == user_id,
+                    AzureBlobSyncItem.user_id == job.user_id,
                     AzureBlobSyncItem.status == 'processing'
                 ).all()
                 for item in processing_items:
@@ -429,51 +405,308 @@ async def _execute_azure_ingestion_logic(user_id_str: str, task_id: str):
         db.close()
 
 
-# Synchronous Celery Task Wrapper (mostly unchanged, relies on async logic's return values)
-@celery_app.task(bind=True, name="tasks.azure.process_ingestion", max_retries=3, default_retry_delay=60)
-def process_azure_ingestion_task(self: Task, user_id_str: str):
-    """Synchronous Celery task wrapper that runs the async Azure Blob ingestion logic."""
-    logger.info(f"Task {self.request.id}: Received Azure Blob ingestion request for user ID {user_id_str}. Running async logic...")
-    self.update_state(state='STARTED', meta={'progress': 0, 'status': 'Initializing...'}) # Initial state update
+class AzureProcessingTask(Task): # Renamed base task class
+    _db: Optional[Session] = None
 
+    def after_return(self, status, retval, task_id, args, kwargs, einfo):
+        if self._db:
+            try:
+                self._db.close()
+                logger.debug(f"Task {task_id}: DB session closed.")
+            except Exception as e:
+                logger.error(f"Task {task_id}: Error closing DB session: {e}", exc_info=True)
+    @property
+    def db(self) -> Session:
+        if self._db is None:
+            logger.debug(f"Task {self.request.id}: Creating new DB session.")
+            self._db = SessionLocal()
+        elif not self._db.is_active:
+            logger.warning(f"Task {self.request.id}: DB session was inactive, creating new one.")
+            try: self._db.close()
+            except Exception:
+                 logger.error(f"Task {self.request.id}: Error closing inactive DB session", exc_info=True)
+            self._db = SessionLocal()
+        return self._db
+
+# Main Celery Task
+@celery_app.task(bind=True, base=AzureProcessingTask, name="tasks.azure.process_ingestion", max_retries=3, default_retry_delay=60)
+def process_azure_ingestion_task(self: Task, ingestion_job_id: int): # <<< Changed signature
+    task_id = self.request.id
+    logger.info(f"Starting Azure Blob ingestion task {task_id} for IngestionJob ID {ingestion_job_id}.")
+    self.update_state(state='STARTED', meta={'job_id': ingestion_job_id, 'progress': 0, 'status': 'Initializing...'})
+    
+    job = None
+    db = self.db # Get session via property
+    
     try:
-        result = asyncio.run(_execute_azure_ingestion_logic(user_id_str=user_id_str, task_id=self.request.id))
-
-        final_meta = {
-            'progress': 100, 
-            'status': str(result.get('status', 'UNKNOWN')), # Use the status returned by async logic
-            'message': str(result.get('message', 'Async execution finished.')),
-            'processed': int(result.get('processed', 0)),
-            'failed': int(result.get('failed', 0))
-        }
-        # Determine Celery state based on the detailed status from async logic
-        if result.get('status') == 'COMPLETE':
-            final_celery_state = 'SUCCESS'
-        elif result.get('status') == 'PARTIAL_COMPLETE':
-            final_celery_state = 'SUCCESS' # Treat partial as success for Celery, detail is in meta
-        else: # FAILED or UNKNOWN
-            final_celery_state = 'FAILURE' 
+        # Fetch job details (including user_id and connection_id in job_details)
+        job = crud_ingestion_job.get_ingestion_job(db=db, job_id=ingestion_job_id)
+        if not job:
+            raise ValueError(f"IngestionJob ID {ingestion_job_id} not found.")
         
-        logger.info(f"Task {self.request.id}: Async logic completed. Final state: {final_celery_state}, Meta: {final_meta}")
-        self.update_state(state=final_celery_state, meta=final_meta)
-        return final_meta
+        user_id_uuid = job.user_id # Assuming user_id is stored directly as UUID in IngestionJob
+        user = user_crud.get_user_by_id(db, user_id=user_id_uuid)
+        if not user:
+             raise ValueError(f"User with ID {user_id_uuid} not found for job {ingestion_job_id}.")
+        user_email = user.email # Get email for R2 key generation / ownership
 
-    except Exception as e:
-        error_message = f"Error in synchronous wrapper or during async execution: {e}"
-        logger.error(f"Task {self.request.id}: {error_message}", exc_info=True)
+        # Extract connection ID from job details
+        job_details = job.job_details or {}
+        connection_id_str = job_details.get('connection_id')
+        if not connection_id_str:
+            raise ValueError(f"Missing 'connection_id' in job_details for IngestionJob ID {ingestion_job_id}.")
+        connection_id = uuid.UUID(connection_id_str)
+        
+        logger.info(f"Task {task_id}: Processing job {ingestion_job_id} for user {user_email}, connection {connection_id}")
+
+        # Update job status to processing
+        crud_ingestion_job.update_job_status(db=db, job_id=job.id, status='processing')
+        db.commit()
+
+        # --- Core logic will go into _execute_azure_ingestion_logic --- 
+        # We need to pass necessary details like job, db, task_id, user_email
+        # The async logic will be run via asyncio.run()
+        processed_count, failed_count = asyncio.run(
+             _execute_azure_ingestion_logic(
+                 task_instance=self, # Pass task instance for state updates
+                 db_session=db, 
+                 job=job,
+                 connection_id=connection_id,
+                 user_email=user_email,
+             )
+        )
+        # --- End Core logic call ---
+
+        # Update final job status based on results
+        final_status = 'completed' if failed_count == 0 else 'partial_failure'
+        final_message = f"Completed. Processed blobs saved: {processed_count}, Failed items/blobs: {failed_count}."
+        crud_ingestion_job.update_job_status(db=db, job_id=job.id, status=final_status)
+        db.commit()
+        logger.info(f"Task {task_id}: {final_message}")
+        self.update_state(state=final_status.upper(), meta={'job_id': ingestion_job_id, 'status': final_message, 'result': {'processed': processed_count, 'failed': failed_count}})
+        return {'status': final_status, 'message': final_message, 'processed': processed_count, 'failed': failed_count}
+
+    except Exception as exc:
+        logger.critical(f"Task {task_id}: Unhandled exception for job {ingestion_job_id}: {exc}", exc_info=True)
+        if job and db: # Try to mark job as failed
+            try:
+                crud_ingestion_job.update_job_status(db=db, job_id=job.id, status='failed', error_message=str(exc))
+                db.commit()
+            except Exception as update_err:
+                logger.error(f"Task {task_id}: Failed to mark job {ingestion_job_id} as failed after critical error: {update_err}", exc_info=True)
+                db.rollback()
+        self.update_state(state='FAILURE', meta={'job_id': ingestion_job_id, 'status': f'Critical error: {exc}'})
+        # Reraise the exception so Celery knows the task failed
+        raise
+
+# Placeholder for the refactored core logic function
+async def _execute_azure_ingestion_logic(
+    task_instance: Task,
+    db_session: Session,
+    job: IngestionJob,
+    connection_id: uuid.UUID,
+    user_email: str,
+) -> Tuple[int, int]: # Return processed_count, failed_count
+    task_id = task_instance.request.id
+    cumulative_processed = 0
+    cumulative_failed = 0
+
+    logger.info(f"Task {task_id}: Running core Azure logic for job {job.id}, connection {connection_id}")
+    
+    # Fetch pending sync items for THIS connection
+    pending_items = crud_azure_blob_sync_item.get_items_by_user_and_connection(
+        db=db_session,
+        user_id=job.user_id,
+        connection_id=connection_id,
+        status_filter=['pending']
+    )
+    
+    if not pending_items:
+        logger.info(f"Task {task_id}: No pending Azure sync items found for connection {connection_id}. Job considered complete.")
+        return 0, 0 # No items processed, no failures
+
+    logger.info(f"Task {task_id}: Found {len(pending_items)} pending items for connection {connection_id}.")
+
+    # Get Azure Credentials for this connection
+    credential_result = crud_azure_blob.get_connection_with_decrypted_credentials(
+        db=db_session, connection_id=connection_id, user_id=job.user_id
+    )
+    if not credential_result:
+        raise ValueError(f"Could not retrieve credentials for Azure connection {connection_id}")
+    connection, connection_string = credential_result
+    if not connection_string:
+         raise ValueError(f"Empty connection string for Azure connection {connection_id}")
+
+    # Process items using the service
+    async with AzureBlobService(connection_string=connection_string) as azure_service:
+         # We need to adapt the logic from the old _process_items_for_connection here
+         # Pass ingestion_job_id instead of task_id? Use job.id
+         processed_count, failed_count = await _process_connection_items_and_save(
+             task_instance=task_instance,
+             db_session=db_session,
+             azure_service=azure_service,
+             items_to_process=pending_items,
+             user_email=user_email,
+             ingestion_job_id=job.id # Pass job ID here
+         )
+         cumulative_processed += processed_count
+         cumulative_failed += failed_count
+
+    logger.info(f"Task {task_id}: Finished processing connection {connection_id}. Processed: {cumulative_processed}, Failed: {cumulative_failed}")
+    return cumulative_processed, cumulative_failed
+
+
+# New function to contain the adapted logic from old _process_items_for_connection
+async def _process_connection_items_and_save(
+    task_instance: Task,
+    db_session: Session,
+    azure_service: AzureBlobService,
+    items_to_process: List[AzureBlobSyncItem],
+    user_email: str,
+    ingestion_job_id: int
+) -> Tuple[int, int]: # Return processed_count, failed_count
+    task_id = task_instance.request.id
+    processed_count = 0
+    failed_count = 0
+
+    for item in items_to_process:
+        item_processed_successfully = False
+        error_occurred_for_item = False
+        
         try:
-            failure_meta = {
-                'error': str(e), 
-                'progress': 0, 
-                'status': 'FAILURE',
-                'message': error_message,
-                'processed': 0, # Assume 0 processed if error in wrapper
-                'failed': 'Unknown' # Can't know failed count if wrapper fails early
-                }
-            self.update_state(state='FAILURE', meta=failure_meta)
-        except Exception as state_update_error:
-            logger.error(f"Task {self.request.id}: Furthermore, failed to update task state to FAILURE: {state_update_error}")
-        # Propagate the error for Celery retry logic
-        # Check if the exception is a retryable one if needed
-        # For now, retry on any exception from the wrapper/asyncio.run
-        raise self.retry(exc=e) # Retry with the original exception 
+            logger.info(f"Task {task_id}: Processing item {item.id}: {item.item_type} - {item.container_name}/{item.item_path}")
+            if item.status == 'pending':
+                crud_azure_blob_sync_item.update_sync_item_status(db_session, db_item=item, status='processing')
+                # Commit status update early?
+                # db_session.commit() # Maybe commit later after processing
+
+            blobs_to_process: List[Dict[str, str]] = []
+            if item.item_type == 'blob':
+                blobs_to_process.append({
+                    'container': item.container_name,
+                    'path': item.item_path,
+                    'name': item.item_name
+                })
+            elif item.item_type == 'prefix':
+                # ... (fetch blobs under prefix logic) ...
+                blobs_under_prefix = await azure_service.list_blobs(item.container_name, item.item_path)
+                for blob_info in blobs_under_prefix:
+                    if not blob_info.get('isDirectory'):
+                        blob_path = blob_info.get('path')
+                        blob_name = blob_info.get('name')
+                        if blob_path and blob_name:
+                            blobs_to_process.append({
+                                'container': item.container_name,
+                                'path': blob_path,
+                                'name': blob_name
+                            })
+            
+            if not blobs_to_process:
+                logger.info(f"Task {task_id}: No blobs found for item {item.id}. Marking as completed.")
+                item_processed_successfully = True # Mark as success if prefix/blob yielded nothing
+            else:
+                all_blobs_in_item_succeeded = True # Assume success
+                for blob_meta in blobs_to_process:
+                    blob_container = blob_meta['container']
+                    blob_path = blob_meta['path']
+                    blob_name = blob_meta['name']
+                    r2_object_key: Optional[str] = None
+                    blob_save_succeeded = False
+
+                    try:
+                        # 1. Download Content
+                        blob_content_bytes = await azure_service.download_blob_content(blob_container, blob_path)
+                        if not blob_content_bytes:
+                            logger.warning(f"Task {task_id}: No content for blob {blob_path}. Skipping.")
+                            all_blobs_in_item_succeeded = False
+                            continue
+                            
+                        # 2. Upload to R2
+                        generated_r2_key = generate_azure_r2_key(blob_container, blob_path, blob_name)
+                        upload_successful = await run_in_threadpool(
+                            s3_service.upload_bytes_to_r2,
+                            bucket_name=settings.R2_BUCKET_NAME,
+                            object_key=generated_r2_key,
+                            data_bytes=blob_content_bytes
+                        )
+                        if not upload_successful:
+                            raise Exception("Failed to upload to R2")
+                        r2_object_key = generated_r2_key
+                        logger.info(f"Task {task_id}: Uploaded azure://{blob_container}/{blob_path} to R2: {r2_object_key}")
+
+                        # 3. Prepare ProcessedFile Data
+                        source_identifier = f"azure://{blob_container}/{blob_path}"
+                        additional_metadata = {
+                            "azure_connection_id": str(item.connection_id),
+                            "container": blob_container,
+                            "path": blob_path,
+                            # Add other Azure metadata if needed (e.g., from list_blobs)
+                        }
+                        processed_file_dict = {
+                            "ingestion_job_id": ingestion_job_id,
+                            "source_type": 'azure_blob',
+                            "source_identifier": source_identifier,
+                            "additional_data": additional_metadata,
+                            "r2_object_key": r2_object_key,
+                            "owner_email": user_email,
+                            "status": 'pending_analysis',
+                            "original_filename": blob_name,
+                            # Get content_type/size from azure_service if possible, else None
+                            "content_type": None, # Placeholder
+                            "size_bytes": len(blob_content_bytes), # Use downloaded size
+                        }
+                        processed_file_dict_cleaned = {k: v for k, v in processed_file_dict.items() if v is not None}
+
+                        # 4. Save ProcessedFile Record
+                        processed_file_model = ProcessedFile(**processed_file_dict_cleaned)
+                        created_record = crud_processed_file.create_processed_file_entry(db=db_session, file_data=processed_file_model)
+                        if not created_record:
+                            raise Exception(f"Failed to save ProcessedFile record for {source_identifier}")
+                        logger.info(f"Task {task_id}: Saved ProcessedFile {created_record.id} for {source_identifier}")
+                        blob_save_succeeded = True
+                        
+                    except Exception as blob_err:
+                         logger.error(f"Task {task_id}: Failed processing blob azure://{blob_container}/{blob_path}: {blob_err}", exc_info=True)
+                         all_blobs_in_item_succeeded = False
+                         # Optionally try/except the DB write separately if needed
+
+                item_processed_successfully = all_blobs_in_item_succeeded
+
+        except Exception as item_level_err:
+            logger.error(f"Task {task_id}: Error processing sync item {item.id} ({item.item_path}): {item_level_err}", exc_info=True)
+            item_processed_successfully = False
+            error_occurred_for_item = True # Flag that error happened at item level
+
+        # Update item status based on overall success/failure
+        final_item_status = 'completed' if item_processed_successfully else 'failed'
+        if item.status == 'processing': # Only update if we set it to processing
+            try:
+                crud_azure_blob_sync_item.update_sync_item_status(db_session, db_item=item, status=final_item_status)
+            except Exception as status_err:
+                logger.error(f"Task {task_id}: Failed to update sync item {item.id} status to {final_item_status}: {status_err}")
+                # Don't fail the whole task, just log this additional error
+
+        # Update overall counts
+        if item_processed_successfully:
+            processed_count += 1
+        elif error_occurred_for_item:
+             failed_count += 1 # Count failure only if error happened at item level or blob level caused item failure
+        elif not item_processed_successfully: # Handles case where blob processing failed
+             failed_count += 1
+
+    # Commit all status updates etc. for this connection at the end?
+    try:
+         db_session.commit()
+    except Exception as commit_err:
+         logger.error(f"Task {task_id}: Failed final commit for connection {items_to_process[0].connection_id if items_to_process else 'N/A'}: {commit_err}", exc_info=True)
+         db_session.rollback()
+         # If commit fails, potentially revert counts?
+         # For simplicity, counts reflect attempted operations before commit failure.
+         # Mark all items processed in this batch as failed? Complex.
+         # Let's assume commit failures are rare and logged.
+         # We might need to adjust the returned counts if the commit fails.
+         # Setting counts to 0 might be safest if commit fails, as state is uncertain.
+         processed_count = 0
+         failed_count = len(items_to_process)
+
+    return processed_count, failed_count 

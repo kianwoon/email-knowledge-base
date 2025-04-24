@@ -15,7 +15,7 @@ from app.celery_app import celery_app
 # from ..core.config import settings # OLD Relative import (wrong path)
 from ..config import settings # CORRECTED Relative import
 from app.db.session import SessionLocal # Assuming SessionLocal is available for creating new sessions
-from app.crud import user_crud # Assuming user_crud is available
+from app.crud import user_crud, crud_ingestion_job # Assuming user_crud and crud_ingestion_job are available
 from app.services.outlook import OutlookService # Assuming OutlookService is available
 from app.models.email import EmailFilter # Import EmailFilter
 # Import the new service function and Milvus client getter
@@ -27,6 +27,7 @@ from app.db.milvus_client import get_milvus_client, ensure_collection_exists
 # --- Import for manual encryption/decryption --- 
 from app.utils.security import decrypt_token
 # --- End Import ---
+from app.schemas.ingestion_job import IngestionJobCreate # Import schema
 
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,36 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             return {'status': 'ERROR', 'message': 'Could not decrypt session token'}
         
         logger.debug(f"Task {task_id}: Refresh token retrieved and decrypted for user {db_user.email}.")
+
+        # +++ Create IngestionJob Record +++
+        job_record = None
+        try:
+            job_schema = IngestionJobCreate(
+                source_type='email',
+                job_details=filter_criteria_dict # Store the original filter dict
+            )
+            job_record = crud_ingestion_job.create_ingestion_job(db=db, job_in=job_schema, user_id=user_id)
+            if not job_record:
+                raise Exception("CRUD function failed to create IngestionJob record.")
+            logger.info(f"Task {task_id}: Created IngestionJob ID {job_record.id} for user {user_id}.")
+            # Immediately update status to processing and link Celery task ID
+            updated_job = crud_ingestion_job.update_job_status(
+                db=db, 
+                job_id=job_record.id, 
+                status='processing', 
+                celery_task_id=task_id
+            )
+            if not updated_job:
+                raise Exception(f"Failed to update IngestionJob ID {job_record.id} status to processing.")
+            db.commit() # Commit job creation and initial status update
+            logger.info(f"Task {task_id}: Updated IngestionJob ID {job_record.id} status to processing.")
+            ingestion_job_db_id = job_record.id # Store the integer ID
+        except Exception as job_create_err:
+            logger.error(f"Task {task_id}: Failed to create/update initial IngestionJob record: {job_create_err}", exc_info=True)
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to initialize job tracking: {job_create_err}'})
+            db.rollback() # Ensure rollback if job creation failed
+            return {'status': 'ERROR', 'message': 'Failed to initialize job tracking'}
+        # --- End Create IngestionJob Record ---
 
         # --- Acquire New Access Token ---
         self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 10, 'status': 'Acquiring access token...'})
@@ -219,7 +250,9 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
                 outlook_service=outlook_service,
                 vector_db_client=milvus_client,
                 target_collection_name=target_collection_name,
-                update_state_func=update_progress
+                update_state_func=update_progress,
+                db_session=db,
+                ingestion_job_id=ingestion_job_db_id # Use the integer ID from the created DB job record
             )
         )
 
@@ -278,14 +311,46 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
         task_id_exc = getattr(self.request, 'id', 'UNKNOWN_TASK_ID')
         user_id_exc = user_id if 'user_id' in locals() else 'UNKNOWN_USER'
         logger.error(f"Task {task_id_exc} failed for user '{user_id_exc}': {e}", exc_info=True)
+        job_id_exc = job_record.id if 'job_record' in locals() and job_record else None
+        error_msg_exc = str(e)
         try:
             # Attempt to update state one last time on general failure
-            self.update_state(state='FAILURE', meta={'user_email': user_id_exc, 'status': f'Internal task error: {str(e)}'})
+            self.update_state(state='FAILURE', meta={'user_email': user_id_exc, 'status': f'Internal task error: {error_msg_exc}'})
+            # ++ Update IngestionJob status on failure ++
+            if db and job_id_exc is not None:
+                try:
+                    crud_ingestion_job.update_job_status(db=db, job_id=job_id_exc, status='failed', error_message=error_msg_exc)
+                    db.commit()
+                    logger.info(f"Task {task_id_exc}: Updated IngestionJob ID {job_id_exc} status to failed.")
+                except Exception as update_fail_err:
+                    db.rollback()
+                    logger.error(f"Task {task_id_exc}: Failed to update IngestionJob ID {job_id_exc} status to failed during exception handling: {update_fail_err}")
+            # -- End Update --
         except Exception as state_update_error:
-            logger.error(f"Task {task_id_exc}: Failed to update state during exception handling: {state_update_error}")
+            logger.error(f"Task {task_id_exc}: Failed to update state/job during exception handling: {state_update_error}")
         # Reraise the exception to let Celery handle it (logging, retries etc.)
         raise e # Reraise after logging and state update attempt
     finally:
+        # ++ Update IngestionJob status on completion (if successful/partial) ++
+        final_job_status = None
+        final_job_error = None
+        if 'final_status' in locals(): # Check if task reached completion logic
+            if final_status == 'SUCCESS':
+                final_job_status = 'completed'
+            elif final_status == 'PARTIAL_SUCCESS':
+                 final_job_status = 'partial_complete'
+                 final_job_error = final_message # Store the partial success message
+            
+            if db and job_record and final_job_status:
+                try:
+                    crud_ingestion_job.update_job_status(db=db, job_id=job_record.id, status=final_job_status, error_message=final_job_error)
+                    db.commit()
+                    logger.info(f"Task {task_id}: Updated IngestionJob ID {job_record.id} status to {final_job_status}.")
+                except Exception as final_update_err:
+                    db.rollback()
+                    logger.error(f"Task {task_id}: Failed to update final IngestionJob ID {job_record.id} status to {final_job_status}: {final_update_err}")
+        # -- End Update --
+
         # Ensure DB session is closed
         if db:
             db.close()

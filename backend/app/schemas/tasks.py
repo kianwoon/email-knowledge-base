@@ -1,13 +1,51 @@
-from typing import Optional, Any
+from typing import Optional, Any, Dict, List
 from pydantic import BaseModel, Field
+from enum import Enum
 
-class TaskStatusResponse(BaseModel):
-    # Allow task_id to be None for cases where no task is submitted
-    task_id: Optional[str] = Field(None, description="The unique ID of the background task, or null if no task was started.")
-    status: str = Field(..., description="The current status of the task (e.g., PENDING, STARTED, PROGRESS, SUCCESS, FAILURE, NO_OP).")
-    message: Optional[str] = Field(None, description="An optional message providing more details about the status.")
-    progress: Optional[float] = Field(None, ge=0, le=100, description="Optional progress percentage (0-100).")
-    result: Optional[Any] = Field(None, description="Optional result of the task if completed successfully.")
+class TaskStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    STARTED = "STARTED"
+    RETRY = "RETRY"
+    FAILURE = "FAILURE"
+    SUCCESS = "SUCCESS"
+    PROGRESS = "PROGRESS"
+    # Custom / derived statuses
+    PARTIAL_FAILURE = "PARTIAL_FAILURE" # Added for jobs with mixed results
+    UNKNOWN = "UNKNOWN"
+
+class TaskStatus(BaseModel):
+    task_id: str
+    status: TaskStatusEnum = TaskStatusEnum.UNKNOWN
+    progress: Optional[int] = None  # Optional progress percentage
+    message: Optional[str] = None # Optional status message
+    result: Optional[Any] = None    # Result of the task if completed
+    meta: Optional[Dict[str, Any]] = None # Additional metadata from task state
+
+# Generic response model for endpoints that just return a task ID
+class TaskSubmissionResponse(BaseModel):
+    task_id: str
+
+# --- NEW: Response schema for triggering SharePoint sync --- 
+# Matches the structure expected by the frontend (frontend/src/api/apiClient.ts > processSyncList)
+# Contains only the task_id
+class ProcessSyncResponse(BaseModel):
+    task_id: str
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "task_id": "abc-123-xyz-789",
+                }
+            ]
+        }
+    }
+# -----------------------------------------------------------
+
+class TaskStatusResponse(BaseModel): # Used by S3 /ingest originally
+    task_id: str
+    status: str
+    message: Optional[str] = None
 
     model_config = {
         "json_schema_extra": {

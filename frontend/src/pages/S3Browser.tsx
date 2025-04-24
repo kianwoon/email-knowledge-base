@@ -60,6 +60,7 @@ import {
   triggerS3Ingestion,
   TriggerIngestResponse,
   getS3SyncList,
+  getS3SyncHistory,
   addS3SyncItem,
   removeS3SyncItem,
   S3SyncItem,
@@ -207,12 +208,17 @@ const S3HistoryListComponent: React.FC<HistoryListComponentProps> = ({
 
 const S3Browser: React.FC = () => {
   const { t } = useTranslation();
+  const toast = useToast();
   const bgColor = useColorModeValue('gray.50', 'gray.800');
   const headingColor = useColorModeValue('gray.700', 'white');
   const tableHoverBg = useColorModeValue('gray.100', 'gray.700');
   const folderColor = useColorModeValue('blue.500', 'blue.300');
   const fileColor = useColorModeValue('gray.600', 'gray.400');
-  const toast = useToast();
+  const { isOpen: isClearConfirmOpen, onOpen: onClearConfirmOpen, onClose: onClearConfirmClose } = useDisclosure();
+  const cancelRef = React.useRef<HTMLButtonElement>(null);
+  const ingestionPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const settingsInputBg = useColorModeValue('gray.50', 'gray.650');
+  const selectBgColor = useColorModeValue('white', 'gray.700');
 
   const [isLoadingConfig, setIsLoadingConfig] = useState<boolean>(true);
   const [isConfigured, setIsConfigured] = useState<boolean>(false);
@@ -223,34 +229,38 @@ const S3Browser: React.FC = () => {
   const [currentPrefix, setCurrentPrefix] = useState<string>('');
   const [objects, setObjects] = useState<S3Object[]>([]);
   const [error, setError] = useState<string | null>(null);
-
   const [syncList, setSyncList] = useState<S3SyncItem[]>([]);
   const [isLoadingSyncList, setIsLoadingSyncList] = useState<boolean>(true);
   const [syncListError, setSyncListError] = useState<string | null>(null);
   const [isProcessingSyncList, setIsProcessingSyncList] = useState<boolean>(false);
-
+  const [historyItems, setHistoryItems] = useState<S3SyncItem[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [ingestionTaskId, setIngestionTaskId] = useState<string | null>(null);
   const [isIngestionPolling, setIsIngestionPolling] = useState<boolean>(false);
   const [ingestionTaskStatus, setIngestionTaskStatus] = useState<TaskStatusInterface | null>(null);
   const [ingestionError, setIngestionError] = useState<string | null>(null);
-  const ingestionPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
   const [config, setConfig] = useState<S3Config | null>(null);
   const [currentRoleArn, setCurrentRoleArn] = useState<string>('');
   const [inputRoleArn, setInputRoleArn] = useState<string>('');
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
-  const { isOpen: isClearConfirmOpen, onOpen: onClearConfirmOpen, onClose: onClearConfirmClose } = useDisclosure();
-  const cancelRef = React.useRef<HTMLButtonElement>(null);
+  const ingestionProgressBgColor = useColorModeValue(
+    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.50" :
+    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50",
+    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.900" :
+    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900"
+  );
+  const ingestionProgressBorderColor = useColorModeValue(
+    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.300" :
+    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300",
+    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.700" :
+    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.700" : "blue.700"
+  );
 
   const pendingSyncItems = React.useMemo(() => 
     syncList.filter(item => item.status === 'pending'), 
-  [syncList]);
-
-  const historySyncItems = React.useMemo(() => 
-    syncList.filter(item => item.status === 'completed' || item.status === 'failed')
-    .sort((a, b) => b.id - a.id), 
   [syncList]);
 
   const genericPendingSyncItems: SyncListItem[] = React.useMemo(() => 
@@ -269,12 +279,28 @@ const S3Browser: React.FC = () => {
     setSyncListError(null);
     try {
       const fetchedList = await getS3SyncList();
+      console.log('[fetchS3SyncList] Fetched PENDING list:', fetchedList); 
       setSyncList(fetchedList);
     } catch (err: any) {
-      console.error('Failed to fetch S3 sync list:', err);
+      console.error('Failed to fetch PENDING S3 sync list:', err);
       setSyncListError(t('s3Browser.errors.loadSyncListError', 'Failed to load sync list. Please try refreshing.'));
     } finally {
       setIsLoadingSyncList(false);
+    }
+  }, [t]);
+
+  const fetchS3HistoryList = useCallback(async () => {
+    setIsLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      const fetchedHistory = await getS3SyncHistory();
+      console.log('[fetchS3HistoryList] Fetched history:', fetchedHistory);
+      setHistoryItems(fetchedHistory);
+    } catch (err: any) {
+      console.error('Failed to fetch S3 history list:', err);
+      setHistoryError(t('s3Browser.errors.loadHistoryError', 'Failed to load history. Please try refreshing.'));
+    } finally {
+      setIsLoadingHistory(false);
     }
   }, [t]);
 
@@ -305,14 +331,6 @@ const S3Browser: React.FC = () => {
     }
   }, [t]);
 
-  useEffect(() => {
-    const loadInitialData = async () => {
-      await checkConfig();
-      fetchS3SyncList(); 
-    };
-    loadInitialData();
-  }, [checkConfig, fetchS3SyncList]);
-
   const fetchBuckets = useCallback(async () => {
     if (!isConfigured) {
       console.log("[fetchBuckets] Not configured, skipping fetch.");
@@ -342,12 +360,6 @@ const S3Browser: React.FC = () => {
     }
   }, [isConfigured, t]);
 
-  useEffect(() => {
-    if (isConfigured) {
-      fetchBuckets();
-    }
-  }, [isConfigured, fetchBuckets]);
-
   const fetchObjects = useCallback(async () => {
     if (!selectedBucket) return;
     setIsLoadingObjects(true);
@@ -366,34 +378,18 @@ const S3Browser: React.FC = () => {
     }
   }, [selectedBucket, currentPrefix, t]);
 
-  useEffect(() => {
-    if (selectedBucket) {
-      setCurrentPrefix('');
-      fetchObjects();
-    } else {
-      setObjects([]);
-      setCurrentPrefix('');
-    }
-  }, [selectedBucket]);
-
-  useEffect(() => {
-    if (selectedBucket) {
-      fetchObjects();
-    }
-  }, [currentPrefix]);
-
-  const handleNavigate = (key: string) => {
+  const handleNavigate = useCallback((key: string) => {
     if (key.endsWith('/')) {
       setCurrentPrefix(key);
     }
-  };
+  }, []);
 
-  const handleBreadcrumbClick = (index: number) => {
+  const handleBreadcrumbClick = useCallback((index: number) => {
     if (isLoadingObjects) return;
     const prefixParts = currentPrefix.split('/').filter(p => p);
     const newPrefix = prefixParts.slice(0, index).join('/') + (index > 0 ? '/' : '');
     setCurrentPrefix(newPrefix);
-  };
+  }, [currentPrefix, isLoadingObjects]);
 
   const stopIngestionPolling = useCallback(() => {
     console.log('[S3 Polling] stopIngestionPolling called.');
@@ -408,16 +404,18 @@ const S3Browser: React.FC = () => {
 
   const pollIngestionTaskStatus = useCallback(async (taskId: string) => {
     if (!taskId) return;
-    console.log(`[S3 Polling] Checking status for task ${taskId}...`);
+    // console.log(`[S3 Polling] Checking status for task ${taskId}...`); // Keep this less verbose for now
     try {
       const statusResult: TaskStatusInterface = await getTaskStatus(taskId);
-      console.log('[S3 Polling] Status received:', statusResult);
+      console.log(`[S3 Polling] Status received for task ${taskId}:`, statusResult); // <-- Log the full result
       setIngestionTaskStatus(statusResult);
       setIngestionError(null);
 
-      const finalStates: string[] = [TaskStatusEnum.COMPLETED, TaskStatusEnum.FAILED, 'SUCCESS', 'FAILURE'];
+      const finalStates: string[] = [TaskStatusEnum.COMPLETED, TaskStatusEnum.FAILED, 'SUCCESS', 'FAILURE']; // Ensure these match backend task results
+      console.log(`[S3 Polling] Checking if status '${statusResult.status}' is in finalStates:`, finalStates); // <-- Log the check
+      
       if (finalStates.includes(statusResult.status)) {
-        console.log(`[S3 Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping.`);
+        console.log(`[S3 Polling] Task ${taskId} reached final state: ${statusResult.status}. Stopping polling.`); 
         stopIngestionPolling();
 
         const isSuccess = statusResult.status === TaskStatusEnum.COMPLETED || statusResult.status === 'SUCCESS';
@@ -428,7 +426,12 @@ const S3Browser: React.FC = () => {
           duration: 7000,
           isClosable: true,
         });
+        
+        console.log('[S3 Polling] Task finished. Calling fetchS3SyncList AND fetchS3HistoryList to refresh UI.'); 
         fetchS3SyncList(); 
+        fetchS3HistoryList();
+      } else {
+          console.log(`[S3 Polling] Status '${statusResult.status}' is not final. Continuing polling.`); // <-- Log if not final
       }
     } catch (error: any) {
       console.error(`[S3 Polling] Error fetching status for task ${taskId}:`, error);
@@ -438,10 +441,11 @@ const S3Browser: React.FC = () => {
       stopIngestionPolling();
       toast({ title: t('errors.errorPollingStatus'), description: error.message, status: 'error' });
     }
-  }, [stopIngestionPolling, t, toast, fetchS3SyncList]); 
+  }, [stopIngestionPolling, t, toast, fetchS3SyncList, fetchS3HistoryList]);
 
   const startIngestionPolling = useCallback((taskId: string) => {
-    stopIngestionPolling();
+    console.log(`[startIngestionPolling] Entered for task ${taskId}.`); // <-- Log Function Entry
+    stopIngestionPolling(); // Stop previous first
     console.log(`[S3 Polling] Starting polling for task ${taskId}...`);
     setIngestionTaskId(taskId);
     setIsIngestionPolling(true);
@@ -516,31 +520,42 @@ const S3Browser: React.FC = () => {
   }, [syncList, t, toast, setSyncList]);
 
   const handleProcessSyncList = useCallback(async () => {
+      console.log('[handleProcessSyncList] Starting...'); 
       setIsProcessingSyncList(true);
       setIngestionError(null);
       setIngestionTaskStatus(null);
       try {
           const response: TriggerIngestResponse = await triggerS3Ingestion();
+          console.log('[handleProcessSyncList] triggerIngestion response:', response); 
+          
           if (response.task_id) {
-             toast({ title: t('s3Browser.syncProcessStartedTitle'), description: response.message, status: 'info', duration: 5000 });
+             toast({ title: t('s3Browser.syncProcessStartedTitle', 'Processing Started'), description: response.message, status: 'info', duration: 5000 });
+             console.log(`[handleProcessSyncList] Task ID found: ${response.task_id}. Calling startIngestionPolling...`); 
              startIngestionPolling(response.task_id);
           } else {
-             toast({ title: t('s3Browser.syncListEmptyTitle'), description: response.message, status: 'warning', duration: 3000 });
-             setIsProcessingSyncList(false);
+             toast({ 
+                 title: t('s3Browser.syncListEmptyTitle', 'Sync List Empty'), 
+                 description: t('s3Browser.syncListEmptyDesc', 'No pending items found to process.'), 
+                 status: 'warning', 
+                 duration: 3000 
+             });
+             setIsProcessingSyncList(false); 
+             console.log('[handleProcessSyncList] No Task ID found. Calling fetchS3SyncList...');
+             fetchS3SyncList();
           }
       } catch (error: any) {
           console.error('Error triggering S3 ingestion:', error);
-          toast({ title: t('errors.errorStartingTask'), description: error.response?.data?.detail || error.message, status: 'error' });
+          toast({ title: t('errors.errorStartingTask', 'Error Starting Task'), description: error.response?.data?.detail || error.message, status: 'error' });
           setIsProcessingSyncList(false);
           setIngestionError(error.response?.data?.detail || error.message || 'Failed to start task');
-      }
-  }, [t, toast, startIngestionPolling]);
+      } 
+  }, [t, toast, startIngestionPolling, fetchS3SyncList, fetchS3HistoryList]);
 
   const isInSyncList = useCallback((s3ObjectKey: string) => {
       return syncList.some(item => item.s3_bucket === selectedBucket && item.s3_key === s3ObjectKey);
   }, [syncList, selectedBucket]);
 
-  const handleSaveConfig = async () => {
+  const handleSaveConfig = useCallback(async () => {
     setIsSavingConfig(true);
     setConfigError(null);
     try {
@@ -575,9 +590,9 @@ const S3Browser: React.FC = () => {
     } finally {
       setIsSavingConfig(false);
     }
-  };
+  }, [inputRoleArn, currentRoleArn, t, toast, fetchBuckets]);
 
-  const handleClearConfig = async () => {
+  const handleClearConfig = useCallback(async () => {
     onClearConfirmClose();
     setIsSavingConfig(true);
     setConfigError(null);
@@ -612,7 +627,38 @@ const S3Browser: React.FC = () => {
     } finally {
       setIsSavingConfig(false);
     }
-  };
+  }, [onClearConfirmClose, t, toast]);
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      await checkConfig();
+      fetchS3SyncList(); 
+      fetchS3HistoryList();
+    };
+    loadInitialData();
+  }, [checkConfig, fetchS3SyncList, fetchS3HistoryList]);
+
+  useEffect(() => {
+    if (isConfigured) {
+      fetchBuckets();
+    }
+  }, [isConfigured, fetchBuckets]);
+
+  useEffect(() => {
+    if (selectedBucket) {
+      setCurrentPrefix('');
+      fetchObjects();
+    } else {
+      setObjects([]);
+      setCurrentPrefix('');
+    }
+  }, [selectedBucket, fetchObjects]);
+
+  useEffect(() => {
+    if (selectedBucket) {
+      fetchObjects();
+    }
+  }, [currentPrefix, selectedBucket, fetchObjects]);
 
   if (isLoadingConfig) {
     return (
@@ -682,7 +728,7 @@ const S3Browser: React.FC = () => {
                   onChange={(e) => setSelectedBucket(e.target.value)}
                   isDisabled={isLoadingBuckets || buckets.length === 0}
                   maxW={{ base: "100%", md: "400px" }}
-                  bg={useColorModeValue('white', 'gray.700')}
+                  bg={selectBgColor}
                 >
                   {buckets.map((bucket) => (
                     <option key={bucket.name} value={bucket.name}>
@@ -796,18 +842,10 @@ const S3Browser: React.FC = () => {
               )}
 
               {(isIngestionPolling || ingestionTaskStatus) && ingestionTaskId && (
-                <Box 
-                  mt={4} p={4} borderWidth="1px" borderRadius="md" 
-                  borderColor={
-                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.300" : 
-                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.300" : "blue.300"
-                  } 
-                  bg={useColorModeValue(
-                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.50" : 
-                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.50" : "blue.50", 
-                    ingestionTaskStatus?.status === TaskStatusEnum.FAILED || ingestionTaskStatus?.status === TaskStatusEnum.POLLING_ERROR ? "red.900" : 
-                    ingestionTaskStatus?.status === TaskStatusEnum.COMPLETED ? "green.900" : "blue.900"
-                  )}
+                <Box
+                  mt={4} p={4} borderWidth="1px" borderRadius="md"
+                  borderColor={ingestionProgressBorderColor}
+                  bg={ingestionProgressBgColor}
                   mb={4}
                 >
                   <VStack spacing={2} align="stretch">
@@ -861,9 +899,9 @@ const S3Browser: React.FC = () => {
 
           <TabPanel p={0}>
             <S3HistoryListComponent
-              items={historySyncItems}
-              isLoading={isLoadingSyncList} 
-              error={syncListError} 
+              items={historyItems}
+              isLoading={isLoadingHistory} 
+              error={historyError} 
               t={t}
             />
           </TabPanel>
@@ -880,7 +918,7 @@ const S3Browser: React.FC = () => {
                     placeholder='arn:aws:iam::123456789012:role/YourRoleName'
                     value={inputRoleArn}
                     onChange={(e) => setInputRoleArn(e.target.value)}
-                    bg={useColorModeValue('gray.50', 'gray.650')}
+                    bg={settingsInputBg}
                     isDisabled={isSavingConfig}
                   />
                   <FormHelperText>{t('s3Browser.settings.roleArnHelp', 'Enter the ARN of the IAM role this application should assume to access S3.')}</FormHelperText>
