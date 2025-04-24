@@ -182,7 +182,7 @@ async def _process_and_store_emails(
                     "folder": filter_criteria.folder_id or "",
                     # Add fields if schema requires them at top level, otherwise rely on JSON
                     "analysis_status": "pending", # Status for EMAIL analysis
-                    "r2_object_key": None, # No R2 key for the email body itself
+                    "r2_object_key": "", # Use empty string instead of None for VARCHAR field
                     # Store the rest in the JSON field
                     "metadata_json": metadata_for_json
                 }
