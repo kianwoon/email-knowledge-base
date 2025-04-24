@@ -223,7 +223,9 @@ async def _process_and_store_emails(
 
                             if not attachment_content_bytes:
                                 logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {attachment_id} ('{attachment_name}'). Skipping.")
-                                raise Exception("Attachment download returned no content.") # Fail this attachment
+                                # This is not a failure, just an unsupported attachment type (e.g., inline item).
+                                # Do not increment fail count, just skip.
+                                continue # Skip to the next attachment
                             logger.debug(f"[Op:{operation_id}] Downloaded {len(attachment_content_bytes)} bytes for attachment {attachment_id}.")
 
                             # 2. Upload content to R2
