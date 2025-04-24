@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException, status
 import asyncio
+import base64
+import binascii # For Base64 decoding errors
 
 from app.models.email import EmailPreview, EmailContent, EmailAttachment, EmailFilter
 from app.config import settings
@@ -480,6 +482,55 @@ class OutlookService:
         except Exception as e:
             logger.error(f"[ERROR] Unexpected error during email content processing: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Internal server error during email content processing: {str(e)}")
+
+    async def get_attachment_content(self, message_id: str, attachment_id: str) -> Optional[bytes]:
+        """Fetches the contentBytes of a specific attachment and decodes it."""
+        endpoint = f"/me/messages/{message_id}/attachments/{attachment_id}"
+        logger.info(f"Fetching attachment content from endpoint: {endpoint}")
+        try:
+            response = await self.client.get(endpoint)
+            response.raise_for_status() # Raises HTTPStatusError for 4xx/5xx responses
+            
+            data = response.json()
+            
+            content_bytes_b64 = data.get('contentBytes')
+            
+            if not content_bytes_b64:
+                logger.warning(f"No 'contentBytes' found in response for attachment {attachment_id} in message {message_id}.")
+                return None
+                
+            if not isinstance(content_bytes_b64, str):
+                 logger.warning(f"'contentBytes' is not a string for attachment {attachment_id} in message {message_id}. Type: {type(content_bytes_b64)}")
+                 return None
+
+            # Decode the Base64 string
+            try:
+                decoded_bytes = base64.b64decode(content_bytes_b64)
+                logger.info(f"Successfully decoded {len(decoded_bytes)} bytes for attachment {attachment_id}.")
+                return decoded_bytes
+            except binascii.Error as decode_error:
+                logger.error(f"Failed to decode Base64 contentBytes for attachment {attachment_id}: {decode_error}")
+                return None
+            except Exception as e:
+                 logger.error(f"Unexpected error decoding Base64 for attachment {attachment_id}: {e}", exc_info=True)
+                 return None
+
+        except httpx.HTTPStatusError as e:
+            # Log specific HTTP errors
+            if e.response.status_code == status.HTTP_404_NOT_FOUND:
+                logger.warning(f"Attachment {attachment_id} not found in message {message_id}. Status: 404")
+            elif e.response.status_code == status.HTTP_401_UNAUTHORIZED or e.response.status_code == status.HTTP_403_FORBIDDEN:
+                 logger.error(f"Authorization error fetching attachment {attachment_id}. Status: {e.response.status_code}. Check token/permissions.")
+            else:
+                logger.error(f"HTTP error fetching attachment {attachment_id}: {e.response.status_code} - {e.response.text}")
+            return None # Return None on HTTP errors
+        except httpx.RequestError as e:
+             logger.error(f"Request error fetching attachment {attachment_id}: {e}")
+             return None # Return None on request errors (network, DNS, etc.)
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"Unexpected error fetching attachment {attachment_id}: {e}", exc_info=True)
+            return None # Return None on other errors
 
     async def get_email_attachment(self, email_id: str, attachment_id: str) -> EmailAttachment:
         """Get email attachment by ID"""
