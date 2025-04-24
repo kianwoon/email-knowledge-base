@@ -145,6 +145,14 @@ class Settings(BaseSettings):
     AWS_REGION: str = os.getenv("AWS_REGION") # validated by check_required_env_vars
     # --- End AWS Settings --- 
 
+    # --- Cloudflare R2 Settings --- ADDED
+    R2_ENDPOINT_URL: str = os.getenv("R2_ENDPOINT_URL")
+    R2_ACCESS_KEY_ID: str = os.getenv("R2_ACCESS_KEY_ID")
+    R2_SECRET_ACCESS_KEY: str = os.getenv("R2_SECRET_ACCESS_KEY")
+    R2_BUCKET_NAME: str = os.getenv("R2_BUCKET_NAME")
+    # Set a default region for boto3 compatibility with R2
+    R2_AWS_REGION: str = os.getenv("R2_AWS_REGION", "auto") 
+
     # External Analysis Service URL
     EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL") # validated by check_required_env_vars
     EXTERNAL_ANALYSIS_API_KEY: str = os.getenv("EXTERNAL_ANALYSIS_API_KEY") # validated by check_required_env_vars
@@ -191,6 +199,14 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL") # Added Celery Broker URL
     # Optional: Add CELERY_RESULT_BACKEND if you use results
     CELERY_RESULT_BACKEND: Optional[str] = os.getenv("CELERY_RESULT_BACKEND") # Uncommented and made Optional
+    
+    # --- SharePoint Specific Storage Settings --- ADDED
+    # Base URL of the SharePoint instance (e.g., https://yourtenant.sharepoint.com)
+    SHAREPOINT_STORAGE_BASE_URL: str = os.getenv("SHAREPOINT_STORAGE_BASE_URL")
+    # Drive ID of the target SharePoint Document Library 
+    SHAREPOINT_STORAGE_DRIVE_ID: str = os.getenv("SHAREPOINT_STORAGE_DRIVE_ID")
+    # Item ID of the target FOLDER within the drive (use "root" for drive root)
+    SHAREPOINT_STORAGE_FOLDER_ID: str = os.getenv("SHAREPOINT_STORAGE_FOLDER_ID", "root")
 
     model_config = {
         "env_file": ".env",

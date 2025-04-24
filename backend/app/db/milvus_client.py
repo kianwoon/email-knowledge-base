@@ -77,9 +77,16 @@ def ensure_collection_exists(client: MilvusClient, collection_name: str, dim: in
             # tags_field = FieldSchema(name="tags", dtype=DataType.ARRAY, element_type=DataType.VARCHAR, max_capacity=100, max_length=100) # Requires Milvus 2.3+
             # Using JSON for tags and other metadata for broader compatibility for now
             metadata_json_field = FieldSchema(name="metadata_json", dtype=DataType.JSON)
+            # --- ADDED Fields ---
+            analysis_status_field = FieldSchema(name="analysis_status", dtype=DataType.VARCHAR, max_length=64, default_value="pending")
+            r2_object_key_field = FieldSchema(name="r2_object_key", dtype=DataType.VARCHAR, max_length=2048, default_value="")
+            # --- END ADDED Fields ---
 
             schema = CollectionSchema(
-                fields=[pk_field, vector_field, owner_field, source_field, type_field, email_id_field, job_id_field, subject_field, date_field, status_field, folder_field, metadata_json_field],
+                fields=[pk_field, vector_field, owner_field, source_field, type_field, email_id_field, job_id_field, subject_field, date_field, status_field, folder_field, 
+                        # Add new fields to the schema list
+                        analysis_status_field, r2_object_key_field, 
+                        metadata_json_field],
                 description=f"Collection for storing knowledge data for {collection_name}",
                 enable_dynamic_field=False # Explicitly disable dynamic fields unless needed
             )

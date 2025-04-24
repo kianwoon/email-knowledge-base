@@ -5,13 +5,75 @@ import logging
 import base64
 from fastapi import HTTPException
 from pydantic import ValidationError
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import asyncio
+from msal import ConfidentialClientApplication
+from fastapi.concurrency import run_in_threadpool
+from ..config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MS_GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
+
+_app_auth_lock = asyncio.Lock()
+_app_access_token_cache = {"token": None, "expiry": None}
+
+async def get_app_access_token() -> Optional[str]:
+    """Gets an application access token using client credentials flow, with caching."""
+    async with _app_auth_lock:
+        now = datetime.now(timezone.utc)
+        # Check cache, allow 5-minute buffer
+        if (
+            _app_access_token_cache["token"] and 
+            _app_access_token_cache["expiry"] and 
+            _app_access_token_cache["expiry"] > (now + timedelta(minutes=5))
+        ):
+            logger.debug("Using cached application access token.")
+            return _app_access_token_cache["token"]
+
+        logger.info("No valid cached application token found, acquiring new one.")
+        # Use settings directly from config module
+        required_scopes = [f"{settings.MS_GRAPH_BASE_URL}/.default"] # Standard scope for client credentials
+        
+        # Create the MSAL app instance specifically for app auth
+        # Ensure settings are loaded correctly
+        msal_app = ConfidentialClientApplication(
+            settings.MS_CLIENT_ID,
+            authority=settings.MS_AUTHORITY,
+            client_credential=settings.MS_CLIENT_SECRET
+        )
+        
+        # Define the blocking call
+        acquire_token_call = lambda: msal_app.acquire_token_for_client(scopes=required_scopes)
+        
+        try:
+            # Run in threadpool
+            token_result = await run_in_threadpool(acquire_token_call)
+            
+            if not token_result or "access_token" not in token_result:
+                 error_desc = token_result.get('error_description', 'Unknown error') if token_result else "No result"
+                 logger.error(f"Failed to acquire application token: {error_desc}")
+                 _app_access_token_cache["token"] = None # Clear cache on failure
+                 _app_access_token_cache["expiry"] = None
+                 return None
+            
+            access_token = token_result['access_token']
+            expires_in = token_result.get('expires_in', 3599) # Default to slightly less than 1 hour
+            expiry_time = now + timedelta(seconds=expires_in)
+            
+            # Update cache
+            _app_access_token_cache["token"] = access_token
+            _app_access_token_cache["expiry"] = expiry_time
+            logger.info(f"Successfully acquired and cached new application token expiring at {expiry_time}.")
+            return access_token
+            
+        except Exception as e:
+            logger.error(f"Exception during application token acquisition: {e}", exc_info=True)
+            _app_access_token_cache["token"] = None # Clear cache on error
+            _app_access_token_cache["expiry"] = None
+            return None
 
 class SharePointService:
     def __init__(self, access_token: str):
@@ -285,3 +347,65 @@ class SharePointService:
         except Exception as e:
             logger.error(f"Error searching drive {drive_id}: {e}")
             return []
+
+# --- NEW Service for Application Permissions ---
+class AppSharePointService:
+    def __init__(self, app_access_token: str):
+        if not app_access_token:
+            raise ValueError("App access token cannot be empty.")
+        self.access_token = app_access_token
+        self.headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/octet-stream", # Use octet-stream for upload
+        }
+        # Use a dedicated client for app service to avoid header conflicts if SharePointService is reused
+        self.client = httpx.AsyncClient(headers=self.headers)
+
+    async def upload_file_bytes(self, drive_id: str, parent_folder_id: str, filename: str, file_bytes: bytes) -> Optional[dict]:
+        """
+        Uploads file bytes to a specific SharePoint drive folder using application permissions.
+        Handles potential filename conflicts by default Graph API behavior (renaming).
+        Returns the metadata dictionary of the created/updated file item if successful.
+        """
+        # Construct the target URL using parent ID and filename
+        # Ensure filename is URL-encoded if it contains special characters? httpx might handle this.
+        upload_url = f"{MS_GRAPH_ENDPOINT}/drives/{drive_id}/items/{parent_folder_id}:/{filename}:/content"
+        logger.info(f"Attempting to upload {len(file_bytes)} bytes to SP Drive {drive_id}, Folder {parent_folder_id} as {filename} using APP token.")
+        
+        try:
+            # Use PUT request with content bytes
+            response = await self.client.put(upload_url, content=file_bytes)
+            
+            # Check response status
+            response.raise_for_status() # Raise exception for 4xx/5xx
+            
+            # Successful upload returns 201 Created or 200 OK (if overwriting)
+            if response.status_code in [200, 201]:
+                file_metadata = response.json()
+                logger.info(f"Successfully uploaded file. New Item ID: {file_metadata.get('id')}, WebURL: {file_metadata.get('webUrl')}")
+                return file_metadata
+            else:
+                # Should be caught by raise_for_status, but handle unexpected codes just in case
+                logger.error(f"Unexpected success status code {response.status_code} during upload: {response.text}")
+                return None
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error uploading file {filename}: {e.response.status_code} - {e.response.text}")
+            # Log specific details if available (e.g., access denied)
+            if e.response.status_code == 403:
+                 logger.error("Upload failed with 403 Forbidden. Check Application Permissions (e.g., Sites.ReadWrite.All) and ensure admin consent.")
+            elif e.response.status_code == 404:
+                 logger.error(f"Upload failed with 404 Not Found. Check Drive ID '{drive_id}' and Folder ID '{parent_folder_id}'.")
+            # Consider specific handling for 409 Conflict (name collision) if needed, 
+            # but default behavior is usually renaming (e.g., file(1).docx)
+            return None
+        except httpx.RequestError as e:
+            logger.error(f"Request error uploading file {filename}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during file upload: {e}", exc_info=True)
+            return None
+            
+    # Optional: Method to close the underlying httpx client if needed
+    async def close_client(self):
+         await self.client.aclose()

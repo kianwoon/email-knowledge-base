@@ -8,6 +8,7 @@ from typing import List, Optional
 import asyncio # Import asyncio
 from asyncio import TimeoutError # Import TimeoutError
 from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
+import io # Add io import
 
 from app.config import settings # Assuming settings has APP_AWS_ACCESS_KEY_ID etc.
 from app.crud import crud_aws_credential
@@ -220,4 +221,54 @@ def download_s3_object(session: boto3.Session, bucket_name: str, key: str) -> by
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AWS error downloading object: {error_code}")
     except Exception as e:
         logger.error(f"Unexpected error downloading object s3://{bucket_name}/{key} (assumed role session): {e}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while downloading the object.") 
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while downloading the object.")
+
+# --- ADDED: Function specifically for R2 Upload --- 
+
+def upload_bytes_to_r2(bucket_name: str, object_key: str, data_bytes: bytes) -> bool:
+    """
+    Uploads bytes data directly to a Cloudflare R2 bucket using configured credentials.
+    Args:
+        bucket_name (str): The target R2 bucket name.
+        object_key (str): The desired R2 object key (path within the bucket).
+        data_bytes (bytes): The raw bytes data to upload.
+        
+    Returns:
+        bool: True if upload was successful, False otherwise.
+    """
+    try:
+        # Check if R2 settings are configured
+        if not all([settings.R2_ENDPOINT_URL, settings.R2_ACCESS_KEY_ID, settings.R2_SECRET_ACCESS_KEY, settings.R2_AWS_REGION]):
+            logger.error("Cloudflare R2 credentials or endpoint URL are not fully configured in settings.")
+            raise ValueError("R2 configuration is incomplete.")
+            
+        logger.info(f"Using configured R2 credentials to upload to {settings.R2_ENDPOINT_URL}/{bucket_name}/{object_key}")
+        
+        # Initialize S3 client pointing to R2 endpoint
+        s3_client = boto3.client(
+            service_name='s3',
+            endpoint_url=settings.R2_ENDPOINT_URL,
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            region_name=settings.R2_AWS_REGION # e.g., 'auto'
+        )
+        
+        # Upload the bytes using put_object with BytesIO
+        s3_client.put_object(
+            Bucket=bucket_name, 
+            Key=object_key, 
+            Body=io.BytesIO(data_bytes)
+            # Optionally add ContentType if needed/available: ContentType='application/octet-stream' 
+        )
+        logger.info(f"Successfully uploaded bytes to R2 object: {bucket_name}/{object_key}")
+        return True
+        
+    except ClientError as e:
+        logger.error(f"AWS/R2 ClientError uploading bytes to R2 object {bucket_name}/{object_key}: {e}", exc_info=True)
+        return False
+    except ValueError as e:
+        logger.error(f"ValueError during R2 bytes upload setup for object {bucket_name}/{object_key}: {e}", exc_info=True)
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error uploading bytes to R2 object {bucket_name}/{object_key}: {e}", exc_info=True)
+        return False 

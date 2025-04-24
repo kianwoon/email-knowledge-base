@@ -7,12 +7,14 @@ import uuid
 from datetime import datetime, timezone
 import os
 import json # Import json
+import pathlib
 
 from celery import Task
 from celery.utils.log import get_task_logger
 from sqlalchemy.orm import Session
 import boto3
 from botocore.exceptions import ClientError
+from starlette.concurrency import run_in_threadpool # Added import
 
 from ..celery_app import celery_app
 from ..config import settings
@@ -271,36 +273,81 @@ async def _run_s3_processing_logic(
              # Continue processing the file for Milvus, but we can't update the DB status
 
         file_processed_successfully = False
-        try:
-            # 1. Ensure full metadata (if not already fetched)
-            if 'content_type' not in obj_meta:
-                try:
-                    head = s3_client.head_object(Bucket=obj_bucket, Key=obj_key)
-                    obj_meta['last_modified'] = head.get('LastModified')
-                    obj_meta['size'] = head.get('ContentLength')
-                    obj_meta['content_type'] = head.get('ContentType')
-                except ClientError as e:
-                    logger.error(f"Task {task_id}: Failed getting metadata for s3://{obj_bucket}/{obj_key} during processing: {e}", exc_info=True)
-                    raise # Re-raise to mark file as failed
+        r2_object_key_for_milvus: Optional[str] = None # Store R2 key for the COPY
 
-            # 2. Prepare Milvus payload (NO download or b64 encode needed)
+        try:
+            # 1. Download S3 Object Content
+            # Assuming s3_client is the authenticated client (e.g., from AssumeRole)
+            logger.debug(f"Task {task_id}: Downloading content for s3://{obj_bucket}/{obj_key}")
+            try:
+                s3_object = s3_client.get_object(Bucket=obj_bucket, Key=obj_key)
+                s3_content_bytes = s3_object['Body'].read()
+                logger.debug(f"Task {task_id}: Downloaded {len(s3_content_bytes)} bytes from s3://{obj_bucket}/{obj_key}")
+            except ClientError as download_err:
+                logger.error(f"Task {task_id}: Failed to download s3://{obj_bucket}/{obj_key}: {download_err}", exc_info=True)
+                s3_content_bytes = None # Ensure bytes are None if download fails
+                # Raise the error to stop processing this specific file and mark as failed
+                raise download_err 
+
+            # 2. Upload content to R2 (only if download succeeded)
+            upload_successful = False
+            if s3_content_bytes:
+                logger.debug(f"Task {task_id}: Attempting upload to R2.")
+                # Define R2 object key for the copy
+                milvus_pk = generate_s3_milvus_pk(obj_bucket, obj_key)
+                original_extension = "".join(pathlib.Path(obj_filename).suffixes) # Reuse obj_filename
+                # Using a structured path: source_type/unique_id/filename_with_ext
+                generated_r2_key = f"aws_s3/{milvus_pk}{original_extension}" # Note the source type in path
+                target_r2_bucket = settings.R2_BUCKET_NAME
+                
+                logger.info(f"Task {task_id}: Uploading copy as '{generated_r2_key}' to R2 Bucket '{target_r2_bucket}'")
+                
+                # Call the R2 upload function (run blocking function in threadpool)
+                upload_successful = await run_in_threadpool(
+                    s3_service.upload_bytes_to_r2, # Use the R2 specific function
+                    bucket_name=target_r2_bucket,
+                    object_key=generated_r2_key,
+                    data_bytes=s3_content_bytes
+                )
+                
+                if upload_successful:
+                    r2_object_key_for_milvus = generated_r2_key # Store R2 key
+                    logger.info(f"Task {task_id}: Upload to R2 successful. Object Key: {r2_object_key_for_milvus}")
+                else:
+                    logger.error(f"Task {task_id}: Failed to upload copy of s3://{obj_bucket}/{obj_key} to R2.")
+                    # Raise error to stop processing this file and mark as failed
+                    raise Exception("Failed to upload file copy to R2 storage.") 
+            else:
+                # This case should ideally not be reached if download failure raises exception
+                logger.warning(f"Task {task_id}: No content downloaded for s3://{obj_bucket}/{obj_key}, cannot upload to R2.")
+                # Ensure we mark as failed if we somehow get here
+                raise Exception("Missing downloaded content, cannot proceed with R2 upload.")
+
+            # 3. Prepare Milvus Payload (only reachable if download and upload succeed)
+            file_processed_successfully = True 
+            milvus_pk = generate_s3_milvus_pk(obj_bucket, obj_key)
+            vector_size = settings.DENSE_EMBEDDING_DIMENSION
+            placeholder_vector = [0.0] * vector_size
+            
+            # Get original metadata if needed (we have it in obj_meta)
+            # Ensure last_modified is handled correctly
+            last_modified_iso = None
+            if obj_meta.get('last_modified') and isinstance(obj_meta['last_modified'], datetime):
+                last_modified_iso = obj_meta['last_modified'].isoformat()
+            
+            # Prepare metadata_json (without analysis_status)
             metadata_payload = {
                 "s3_bucket": obj_bucket,
                 "s3_key": obj_key,
                 "original_filename": obj_filename,
-                "last_modified": obj_meta.get('last_modified').isoformat() if obj_meta.get('last_modified') else None,
+                "last_modified": last_modified_iso,
                 "content_type": obj_meta.get('content_type'),
                 "size": obj_meta.get('size'),
-                "analysis_status": "pending" # No content stored
+                # analysis_status moved to top level
             }
             metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
 
-            # 3. Prepare Milvus data dictionary
-            milvus_pk = generate_s3_milvus_pk(obj_bucket, obj_key) # Renamed function
-            # Use DENSE_EMBEDDING_DIMENSION from settings
-            vector_size = settings.DENSE_EMBEDDING_DIMENSION
-            placeholder_vector = [0.0] * vector_size # Use float 0.0 for placeholder
-
+            # Prepare final data_dict for Milvus
             data_dict = {
                 "pk": milvus_pk,
                 "vector": placeholder_vector,
@@ -310,20 +357,22 @@ async def _run_s3_processing_logic(
                 "email_id": user_email,
                 "job_id": task_id,
                 "subject": obj_filename,
-                "date": obj_meta.get('last_modified', datetime.now(timezone.utc)).isoformat() if obj_meta.get('last_modified') else "",
-                "status": "processed",
-                "folder": os.path.dirname(obj_key), # Use dirname as folder
-                "metadata_json": metadata_payload # Store prepared dict
+                "date": last_modified_iso or "",
+                "status": "pending", # Set per user request
+                "folder": os.path.dirname(obj_key),
+                "analysis_status": "pending", # Add top-level field
+                "r2_object_key": r2_object_key_for_milvus, # Add R2 key
+                "metadata_json": metadata_payload
             }
 
             data_to_insert.append(data_dict)
             total_processed_count += 1
-            file_processed_successfully = True
+            # file_processed_successfully is already True here
 
         except Exception as file_err:
             logger.error(f"Task {task_id}: Failed processing file s3://{obj_bucket}/{obj_key}: {file_err}", exc_info=True)
             total_failed_count += 1
-            file_processed_successfully = False
+            file_processed_successfully = False # Ensure marked as failed
 
         # Update DB status for the corresponding sync item
         if target_sync_item:

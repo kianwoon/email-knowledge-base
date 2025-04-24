@@ -15,7 +15,7 @@ import httpx # Import httpx for potential timeout configuration
 
 from ..celery_app import celery_app
 from ..config import settings
-from app.services.sharepoint import SharePointService # Assuming exists and can be initialized with token
+from app.services.sharepoint import SharePointService, AppSharePointService, get_app_access_token # Import SharePointService, AppSharePointService, and get_app_access_token
 # Remove Qdrant imports
 # from app.db.qdrant_client import get_qdrant_client
 # from qdrant_client import QdrantClient, models
@@ -33,6 +33,14 @@ from .email_tasks import get_msal_app # CORRECTED Import from the sibling email_
 
 # Ensure SQLAlchemy update is imported if not already
 from sqlalchemy import update # Add this near other SQLAlchemy imports if missing
+
+# Remove S3 service import
+# from ..services import s3 as s3_service # Assuming s3 service is in services
+# import os # For path operations
+
+import pathlib # For getting file extension
+
+from ..services import s3 as s3_service # Import the s3 service module
 
 logger = get_task_logger(__name__)
 
@@ -104,6 +112,7 @@ class SharePointProcessingTask(Task):
     # _qdrant_client = None # Remove Qdrant client instance variable
     _milvus_client = None # Add Milvus client instance variable
     _sharepoint_service = None # Service instance per task potentially
+    _app_sp_service: Optional[AppSharePointService] = None # Add instance variable for AppSharePointService
 
     def after_return(self, status, retval, task_id, args, kwargs, einfo):
         # Close DB session if opened
@@ -112,6 +121,14 @@ class SharePointProcessingTask(Task):
             logger.debug(f"Task {task_id}: DB session closed.")
         # Cleanup other resources if necessary
         # Milvus client cleanup might not be needed here if managed globally
+        # Cleanup App SP Service client if needed
+        if self._app_sp_service:
+            try:
+                # We need an async context to call async close
+                asyncio.run(self._app_sp_service.close_client())
+                logger.debug(f"Task {task_id}: App SharePoint service client closed.")
+            except Exception as e:
+                logger.warning(f"Task {task_id}: Error closing App SharePoint service client: {e}")
 
     @property
     def db(self):
@@ -178,7 +195,8 @@ class SharePointProcessingTask(Task):
                     required_scopes = settings.MS_SCOPE
 
                     # Filter out reserved scopes before requesting token refresh
-                    reserved_scopes = {'openid', 'profile', 'offline_access', 'email'} # Added 'email'
+                    # Restore the original set of reserved scopes to filter out
+                    reserved_scopes = {'openid', 'profile', 'offline_access', 'email'}
                     filtered_scopes = [s for s in required_scopes if s.lower() not in reserved_scopes]
                     logger.debug(f"Filtered MS Scopes for refresh: {filtered_scopes}")
 
@@ -236,6 +254,16 @@ class SharePointProcessingTask(Task):
             self._sharepoint_service = SharePointService(access_token)
 
         return self._sharepoint_service
+
+    async def get_or_create_app_sp_service(self) -> AppSharePointService:
+        """Gets or creates the AppSharePointService instance, handling app token acquisition."""
+        if self._app_sp_service is None:
+            logger.info(f"Task {self.request.id}: Initializing AppSharePointService.")
+            app_token = await get_app_access_token() # Call the new app token getter
+            if not app_token:
+                raise ValueError("Failed to acquire application access token for SharePoint upload.")
+            self._app_sp_service = AppSharePointService(app_token)
+        return self._app_sp_service
 
 async def _run_processing_logic(
     task_instance: Task,
@@ -331,22 +359,21 @@ async def _run_processing_logic(
          pass # Handled later
 
     # --- Process Each File --- 
-    data_to_insert: List[Dict[str, Any]] = [] # Changed from points_to_upsert
+    data_to_insert: List[Dict[str, Any]] = []
     total_processed_files = 0
-    # Start file failures count with discovery failures
-    total_failed_files_or_folders = total_failed_discovery 
+    total_failed_files_or_folders = total_failed_discovery
     current_file_num = 0
-
-    for item_data_from_api in final_files_to_process: 
+    
+    for item_data_from_api in final_files_to_process:
         current_file_num += 1
         file_id = item_data_from_api['sharepoint_item_id']
         drive_id = item_data_from_api['sharepoint_drive_id']
-        item_db_id = item_data_from_api.get('item_db_id') # DB ID of the *file itself*, if added directly
+        item_db_id = item_data_from_api.get('item_db_id') 
         file_name = item_data_from_api.get('item_name', 'Unknown')
         
-        # Assume success for this file initially
         file_processed_successfully = False
-        db_sync_item: Optional[SharePointSyncItemDBModel] = None 
+        db_sync_item: Optional[SharePointSyncItemDBModel] = None
+        r2_object_key: Optional[str] = None # To store the key of the uploaded R2 object
         
         # --- Update DB Status for the file item (if it has a direct DB entry) ---
         if item_db_id:
@@ -361,65 +388,114 @@ async def _run_processing_logic(
         
         # --- Process the file --- 
         try:
-            # Fetch details (moved inside try-except)
-            logger.debug(f"Task {task_id}: Fetching full details for item {file_id}")
+            # --- Fetch Original File Details (using USER service) --- 
+            logger.debug(f"Task {task_id}: Fetching full details for original item {file_id}")
             file_details = await sp_service.get_item_details(drive_id=drive_id, item_id=file_id)
             if not file_details: raise ValueError("Could not fetch file details")
             file_info = file_details.model_dump()
-            file_name = file_info.get('name', file_name) # Prefer fetched name
-            logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{file_name}' (ID: {file_id}) - Size: {file_info.get('size')}")
-            task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10 + int(80 * (current_file_num / total_files)), 'status': f'Processing file {current_file_num}/{total_files}: {file_name[:30]}...'})
+            original_file_name = file_info.get('name', file_name) 
+            logger.info(f"Task {task_id}: Processing file {current_file_num}/{total_files}: '{original_file_name}' ...")
+            task_instance.update_state(state='PROGRESS', meta={'user': user_email, 'progress': 10 + int(80 * (current_file_num / total_files)), 'status': f'Processing file {current_file_num}/{total_files}: {original_file_name[:30]}...'})
 
-            # Process content (Embedding placeholder)
-            # Use DENSE_EMBEDDING_DIMENSION from settings
-            vector_size = settings.DENSE_EMBEDDING_DIMENSION 
-            vector = [0.0] * vector_size # Use float 0.0 for placeholder
-
-            # --- Prepare Milvus data dictionary --- 
-            milvus_pk = generate_milvus_pk(file_id) # Renamed function call
-
-            # Construct metadata dict (excluding b64 content)
-            metadata_payload = {
-                "sharepoint_item_id": file_id,
-                "sharepoint_drive_id": drive_id,
-                "filename": file_info.get("name"),
-                "webUrl": file_info.get("webUrl"),
-                "createdDateTime": file_info.get("createdDateTime"),
-                "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
-                "size": file_info.get("size"),
-                "mimeType": file_info.get("file", {}).get("mimeType"),
-                "analysis_status": "pending"
-            }
-            metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
-
-            data_dict = {
-                "pk": milvus_pk,
-                "vector": vector, # Placeholder vector
-                "owner": user_email,
-                "source": "sharepoint", 
-                "type": "sharepoint_knowledge", # Type indicating raw sharepoint data
-                "email_id": user_email, # ADDED: Match schema requirement
-                "job_id": task_id, # Use task_id from parameter
-                "subject": file_info.get("name"), # Use filename as subject
-                "date": file_info.get("lastModifiedDateTime") or "", # Use last modified OR empty string
-                "status": "processed", # Simplified status
-                "folder": "", # Leave blank for now
-                # Store the rest in the JSON field, ensuring it's serializable
-                "metadata_json": metadata_payload # Store prepared dict directly
-            }
+            # --- Download Original Content (using USER service) ---
+            file_content_bytes = await sp_service.download_file_content(drive_id, file_id)
             
-            data_to_insert.append(data_dict) # Add the dictionary
+            upload_successful = False # Flag for upload outcome
             
-            # Mark as successful for status update
-            file_processed_successfully = True
-            total_processed_files += 1
+            if file_content_bytes:
+                logger.debug(f"Task {task_id}: Downloaded {len(file_content_bytes)} bytes for file {file_id}. Attempting upload to R2.")
+                
+                # --- Upload Copy to R2 Storage --- 
+                milvus_pk = generate_milvus_pk(file_id) # Use Milvus PK for uniqueness
+                original_extension = "".join(pathlib.Path(original_file_name).suffixes) # Get extension
+                # Define R2 object key 
+                # Using a structured path: source_type/unique_id/filename_with_ext
+                generated_r2_key = f"sharepoint/{milvus_pk}{original_extension}"
+                target_r2_bucket = settings.R2_BUCKET_NAME
+                
+                logger.info(f"Task {task_id}: Uploading copy as '{generated_r2_key}' to R2 Bucket '{target_r2_bucket}'")
+                
+                # Call the R2 upload function (run blocking function in threadpool)
+                # upload_bytes_to_r2 is synchronous, needs threadpool
+                upload_successful = await run_in_threadpool(
+                    s3_service.upload_bytes_to_r2,
+                    bucket_name=target_r2_bucket,
+                    object_key=generated_r2_key,
+                    data_bytes=file_content_bytes
+                )
+                
+                if upload_successful:
+                    r2_object_key = generated_r2_key # Store the key on success
+                    logger.info(f"Task {task_id}: Upload to R2 successful. Object Key: {r2_object_key}")
+                else:
+                    logger.error(f"Task {task_id}: Failed to upload copy of file {file_id} to R2.")
+            else:
+                logger.warning(f"Task {task_id}: Failed to download original content for file {file_id}. Cannot upload copy to R2.")
+
+            # --- Determine Overall Success --- 
+            # Success requires download AND upload
+            if file_content_bytes and upload_successful and r2_object_key:
+                file_processed_successfully = True
+            else:
+                file_processed_successfully = False
+                # Avoid double counting if download already failed
+                if file_content_bytes: 
+                    total_failed_files_or_folders += 1 # Count failure only if download succeeded but upload failed
+
+            # --- Prepare Milvus Data --- 
+            if file_processed_successfully: # Only prepare data if successful
+                milvus_pk = generate_milvus_pk(file_id) 
+                vector_size = settings.DENSE_EMBEDDING_DIMENSION
+                vector = [0.0] * vector_size
+
+                # Construct metadata_payload (info about ORIGINAL file)
+                metadata_payload = {
+                    "sharepoint_item_id": file_id,
+                    "sharepoint_drive_id": drive_id,
+                    "filename": original_file_name,
+                    "webUrl": file_info.get("webUrl"), # Original WebURL
+                    "createdDateTime": file_info.get("createdDateTime"),
+                    "lastModifiedDateTime": file_info.get("lastModifiedDateTime"),
+                    "size": file_info.get("size"),
+                    "mimeType": file_info.get("file", {}).get("mimeType"),
+                }
+                metadata_payload = {k: v for k, v in metadata_payload.items() if v is not None}
+
+                # Construct final data_dict for Milvus
+                data_dict = {
+                    "pk": milvus_pk,
+                    "vector": vector, 
+                    "owner": user_email,
+                    "source": "sharepoint", 
+                    "type": "sharepoint_knowledge", 
+                    "email_id": user_email, 
+                    "job_id": task_id, 
+                    "subject": original_file_name, 
+                    "date": file_info.get("lastModifiedDateTime") or "", 
+                    "folder": "", 
+                    "analysis_status": "pending", 
+                    # Add reference to the R2 object
+                    "r2_object_key": r2_object_key, 
+                    "status": "pending", # Set based on user preference, matches analysis_status
+                    # Removed SharePoint copy fields
+                    # "storage_copy_webUrl": ...,
+                    "metadata_json": metadata_payload # Metadata of ORIGINAL file
+                }
+                data_to_insert.append(data_dict)
+                total_processed_files += 1 
+            # else: If not successful, failure is counted above, do not insert to Milvus
 
         except Exception as e:
-            logger.error(f"Task {task_id}: Failed to process file '{file_name}' (ID: {file_id}): {e}", exc_info=True)
-            total_failed_files_or_folders += 1 # Increment overall failure count
-            # file_processed_successfully remains False
+            logger.error(f"Task {task_id}: Unhandled exception processing file '{original_file_name if 'original_file_name' in locals() else file_name}' (ID: {file_id}): {e}", exc_info=True)
+            # Ensure failure is counted if exception happens before upload attempt
+            if not upload_successful and file_content_bytes: 
+                 total_failed_files_or_folders += 1
+            elif not file_content_bytes: # Also count if download failed and led here
+                 total_failed_files_or_folders += 1 # (Might double count if download already incremented, needs check)
+                 # Safest to check if it was already counted: find a way to mark download failure distinctly if needed.
+            file_processed_successfully = False # Ensure marked as failed
 
-        # --- Update DB status for the file (if direct entry exists) ---
+        # --- Update DB Status (based on combined download/upload success) --- 
         if db_sync_item:
             final_file_status = 'completed' if file_processed_successfully else 'failed'
             if db_sync_item.status != final_file_status: # Avoid redundant updates
@@ -430,8 +506,8 @@ async def _run_processing_logic(
                      logger.info(f"Task {task_id}: Set file status to '{final_file_status}' for DB item ID {item_db_id} (SP ID: {file_id})")
                  except Exception as db_err_final:
                      logger.error(f"Task {task_id}: DB error updating final status to '{final_file_status}' for DB ID {item_db_id}: {db_err_final}", exc_info=True)
-                     db_session.rollback()
-                     # If DB update fails, revert success count and increment failure count
+                     db_session.rollback() 
+                     # REVERTED: Adjust counters if DB update fails after successful download
                      if file_processed_successfully:
                          total_processed_files -= 1
                          total_failed_files_or_folders += 1
@@ -502,7 +578,7 @@ async def _run_processing_logic(
 
     # Return counts and data dicts
     logger.info(f"Task {task_id}: Returning final counts. Processed Files: {total_processed_files}, Failed Items (Files+Folders): {total_failed_files_or_folders}")
-    return total_processed_files, total_failed_files_or_folders, data_to_insert # Return list of dicts
+    return total_processed_files, total_failed_files_or_folders, data_to_insert
 
 @celery_app.task(bind=True, base=SharePointProcessingTask, name='tasks.sharepoint.process_batch')
 def process_sharepoint_batch_task(self: Task, items_for_task: List[Dict[str, Any]], user_email: str):
