@@ -8,42 +8,43 @@ from app.db.models.processed_file import ProcessedFile
 
 logger = logging.getLogger(__name__)
 
+# TODO: Implement create_processed_file_entry
+# TODO: Implement get_processed_file_by_source_id
+# TODO: Implement get_processed_file_by_r2_key
+
 def create_processed_file_entry(db: Session, file_data: ProcessedFile) -> ProcessedFile | None:
-    """
-    Adds a new ProcessedFile record to the database, commits the transaction,
-    and refreshes the instance to load the database-generated ID.
-
-    Args:
-        db: The database session.
-        file_data: A ProcessedFile model instance containing the data to be saved.
-
-    Returns:
-        The committed and refreshed ProcessedFile object, or None if an error occurred.
-    """
+    """Creates a new ProcessedFile record in the database."""
     try:
         db.add(file_data)
-        db.commit() # Commit the transaction
-        db.refresh(file_data) # Refresh to get the ID and other DB defaults
-        logger.info(f"Created and committed ProcessedFile record ID {file_data.id} for R2 key {file_data.r2_object_key}.")
+        # We might commit here or let the caller handle commit as part of a larger transaction.
+        # For now, let's assume the caller (task) handles the commit.
+        # db.commit()
+        # db.refresh(file_data) # Refresh might fail if commit is handled outside
+        # Let's flush to get potential errors early without full commit
+        db.flush() 
+        db.refresh(file_data) # Refresh after flush should work within the transaction
+        logger.info(f"ProcessedFile entry added to session for source: {file_data.source_identifier}, R2 key: {file_data.r2_object_key}")
         return file_data
     except SQLAlchemyError as e:
-        db.rollback() # Rollback on error
-        logger.error(f"Database error creating ProcessedFile record for R2 key {getattr(file_data, 'r2_object_key', 'N/A')}: {e}", exc_info=True)
+        logger.error(f"Database error creating ProcessedFile entry: {e}", exc_info=True)
+        # db.rollback() # Rollback should be handled by the caller task in case of errors
         return None
     except Exception as e:
-        db.rollback() # Rollback on error
-        logger.error(f"Unexpected error creating ProcessedFile record for R2 key {getattr(file_data, 'r2_object_key', 'N/A')}: {e}", exc_info=True)
+        logger.error(f"Unexpected error creating ProcessedFile entry: {e}", exc_info=True)
+        # db.rollback() # Rollback should be handled by the caller task
         return None
 
-def get_processed_file_by_r2_key(db: Session, r2_object_key: str) -> Optional[ProcessedFile]:
-    """Gets a ProcessedFile entry by its unique R2 object key."""
+def get_processed_file_by_r2_key(db: Session, r2_object_key: str) -> ProcessedFile | None:
+    """Retrieves a ProcessedFile record by its r2_object_key."""
+    if not r2_object_key: # Prevent querying with empty string
+        return None
     try:
         return db.query(ProcessedFile).filter(ProcessedFile.r2_object_key == r2_object_key).first()
     except SQLAlchemyError as e:
-        logger.error(f"Database error getting ProcessedFile by R2 key {r2_object_key}: {e}", exc_info=True)
+        logger.error(f"Database error retrieving ProcessedFile by r2_object_key '{r2_object_key}': {e}", exc_info=True)
         return None
     except Exception as e:
-        logger.error(f"Unexpected error getting ProcessedFile by R2 key {r2_object_key}: {e}", exc_info=True)
+        logger.error(f"Unexpected error retrieving ProcessedFile by r2_object_key '{r2_object_key}': {e}", exc_info=True)
         return None
 
 def count_processed_files_by_source(db: Session, owner_email: str, source_type: str) -> int:
@@ -60,6 +61,18 @@ def count_processed_files_by_source(db: Session, owner_email: str, source_type: 
     except Exception as e:
         logger.error(f"Unexpected error counting ProcessedFiles for owner {owner_email}, source {source_type}: {e}", exc_info=True)
         return 0
+
+# TODO: Implement get_processed_file_by_source_id
+def get_processed_file_by_source_id(db: Session, source_identifier: str) -> ProcessedFile | None:
+    """Retrieves a ProcessedFile record by its source_identifier."""
+    try:
+        return db.query(ProcessedFile).filter(ProcessedFile.source_identifier == source_identifier).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error retrieving ProcessedFile by source_identifier '{source_identifier}': {e}", exc_info=True)
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error retrieving ProcessedFile by source_identifier '{source_identifier}': {e}", exc_info=True)
+        return None
 
 # TODO: Add other potential CRUD operations for ProcessedFile if needed
 # - Get by ID

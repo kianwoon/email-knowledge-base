@@ -4,6 +4,9 @@ from msal import ConfidentialClientApplication # Assuming msal_app is configured
 import asyncio # Import asyncio
 from asyncio import TimeoutError # Explicit import for clarity
 from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
+import pandas as pd
+import pyarrow as pa
+from pyiceberg.io.pyarrow import schema_to_pyarrow
 
 # Remove Qdrant Imports
 # from qdrant_client import QdrantClient, models
@@ -29,6 +32,11 @@ from app.utils.security import decrypt_token
 # --- End Import ---
 from app.schemas.ingestion_job import IngestionJobCreate # Import schema
 
+# ADDED: Import PyIceberg REST Catalog from diff
+from pyiceberg.catalog.rest import RestCatalog
+from pyiceberg.exceptions import NamespaceAlreadyExistsError, TableAlreadyExistsError, NoSuchTableError # ADDED Iceberg exceptions from diff
+
+from app.services import r2_service # Added R2 service import
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +95,35 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
              raise Exception("Could not create database session.")
         logger.debug(f"Task {task_id}: Database session created.")
 
-        milvus_client = get_milvus_client() # Get Milvus client instance
-        if not milvus_client:
-            raise Exception("Could not create Milvus client.")
-        logger.debug(f"Task {task_id}: Milvus client obtained.")
+        # --- Initialize Iceberg REST Catalog ---
+        try:
+            logger.info(f"Task {task_id}: Initializing Iceberg REST Catalog.")
+            # Define catalog properties dictionary including the downcast setting
+            catalog_props = {
+                "name": "r2_catalog_task_final", # Changed name slightly for certainty
+                "uri": settings.R2_CATALOG_URI, # CORRECTED: Use R2_CATALOG_URI
+                "warehouse": settings.R2_CATALOG_WAREHOUSE, # CORRECTED: Use R2_CATALOG_WAREHOUSE
+                "token": settings.R2_CATALOG_TOKEN, # CORRECTED: Use R2_CATALOG_TOKEN
+                # Ensure nanosecond timestamps are downcasted to microseconds for compatibility
+                "pyiceberg.io.pyarrow.downcast-ns-timestamp-to-us-on-write": True
+            }
+            catalog = RestCatalog(**catalog_props) # Initialize with the full properties dict
+            logger.debug(f"Catalog connection details - URI: {settings.R2_CATALOG_URI}, Warehouse: {settings.R2_CATALOG_WAREHOUSE}") # Add debug log
+            logger.info(f"Task {task_id}: Iceberg REST Catalog initialized successfully.")
+        except Exception as catalog_err:
+            logger.error(f"Task {task_id}: Failed to initialize Iceberg REST Catalog: {catalog_err}", exc_info=True)
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to connect to Iceberg catalog: {catalog_err}'})
+            raise Exception(f"Failed to initialize Iceberg Catalog: {catalog_err}")
+
+        # --- Get R2 Client ---
+        try:
+            logger.info(f"Task {task_id}: Initializing R2 client.")
+            r2_client = r2_service.get_r2_client()
+            logger.info(f"Task {task_id}: R2 client initialized successfully.")
+        except Exception as r2_err:
+            logger.error(f"Task {task_id}: Failed to initialize R2 client: {r2_err}", exc_info=True)
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to connect to R2: {r2_err}'})
+            raise Exception(f"Failed to initialize R2 client: {r2_err}")
 
         # --- Retrieve User and Refresh Token ---
         db_user = user_crud.get_user_full_instance(db=db, email=user_id)
@@ -220,19 +253,6 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
         target_collection_name = f"{sanitized_email}_email_knowledge"
         logger.info(f"Task {task_id}: Target Milvus collection: {target_collection_name}")
 
-        # --- Ensure Target Collection Exists --- 
-        try:
-            logger.info(f"Task {task_id}: Ensuring Milvus collection '{target_collection_name}' exists with dim {settings.DENSE_EMBEDDING_DIMENSION}.")
-            # Use the Milvus helper function ensure_collection_exists
-            ensure_collection_exists(milvus_client, target_collection_name, settings.DENSE_EMBEDDING_DIMENSION)
-            logger.info(f"Task {task_id}: Milvus collection '{target_collection_name}' is ready.")
-        except Exception as create_err:
-             # Catch potential errors from ensure_collection_exists (e.g., connection, schema mismatch)
-             logger.error(f"Task {task_id}: Failed to ensure Milvus collection '{target_collection_name}': {create_err}", exc_info=True)
-             self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to prepare vector collection: {create_err}'})
-             # Propagate exception to main handler
-             raise Exception(f"Failed to prepare target collection: {create_err}")
-
         # --- Perform Email Processing using Knowledge Service --- 
         logger.info(f"Task {task_id}: Calling knowledge service to process emails for user {user_id}")
         self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 20, 'status': 'Processing emails...'})
@@ -241,70 +261,88 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             full_meta = {'user_email': user_id, **meta}
             self.update_state(state=state, meta=full_meta)
         
-        # Unpack the return values including attachment counts
-        email_processed_count, email_failed_count, att_processed_count, att_failed_count, data_to_insert = asyncio.run(
+        # MODIFIED: Call service which now returns data for Iceberg (and attachment counts)
+        processed_count, failed_count, att_processed, att_failed, data_for_iceberg = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,
                 owner_email=user_id,
                 filter_criteria=filter_criteria,
                 outlook_service=outlook_service,
-                vector_db_client=milvus_client,
-                target_collection_name=target_collection_name,
                 update_state_func=update_progress,
                 db_session=db,
-                ingestion_job_id=ingestion_job_db_id # Use the integer ID from the created DB job record
+                ingestion_job_id=ingestion_job_db_id,
+                r2_client=r2_client # Pass the initialized R2 client
             )
         )
 
-        logger.info(f"Task {task_id}: Email processing completed. Emails: {email_processed_count} processed, {email_failed_count} failed. Attachments: {att_processed_count} processed, {att_failed_count} failed. Data points to insert: {len(data_to_insert)}")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Inserting data...'})
+        logger.info(f"Task {task_id}: Email processing completed. Emails: {processed_count} processed, {failed_count} failed. Attachments: {att_processed} processed, {att_failed} failed. Data points to insert: {len(data_for_iceberg)}")
+        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Saving email facts...'})
 
-        # --- Insert Data into Milvus ---
-        if data_to_insert:
+        # --- Write Data to Iceberg ---
+        if data_for_iceberg:
             try:
-                logger.info(f"Task {task_id}: Inserting {len(data_to_insert)} data points into Milvus collection {target_collection_name}.")
-                # Use Milvus client insert method
-                insert_result = milvus_client.insert(
-                    collection_name=target_collection_name,
-                    data=data_to_insert
-                )
-                # Log success based on input length, as result structure might vary
-                logger.info(f"Task {task_id}: Successfully called Milvus insert for {len(data_to_insert)} points into {target_collection_name}.")
-            except Exception as insert_err:
-                logger.error(f"Task {task_id}: Failed to insert data into Milvus: {insert_err}", exc_info=True)
-                # If insert fails, consider all items (emails + attachments) as failed for this task run
-                email_failed_count = email_processed_count + email_failed_count
-                att_failed_count = att_processed_count + att_failed_count
-                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed to save data: {insert_err}'})
-                # Consider if we need to return partial success or just failure
-                return {'status': 'ERROR', 'message': f'Failed final save step: {insert_err}', 'emails_processed': 0, 'emails_failed': email_failed_count, 'attachments_processed': 0, 'attachments_failed': att_failed_count}
+                table_namespace = settings.ICEBERG_DEFAULT_NAMESPACE
+                table_name = settings.ICEBERG_EMAIL_FACTS_TABLE
+                full_table_name = f"{table_namespace}.{table_name}"
+                logger.info(f"Task {task_id}: Attempting to load Iceberg table: {full_table_name}")
+
+                # Load the target table
+                table = catalog.load_table(full_table_name)
+                logger.info(f"Task {task_id}: Iceberg table '{full_table_name}' loaded successfully.")
+
+                # Get the expected Arrow schema from the Iceberg table
+                arrow_schema = schema_to_pyarrow(table.schema())
+                logger.debug(f"Task {task_id}: Inferred Arrow schema for target table: {arrow_schema}")
+
+                # Convert list of dicts to Pandas DataFrame
+                # Ensure DataFrame columns match Iceberg table schema
+                df = pd.DataFrame(data_for_iceberg)
+
+                # Convert Pandas DataFrame to PyArrow Table
+                arrow_table = pa.Table.from_pandas(df, schema=arrow_schema)
+
+                # Append data to the table
+                logger.info(f"Task {task_id}: Appending {len(arrow_table)} records to Iceberg table '{full_table_name}'.")
+                table.append(arrow_table)
+                logger.info(f"Task {task_id}: Successfully appended data to Iceberg table '{full_table_name}'.")
+
+            except NoSuchTableError:
+                logger.error(f"Task {task_id}: Iceberg table '{full_table_name}' does not exist. Cannot write data.", exc_info=True)
+                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Iceberg table {full_table_name} not found.'})
+                # Depending on requirements, you might want to create the table here or just fail.
+                return {'status': 'ERROR', 'message': f'Target Iceberg table {full_table_name} not found.', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
+            except Exception as iceberg_err:
+                logger.error(f"Task {task_id}: Failed to write data to Iceberg table '{full_table_name}': {iceberg_err}", exc_info=True)
+                # Update failure counts if Iceberg write fails? Maybe not, as processing was done.
+                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed to save email facts: {iceberg_err}'})
+                return {'status': 'ERROR', 'message': f'Failed final save step to Iceberg: {iceberg_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
         else:
-             logger.warning(f"Task {task_id}: No data points were generated by the processing service, nothing to insert.")
+            logger.warning(f"Task {task_id}: No data points were generated by the processing service, nothing to write to Iceberg.")
 
         # --- Task Completion ---
         final_status = 'SUCCESS'
-        final_message = f"Email processing completed. Emails: {email_processed_count} processed, {email_failed_count} failed. Attachments: {att_processed_count} processed, {att_failed_count} failed."
-        if email_failed_count > 0 or att_failed_count > 0:
+        final_message = f"Email processing completed. Emails: {processed_count} processed, {failed_count} failed. Attachments: {att_processed} processed, {att_failed} failed."
+        if failed_count > 0 or att_failed > 0:
              final_status = 'PARTIAL_SUCCESS'
-             logger.warning(f"Task {task_id}: Completed with {email_failed_count} email failures and {att_failed_count} attachment failures.")
+             logger.warning(f"Task {task_id}: Completed with {failed_count} email failures and {att_failed} attachment failures.")
         
         logger.info(f"Task {task_id}: {final_message}")
         self.update_state(state='SUCCESS', meta={
             'user_email': user_id, 
             'progress': 100, 
             'status': final_message, 
-            'emails_processed': email_processed_count, 
-            'emails_failed': email_failed_count,
-            'attachments_processed': att_processed_count,
-            'attachments_failed': att_failed_count
+            'emails_processed': processed_count, 
+            'emails_failed': failed_count,
+            'attachments_processed': att_processed,
+            'attachments_failed': att_failed
             })
         return {
             'status': final_status, 
             'message': final_message, 
-            'emails_processed': email_processed_count, 
-            'emails_failed': email_failed_count,
-            'attachments_processed': att_processed_count,
-            'attachments_failed': att_failed_count
+            'emails_processed': processed_count, 
+            'emails_failed': failed_count,
+            'attachments_processed': att_processed,
+            'attachments_failed': att_failed
             }
 
     except Exception as e:

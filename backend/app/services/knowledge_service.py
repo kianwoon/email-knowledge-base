@@ -3,7 +3,9 @@ import uuid
 import json
 import base64
 import pathlib
+import uuid # Ensure uuid is imported
 from typing import List, Dict, Any, Callable, Tuple, Optional
+from datetime import datetime, timezone
 import asyncio
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -13,10 +15,11 @@ import openai
 # from qdrant_client import QdrantClient, models
 # from qdrant_client.http.models import PointStruct
 # Import Milvus types if needed (MilvusClient for type hint)
-from pymilvus import MilvusClient
+# from pymilvus import MilvusClient # Commented out from diff
 
 from app.services.outlook import OutlookService
 from app.services import s3 as s3_service
+from app.services import r2_service
 from app.models.email import EmailFilter
 from app.config import settings
 from app.crud import crud_processed_file
@@ -24,14 +27,9 @@ from app.db.models.processed_file import ProcessedFile
 
 logger = logging.getLogger(__name__)
 
-# NEW: Define a namespace for generating UUIDs based on Email Attachments
-EMAIL_ATTACHMENT_NAMESPACE_UUID = uuid.UUID('c7e4a9b3-9e6f-5d2c-af8e-5f5e2b1e6d0c') # Example random namespace
-
-# NEW: Helper function to generate deterministic Milvus PK for Email Attachments
-def generate_email_attachment_milvus_pk(email_id: str, attachment_id: str) -> str:
-    """Generates a deterministic Milvus UUID PK from the email ID and attachment ID."""
-    unique_id_string = f"email://{email_id}/attachment/{attachment_id}"
-    return str(uuid.uuid5(EMAIL_ATTACHMENT_NAMESPACE_UUID, unique_id_string))
+# --- Define a static UUID namespace for generating deterministic R2 keys --- 
+# This specific UUID was generated once and should remain constant.
+EMAIL_ATTACHMENT_NAMESPACE_UUID = uuid.UUID('f5a1e3a7-5c4e-4b1e-8a8f-3c9e1b7e4a5d')
 
 # NEW: R2 key generator for attachments
 def generate_email_attachment_r2_key(email_id: str, attachment_id: str, attachment_name: str) -> str:
@@ -47,20 +45,24 @@ async def _process_and_store_emails(
     owner_email: str,
     filter_criteria: EmailFilter,
     outlook_service: OutlookService,
-    vector_db_client: MilvusClient, # Updated type hint
-    target_collection_name: str,
+    # REMOVED vector_db_client and target_collection_name parameters from diff
+    # vector_db_client: MilvusClient,
+    # target_collection_name: str,
     update_state_func: Callable = None,
     db_session: Session = None, # Added db_session parameter
-    ingestion_job_id: int = None # Added ingestion_job_id parameter
-) -> Tuple[int, int, int, int, List[Dict[str, Any]]]: # Return email_proc, email_fail, att_proc, att_fail, email_data_for_milvus
+    ingestion_job_id: int = None, # Added ingestion_job_id parameter
+    r2_client: Any = None # Added r2_client parameter
+) -> Tuple[int, int, int, int, List[Dict[str, Any]]]: # CHANGED: Return type changed for Iceberg list
     """
-    Fetches emails, generates tags via OpenAI, and prepares dictionaries matching
-    the Milvus schema with a PLACEHOLDER VECTOR for later storage.
-    Also processes attachments: downloads, uploads to R2, creates separate Milvus records.
+    Fetches emails, generates tags via OpenAI, extracts structured facts,
+    and prepares a list of dictionaries matching the Iceberg 'email_facts' table schema.
+    (TODO: Also needs to process attachments: downloads, uploads to R2, creates processed_files records)
     """
-    email_data_for_milvus: List[Dict[str, Any]] = [] # Changed from PointStruct list
+    # CHANGED: Initialize list for Iceberg records from diff
+    facts_for_iceberg: List[Dict[str, Any]] = [] 
     processed_email_count = 0
     failed_email_count = 0
+    # Keep attachment counters for combined logic later
     processed_attachment_count = 0 # Added counter
     failed_attachment_count = 0    # Added counter
     all_email_ids = []
@@ -70,9 +72,8 @@ async def _process_and_store_emails(
     if not settings.OPENAI_API_KEY:
         logger.warning(f"[Op:{operation_id}] OPENAI_API_KEY not set. Tag generation skipped.")
 
-    # Create placeholder vector using DENSE_EMBEDDING_DIMENSION
-    # Assuming placeholder vector should match the actual embedding dimension
-    placeholder_vector = [0.0] * settings.DENSE_EMBEDDING_DIMENSION 
+    # REMOVED placeholder vector from diff
+    # placeholder_vector = [0.0] * settings.DENSE_EMBEDDING_DIMENSION 
 
     if update_state_func:
         update_state_func(state='PROGRESS', meta={'progress': 25, 'status': 'Fetching email IDs...'})
@@ -111,6 +112,9 @@ async def _process_and_store_emails(
 
             try:
                 logger.debug(f"[Op:{operation_id}] Fetching content for email_id: {email_id}")
+                # ASSUMPTION from diff: email_content object has necessary fields 
+                # like sender, subject, body, receivedDateTime, sentDateTime, 
+                # toRecipients, ccRecipients, bccRecipients, attachments etc.
                 email_content = await outlook_service.get_email_content(email_id)
 
                 # --- Generate Tags (unchanged) ---
@@ -139,18 +143,24 @@ async def _process_and_store_emails(
                 elif not subject: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: empty subject.")
                 elif not openai_client.api_key: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: API key not set.")
 
-                # --- Prepare Metadata & Full Text ---
+                # --- Prepare Attachment Details (for Iceberg) ---
                 attachments_payload = []
                 # Graph API uses contentBytes for attachments
                 if email_content.attachments:
                     for att in email_content.attachments:
-                         # Check for contentBytes attribute
-                        content_base64 = att.contentBytes if hasattr(att, 'contentBytes') and att.contentBytes is not None else None
+                        # Ensure fields exist before accessing
+                        filename = getattr(att, 'name', 'unknown_filename')
+                        mimetype = getattr(att, 'contentType', 'unknown')
+                        size = getattr(att, 'size', 0)
+                        att_id = getattr(att, 'id', None) # Get attachment ID if available
+                        is_inline = getattr(att, 'isInline', False) # Check if inline
+                        # REMOVED contentBytes
                         attachments_payload.append({
-                            "filename": att.name,
-                            "mimetype": att.contentType if hasattr(att, 'contentType') else 'unknown', # Use contentType
-                            "size": att.size,
-                            # "content_base64": content_base64 # REMOVED to avoid exceeding Milvus JSON field limit
+                            "id": att_id, # Include attachment ID
+                            "filename": filename,
+                            "mimetype": mimetype,
+                            "size": size,
+                            "is_inline": is_inline
                         })
                 has_attachments_bool = bool(attachments_payload)
 
@@ -164,137 +174,194 @@ async def _process_and_store_emails(
                      failed_email_count += 1
                      continue
 
-                # Consolidate all metadata into a single dictionary for the JSON field
-                metadata_for_json = {
-                    "sender": email_content.sender or "unknown@sender.com",
-                    "has_attachments": has_attachments_bool, # Indicates if attachments *were* present
-                    "tags": generated_tags,
-                    "raw_text": raw_text_content, # Email body text
-                    "attachments": attachments_payload, # List of attachment METADATA
-                    "attachment_count": len(attachments_payload),
-                    "query_criteria": filter_criteria.model_dump(exclude={'next_link'}),
-                    'original_email_id': email_id,
-                    "analysis_status": "pending" # Status for the EMAIL body analysis
-                    # Add any other relevant fields from email_content if needed
-                }
+                # --- Extract and Format Data for Iceberg --- 
+                # Use helper function to safely get email address from recipient object
+                def get_email_address(recipient_obj) -> str | None:
+                    if recipient_obj and hasattr(recipient_obj, 'emailAddress') and recipient_obj.emailAddress:
+                        return getattr(recipient_obj.emailAddress, 'address', None)
+                    return None
 
-                # --- Prepare Milvus data dictionary FOR EMAIL --- 
-                point_pk = str(uuid.uuid4()) # Use UUID for EMAIL PK (non-deterministic for main email)
+                # Extract recipients safely
+                sender_address = get_email_address(email_content.sender) or "unknown@sender.com"
+                to_recipients = [get_email_address(r) for r in getattr(email_content, 'toRecipients', []) if get_email_address(r)]
+                cc_recipients = [get_email_address(r) for r in getattr(email_content, 'ccRecipients', []) if get_email_address(r)]
+                bcc_recipients = [get_email_address(r) for r in getattr(email_content, 'bccRecipients', []) if get_email_address(r)]
 
-                data_dict = {
-                    "pk": point_pk,
-                    "vector": placeholder_vector, # Use the placeholder vector
-                    # Required schema fields
-                    "owner": owner_email,
-                    "source": "email", 
-                    "type": "email_knowledge", # Type indicating raw email data
-                    "email_id": email_id,
+                # Handle Timestamps - Ensure they are timezone-aware (UTC preferably)
+                def ensure_utc(dt_obj: datetime | None) -> datetime | None:
+                    if dt_obj is None: return None
+                    if dt_obj.tzinfo is None:
+                        logger.warning(f"[Op:{operation_id}] Email {email_id}: Making naive datetime {dt_obj} UTC-aware.")
+                        return dt_obj.replace(tzinfo=timezone.utc)
+                    return dt_obj.astimezone(timezone.utc)
+
+                received_dt_utc = ensure_utc(getattr(email_content, 'receivedDateTime', None))
+                sent_dt_utc = ensure_utc(getattr(email_content, 'sentDateTime', None))
+                ingested_dt_utc = datetime.now(timezone.utc)
+
+                # Prepare the record dictionary matching the assumed Iceberg schema
+                email_fact_record = {
+                    "message_id": email_id,
                     "job_id": str(ingestion_job_id) if ingestion_job_id else operation_id, # Use Job ID if available
-                    "subject": subject,
-                    "date": email_content.received_date or "",
-                    "status": "processed", # Email body processed, attachments handled separately
+                    "owner_email": owner_email,
+                    "sender": sender_address,
+                    # Convert lists to JSON strings for Iceberg compatibility with string columns
+                    "recipients": json.dumps(to_recipients),
+                    "cc_recipients": json.dumps(cc_recipients),
+                    "bcc_recipients": json.dumps(bcc_recipients),
+                    "subject": email_content.subject or "",
+                    "body_text": email_content.body or "", # Use plain text body
+                    "received_datetime_utc": received_dt_utc,
+                    "sent_datetime_utc": sent_dt_utc,
                     "folder": filter_criteria.folder_id or "",
-                    # Add fields if schema requires them at top level, otherwise rely on JSON
-                    "analysis_status": "pending", # Status for EMAIL analysis
-                    "r2_object_key": "", # Use empty string instead of None for VARCHAR field
-                    # Store the rest in the JSON field
-                    "metadata_json": metadata_for_json
+                     "has_attachments": has_attachments_bool,
+                    "attachment_count": len(attachments_payload),
+                    "attachment_details": json.dumps(attachments_payload),
+                    "generated_tags": json.dumps(generated_tags),
+                    "ingested_at_utc": ingested_dt_utc
                 }
                 
-                email_data_for_milvus.append(data_dict)
+                # MODIFIED: Append Iceberg record
+                facts_for_iceberg.append(email_fact_record)
                 processed_email_count += 1
-                logger.debug(f"[Op:{operation_id}] Prepared Milvus data dict for EMAIL PK {point_pk}. Tags: {generated_tags}")
+                logger.debug(f"[Op:{operation_id}] Prepared Iceberg record for email_id: {email_id}. Sender: {sender_address}")
 
                 # --- Process Attachments -> R2 + PostgreSQL --- 
+                local_processed_attachments = 0
+                local_failed_attachments = 0
                 if email_content.attachments:
                     logger.info(f"[Op:{operation_id}] Processing {len(email_content.attachments)} attachments for email {email_id}.")
                     for attachment in email_content.attachments:
-                        attachment_id = attachment.id
-                        attachment_name = attachment.name
-                        if not attachment_id or not attachment_name:
-                             logger.warning(f"[Op:{operation_id}] Skipping attachment with missing ID or name for email {email_id}.")
-                             failed_attachment_count += 1
-                             continue
+                        # Basic info (already extracted for the main email payload)
+                        att_id = getattr(attachment, 'id', None)
+                        att_name = getattr(attachment, 'name', 'unknown_filename')
+                        att_content_type = getattr(attachment, 'contentType', 'unknown')
+                        att_size = getattr(attachment, 'size', 0)
+                        is_inline = getattr(attachment, 'isInline', False)
+                        
+                        # Define source URI for checking existence
+                        source_uri = f"email://{email_id}/attachment/{att_id}"
 
-                        # --- Skip images --- 
-                        attachment_content_type = attachment.contentType.lower() if hasattr(attachment, 'contentType') and attachment.contentType else 'unknown'
-                        filename_lower = attachment_name.lower()
-                        # Check content type OR file extension
-                        if attachment_content_type.startswith('image/') or \
-                           filename_lower.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp')):
-                            logger.info(f"[Op:{operation_id}] Skipping image attachment: {attachment_id} ('{attachment_name}'), Type: {attachment_content_type}.")
-                            continue
-                        # --- End Skip --- 
-
-                        r2_object_key: Optional[str] = None
-                        attachment_save_succeeded = False
-                        try:
-                            # 1. Download attachment content
-                            logger.debug(f"[Op:{operation_id}] Downloading content for attachment {attachment_id} ('{attachment_name}')")
-                            attachment_content_bytes = await outlook_service.get_attachment_content(email_id, attachment_id)
-                            if not attachment_content_bytes:
-                                logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {attachment_id}. Skipping.")
-                                continue
-                            logger.debug(f"[Op:{operation_id}] Downloaded {len(attachment_content_bytes)} bytes for attachment {attachment_id}.")
-
-                            # 2. Upload content to R2
-                            logger.debug(f"[Op:{operation_id}] Attempting upload to R2 for attachment {attachment_id}.")
-                            # --- Use new R2 key generator --- 
-                            generated_r2_key = generate_email_attachment_r2_key(email_id, attachment_id, attachment_name)
-                            target_r2_bucket = settings.R2_BUCKET_NAME
-                            logger.info(f"[Op:{operation_id}] Uploading attachment copy as '{generated_r2_key}' to R2 Bucket '{target_r2_bucket}'")
-                            upload_successful = await run_in_threadpool(
-                                s3_service.upload_bytes_to_r2,
-                                bucket_name=target_r2_bucket,
-                                object_key=generated_r2_key,
-                                data_bytes=attachment_content_bytes
-                            )
-                            if not upload_successful:
-                                raise Exception(f"R2 upload failed for attachment {attachment_id}")
-                            r2_object_key = generated_r2_key # Store the key on success
-                            logger.info(f"[Op:{operation_id}] Upload attachment to R2 successful. Object Key: {r2_object_key}")
-                            # --- End R2 Upload --- 
-
-                            # --- ADD ProcessedFile Saving --- 
-                            logger.debug(f"[Op:{operation_id}] Preparing ProcessedFile data for attachment {attachment_id}")
-                            source_identifier = f"email://{email_id}/attachment/{attachment_id}"
-                            additional_metadata = {
-                                "email_id": email_id,
-                                "email_subject": email_content.subject or "",
-                                "email_sender": email_content.sender or "",
-                                "attachment_id": attachment_id,
-                                "attachment_filename": attachment_name,
-                                "attachment_contentType": attachment_content_type,
-                                "attachment_size": attachment.size
-                            }
-                            processed_file_dict = {
-                                "ingestion_job_id": ingestion_job_id,
-                                "source_type": 'email_attachment',
-                                "source_identifier": source_identifier,
-                                "additional_data": additional_metadata,
-                                "r2_object_key": r2_object_key,
-                                "owner_email": owner_email,
-                                "status": 'pending_analysis',
-                                "original_filename": attachment_name,
-                                "content_type": attachment_content_type,
-                                "size_bytes": attachment.size
-                            }
-                            processed_file_dict_cleaned = {k: v for k, v in processed_file_dict.items() if v is not None}
+                        # --- ADDED: Check if attachment was already processed ---
+                        existing_record = None
+                        if db_session and att_id:
+                            try:
+                                existing_record = crud_processed_file.get_processed_file_by_source_id(db=db_session, source_identifier=source_uri)
+                            except Exception as db_check_err:
+                                logger.error(f"[Op:{operation_id}] Error checking for existing ProcessedFile for {source_uri}: {db_check_err}", exc_info=True)
+                                # Decide if we should proceed or fail this attachment - let's proceed cautiously but log the error
+                        
+                        if existing_record:
+                            logger.info(f"[Op:{operation_id}] Attachment {att_id} ({att_name}) already processed (DB ID: {existing_record.id}). Skipping re-processing.")
+                            # Find the corresponding entry in attachments_payload and add the existing R2 key
+                            for att_payload in attachments_payload:
+                                if att_payload.get("id") == att_id:
+                                    att_payload["r2_object_key"] = existing_record.r2_object_key
+                                    break
+                            local_processed_attachments += 1 # Count as processed if already exists
+                            continue # Skip to the next attachment
+                        # --- END ADDED Check --- 
                             
-                            processed_file_model = ProcessedFile(**processed_file_dict_cleaned)
-                            created_record = crud_processed_file.create_processed_file_entry(db=db_session, file_data=processed_file_model)
-                            if not created_record:
-                                raise Exception(f"CRUD function failed to save ProcessedFile record for attachment {attachment_id}")
-                            logger.info(f"[Op:{operation_id}] Saved ProcessedFile {created_record.id} for attachment {attachment_id}")
-                            attachment_save_succeeded = True # Mark success only after DB save
-                            processed_attachment_count += 1 # Increment count here
-                            # --- End ADD --- 
+                        # Skip processing if attachment ID is missing (should be rare)
+                        if not att_id:
+                            logger.warning(f"[Op:{operation_id}] Skipping attachment without ID in email {email_id}.")
+                            local_failed_attachments += 1
+                            continue
 
-                        except Exception as att_err:
-                            logger.error(f"[Op:{operation_id}] Failed processing attachment {attachment_id} ('{attachment_name}'): {att_err}", exc_info=True)
-                            failed_attachment_count += 1
-                            # No need to increment failed_attachment_count again in outer handler if this fails
-                            # Continue processing other attachments for this email
+                        # Skip images/inline attachments (or other unwanted types) based on ContentType
+                        # Example: Skip common image types and inline attachments
+                        if is_inline or (att_content_type and att_content_type.startswith("image/")):
+                            logger.info(f"[Op:{operation_id}] Skipping image/inline attachment: {att_id} ('{att_name}'), Type: {att_content_type}.")
+                            # Note: We don't count skipped images/inline as failed
+                            continue # Skip to next attachment, don't increment failure/success
+
+                        # Proceed only if R2 client and DB session are available
+                        if not r2_client or not db_session:
+                            logger.warning(f"[Op:{operation_id}] Skipping R2 upload/DB record for attachment {att_id} due to missing R2 client or DB session.")
+                            local_failed_attachments += 1
+                            continue
+
+                        try:
+                            # Fetch attachment content (Bytes)
+                            # Note: Uses a separate call that includes contentBytes
+                            logger.debug(f"[Op:{operation_id}] Fetching content for attachment {att_id} ('{att_name}').")
+                            attachment_content_bytes = await outlook_service.get_attachment_content(email_id, att_id)
+                            
+                            if attachment_content_bytes is None:
+                                # Log warning if content is missing (as seen in previous logs)
+                                logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {att_id} ('{att_name}'). Skipping.")
+                                local_failed_attachments += 1
+                                continue # Skip this attachment
+                                
+                            # Generate R2 object key
+                            r2_object_key = generate_email_attachment_r2_key(email_id, att_id, att_name)
+
+                            # Upload to R2 using run_in_threadpool
+                            logger.info(f"[Op:{operation_id}] Uploading attachment copy as '{r2_object_key}' to R2 Bucket '{settings.R2_BUCKET_NAME}'")
+                            await run_in_threadpool(
+                                r2_service.upload_bytes_to_r2, # Use the function from r2_service
+                                r2_client=r2_client, # Pass the client 
+                                bucket_name=settings.R2_BUCKET_NAME,
+                                object_key=r2_object_key,
+                                data_bytes=attachment_content_bytes,
+                                content_type=att_content_type
+                            )
+                            logger.info(f"[Op:{operation_id}] Upload attachment to R2 successful. Object Key: {r2_object_key}")
+
+                            # Find the corresponding entry in attachments_payload and add the R2 key
+                            for att_payload in attachments_payload:
+                                if att_payload.get("id") == att_id:
+                                    att_payload["r2_object_key"] = r2_object_key
+                                    break
+
+                            # Create ProcessedFile record (only if upload succeeded)
+                            processed_file_entry = ProcessedFile(
+                                source_uri=source_uri,
+                                file_type=att_content_type,
+                                file_size_bytes=att_size,
+                                r2_bucket=settings.R2_BUCKET_NAME,
+                                r2_object_key=r2_object_key,
+                                ingestion_job_id=ingestion_job_id,
+                                owner_email=owner_email # Associate with the user
+                            )
+                            db_session.add(processed_file_entry)
+                            # Flush to get the ID for logging, but commit happens later
+                            db_session.flush()
+                            logger.info(f"[Op:{operation_id}] Saved ProcessedFile {processed_file_entry.id} for attachment {att_id}")
+                            local_processed_attachments += 1
+
+                        except Exception as att_proc_err:
+                            logger.error(f"[Op:{operation_id}] Failed to process attachment {att_id} ('{att_name}'): {att_proc_err}", exc_info=True)
+                            local_failed_attachments += 1
+                            # Attempt to add a failure record to ProcessedFile if possible
+                            # Important: Avoid using r2_object_key if upload failed!
+                            try:
+                                failed_file_entry = ProcessedFile(
+                                    source_uri=source_uri,
+                                    file_type=att_content_type,
+                                    file_size_bytes=att_size,
+                                    status='failed',
+                                    error_message=str(att_proc_err)[:1024], # Truncate error
+                                    r2_bucket=settings.R2_BUCKET_NAME, # Still record bucket intent
+                                    r2_object_key=None, # Explicitly None on failure
+                                    ingestion_job_id=ingestion_job_id,
+                                    owner_email=owner_email
+                                )
+                                db_session.add(failed_file_entry)
+                                db_session.flush()
+                                logger.info(f"[Op:{operation_id}] Saved FAILED ProcessedFile record {failed_file_entry.id} for attachment {att_id}")
+                            except Exception as db_fail_err:
+                                # Log if even saving the failure record fails
+                                logger.error(f"[Op:{operation_id}] Could not save FAILED ProcessedFile record for {source_uri}: {db_fail_err}")
+                                # Don't rollback here, let the main loop handle transaction
+                    # -- End Attachment Loop --
+                    
+                # --- Add the full record for the EMAIL to the Iceberg list ---
+                # Convert recipient lists to comma-separated strings if needed by Iceberg schema
+                # (Assuming schema wants strings, adjust if it expects arrays/lists)
+                to_recipients_str = ", ".join(to_recipients)
+                cc_recipients_str = ", ".join(cc_recipients)
+                bcc_recipients_str = ", ".join(bcc_recipients)
 
             except Exception as fetch_err: # Catch errors during individual email processing
                 failed_email_count += 1
@@ -304,6 +371,6 @@ async def _process_and_store_emails(
     except Exception as outer_loop_err:
         logger.error(f"[Op:{operation_id}] Error during main processing setup/loop: {str(outer_loop_err)}", exc_info=True)
 
-    logger.info(f"[Op:{operation_id}] Email processing loop finished. Emails: {processed_email_count} processed, {failed_email_count} failed. Attachments: {processed_attachment_count} processed, {failed_attachment_count} failed. Total points generated: {len(email_data_for_milvus)}")
-    # Return the list of dictionaries
-    return processed_email_count, failed_email_count, processed_attachment_count, failed_attachment_count, email_data_for_milvus
+    logger.info(f"[Op:{operation_id}] Email processing loop finished. Processed: {processed_email_count}, Failed: {failed_email_count}. Attachments Processed: {processed_attachment_count}, Attachments Failed: {failed_attachment_count}. Records for Iceberg: {len(facts_for_iceberg)}")
+    # MODIFIED: Return the list of fact dictionaries for Iceberg, plus attachment counts
+    return processed_email_count, failed_email_count, processed_attachment_count, failed_attachment_count, facts_for_iceberg

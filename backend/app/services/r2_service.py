@@ -1,92 +1,85 @@
 # backend/app/services/r2_service.py
 import logging
-from typing import Any, IO
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
+from typing import Any, BinaryIO
+import asyncio
+from fastapi.concurrency import run_in_threadpool
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Define a custom exception for R2 specific errors
 class R2UploadError(Exception):
     """Custom exception for R2 upload failures."""
     pass
 
-def get_r2_client() -> Any:
-    """
-    Initializes and returns a boto3 client configured for Cloudflare R2.
-    Uses credentials and endpoint from the application settings.
-    """
-    try:
-        # Ensure required settings are present
-        if not all([settings.R2_ENDPOINT_URL, settings.R2_ACCESS_KEY_ID, settings.R2_SECRET_ACCESS_KEY, settings.R2_AWS_REGION]):
-            raise ValueError("Missing required R2 configuration settings (Endpoint, Access Key, Secret Key, Region).")
+# TODO: Implement get_r2_client
+# TODO: Implement upload_fileobj_to_r2
+# TODO: Implement upload_bytes_to_r2
 
-        session = boto3.session.Session()
-        client = session.client(
+def get_r2_client() -> Any:
+    """Initializes and returns a boto3 client configured for R2."""
+    try:
+        # Ensure all required settings are present
+        if not all([
+            settings.R2_ENDPOINT_URL,
+            settings.R2_ACCESS_KEY_ID,
+            settings.R2_SECRET_ACCESS_KEY,
+            settings.R2_REGION # Although region might not be strictly used by R2 endpoint, S3 client expects it
+        ]):
+            raise ValueError("Missing required R2 configuration settings (ENDPOINT_URL, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGION).")
+
+        s3_client = boto3.client(
             service_name='s3',
             endpoint_url=settings.R2_ENDPOINT_URL,
             aws_access_key_id=settings.R2_ACCESS_KEY_ID,
             aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-            region_name=settings.R2_AWS_REGION, # R2 requires a region, 'auto' often works
+            region_name=settings.R2_REGION  # e.g., 'auto' or a specific region if needed
         )
-        logger.info("Successfully initialized R2 client.")
-        return client
-    except NoCredentialsError:
-        logger.error("R2 credentials not found. Ensure R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are set.", exc_info=True)
-        raise ValueError("R2 credentials not found.")
+        logger.info("Successfully created R2 client.")
+        return s3_client
+    except NoCredentialsError as e:
+        logger.error(f"AWS NoCredentialsError while creating R2 client: {e}. Check environment variables or configuration.")
+        raise R2UploadError(f"Credentials not found for R2: {e}") from e
+    except ValueError as e:
+        logger.error(f"Configuration error creating R2 client: {e}")
+        raise R2UploadError(f"Configuration error for R2: {e}") from e
     except Exception as e:
-        logger.error(f"Failed to initialize R2 client: {e}", exc_info=True)
-        raise ValueError(f"Failed to initialize R2 client: {e}")
+        logger.error(f"Unexpected error creating R2 client: {e}", exc_info=True)
+        raise R2UploadError(f"Failed to initialize R2 client: {e}") from e
 
 
 async def upload_fileobj_to_r2(
     r2_client: Any,
-    file_obj: IO[bytes],
+    file_obj: BinaryIO,
     bucket: str,
     object_key: str,
     content_type: str | None = None
 ) -> None:
-    """
-    Uploads a file-like object to the specified R2 bucket using the provided client.
-
-    Args:
-        r2_client: The initialized boto3 R2 client.
-        file_obj: The file-like object to upload (must be in binary mode).
-        bucket: The target R2 bucket name.
-        object_key: The desired key (path) for the object in R2.
-        content_type: Optional content type for the uploaded object.
-
-    Raises:
-        R2UploadError: If the upload fails due to ClientError or other issues.
-        ValueError: If required arguments are missing.
-    """
-    if not all([r2_client, file_obj, bucket, object_key]):
-        raise ValueError("Missing required arguments for R2 upload (client, file_obj, bucket, object_key).")
-
-    extra_args = {}
-    if content_type:
-        extra_args['ContentType'] = content_type
-    # Can add other args like ACL if needed, but R2 defaults are usually fine
-
+    """Uploads a file-like object to R2 using the provided client."""
     try:
-        logger.debug(f"Attempting to upload to R2: s3://{bucket}/{object_key}")
-        r2_client.upload_fileobj(
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
+        
+        logger.debug(f"Uploading file object to R2: s3://{bucket}/{object_key}, ContentType: {content_type}")
+        # Boto3's upload_fileobj is synchronous, wrap in run_in_threadpool for async context
+        await run_in_threadpool(
+            r2_client.upload_fileobj,
             Fileobj=file_obj,
             Bucket=bucket,
             Key=object_key,
             ExtraArgs=extra_args
         )
-        logger.info(f"Successfully uploaded file to R2: s3://{bucket}/{object_key}")
+        logger.info(f"Successfully uploaded file object to R2: s3://{bucket}/{object_key}")
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code')
-        error_message = e.response.get('Error', {}).get('Message')
-        logger.error(f"R2 ClientError uploading s3://{bucket}/{object_key} (Code: {error_code}): {error_message}", exc_info=True)
-        raise R2UploadError(f"Failed to upload to R2 (Code: {error_code}): {error_message}") from e
+        logger.error(f"R2 ClientError uploading file object to s3://{bucket}/{object_key} (Code: {error_code}): {e}", exc_info=True)
+        raise R2UploadError(f"R2 upload failed (ClientError: {error_code}): {e}") from e
     except Exception as e:
-        logger.error(f"Unexpected error uploading to R2 s3://{bucket}/{object_key}: {e}", exc_info=True)
-        raise R2UploadError(f"Unexpected error during R2 upload: {e}") from e
+        logger.error(f"Unexpected error uploading file object to s3://{bucket}/{object_key}: {e}", exc_info=True)
+        raise R2UploadError(f"R2 upload failed (Unexpected): {e}") from e
 
 # Example self-test (optional)
 if __name__ == "__main__":
@@ -104,3 +97,36 @@ if __name__ == "__main__":
         # print("Test upload successful (check your R2 bucket).")
     except Exception as e:
         logger.error(f"R2 service self-test failed: {e}", exc_info=True) 
+
+# TODO: Implement upload_bytes_to_r2
+async def upload_bytes_to_r2(
+    r2_client: Any,
+    bucket_name: str,
+    object_key: str,
+    data_bytes: bytes,
+    content_type: str | None = None
+) -> bool:
+    """Uploads bytes data directly to R2 using put_object."""
+    try:
+        put_kwargs = {
+            'Bucket': bucket_name,
+            'Key': object_key,
+            'Body': data_bytes
+        }
+        if content_type:
+            put_kwargs['ContentType'] = content_type
+            
+        logger.debug(f"Uploading bytes to R2: s3://{bucket_name}/{object_key}, Size: {len(data_bytes)}, ContentType: {content_type}")
+        # put_object is synchronous, wrap in threadpool
+        await run_in_threadpool(r2_client.put_object, **put_kwargs)
+        logger.info(f"Successfully uploaded bytes to R2: s3://{bucket_name}/{object_key}")
+        return True
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code')
+        logger.error(f"R2 ClientError uploading bytes to s3://{bucket_name}/{object_key} (Code: {error_code}): {e}", exc_info=True)
+        # raise R2UploadError(f"R2 upload failed (ClientError: {error_code}): {e}") from e
+        return False # Return False on failure for the knowledge service
+    except Exception as e:
+        logger.error(f"Unexpected error uploading bytes to s3://{bucket_name}/{object_key}: {e}", exc_info=True)
+        # raise R2UploadError(f"R2 upload failed (Unexpected): {e}") from e
+        return False # Return False on failure 

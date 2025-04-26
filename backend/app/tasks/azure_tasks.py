@@ -97,6 +97,23 @@ async def _process_items_for_connection(
                     r2_object_key_for_milvus: Optional[str] = None
                     blob_processed_successfully = False
                     
+                    # --- ADDED: Check if blob was already processed ---
+                    source_identifier = f"azure://{blob_container}/{blob_path}"
+                    existing_record = None
+                    try:
+                        existing_record = crud_processed_file.get_processed_file_by_source_id(db=db, source_identifier=source_identifier)
+                    except Exception as db_check_err:
+                        logger.error(f"Task {task_id}: Error checking for existing ProcessedFile for {source_identifier}: {db_check_err}", exc_info=True)
+                        # If DB check fails, safer to assume it might exist or fail later. Skip processing.
+                        all_blobs_in_item_succeeded = False # Mark item as potentially failed
+                        continue # Skip to next blob
+                        
+                    if existing_record:
+                        logger.info(f"Task {task_id}: Blob {source_identifier} already processed (DB ID: {existing_record.id}). Skipping re-processing.")
+                        # Don't mark as failure, just skip this blob for this run.
+                        continue # Skip to the next blob
+                    # --- END ADDED Check ---
+
                     try:
                         # 2a. Download Blob Content
                         logger.debug(f"Task {task_id}: Downloading content for azure://{blob_container}/{blob_path}")
@@ -606,6 +623,7 @@ async def _process_connection_items_and_save(
                 item_processed_successfully = True # Mark as success if prefix/blob yielded nothing
             else:
                 all_blobs_in_item_succeeded = True # Assume success
+                # --- REPLACED Loop Start ---
                 for blob_meta in blobs_to_process:
                     blob_container = blob_meta['container']
                     blob_path = blob_meta['path']
@@ -613,6 +631,21 @@ async def _process_connection_items_and_save(
                     r2_object_key: Optional[str] = None
                     blob_save_succeeded = False
 
+                    # --- Check if blob was already processed ---
+                    source_identifier = f"azure://{blob_container}/{blob_path}"
+                    existing_record = None
+                    try:
+                        existing_record = crud_processed_file.get_processed_file_by_source_id(db=db_session, source_identifier=source_identifier)
+                    except Exception as db_check_err:
+                        logger.error(f"Task {task_id}: Error checking for existing ProcessedFile for {source_identifier}: {db_check_err}", exc_info=True)
+                        all_blobs_in_item_succeeded = False 
+
+                    if existing_record:
+                        logger.info(f"Task {task_id}: Blob {source_identifier} already processed (DB ID: {existing_record.id}). Skipping re-processing.")
+                        continue 
+                    # --- End Check ---
+
+                    # --- Start processing if not existing ---
                     try:
                         # 1. Download Content
                         blob_content_bytes = await azure_service.download_blob_content(blob_container, blob_path)
@@ -623,6 +656,7 @@ async def _process_connection_items_and_save(
                             
                         # 2. Upload to R2
                         generated_r2_key = generate_azure_r2_key(blob_container, blob_path, blob_name)
+                        # Use run_in_threadpool for potentially blocking I/O
                         upload_successful = await run_in_threadpool(
                             s3_service.upload_bytes_to_r2,
                             bucket_name=settings.R2_BUCKET_NAME,
@@ -635,12 +669,12 @@ async def _process_connection_items_and_save(
                         logger.info(f"Task {task_id}: Uploaded azure://{blob_container}/{blob_path} to R2: {r2_object_key}")
 
                         # 3. Prepare ProcessedFile Data
-                        source_identifier = f"azure://{blob_container}/{blob_path}"
+                        # Re-define source_identifier just in case (though defined above)
+                        source_identifier = f"azure://{blob_container}/{blob_path}" 
                         additional_metadata = {
                             "azure_connection_id": str(item.connection_id),
                             "container": blob_container,
                             "path": blob_path,
-                            # Add other Azure metadata if needed (e.g., from list_blobs)
                         }
                         processed_file_dict = {
                             "ingestion_job_id": ingestion_job_id,
@@ -651,9 +685,8 @@ async def _process_connection_items_and_save(
                             "owner_email": user_email,
                             "status": 'pending_analysis',
                             "original_filename": blob_name,
-                            # Get content_type/size from azure_service if possible, else None
-                            "content_type": None, # Placeholder
-                            "size_bytes": len(blob_content_bytes), # Use downloaded size
+                            "content_type": None, # Placeholder, get from Azure if possible later
+                            "size_bytes": len(blob_content_bytes), 
                         }
                         processed_file_dict_cleaned = {k: v for k, v in processed_file_dict.items() if v is not None}
 
@@ -668,8 +701,8 @@ async def _process_connection_items_and_save(
                     except Exception as blob_err:
                          logger.error(f"Task {task_id}: Failed processing blob azure://{blob_container}/{blob_path}: {blob_err}", exc_info=True)
                          all_blobs_in_item_succeeded = False
-                         # Optionally try/except the DB write separately if needed
-
+                         # Save failure record? Maybe add later if needed.
+                # --- REPLACED Loop End ---
                 item_processed_successfully = all_blobs_in_item_succeeded
 
         except Exception as item_level_err:

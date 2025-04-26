@@ -150,8 +150,14 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str = os.getenv("R2_ACCESS_KEY_ID")
     R2_SECRET_ACCESS_KEY: str = os.getenv("R2_SECRET_ACCESS_KEY")
     R2_BUCKET_NAME: str = os.getenv("R2_BUCKET_NAME")
-    # Set a default region for boto3 compatibility with R2
-    R2_AWS_REGION: str = os.getenv("R2_AWS_REGION", "auto") 
+    R2_REGION: str = os.getenv("R2_REGION", "auto") # Boto3 requires a region, use 'auto' for R2
+
+    # --- Iceberg Catalog (REST) Settings --- ADDED for Iceberg integration
+    R2_CATALOG_URI: str = os.getenv("R2_CATALOG_URI") # e.g., http://localhost:8181
+    R2_CATALOG_WAREHOUSE: str = os.getenv("R2_CATALOG_WAREHOUSE") # e.g., s3://your-r2-bucket/warehouse/
+    R2_CATALOG_TOKEN: Optional[str] = os.getenv("R2_CATALOG_TOKEN") # Optional auth token for REST catalog
+    ICEBERG_DEFAULT_NAMESPACE: str = os.getenv("ICEBERG_DEFAULT_NAMESPACE", "default") # Default namespace
+    ICEBERG_EMAIL_FACTS_TABLE: str = os.getenv("ICEBERG_EMAIL_FACTS_TABLE", "email_facts") # Name for the email facts table
 
     # External Analysis Service URL
     EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL") # validated by check_required_env_vars

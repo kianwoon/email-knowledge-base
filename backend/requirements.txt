@@ -37,3 +37,8 @@ unstructured[md,csv,docx,pdf,xlsx,eml,msg]
 unstructured-client
 msg_parser
 rank-bm25
+
+# ADDED for Iceberg / R2 Catalog
+pyarrow
+pandas
+pyiceberg[s3fs,hive]==0.9.0
