@@ -42,3 +42,4 @@ rank-bm25
 pyarrow
 pandas
 pyiceberg[s3fs,hive]==0.9.0
+duckdb

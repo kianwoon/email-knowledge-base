@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY") # validated by check_required_env_vars
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") # validated by check_required_env_vars
     EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION")) # validated by pydantic & check_required
+    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+    OPENAI_TIMEOUT_SECONDS: Optional[int] = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+    OPENAI_TEMPERATURE: Optional[float] = float(os.getenv("OPENAI_TEMPERATURE", "0.1")) # Added Temperature Setting
 
     # Per-field embedding configuration
     DENSE_EMBEDDING_MODEL: str = os.getenv("DENSE_EMBEDDING_MODEL", EMBEDDING_MODEL)
@@ -118,6 +121,15 @@ class Settings(BaseSettings):
     MMR_TOP_K: int = int(os.getenv("MMR_TOP_K", "5"))
     # Maximum number of Qdrant hits to retrieve (configurable RAG search limit)
     RAG_SEARCH_LIMIT: int = int(os.getenv("RAG_SEARCH_LIMIT", "10"))
+    # --- New RAG Settings ---
+    RAG_MILVUS_CONTEXT_LIMIT: Optional[int] = int(os.getenv("RAG_MILVUS_CONTEXT_LIMIT", "5")) # Context limit for final prompt
+    RAG_EMAIL_CONTEXT_LIMIT: Optional[int] = int(os.getenv("RAG_EMAIL_CONTEXT_LIMIT", "15"))  # Limit for email context retrieval (Increased from 5)
+    RAG_DENSE_RESULTS: Optional[int] = int(os.getenv("RAG_DENSE_RESULTS", "5"))        # Number of dense results to fetch
+    RAG_SPARSE_RESULTS: Optional[int] = int(os.getenv("RAG_SPARSE_RESULTS", "5"))       # Number of sparse results to fetch
+    ENABLE_HYDE: bool = os.getenv("ENABLE_HYDE", "True") == "True"                    # Feature flag for HyDE
+    # --- Rate Card RAG Settings --- 
+    RATE_CARD_RESULTS_PER_QUERY: Optional[int] = int(os.getenv("RATE_CARD_RESULTS_PER_QUERY", "3"))
+    RATE_CARD_FINAL_CONTEXT_LIMIT: Optional[int] = int(os.getenv("RATE_CARD_FINAL_CONTEXT_LIMIT", "5"))
 
     # Milvus settings
     MILVUS_URI: str = os.getenv("MILVUS_URI") # validated by check_required_env_vars
@@ -137,7 +149,6 @@ class Settings(BaseSettings):
 
     # Email processing settings
     MAX_PREVIEW_EMAILS: int = int(os.getenv("MAX_PREVIEW_EMAILS")) # validated by pydantic & check_required
-    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
     # --- AWS Settings --- ADDED
     APP_AWS_ACCESS_KEY_ID: str = os.getenv("APP_AWS_ACCESS_KEY_ID") # validated by check_required_env_vars
@@ -153,6 +164,7 @@ class Settings(BaseSettings):
     R2_REGION: str = os.getenv("R2_REGION", "auto") # Boto3 requires a region, use 'auto' for R2
 
     # --- Iceberg Catalog (REST) Settings --- ADDED for Iceberg integration
+    ICEBERG_DUCKDB_CATALOG_NAME: Optional[str] = os.getenv("ICEBERG_DUCKDB_CATALOG_NAME", "r2_catalog_duckdb_llm") # Added Catalog Name
     R2_CATALOG_URI: str = os.getenv("R2_CATALOG_URI") # e.g., http://localhost:8181
     R2_CATALOG_WAREHOUSE: str = os.getenv("R2_CATALOG_WAREHOUSE") # e.g., s3://your-r2-bucket/warehouse/
     R2_CATALOG_TOKEN: Optional[str] = os.getenv("R2_CATALOG_TOKEN") # Optional auth token for REST catalog

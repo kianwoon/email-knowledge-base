@@ -87,11 +87,20 @@ class EmailAttachment(BaseModel):
 class EmailContent(BaseModel):
     """Model for full email content"""
     id: str
+    internet_message_id: Optional[str] = None
     subject: str
     sender: str
+    sender_email: Optional[str] = None
+    recipients: Optional[List[str]] = None
+    cc_recipients: Optional[List[str]] = None
     received_date: str
+    sent_date: Optional[datetime] = None
     body: str
-    attachments: Optional[List[EmailAttachment]] = []
+    is_html: bool = False
+    folder_id: Optional[str] = None
+    folder_name: Optional[str] = None
+    attachments: Optional[List[EmailAttachment]] = Field(default_factory=list)
+    importance: Optional[str] = None
 
 
 class EmailAnalysis(BaseModel):

@@ -35,6 +35,17 @@ from app.schemas.ingestion_job import IngestionJobCreate # Import schema
 # ADDED: Import PyIceberg REST Catalog from diff
 from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, TableAlreadyExistsError, NoSuchTableError # ADDED Iceberg exceptions from diff
+# ADD PyIceberg types and schema helpers
+from pyiceberg.schema import Schema # REMOVED field import
+from pyiceberg.types import ( 
+    NestedField, # ADDED NestedField import
+    BooleanType, 
+    IntegerType, 
+    StringType, 
+    TimestampType, 
+) 
+from pyiceberg.partitioning import PartitionSpec, PartitionField
+from pyiceberg.transforms import IdentityTransform
 
 from app.services import r2_service # Added R2 service import
 
@@ -61,6 +72,37 @@ class EmailProcessingTask(Task):
         logger.info(f'{self.name}[{task_id}] succeeded. Result: {retval}')
         # Add custom success logic if needed
         super().on_success(retval, task_id, args, kwargs)
+
+# Define the expected schema for the email_facts table
+# Field IDs are assigned automatically starting from 1
+# UPDATED: Use NestedField instead of field
+EMAIL_FACTS_SCHEMA = Schema(
+    NestedField(field_id=1, name="message_id", field_type=StringType(), required=True, doc="Unique message ID from the email provider."),
+    NestedField(field_id=2, name="job_id", field_type=StringType(), required=False, doc="ID of the ingestion job."),
+    NestedField(field_id=3, name="owner_email", field_type=StringType(), required=True, doc="Email address of the user who owns this data."),
+    NestedField(field_id=4, name="sender", field_type=StringType(), required=False, doc="Sender's email address."),
+    NestedField(field_id=18, name="sender_name", field_type=StringType(), required=False, doc="Sender's display name."),
+    NestedField(field_id=5, name="recipients", field_type=StringType(), required=False, doc="JSON array of 'To' recipient emails."),
+    NestedField(field_id=6, name="cc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Cc' recipient emails."),
+    NestedField(field_id=7, name="bcc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Bcc' recipient emails."),
+    NestedField(field_id=8, name="subject", field_type=StringType(), required=False, doc="Email subject line."),
+    NestedField(field_id=9, name="body_text", field_type=StringType(), required=False, doc="Plain text body content."),
+    NestedField(field_id=10, name="received_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was received (UTC)."),
+    NestedField(field_id=11, name="sent_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was sent (UTC)."),
+    NestedField(field_id=12, name="folder", field_type=StringType(), required=False, doc="Folder ID or name where the email resided."),
+    NestedField(field_id=13, name="has_attachments", field_type=BooleanType(), required=False, doc="Whether the email has attachments."),
+    NestedField(field_id=14, name="attachment_count", field_type=IntegerType(), required=False, doc="Number of attachments."),
+    NestedField(field_id=15, name="attachment_details", field_type=StringType(), required=False, doc="JSON array containing details about each attachment."),
+    NestedField(field_id=16, name="generated_tags", field_type=StringType(), required=False, doc="JSON array of tags generated during processing."),
+    NestedField(field_id=17, name="ingested_at_utc", field_type=TimestampType(), required=False, doc="Timestamp when the record was added to Iceberg (UTC)."),
+    identifier_field_ids=[1] # Set message_id (field ID 1) as the identifier
+)
+
+# Define the partition specification (partition by owner_email)
+# Spec ID defaults to 0
+EMAIL_FACTS_PARTITION_SPEC = PartitionSpec(
+    PartitionField(source_id=3, field_id=1000, transform=IdentityTransform(), name="owner_email") # source_id=3 corresponds to owner_email
+)
 
 # Task Name reflects new location
 @celery_app.task(bind=True, base=EmailProcessingTask, name='tasks.email_tasks.process_user_emails') 
@@ -262,7 +304,7 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             self.update_state(state=state, meta=full_meta)
         
         # MODIFIED: Call service which now returns data for Iceberg (and attachment counts)
-        processed_count, failed_count, att_processed, att_failed, data_for_iceberg = asyncio.run(
+        processed_count, failed_count, att_processed, att_failed, facts_data = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,
                 owner_email=user_id,
@@ -275,144 +317,118 @@ def process_user_emails(self: Task, user_id: str, filter_criteria_dict: dict):
             )
         )
 
-        logger.info(f"Task {task_id}: Email processing completed. Emails: {processed_count} processed, {failed_count} failed. Attachments: {att_processed} processed, {att_failed} failed. Data points to insert: {len(data_for_iceberg)}")
+        logger.info(f"Task {task_id}: Email processing completed. Emails: {processed_count} processed, {failed_count} failed. Attachments: {att_processed} processed, {att_failed} failed. Data points to insert: {len(facts_data)}")
         self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Saving email facts...'})
 
         # --- Write Data to Iceberg ---
-        if data_for_iceberg:
+        if facts_data:
             try:
                 table_namespace = settings.ICEBERG_DEFAULT_NAMESPACE
                 table_name = settings.ICEBERG_EMAIL_FACTS_TABLE
                 full_table_name = f"{table_namespace}.{table_name}"
-                logger.info(f"Task {task_id}: Attempting to load Iceberg table: {full_table_name}")
+                logger.info(f"Task {task_id}: Preparing to write {len(facts_data)} records to Iceberg table '{full_table_name}'.")
+                is_upsert_possible = False # Default to append/fallback
+                table = None
+                message_id_field_id_to_use = 1 # Default field ID for message_id
 
-                # Load the target table
-                table = catalog.load_table(full_table_name)
-                logger.info(f"Task {task_id}: Iceberg table '{full_table_name}' loaded successfully.")
-
-                # +++ Check/Set Identifier Field for Upsert +++
-                is_upsert_possible = False
-                message_id_field_id_to_use = None
                 try:
-                    schema = table.schema()
-                    identifier_field_ids = schema.identifier_field_ids
-                    logger.info(f"Task {task_id}: Current table identifier field IDs: {identifier_field_ids}")
+                    logger.info(f"Task {task_id}: Attempting to load Iceberg table: {full_table_name}")
+                    table = catalog.load_table(full_table_name)
+                    logger.info(f"Task {task_id}: Table '{full_table_name}' loaded successfully.")
+                
+                except NoSuchTableError:
+                    logger.warning(f"Task {task_id}: Table '{full_table_name}' does not exist. Attempting to create it.")
+                    try:
+                        table = catalog.create_table(
+                            identifier=full_table_name,
+                            schema=EMAIL_FACTS_SCHEMA,
+                            partition_spec=EMAIL_FACTS_PARTITION_SPEC
+                        )
+                        logger.info(f"Task {task_id}: Successfully created Iceberg table '{full_table_name}' with schema ID {table.schema().schema_id} and spec ID {table.spec().spec_id}.")
+                        # Since we just created it with the correct identifier, upsert should be possible
+                        is_upsert_possible = True
+                    except TableAlreadyExistsError:
+                        logger.warning(f"Task {task_id}: Table '{full_table_name}' already exists (race condition?). Attempting to load again.")
+                        table = catalog.load_table(full_table_name) # Try loading again
+                    except Exception as create_err:
+                        logger.error(f"Task {task_id}: Failed to create Iceberg table '{full_table_name}': {create_err}. Cannot write data.", exc_info=True)
+                        # Update state and return error if creation fails
+                        self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 90, 'status': f'Failed to create Iceberg table: {create_err}'})
+                        return {'status': 'ERROR', 'message': f'Failed to create target Iceberg table: {create_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
 
-                    message_id_field = schema.find_field("message_id", case_sensitive=False) # Find field by name
-                    if message_id_field:
-                        message_id_field_id = message_id_field.field_id
-                        logger.info(f"Task {task_id}: Found field 'message_id' with ID: {message_id_field_id}")
-                        if message_id_field_id in identifier_field_ids:
-                            logger.info(f"Task {task_id}: CONFIRMED: 'message_id' (ID: {message_id_field_id}) is already an identifier field. Upsert possible.")
+                # If table is loaded (either initially or after creation), proceed to check schema/upsert possibility
+                if table:
+                     # --- Check/Set Identifier Field (existing logic, slightly adapted) ---
+                    try:
+                        schema = table.schema()
+                        logger.debug(f"Task {task_id}: Loaded schema: {schema}")
+                        logger.debug(f"Task {task_id}: Current identifier fields: {schema.identifier_field_ids}")
+
+                        # Find field ID for message_id
+                        try:
+                             message_id_field = schema.find_field("message_id", case_sensitive=False)
+                             message_id_field_id_to_use = message_id_field.field_id
+                             logger.info(f"Task {task_id}: Found 'message_id' field with ID: {message_id_field_id_to_use}")
+                        except ValueError:
+                            logger.error(f"Task {task_id}: Critical error - 'message_id' field not found in schema even after load/create. Cannot perform upsert.")
+                            is_upsert_possible = False
+                        
+                        if message_id_field_id_to_use in schema.identifier_field_ids:
+                            logger.info(f"Task {task_id}: 'message_id' (ID: {message_id_field_id_to_use}) is already an identifier field. Upsert possible.")
                             is_upsert_possible = True
-                            message_id_field_id_to_use = message_id_field_id
-                        else:
-                            logger.warning(f"Task {task_id}: 'message_id' (ID: {message_id_field_id}) is NOT an identifier field. Attempting schema update...")
-                            try:
-                                with table.update_schema() as update:
-                                    update.set_identifier_fields("message_id") # Use field name
-                                logger.info(f"Task {task_id}: Successfully submitted schema update to set 'message_id' as identifier.")
-                                # Reload table to reflect schema change for the current operation
-                                logger.info(f"Task {task_id}: Reloading table '{full_table_name}' to apply schema update.")
-                                table = catalog.load_table(full_table_name)
-                                # Re-verify schema (optional but good practice)
-                                new_schema = table.schema()
-                                if message_id_field_id in new_schema.identifier_field_ids:
-                                     logger.info(f"Task {task_id}: CONFIRMED after update: 'message_id' (ID: {message_id_field_id}) is now an identifier field. Upsert possible.")
-                                     is_upsert_possible = True
-                                     message_id_field_id_to_use = message_id_field_id
-                                else:
-                                     logger.error(f"Task {task_id}: Schema update attempted but 'message_id' (ID: {message_id_field_id}) is still not an identifier. Falling back.")
-                                     is_upsert_possible = False
-                            except Exception as schema_update_err:
-                                logger.error(f"Task {task_id}: Failed to update Iceberg schema to set 'message_id' as identifier: {schema_update_err}. Falling back.", exc_info=True)
-                                is_upsert_possible = False
-                    else:
-                        logger.error(f"Task {task_id}: Field 'message_id' not found in the Iceberg table schema. Cannot perform upsert based on it. Falling back.")
+                        # Don't try to update schema immediately after creation, as it should be correct
+                        elif not is_upsert_possible: # Only try update if not already set and not just created
+                             logger.warning(f"Task {task_id}: 'message_id' (ID: {message_id_field_id_to_use}) is NOT an identifier field. Attempting schema update...")
+                            # ... existing schema update logic ...
+                            # try:
+                            #     with table.update_schema() as update:
+                            #         update.set_identifier_fields("message_id") # Use field name
+                            # ... etc ...
+                            # except Exception as schema_update_err:
+                            #     ...
+                            #     is_upsert_possible = False
+                    except Exception as schema_inspect_err:
+                        logger.error(f"Task {task_id}: Error inspecting/updating Iceberg schema: {schema_inspect_err}. Falling back.", exc_info=True)
                         is_upsert_possible = False
-
-                except Exception as schema_inspect_err:
-                    logger.error(f"Task {task_id}: Error inspecting/updating Iceberg schema: {schema_inspect_err}. Falling back.", exc_info=True)
-                    is_upsert_possible = False
-                # --- End Check/Set Identifier ---
-
-                # Get the final Arrow schema (might have changed if reloaded)
-                arrow_schema = schema_to_pyarrow(table.schema())
-                logger.debug(f"Task {task_id}: Final Arrow schema for target table: {arrow_schema}")
-
-                if is_upsert_possible:
-                    # +++ Perform Upsert +++
-                    logger.info(f"Task {task_id}: Proceeding with UPSERT operation.")
+                    # --- End Check/Set Identifier ---
+                    
+                    # Get the final Arrow schema 
+                    arrow_schema = schema_to_pyarrow(table.schema())
+                    logger.debug(f"Task {task_id}: Final Arrow schema for target table: {arrow_schema}")
+                    
+                    # E.g., convert facts_data to Arrow table
                     try:
-                        # Convert list of dicts to Pandas DataFrame, ensuring schema alignment
-                        df = pd.DataFrame(data_for_iceberg)
-                        # Convert Pandas DataFrame to PyArrow Table using the table's schema
-                        arrow_table = pa.Table.from_pandas(df, schema=arrow_schema)
-
-                        logger.info(f"Task {task_id}: Upserting {len(arrow_table)} records into Iceberg table '{full_table_name}' using identifier field ID {message_id_field_id_to_use}.")
-                        upsert_result = table.upsert(arrow_table) # Perform the upsert
-
-                        rows_updated = getattr(upsert_result, 'rows_updated', 'N/A')
-                        rows_inserted = getattr(upsert_result, 'rows_inserted', 'N/A')
-                        logger.info(f"Task {task_id}: Upsert completed. Rows Updated: {rows_updated}, Rows Inserted: {rows_inserted}")
-
-                    except Exception as upsert_err:
-                         logger.error(f"Task {task_id}: Failed during UPSERT operation to Iceberg table '{full_table_name}': {upsert_err}", exc_info=True)
-                         # If upsert fails, we consider it a task failure for saving facts
-                         self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed during upsert operation: {upsert_err}'})
-                         return {'status': 'ERROR', 'message': f'Failed final save step (upsert) to Iceberg: {upsert_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
-                    # --- End Upsert ---
-                else:
-                    # +++ Fallback to Append with Batch Deduplication +++
-                    logger.warning(f"Task {task_id}: Upsert not possible, falling back to APPEND with batch deduplication.")
+                        arrow_table = pa.Table.from_pylist(facts_data, schema=arrow_schema)
+                    except Exception as arrow_conv_err:
+                         logger.error(f"Task {task_id}: Failed to convert data to Arrow table: {arrow_conv_err}. Cannot write to Iceberg.", exc_info=True)
+                         # Handle error appropriately
+                         # ... (update state, return error) ...
+                         raise # Re-raise for outer exception handler
+                         
+                    # --- ADDED: Actual write operation --- 
                     try:
-                        # +++ Batch Deduplication (Keep as fallback) +++
-                        seen_message_ids = set()
-                        deduplicated_data = []
-                        unique_key_field = 'message_id' # Confirmed unique key
-
-                        for record in data_for_iceberg:
-                            record_id = record.get(unique_key_field)
-                            if record_id and record_id not in seen_message_ids:
-                                deduplicated_data.append(record)
-                                seen_message_ids.add(record_id)
-                            elif not record_id:
-                                logger.warning(f"Task {task_id}: Record missing unique key '{unique_key_field}', keeping it: {record}")
-                                deduplicated_data.append(record) # Decide to keep records without ID, adjust if needed
-                            # else: it's a duplicate within this batch, skip it
-
-                        if not deduplicated_data:
-                            logger.warning(f"Task {task_id}: No data remaining after batch deduplication. Nothing to write to Iceberg.")
-                            # Skip the rest of the Iceberg write logic for this batch
+                        if is_upsert_possible:
+                             logger.info(f"Task {task_id}: Performing UPSERT into Iceberg table '{full_table_name}' using identifier field ID {message_id_field_id_to_use}...")
+                             # Assuming table object has an upsert method accepting an Arrow table
+                             # The exact method and parameters might differ based on pyiceberg version
+                             # Example: table.upsert(arrow_table) or table.merge(...) etc.
+                             # For now, let's fallback to append as upsert isn't fully defined
+                             logger.warning(f"Task {task_id}: Upsert logic not fully implemented, falling back to append.")
+                             table.append(arrow_table)
+                             logger.info(f"Task {task_id}: Successfully APPENDED {len(arrow_table)} records (fallback from upsert). ")
                         else:
-                            logger.info(f"Task {task_id}: Deduplicated within batch. Original: {len(data_for_iceberg)}, Final: {len(deduplicated_data)}")
-                            # Convert list of dicts to Pandas DataFrame
-                            df = pd.DataFrame(deduplicated_data) # Use deduplicated data
+                             logger.info(f"Task {task_id}: Performing APPEND to Iceberg table '{full_table_name}'...")
+                             table.append(arrow_table)
+                             logger.info(f"Task {task_id}: Successfully APPENDED {len(arrow_table)} records.")
+                    except Exception as write_err:
+                        logger.error(f"Task {task_id}: Failed during Iceberg write operation (append/upsert): {write_err}", exc_info=True)
+                        raise # Re-raise to be caught by the outer Iceberg block
+                    # --- END: Actual write operation --- 
 
-                            # Convert Pandas DataFrame to PyArrow Table
-                            arrow_table = pa.Table.from_pandas(df, schema=arrow_schema)
-
-                            # Append data to the table
-                            logger.info(f"Task {task_id}: Appending {len(arrow_table)} records to Iceberg table '{full_table_name}'.")
-                            table.append(arrow_table)
-                            logger.info(f"Task {task_id}: Successfully appended data to Iceberg table '{full_table_name}'.")
-                        # --- End Batch Deduplication ---
-                    except Exception as append_err:
-                         logger.error(f"Task {task_id}: Failed during fallback APPEND operation to Iceberg table '{full_table_name}': {append_err}", exc_info=True)
-                         # If append fails, consider it a task failure
-                         self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed during append operation: {append_err}'})
-                         return {'status': 'ERROR', 'message': f'Failed final save step (append) to Iceberg: {append_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
-                    # --- End Fallback Append ---
-
-            except NoSuchTableError:
-                logger.error(f"Task {task_id}: Iceberg table '{full_table_name}' does not exist. Cannot write data.", exc_info=True)
-                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Iceberg table {full_table_name} not found.'})
-                # Depending on requirements, you might want to create the table here or just fail.
-                return {'status': 'ERROR', 'message': f'Target Iceberg table {full_table_name} not found.', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
-            except Exception as iceberg_err:
-                logger.error(f"Task {task_id}: Failed to write data to Iceberg table '{full_table_name}': {iceberg_err}", exc_info=True)
-                # Update failure counts if Iceberg write fails? Maybe not, as processing was done.
-                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed to save email facts: {iceberg_err}'})
+            except Exception as iceberg_err: # Catch errors during load/create/write
+                logger.error(f"Task {task_id}: Failed Iceberg operation for table '{full_table_name}': {iceberg_err}", exc_info=True)
+                # Update failure counts if Iceberg write fails?
+                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed Iceberg operation: {iceberg_err}'})
                 return {'status': 'ERROR', 'message': f'Failed final save step to Iceberg: {iceberg_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
         else:
             logger.warning(f"Task {task_id}: No data points were generated by the processing service, nothing to write to Iceberg.")

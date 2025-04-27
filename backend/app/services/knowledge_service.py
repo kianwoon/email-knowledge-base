@@ -181,22 +181,53 @@ async def _process_and_store_emails(
                         return getattr(recipient_obj.emailAddress, 'address', None)
                     return None
 
-                # Extract recipients safely
-                sender_address = get_email_address(email_content.sender) or "unknown@sender.com"
-                to_recipients = [get_email_address(r) for r in getattr(email_content, 'toRecipients', []) if get_email_address(r)]
-                cc_recipients = [get_email_address(r) for r in getattr(email_content, 'ccRecipients', []) if get_email_address(r)]
-                bcc_recipients = [get_email_address(r) for r in getattr(email_content, 'bccRecipients', []) if get_email_address(r)]
+                # --- Extract recipients and sender CORRECTLY ---
+                # Sender: Directly use the pre-extracted sender_email
+                sender_address = email_content.sender_email or "unknown@sender.com"
+                
+                # Recipients/CC: Directly use the pre-extracted lists of strings
+                # Ensure they are lists, default to empty list if attribute doesn't exist or is None
+                to_recipients = getattr(email_content, 'recipients', None) or []
+                cc_recipients = getattr(email_content, 'cc_recipients', None) or []
+                # BCC is not currently fetched by outlook.py, so it will remain empty
+                bcc_recipients = [] 
 
                 # Handle Timestamps - Ensure they are timezone-aware (UTC preferably)
                 def ensure_utc(dt_obj: datetime | None) -> datetime | None:
                     if dt_obj is None: return None
+                    # Ensure input is actually a datetime object
+                    if not isinstance(dt_obj, datetime):
+                         logger.error(f"[Op:{operation_id}] ensure_utc received non-datetime object: {type(dt_obj)}. Cannot process.")
+                         return None # Or raise an error? Returning None for now.
+
                     if dt_obj.tzinfo is None:
                         logger.warning(f"[Op:{operation_id}] Email {email_id}: Making naive datetime {dt_obj} UTC-aware.")
                         return dt_obj.replace(tzinfo=timezone.utc)
                     return dt_obj.astimezone(timezone.utc)
 
-                received_dt_utc = ensure_utc(getattr(email_content, 'receivedDateTime', None))
-                sent_dt_utc = ensure_utc(getattr(email_content, 'sentDateTime', None))
+                # --- START: Parse string dates before calling ensure_utc ---
+                parsed_received_dt = None
+                received_dt_str = getattr(email_content, 'received_date', None)
+                if received_dt_str and isinstance(received_dt_str, str):
+                    try:
+                        # Parse the ISO 8601 string (potentially replacing 'Z')
+                        parsed_received_dt = datetime.fromisoformat(received_dt_str.replace('Z', '+00:00'))
+                    except ValueError:
+                        logger.error(f"[Op:{operation_id}] Failed to parse received_date string: '{received_dt_str}'")
+                    except Exception as parse_err:
+                        logger.error(f"[Op:{operation_id}] Unexpected error parsing received_date string '{received_dt_str}': {parse_err}", exc_info=True)
+                
+                # sent_date should already be a datetime object from outlook.py, but we can add a check
+                sent_dt_obj = getattr(email_content, 'sent_date', None)
+                if sent_dt_obj and not isinstance(sent_dt_obj, datetime):
+                     logger.warning(f"[Op:{operation_id}] sent_date was not a datetime object: {type(sent_dt_obj)}. Will attempt ensure_utc.")
+                     # Handle unexpected type if necessary, maybe try parsing if it's a string?
+                     # For now, we'll let ensure_utc handle it (which might return None).
+
+                received_dt_utc = ensure_utc(parsed_received_dt) # Pass the parsed datetime object
+                sent_dt_utc = ensure_utc(sent_dt_obj) # Pass the datetime object directly
+                # --- END: Parse string dates ---
+
                 ingested_dt_utc = datetime.now(timezone.utc)
 
                 # Prepare the record dictionary matching the assumed Iceberg schema
@@ -204,11 +235,12 @@ async def _process_and_store_emails(
                     "message_id": email_id,
                     "job_id": str(ingestion_job_id) if ingestion_job_id else operation_id, # Use Job ID if available
                     "owner_email": owner_email,
-                    "sender": sender_address,
+                    "sender": sender_address, # Use CORRECTED sender address (email)
+                    "sender_name": email_content.sender, # ADDED: Use sender display name from EmailContent
                     # Convert lists to JSON strings for Iceberg compatibility with string columns
-                    "recipients": json.dumps(to_recipients),
-                    "cc_recipients": json.dumps(cc_recipients),
-                    "bcc_recipients": json.dumps(bcc_recipients),
+                    "recipients": json.dumps(to_recipients), # Use CORRECTED recipient list
+                    "cc_recipients": json.dumps(cc_recipients), # Use CORRECTED cc_recipient list
+                    "bcc_recipients": json.dumps(bcc_recipients), # Use empty BCC list
                     "subject": email_content.subject or "",
                     "body_text": email_content.body or "", # Use plain text body
                     "received_datetime_utc": received_dt_utc,

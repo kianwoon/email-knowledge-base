@@ -1,6 +1,6 @@
 import httpx
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import HTTPException, status
 import asyncio
@@ -383,7 +383,7 @@ class OutlookService:
             response = await self.client.get(
                 f"/me/messages/{email_id}",
                 params={
-                    "$select": "id,internetMessageId,subject,sender,toRecipients,ccRecipients,receivedDateTime,body,isRead,importance,parentFolderId",
+                    "$select": "id,internetMessageId,subject,sender,toRecipients,ccRecipients,receivedDateTime,sentDateTime,body,isRead,importance,parentFolderId",
                     # Only expand to get metadata, not contentBytes directly here
                     "$expand": "attachments($select=id,name,contentType,size,isInline)" 
                 }
@@ -451,7 +451,35 @@ class OutlookService:
             else:
                  logger.debug(f"No attachments found in initial metadata for email {email_id}.")
             
-            # Step 3: Construct final EmailContent object
+            # --- Step 3: Parse receivedDateTime ---
+            received_dt_str = data.get("receivedDateTime")
+            parsed_received_dt = None
+            if received_dt_str:
+                try:
+                    # Replace Z with +00:00 for better Python compatibility across versions
+                    # This handles both "2023-10-27T10:00:00Z" and "2023-10-27T18:00:00+08:00"
+                    parsed_received_dt = datetime.fromisoformat(received_dt_str.replace('Z', '+00:00'))
+                    logger.debug(f"Successfully parsed receivedDateTime: {received_dt_str} -> {parsed_received_dt}")
+                except ValueError:
+                    logger.error(f"Could not parse receivedDateTime string: '{received_dt_str}' for email {email_id}. Setting received_date to None.")
+                except Exception as dt_parse_err:
+                    logger.error(f"Unexpected error parsing receivedDateTime string '{received_dt_str}': {dt_parse_err}", exc_info=True)
+
+            # --- START: Parse sentDateTime --- 
+            sent_dt_str = data.get("sentDateTime")
+            parsed_sent_dt = None
+            if sent_dt_str:
+                try:
+                    # Replace Z with +00:00 for compatibility
+                    parsed_sent_dt = datetime.fromisoformat(sent_dt_str.replace('Z', '+00:00'))
+                    logger.debug(f"Successfully parsed sentDateTime: {sent_dt_str} -> {parsed_sent_dt}")
+                except ValueError:
+                    logger.error(f"Could not parse sentDateTime string: '{sent_dt_str}' for email {email_id}. Setting sent_date to None.")
+                except Exception as dt_parse_err:
+                    logger.error(f"Unexpected error parsing sentDateTime string '{sent_dt_str}': {dt_parse_err}", exc_info=True)
+            # --- END: Parse sentDateTime ---
+
+            # Step 4: Construct final EmailContent object
             return EmailContent(
                 id=data.get("id"),
                 internet_message_id=data.get("internetMessageId"),
@@ -460,12 +488,13 @@ class OutlookService:
                 sender_email=sender_email,
                 recipients=to_recipients,
                 cc_recipients=cc_recipients,
-                received_date=data.get("receivedDateTime", ""), 
+                received_date=received_dt_str, # Assign ORIGINAL string received date
+                sent_date=parsed_sent_dt, # Assign parsed sent date
                 body=body_content,
                 is_html=is_html,
                 folder_id=folder_id,
                 folder_name=folder_name,
-                attachments=attachments_list, # Use the list populated with individual fetches
+                attachments=attachments_list,
                 importance=data.get("importance", "normal")
             )
 
@@ -608,7 +637,9 @@ class OutlookService:
                         logger.debug(f"[ALL_SUBJECTS] Email found with no subject (ID: {message.get('id', 'N/A')}). Skipping.")
                 
                 request_url = data.get("@odata.nextLink")
-                params = {}
+                # Clear params after the first request, as they are included in the nextLink
+                if page_count == 1:
+                     params = {}
 
                 logger.info(f"[ALL_SUBJECTS] Page {page_count} fetched {len(messages)} items. Total subjects now: {len(all_subjects)}. Next link exists: {bool(request_url)}")
 
@@ -629,3 +660,76 @@ class OutlookService:
              
         logger.info(f"[ALL_SUBJECTS] Finished fetching. Total subjects collected: {len(all_subjects)}")
         return all_subjects
+
+    # --- NEW METHOD for Calendar Events ---
+    async def get_upcoming_events(self, days_ahead: int = 7) -> List[Dict[str, Any]]:
+        """
+        Fetches upcoming calendar events for the user using /me/calendarView.
+        
+        Args:
+            days_ahead: How many days into the future to query events for.
+            
+        Returns:
+            A list of dictionaries, each representing an upcoming event.
+        """
+        logger.info(f"Fetching upcoming calendar events for the next {days_ahead} days.")
+        
+        # Define the time window
+        now_utc = datetime.now(timezone.utc)
+        end_utc = now_utc + timedelta(days=days_ahead)
+        
+        # Format dates for Graph API query (ISO 8601)
+        start_dt_str = now_utc.isoformat()
+        end_dt_str = end_utc.isoformat()
+        
+        # Construct the API endpoint and parameters
+        # calendarView automatically filters by start/end time
+        calendar_view_url = f"/me/calendarView"
+        params = {
+            "startDateTime": start_dt_str,
+            "endDateTime": end_dt_str,
+            "$select": "id,subject,start,end,location,attendees,bodyPreview,isCancelled", # Select relevant fields
+            "$filter": "isCancelled eq false", # Exclude cancelled events
+            "$orderby": "start/dateTime asc", # Order by start time
+            "$top": 50 # Limit the number of results (adjust as needed)
+        }
+        
+        events_list = []
+        try:
+            response = await self.client.get(calendar_view_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            raw_events = data.get("value", [])
+            logger.info(f"Found {len(raw_events)} raw calendar events in the specified window.")
+            
+            # Format the events (extracting relevant info)
+            for event in raw_events:
+                # Ensure start/end times and timezones are handled correctly
+                start_info = event.get("start", {})
+                end_info = event.get("end", {})
+                
+                formatted_event = {
+                    "id": event.get("id"),
+                    "subject": event.get("subject", "No Subject"),
+                    "start_time": start_info.get("dateTime"),
+                    "start_timezone": start_info.get("timeZone"),
+                    "end_time": end_info.get("dateTime"),
+                    "end_timezone": end_info.get("timeZone"),
+                    "location": event.get("location", {}).get("displayName", "No Location"),
+                    "attendees": [att.get("emailAddress", {}).get("name", att.get("emailAddress", {}).get("address")) 
+                                  for att in event.get("attendees", [])],
+                    "preview": event.get("bodyPreview", "")
+                }
+                events_list.append(formatted_event)
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Graph API HTTP error fetching calendar events: {e.response.status_code} - {e.response.text}", exc_info=True)
+            # Depending on requirements, could raise HTTPException or return empty/error indicator
+        except Exception as e:
+            logger.error(f"Unexpected error fetching calendar events: {e}", exc_info=True)
+            # Depending on requirements, could raise or return empty/error indicator
+
+        logger.info(f"Returning {len(events_list)} formatted upcoming events.")
+        return events_list
+    # --- END NEW METHOD ---

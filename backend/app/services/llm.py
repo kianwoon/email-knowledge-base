@@ -4,6 +4,9 @@ from typing import Dict, Any, List, Optional
 from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 import logging # Import logging
+import asyncio  # For async operations
+from datetime import datetime, timedelta, timezone # Added datetime imports
+from zoneinfo import ZoneInfo # Added ZoneInfo import
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
@@ -17,15 +20,208 @@ from fastapi import HTTPException, status # Import HTTPException
 # from qdrant_client import models
 # from qdrant_client.http.models import PayloadField, Filter, IsEmptyCondition
 import itertools  # for merging hybrid search results
+# Import DuckDB and PyIceberg Catalog
+import duckdb
+from pyiceberg.catalog import load_catalog, Catalog
+from pyiceberg.exceptions import NoSuchTableError
+from app.services.outlook import OutlookService # ADDED: Import OutlookService
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 # Configure logger level based on LOG_LEVEL env var
 logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
 
+# --- START: Global Catalog Variable (Initialize lazily) ---
+# Use a global variable to hold the catalog instance to avoid reinitialization on every call.
+# Ensure thread-safety if your application uses threads extensively for requests.
+_iceberg_catalog: Optional[Catalog] = None
+_catalog_lock = asyncio.Lock() # Use asyncio lock for async context
+
+async def get_iceberg_catalog() -> Catalog:
+    """Initializes and returns the Iceberg catalog instance, ensuring it's done only once."""
+    global _iceberg_catalog
+    async with _catalog_lock:
+        if _iceberg_catalog is None:
+            logger.info("Initializing Iceberg REST Catalog for DuckDB integration...")
+            try:
+                catalog_props = {
+                    # Use a distinct name
+                    "name": settings.ICEBERG_DUCKDB_CATALOG_NAME or "r2_catalog_duckdb_llm",
+                    "uri": settings.R2_CATALOG_URI,
+                    "warehouse": settings.R2_CATALOG_WAREHOUSE,
+                    "token": settings.R2_CATALOG_TOKEN,
+                    # Add S3 specific creds if needed by PyArrowFileIO used under the hood
+                    # These might come from settings or environment variables
+                    # "s3.endpoint": settings.R2_ENDPOINT_URL, 
+                    # "s3.access-key-id": settings.R2_ACCESS_KEY_ID,
+                    # "s3.secret-access-key": settings.R2_SECRET_ACCESS_KEY
+                }
+                # Remove None values from props before passing to load_catalog
+                catalog_props = {k: v for k, v in catalog_props.items() if v is not None}
+                _iceberg_catalog = load_catalog(**catalog_props)
+                logger.info("Iceberg Catalog initialized successfully.")
+            except Exception as e:
+                logger.error(f"Failed to initialize Iceberg Catalog: {e}", exc_info=True)
+                # Raise or handle appropriately - maybe return None or raise specific exception
+                raise RuntimeError(f"Could not initialize Iceberg Catalog: {e}") from e
+    return _iceberg_catalog
+# --- END: Global Catalog Variable ---
+
 # Keep the global client for other potential uses (like analyze_email_content)
 # But Jarvis chat will use a user-specific key if available.
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+# --- START: DuckDB Query Helper ---
+async def query_iceberg_emails_duckdb(
+    user_email: str,
+    keywords: List[str],
+    limit: int = 5,
+    original_message: str = "" # Added original_message parameter
+) -> List[Dict[str, Any]]:
+    """Queries the email_facts Iceberg table for a user using DuckDB and keywords, with optional date filtering."""
+    results = []
+    if not keywords and not original_message: # Allow query if message contains date phrase even without keywords
+        logger.debug("No keywords provided and no date phrase detected, skipping DuckDB query.")
+        return results
+
+    try:
+        catalog = await get_iceberg_catalog()
+        if not catalog:
+            # Catalog initialization failed earlier
+            return results
+
+        full_table_name = f"{settings.ICEBERG_DEFAULT_NAMESPACE}.{settings.ICEBERG_EMAIL_FACTS_TABLE}"
+
+        # Load the Iceberg table object
+        try:
+            iceberg_table = catalog.load_table(full_table_name)
+        except NoSuchTableError:
+            logger.error(f"Iceberg table {full_table_name} not found.")
+            return results
+
+        # Connect to an in-memory DuckDB database
+        con = duckdb.connect(database=':memory:', read_only=False)
+
+        # Register the Iceberg table view
+        view_name = 'email_facts_view'
+        iceberg_table.scan().to_duckdb(table_name=view_name, connection=con)
+
+        # --- START: Date Filtering Logic (Refined) ---
+        date_filter_sql = ""
+        params = [user_email] # Start params list with user_email
+        start_date_utc: Optional[datetime] = None
+        end_date_utc: Optional[datetime] = None
+
+        # Simple date phrase parsing (can be expanded)
+        # Assume SGT for relative phrases like "last 2 weeks" if timezone unspecified
+        # TODO: Make timezone configurable or detect from user profile
+        try:
+            sgt = ZoneInfo("Asia/Singapore") 
+            now_local = datetime.now(sgt)
+            message_lower = original_message.lower() if original_message else ""
+
+            if "last 2 weeks" in message_lower or "past 2 weeks" in message_lower:
+                start_date_local = now_local - timedelta(weeks=2)
+                end_date_local = now_local
+                start_date_utc = start_date_local.astimezone(timezone.utc)
+                end_date_utc = end_date_local.astimezone(timezone.utc)
+            elif "last week" in message_lower or "past week" in message_lower:
+                start_date_local = now_local - timedelta(weeks=1)
+                end_date_local = now_local
+                start_date_utc = start_date_local.astimezone(timezone.utc)
+                end_date_utc = end_date_local.astimezone(timezone.utc)
+            elif "yesterday" in message_lower:
+                start_date_local = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                end_date_local = (now_local - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+                start_date_utc = start_date_local.astimezone(timezone.utc)
+                end_date_utc = end_date_local.astimezone(timezone.utc)
+            elif "today" in message_lower:
+                start_date_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_date_local = now_local # Use current time as end for "today"
+                start_date_utc = start_date_local.astimezone(timezone.utc)
+                end_date_utc = end_date_local.astimezone(timezone.utc)
+            # Add more phrases as needed (e.g., "last month", "this year", specific dates)
+
+            if start_date_utc and end_date_utc:
+                # Ensure end_date includes the full day if it was set to midnight
+                if end_date_utc.hour == 0 and end_date_utc.minute == 0 and end_date_utc.second == 0:
+                    end_date_utc = end_date_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
+                
+                date_filter_sql = " AND received_datetime_utc >= ? AND received_datetime_utc <= ?" 
+                # Insert date params *after* user_email but *before* keywords
+                params.insert(1, start_date_utc)
+                params.insert(2, end_date_utc)
+                logger.info(f"Applying date filter: >= {start_date_utc.isoformat()} AND <= {end_date_utc.isoformat()} UTC")
+            elif original_message and any(phrase in message_lower for phrase in ["last 2 weeks", "past 2 weeks", "last week", "past week", "yesterday", "today"]):
+                 logger.warning(f"Date phrase detected ('{original_message}') but failed to parse into date range. Querying without date filter.")
+
+        except Exception as tz_err:
+            logger.error(f"Could not apply timezone-aware date filter: {tz_err}. Proceeding without date filter.", exc_info=True)
+            date_filter_sql = "" # Ensure filter is empty on error
+            params = [user_email] # Reset params if date parsing fails mid-way
+        # --- END: Date Filtering Logic ---
+
+        # Build WHERE clause for keywords (simple LIKE matching)
+        keyword_params = []
+        keyword_filter = ""
+        if keywords: 
+            like_clauses = []
+            for kw in keywords:
+                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ?)")
+                # Escape % and _ within the keyword itself before adding wildcards
+                safe_kw = kw.replace('%', '\\%').replace('_', '\\_')
+                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
+            keyword_filter = " OR ".join(like_clauses)
+            params.extend(keyword_params) # Add keyword params to the list
+        else:
+            # If no keywords but date filter exists, we need a valid filter condition
+            if date_filter_sql:
+                keyword_filter = "1=1" # Or just omit the AND clause later
+            else: # No keywords and no date filter - this case should be handled by the initial check
+                 logger.warning("Querying DuckDB with no keywords and no date filter - should have been skipped.")
+                 con.close()
+                 return []
+
+        # Construct the full SQL query
+        # Ensure AND is added only if both date and keyword filters exist
+        sql_query = f"""
+        SELECT
+            message_id,
+            subject,
+            sender,
+            received_datetime_utc,
+            generated_tags,
+            body_text as body_snippet
+        FROM {view_name}
+        WHERE owner_email = ? 
+          {date_filter_sql} 
+          { "AND (" + keyword_filter + ")" if keyword_filter else ""} 
+        ORDER BY received_datetime_utc DESC
+        LIMIT ?;
+        """
+        params.append(limit) # Add limit to parameters
+
+        logger.debug(f"Executing DuckDB query for user {user_email}. SQL: {sql_query.strip()} PARAMS: {params}")
+
+        # Execute and fetch results
+        result_df = con.execute(sql_query, params).fetchdf()
+        logger.info(f"DuckDB query returned {len(result_df)} email facts for user {user_email}.")
+
+        # Convert to list of dicts
+        results = result_df.to_dict('records')
+
+        con.close()
+
+    except Exception as e:
+        logger.error(f"DuckDB query failed for user {user_email}: {e}", exc_info=True)
+        if 'con' in locals() and con:
+            try:
+                con.close()
+            except Exception as close_err:
+                logger.error(f"Error closing DuckDB connection: {close_err}")
+
+    return results
+# --- END: DuckDB Query Helper ---
 
 
 async def analyze_email_content(email: EmailContent) -> EmailAnalysis:
@@ -124,286 +320,304 @@ Return a JSON object with the following fields:
         )
 
 
-# Updated function to accept user email AND DB session for key lookup
+# CORRECTED Function Definition
 async def generate_openai_rag_response(
-    message: str, 
-    chat_history: List[Dict[str, str]], 
+    message: str,
+    chat_history: List[Dict[str, str]],
     user: User,
     db: Session, # Database session
-    model_id: Optional[str] = None  # Override the default LLM model
+    model_id: Optional[str] = None,  # Override the default LLM model
+    ms_token: Optional[str] = None # ADDED: Pass validated MS token if available
 ) -> str:
     """
-    Generates a chat response using RAG and the USER'S OpenAI API key.
+    Generates a chat response using RAG with context from Milvus and Iceberg (emails),
+    using an LLM to select/synthesize the most relevant context.
     Fails if the user has not provided their OpenAI API key.
     """
+    # Outer try block corresponding to original line 267
     try:
-        # Determine which model to use: user-selected or default
+        # Determine model and user-specific client
         chat_model = model_id or settings.OPENAI_MODEL_NAME
-        logger.debug(f"Using LLM model: {chat_model}")
-        # 1. Get USER's OpenAI API Key
-        logger.debug(f"Attempting to retrieve user's OpenAI API key for {user.email}")
+        logger.debug(f"Using LLM model: {chat_model} for user {user.email}")
         user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
-
         if not user_openai_key:
-            logger.warning(f"User {user.email} does not have an OpenAI API key set for Jarvis.")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OpenAI API key is required for Jarvis. Please add your key in the settings."
-            )
-        
-        logger.debug(f"Using user's personal OpenAI key for {user.email}")
-        # Initialize a client SPECIFICALLY with the user's key for this request
-        user_client = AsyncOpenAI(
-            api_key=user_openai_key, 
-            timeout=30.0 # Set timeout to 30 seconds
-        )
+            logger.warning(f"User {user.email} missing OpenAI key.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OpenAI API key required.")
+        user_client = AsyncOpenAI(api_key=user_openai_key, timeout=settings.OPENAI_TIMEOUT_SECONDS or 30.0)
 
-        # 2. Create embedding for the user message/HyDE doc
-        # ... (Query refinement, expansion, HyDE logic remains the same) ...
-        # --- START: Query refinement step to extract table and role for retrieval ---
-        retrieval_query = message
-        refined = None # Initialize refined variable
-        # --- MODIFICATION: Skip refinement for rate card queries ---
-        if 'rate card' not in message.lower():
+        # --- START: Simple Intent Detection for Calendar ---
+        calendar_keywords = ["meeting", "calendar", "event", "appointment", "schedule", "upcoming"]
+        is_calendar_query = any(keyword in message.lower() for keyword in calendar_keywords)
+        logger.debug(f"Is calendar query detected: {is_calendar_query}")
+        # --- END: Simple Intent Detection ---
+
+        # 1. Extract Keywords for Email Search
+        # Basic word extraction
+        basic_keywords = [word for word in re.findall(r'\b\w{3,}\b', message.lower()) 
+                          if word not in ['the', 'a', 'is', 'and', 'or', 'find', 'search', 'email', 'emails', 'how', 'many', 'last', 'weeks']]
+        # Extract email addresses specifically
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        extracted_emails = re.findall(email_pattern, message)
+        # Combine and deduplicate
+        keywords_for_email = list(set(basic_keywords + extracted_emails))
+        # Remove empty strings just in case
+        keywords_for_email = [kw for kw in keywords_for_email if kw]
+
+        logger.debug(f"Extracted keywords for email search: {keywords_for_email}")
+
+        # 2. Retrieve Context from Both Sources Concurrently
+        async def _get_milvus_context():
+            logger.debug("Starting Milvus context retrieval...")
+            # try corresponding to original line 284
             try:
-                refine_msgs = [
-                    {"role": "system", "content": (
-                        "You are a query refiner. Extract the target table/section and the entity from the user question. "
-                        "Return JSON with keys 'table' and 'role'."
-                    )},
-                    {"role": "user", "content": (
-                        f"Question: {message}\nRespond with JSON: {{\"table\":\"...\", \"role\":\"...\"}}."
-                    )}
-                ]
-                resp_refine = await user_client.chat.completions.create(
-                    model=chat_model,
-                    messages=refine_msgs,
-                    temperature=0.0
-                )
-                refined = json.loads(resp_refine.choices[0].message.content)
-                # Build a concise retrieval query
-                parts = []
-                if refined.get('table'): parts.append(refined['table'])
-                if refined.get('role'): parts.append(refined['role'])
-                if parts:
-                    retrieval_query = ' '.join(parts)
-                logger.debug(f"RAG: Refined retrieval query: {retrieval_query}")
-            except Exception as e:
-                logger.warning(f"Query refinement failed, using original message: {e}", exc_info=True)
-        else:
-            logger.debug("RAG: Skipping query refinement for rate card query.")
-        # --- END MODIFICATION ---
-        # --- END: Query refinement ---
-        # Store the original retrieval query before refinement/expansion
-        orig_retrieval_query = retrieval_query
-        # --- START: Query expansion for synonyms ---
-        if getattr(settings, 'ENABLE_QUERY_EXPANSION', False):
-            try:
-                expand_msgs = [
-                    {"role": "system", "content": (
-                        "You are a synonym expander. Given a query, return an expanded query including synonyms, separated by commas. Output only plain text."
-                    )},
-                    {"role": "user", "content": f"Expand the following query to include synonyms: {retrieval_query}"}
-                ]
-                exp_resp = await user_client.chat.completions.create(
-                    model=chat_model,
-                    messages=expand_msgs,
-                    temperature=0.0
-                )
-                expanded = exp_resp.choices[0].message.content.strip()
-                if expanded:
-                    retrieval_query = expanded
-                    logger.debug(f"RAG: Expanded retrieval query: {retrieval_query}")
-            except Exception as e:
-                logger.warning(f"Query expansion failed, using original retrieval_query: {e}", exc_info=True)
-        # --- END: Query expansion ---
-        
-        # --- START: HyDE (Hypothetical Document Embedding) Generation ---
-        hyde_document = retrieval_query # Default to retrieval_query if HyDE fails
-        # --- MODIFICATION: Skip HyDE for rate card queries ---
-        if 'rate card' not in message.lower() and getattr(settings, 'ENABLE_HYDE', True): # Enable HyDE by default, controlled by setting
-            try:
-                hyde_msgs = [
-                    {"role": "system", "content": (
-                        "You are an assistant that generates a concise, factual hypothetical document "
-                        "that directly answers the user's question. Output only the document content, no extra text."
-                    )},
-                    {"role": "user", "content": f"Generate a hypothetical document answering: {message}"} # Use original message for HyDE prompt
-                ]
-                hyde_resp = await user_client.chat.completions.create(
-                    model=chat_model, # Use the same chat model
-                    messages=hyde_msgs,
-                    temperature=0.0 # Low temp for factual generation
-                )
-                generated_doc = hyde_resp.choices[0].message.content.strip()
-                if generated_doc:
-                    hyde_document = generated_doc
-                    logger.debug(f"RAG: Generated HyDE document: {hyde_document[:50]}...")
+                retrieval_query = message
+                refined = None
+                # Query refinement step
+                if 'rate card' not in message.lower():
+                    # try corresponding to original line 289
+                    try:
+                        # Correctly define the list of dictionaries
+                        refine_msgs = [
+                            {
+                                "role": "system",
+                                "content": ("You are a query refiner. Extract the target table/section and the entity from the user question. "
+                                            "Return JSON with keys 'table' and 'role'.")
+                            },
+                            {
+                                "role": "user",
+                                "content": f"Question: {message}\\nRespond with JSON: {{\\\"table\\\":\\\"...\\\", \\\"role\\\":\\\"...\\\"}}. If not applicable return nulls."
+                            }
+                        ]
+                        # Ensure the create call parentheses are balanced
+                        resp_refine = await user_client.chat.completions.create(
+                            model=chat_model,
+                            messages=refine_msgs,
+                            temperature=0.0,
+                            response_format={"type": "json_object"}
+                        )
+                        content = resp_refine.choices[0].message.content
+                        if content and content.strip().lower() != 'null':
+                            refined = json.loads(content)
+                            parts = []
+                            if refined and refined.get('table'): parts.append(refined['table'])
+                            if refined and refined.get('role'): parts.append(refined['role'])
+                            if parts:
+                                retrieval_query = ' '.join(parts)
+                                logger.debug(f"RAG: Refined retrieval query for Milvus: {retrieval_query}")
+                        else:
+                            logger.debug("Query refinement deemed not applicable.")
+                    # Add except block for inner try (line 289)
+                    except Exception as refine_e:
+                        logger.warning(f"Query refinement failed, using original message: {refine_e}", exc_info=True)
                 else:
-                    logger.warning("HyDE generation returned empty content, using original retrieval_query for embedding.")
-            except Exception as e:
-                logger.warning(f"HyDE generation failed, using original retrieval_query for embedding: {e}", exc_info=True)
-        elif 'rate card' in message.lower():
-             logger.debug("RAG: Skipping HyDE generation for rate card query.")
-        # --- END MODIFICATION ---
-        # --- END: HyDE Generation ---
-        
-        # Create embedding for the HyDE document using the dense model
-        hyde_embedding = await create_retrieval_embedding(hyde_document, field='dense')
-        logger.debug(f"RAG: Generated HyDE embedding for retrieval query: '{message[:50]}...'")
+                    logger.debug("RAG: Skipping query refinement for rate card query.")
 
-        # 2.5 Build Filter (Moved filter construction here)
-        search_filter_parts = []
-        # --- START: Rate card filtering --- 
-        if 'rate card' in message.lower():
-            # Extract dollar amount if present
-            match = re.search(r'\$?(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?', message)
-            if match:
-                amount_str = match.group(1).replace(',', '')
-                try:
-                    amount = int(amount_str)
-                    # Add a filter condition for rate_card_amount if the field exists in payload
-                    # NOTE: Adjust "payload.rate_card_amount" if the field name is different
-                    search_filter_parts.append(f"metadata_json['rate_card_amount'] >= {amount}")
-                    logger.debug(f"RAG: Added rate card filter: amount >= {amount}")
-                except ValueError:
-                    logger.warning(f"Could not parse amount from rate card query: {match.group(1)}")
-            else:
-                 logger.debug("RAG: 'rate card' detected but no dollar amount found for filtering.")
-        # --- END: Rate card filtering ---
-        
-        # Example: Filter by role if extracted during refinement
-        if refined and refined.get('role'):
-            # Assuming role is stored in metadata_json['role']
-            search_filter_parts.append(f'metadata_json["role"] == "{refined["role"]}"')
-            logger.debug(f"RAG: Added filter for role: {refined['role']}")
-            
-        # Combine filters with ' and '
-        # search_filter = " and ".join(search_filter_parts) if search_filter_parts else None
-        search_filter = None # TEMPORARILY DISABLED filter based on non-existent metadata_json
-        logger.debug(f"RAG: Constructed search filter: {search_filter}")
+                # --- START: HyDE Generation (Assumed Correct) ---
+                hyde_document = retrieval_query
+                if 'rate card' not in message.lower() and getattr(settings, 'ENABLE_HYDE', True):
+                    try:
+                        hyde_msgs = [
+                            {"role": "system", "content": ("You are an assistant that generates a concise, factual hypothetical document "
+                                                          "that directly answers the user's question. Output only the document content, no extra text.")},
+                            {"role": "user", "content": f"Generate a hypothetical document answering: {message}"}
+                        ]
+                        hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
+                        generated_doc = hyde_resp.choices[0].message.content.strip()
+                        if generated_doc:
+                            hyde_document = generated_doc
+                            logger.debug(f"RAG: Generated HyDE document for Milvus: {hyde_document[:50]}...")
+                        else:
+                            logger.warning("HyDE generation returned empty content, using retrieval_query for Milvus embedding.")
+                    except Exception as hyde_e:
+                        logger.warning(f"HyDE generation failed, using retrieval_query for Milvus embedding: {hyde_e}", exc_info=True)
+                elif 'rate card' in message.lower():
+                    logger.debug("RAG: Skipping HyDE generation for rate card query.")
+                hyde_embedding = await create_retrieval_embedding(hyde_document, field='dense')
+                logger.debug(f"RAG: Generated HyDE embedding for Milvus retrieval.")
+                # --- END HyDE Generation ---
 
+                # --- Search Milvus (Dense + Sparse + RRF) (Assumed Correct) ---
+                search_filter = None
+                k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', 5))
+                k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', 5))
+                sanitized_email = user.email.replace('@', '_').replace('.', '_')
+                target_collection_name = f"{sanitized_email}_knowledge_base_bm"
+                logger.info(f"RAG: Targeting Milvus search in collection: {target_collection_name}")
+                dense_task = search_milvus_knowledge(collection_name=target_collection_name, query_embedding=hyde_embedding, limit=k_dense, filter_expression=search_filter)
+                sparse_task = search_milvus_knowledge_sparse(collection_name=target_collection_name, query_text=retrieval_query, limit=k_sparse, filter_expression=search_filter)
+                dense_search_results, sparse_search_results = await asyncio.gather(dense_task, sparse_task)
+                logger.debug(f"RAG: Milvus Dense search returned {len(dense_search_results)} results.")
+                logger.debug(f"RAG: Milvus Sparse search returned {len(sparse_search_results)} results.")
+                combined_results = {}
+                rrf_k = 60
+                for rank, hit in enumerate(dense_search_results):
+                    doc_id = hit["id"]
+                    score = 1.0 / (rank + 1 + rrf_k)
+                    if doc_id not in combined_results: combined_results[doc_id] = {"score": 0, "payload": hit["payload"], "id": doc_id}
+                    combined_results[doc_id]["score"] += score
+                for rank, hit in enumerate(sparse_search_results):
+                    doc_id = hit["id"]
+                    score = 1.0 / (rank + 1 + rrf_k)
+                    if doc_id not in combined_results: combined_results[doc_id] = {"score": 0, "payload": hit.get("payload", {}), "id": doc_id}
+                    combined_results[doc_id]["score"] += score
+                ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
+                logger.debug(f"RAG: Combined {len(ranked_results)} unique Milvus results after RRF.")
+                milvus_context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}" for res in ranked_results[:settings.RAG_MILVUS_CONTEXT_LIMIT or 5]])
+                return milvus_context
+            # Add except block for try (line 284)
+            except Exception as e_milvus:
+                logger.error(f"Failed to retrieve Milvus context: {e_milvus}", exc_info=True)
+                return "Error retrieving knowledge base context."
 
-        # 3. Search Milvus for relevant context (dense search using HyDE embedding)
-        k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', 5))
-        logger.debug(f"RAG: Performing dense search with HyDE embedding for query: {message[:50]}... (k={k_dense})")
-        # Determine target collection name (RAG collection)
-        sanitized_email = user.email.replace('@', '_').replace('.', '_')
-        target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-        logger.info(f"RAG: Targeting search in collection: {target_collection_name}")
-        dense_search_results = await search_milvus_knowledge(
-            collection_name=target_collection_name, # ADDED collection name
-            query_embedding=hyde_embedding, # Use correct argument name 'query_embedding'
-            limit=k_dense, 
-            filter_expression=search_filter
+        async def _get_email_context():
+            logger.debug("Starting Email (Iceberg/DuckDB) context retrieval...")
+            try:
+                email_results = await query_iceberg_emails_duckdb(
+                    user_email=user.email,
+                    keywords=keywords_for_email,
+                    limit=settings.RAG_EMAIL_CONTEXT_LIMIT or 5,
+                    original_message=message
+                )
+                if not email_results:
+                    return "No relevant emails found."
+                email_context = "\n\n---\n\n".join([
+                    f"Email ID: {email.get('message_id')}\n"
+                    f"Received: {email.get('received_datetime_utc')}\n"
+                    f"Sender: {email.get('sender')}\n"
+                    f"Subject: {email.get('subject')}\n"
+                    f"Tags: {email.get('generated_tags')}\n"
+                    f"Snippet: {email.get('body_snippet', '')}"
+                    for email in email_results
+                ])
+                return email_context
+            except Exception as e_email:
+                logger.error(f"Failed to retrieve Email context: {e_email}", exc_info=True)
+                return "Error retrieving email context."
+
+        # --- START: New Calendar Context Retrieval Helper ---
+        async def _get_calendar_context():
+            if not is_calendar_query:
+                return "Calendar query not detected."
+            if not ms_token: # Check if MS token was passed
+                logger.warning("MS token not available, cannot fetch calendar events.")
+                return "Error: Cannot fetch calendar events (auth token missing)."
+
+            logger.debug("Starting Calendar context retrieval...")
+            try:
+                outlook_service = OutlookService(access_token=ms_token)
+                # Fetch events for the next 7 days (default in get_upcoming_events)
+                events = await outlook_service.get_upcoming_events()
+                if not events:
+                    return "No upcoming calendar events found in the next 7 days."
+                
+                # Format events for context
+                calendar_context = "\n\n---\n\n".join([
+                    f"Event Subject: {event.get('subject')}\n"
+                    f"Start: {event.get('start_time')} ({event.get('start_timezone')})\n"
+                    f"End: {event.get('end_time')} ({event.get('end_timezone')})\n"
+                    f"Location: {event.get('location')}\n"
+                    f"Attendees: {', '.join(event.get('attendees', []))}\n"
+                    f"Preview: {event.get('preview', '')[:100]}..." # Limit preview length
+                    for event in events
+                ])
+                return calendar_context
+            except Exception as e_cal:
+                logger.error(f"Failed to retrieve Calendar context: {e_cal}", exc_info=True)
+                return "Error retrieving calendar context."
+        # --- END: New Calendar Context Retrieval Helper ---
+
+        # Run retrievals concurrently (ADDED calendar context)
+        retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
+            _get_milvus_context(),
+            _get_email_context(),
+            _get_calendar_context() # Add the new task
         )
-        logger.debug(f"RAG: Dense search returned {len(dense_search_results)} results.")
 
-        # 4. Perform sparse search (RE-ENABLED)
-        k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', 5)) # Use separate setting if desired, default 5
-        logger.debug(f"RAG: Performing sparse search for query: {message[:50]}... (k={k_sparse})")
+        # --- 3. Intermediate LLM Call for Context Selection/Synthesis (UPDATED prompt) ---
+        logger.debug("Performing intermediate LLM call for context selection/synthesis...")
+        selection_prompt = f"""Based on the user's question: '{message}'
 
-        # --- START: Modified Sparse Search Call ---
-        sparse_search_results = []
+Evaluate the following three sets of retrieved context:
+
+<Knowledge Base Results>
+{retrieved_milvus_context}
+</Knowledge Base Results>
+
+<User Email Results>
+{retrieved_email_context}
+</User Email Results>
+
+<Calendar Events>
+{retrieved_calendar_context}
+</Calendar Events>
+
+Determine which context source (Knowledge Base, Emails, Calendar) is most relevant, or if multiple are needed. Briefly explain your reasoning.
+Then, synthesize the most pertinent information from the relevant source(s) into a concise summary that will directly help answer the user's question.
+If the user's question asks for a quantity (e.g., "how many", "count", "list all"), explicitly count the relevant items found in the context and state the total count using digits (e.g., "Found 5 relevant items:") in your Synthesized Context.
+Focus only on the information needed to answer '{message}'.
+Output:
+Reasoning: [Your brief reasoning]
+Synthesized Context: [Your concise summary including the count using digits if applicable, or indicate if none is relevant]
+"""
+        synthesized_context = "No relevant context synthesized." # Default
         try:
-            # Pass the retrieval_query text directly
-            sparse_search_results = await search_milvus_knowledge_sparse(
-                collection_name=target_collection_name, 
-                query_text=retrieval_query, # Pass text
-                limit=k_sparse,
-                filter_expression=search_filter
+            selection_response = await user_client.chat.completions.create(
+                model=chat_model,
+                messages=[
+                    {"role": "system", "content": "You are an AI assistant that evaluates and synthesizes retrieved information to determine relevance to a user's question."},
+                    {"role": "user", "content": selection_prompt}
+                ],
+                temperature=0.0
             )
-        except Exception as search_e:
-                logger.error(f"Milvus sparse search execution failed: {search_e}", exc_info=True)
-                sparse_search_results = [] # Ensure empty on error
-        # --- END: Modified Sparse Search Call ---
-            
-        logger.debug(f"RAG: Sparse search returned {len(sparse_search_results)} results.")
+            raw_synthesis_output = selection_response.choices[0].message.content
+            logger.debug(f"Intermediate LLM Context Selection/Synthesis Output:\n{raw_synthesis_output}")
+            match = re.search(r"Synthesized Context:\s*(.*)", raw_synthesis_output, re.DOTALL | re.IGNORECASE)
+            if match:
+                extracted_context = match.group(1).strip()
+                if extracted_context and not extracted_context.lower().startswith(("no relevant", "neither source")):
+                     synthesized_context = extracted_context
+                else:
+                     synthesized_context = "No relevant context was found or synthesized from the knowledge base, emails, or calendar."
+            else:
+                logger.warning("Could not parse Synthesized Context from intermediate LLM response. Using raw output.")
+                synthesized_context = raw_synthesis_output
+        except Exception as synth_err:
+            logger.error(f"Intermediate LLM call for context synthesis failed: {synth_err}", exc_info=True)
+            logger.warning("Falling back to combining all contexts due to synthesis error.")
+            synthesized_context = f"Knowledge Base Context:\n{retrieved_milvus_context}\n\nEmail Context:\n{retrieved_email_context}\n\nCalendar Context:\n{retrieved_calendar_context}"
 
-        # 5. Combine and Rank Results using Reciprocal Rank Fusion (RRF)
-        # --- RESTORED RRF TO HANDLE DENSE AND SPARSE RESULTS --- 
-        logger.debug("RAG: Combining results using RRF (dense + sparse).")
-        combined_results = {}
-        rrf_k = 60  # Constant factor for RRF scoring, as described in papers
-
-        # Process dense results
-        for rank, hit in enumerate(dense_search_results):
-            doc_id = hit["id"]
-            # Milvus dense search (COSINE) returns distance/similarity (higher is better in this setup)
-            # We use rank directly for RRF scoring (higher rank contribution is better)
-            score = 1.0 / (rank + 1 + rrf_k) # Add 1 because rank is 0-indexed
-            if doc_id not in combined_results:
-                combined_results[doc_id] = {"score": 0, "payload": hit["payload"], "id": doc_id}
-            combined_results[doc_id]["score"] += score
-            logger.debug(f"RAG: Dense Result ID: {doc_id}, Rank: {rank}, Score Contribution: {score}")
-        
-        # Process sparse results
-        for rank, hit in enumerate(sparse_search_results):
-            doc_id = hit["id"]
-            # Milvus sparse search (IP) returns score (higher is better)
-            # Use rank for RRF scoring
-            score = 1.0 / (rank + 1 + rrf_k) 
-            if doc_id not in combined_results:
-                # Make sure payload exists, default to empty dict if not
-                combined_results[doc_id] = {"score": 0, "payload": hit.get("payload", {}), "id": doc_id}
-            combined_results[doc_id]["score"] += score
-            logger.debug(f"RAG: Sparse Result ID: {doc_id}, Rank: {rank}, Score Contribution: {score}")
-
-        # Sort combined results by RRF score in descending order
-        ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
-        logger.debug(f"RAG: Combined {len(ranked_results)} unique results after RRF.")
-
-        # 6. Format context and build prompt
-        # Use 'payload' key which holds the content, instead of 'metadata'
-        context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}" for res in ranked_results[:5]]) # Limit context window
-        logger.debug(f"RAG: Formatted context (top {len(ranked_results[:5])} results):\n{context[:500]}...") # Log snippet of context
-
-        # --- Existing history formatting logic --- 
+        # --- 4. Final Answer Generation using Synthesized Context ---
+        logger.debug(f"Using synthesized context for final answer generation:\n{synthesized_context[:500]}...")
         formatted_history = []
-        for msg in chat_history:
-            role = "user" if msg["role"] == "user" else "assistant"
-            formatted_history.append({"role": role, "content": msg["content"]})
-        # --- End history formatting ---
+        if chat_history:
+            for msg in chat_history:
+                role = "user" if msg.get("role") == "user" else "assistant"
+                formatted_history.append({"role": role, "content": msg.get("content", "")})
 
-        system_prompt = f"""You are Jarvis, an AI assistant. 
-        You are chatting with {user.display_name or user.email}. 
-        Use the following retrieved context to answer the user's question.
-        If the context doesn't contain the answer, say you don't have enough information from the knowledge base.
-        Do not make up information not present in the context.
-        Be concise and helpful.
+        final_system_prompt = f"""You are Jarvis, an AI assistant.\n        You are chatting with {user.display_name or user.email}.\n\n        Your task is to answer the user's question based *only* on the information presented in the 'Synthesized Context' below.\n        Present the relevant findings *as detailed in the context* to directly address the user's query. Structure the information clearly, mirroring the detail level of the context.\n        If the context indicates no relevant information was found, state that politely.\n        Do not add information not present in the synthesized context.\n\n        Instructions for your presentation:\n        - Include all relevant specific details found in the context (e.g., names, roles, dates, document titles, specific examples, meeting details like time/location/attendees).\n        - When stating quantities or counts, always use digits (e.g., '3').\n        - Format your entire response using Markdown, using lists or bullet points where appropriate for clarity.\n\n        Synthesized Context:\n        {synthesized_context}\n        """
+        final_messages = [ {"role": "system", "content": final_system_prompt} ]
+        final_messages.extend(formatted_history)
+        final_messages.append({"role": "user", "content": message})
 
-        Context:
-        {context}
-        """
-        
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-        messages.extend(formatted_history) # Add formatted history
-        messages.append({"role": "user", "content": message})
-        
-        logger.debug(f"RAG: Sending final prompt to {chat_model}...")
-        
-        # 7. Call OpenAI API with context and user message (using user's key)
-        response = await user_client.chat.completions.create(
+        logger.debug(f"Sending final prompt to {chat_model}...")
+        final_response_obj = await user_client.chat.completions.create(
             model=chat_model,
-            messages=messages,
-            temperature=0.1 # Low temperature for factual RAG response
+            messages=final_messages,
+            temperature=settings.OPENAI_TEMPERATURE
         )
-        
-        final_response = response.choices[0].message.content
+        final_response = final_response_obj.choices[0].message.content
         logger.debug(f"RAG: Received final response from {chat_model}.")
         return final_response
 
+    # Add except block for the outer try (line 267)
     except HTTPException as http_exc:
-        # Re-raise HTTPExceptions directly (like the API key missing error)
+        logger.error(f"HTTP Exception during RAG: {http_exc.detail}", exc_info=True) # Log stack trace for HTTP exceptions too
         raise http_exc
     except Exception as e:
         logger.error(f"Error generating RAG response for user {user.email}: {e}", exc_info=True)
-        # Generic error for other unexpected issues
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"An error occurred while generating the response: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while generating the response." # Keep detail generic for security
         )
 
 # --- Helper function for cosine similarity ---
