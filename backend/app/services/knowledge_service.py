@@ -268,10 +268,11 @@ async def _process_and_store_emails(
                             local_failed_attachments += 1
                             continue
 
-                        # Skip images/inline attachments (or other unwanted types) based on ContentType
-                        # Example: Skip common image types and inline attachments
-                        if is_inline or (att_content_type and att_content_type.startswith("image/")):
-                            logger.info(f"[Op:{operation_id}] Skipping image/inline attachment: {att_id} ('{att_name}'), Type: {att_content_type}.")
+                        # Skip images/inline attachments (or other unwanted types) based on ContentType and extension
+                        filename_lower = att_name.lower()
+                        is_common_image_extension = any(filename_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp'])
+                        if is_inline or (att_content_type and att_content_type.startswith("image/")) or is_common_image_extension:
+                            logger.info(f"[Op:{operation_id}] Skipping image/inline/common image extension attachment: {att_id} ('{att_name}'), Type: {att_content_type}.")
                             # Note: We don't count skipped images/inline as failed
                             continue # Skip to next attachment, don't increment failure/success
 
@@ -316,13 +317,16 @@ async def _process_and_store_emails(
 
                             # Create ProcessedFile record (only if upload succeeded)
                             processed_file_entry = ProcessedFile(
-                                source_uri=source_uri,
-                                file_type=att_content_type,
-                                file_size_bytes=att_size,
-                                r2_bucket=settings.R2_BUCKET_NAME,
+                                source_identifier=source_uri, # CORRECTED: Use source_identifier field
+                                original_filename=att_name,   # ADDED: Store original filename
+                                content_type=att_content_type,# CORRECTED: Use content_type field
+                                size_bytes=att_size,          # CORRECTED: Use size_bytes field
                                 r2_object_key=r2_object_key,
                                 ingestion_job_id=ingestion_job_id,
-                                owner_email=owner_email # Associate with the user
+                                owner_email=owner_email,      # Associate with the user
+                                source_type='email_attachment', # ADDED: Specify source type
+                                status='uploaded' # ADDED: Set initial status after successful upload
+                                # OMITTED: r2_bucket (not a direct field)
                             )
                             db_session.add(processed_file_entry)
                             # Flush to get the ID for logging, but commit happens later
@@ -337,15 +341,17 @@ async def _process_and_store_emails(
                             # Important: Avoid using r2_object_key if upload failed!
                             try:
                                 failed_file_entry = ProcessedFile(
-                                    source_uri=source_uri,
-                                    file_type=att_content_type,
-                                    file_size_bytes=att_size,
+                                    source_identifier=source_uri, # CORRECTED
+                                    original_filename=att_name,   # ADDED
+                                    content_type=att_content_type,# CORRECTED
+                                    size_bytes=att_size,          # CORRECTED
                                     status='failed',
                                     error_message=str(att_proc_err)[:1024], # Truncate error
-                                    r2_bucket=settings.R2_BUCKET_NAME, # Still record bucket intent
                                     r2_object_key=None, # Explicitly None on failure
                                     ingestion_job_id=ingestion_job_id,
-                                    owner_email=owner_email
+                                    owner_email=owner_email,
+                                    source_type='email_attachment' # ADDED
+                                    # OMITTED: r2_bucket
                                 )
                                 db_session.add(failed_file_entry)
                                 db_session.flush()

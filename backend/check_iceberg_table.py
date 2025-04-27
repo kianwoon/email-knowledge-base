@@ -62,17 +62,13 @@ def check_iceberg_table():
         df = table.scan().to_pandas()
         
         logger.info(f"Successfully read {len(df)} rows from the table.")
+        print(f"Total records found: {len(df)}")
 
         if df.empty:
             print(f"The table '{full_table_name}' exists but is currently empty.")
         else:
-            print(f"--- Contents of Iceberg Table: {full_table_name} ---")
-            # Configure pandas display options for better readability
-            pd.set_option('display.max_rows', None)       # Show all rows
-            pd.set_option('display.max_columns', None)    # Show all columns
-            pd.set_option('display.width', 1000)          # Adjust display width
-            pd.set_option('display.max_colwidth', 100)     # Limit column width
-            print(df)
+            print(f"--- Last 10 Records of Iceberg Table: {full_table_name} ---")
+            print(df.tail(10))
             print("--------------------------------------------------")
 
     except NoSuchTableError:
