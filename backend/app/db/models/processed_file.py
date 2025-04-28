@@ -18,10 +18,10 @@ class ProcessedFile(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    # Foreign Key to the parent job
-    ingestion_job_id: Mapped[int] = mapped_column(ForeignKey('ingestion_jobs.id'), nullable=False, index=True)
+    # Foreign Key to the parent job - Make nullable for custom uploads
+    ingestion_job_id: Mapped[Optional[int]] = mapped_column(ForeignKey('ingestion_jobs.id'), nullable=True, index=True)
     # Define relationship if needed for querying job details from file object
-    ingestion_job: Mapped["IngestionJob"] = relationship(back_populates="processed_files") # Requires adding processed_files relationship to IngestionJob
+    ingestion_job: Mapped[Optional["IngestionJob"]] = relationship(back_populates="processed_files") # Requires adding processed_files relationship to IngestionJob
 
     # Owner of the data (using email, consistent with users PK and Milvus owner)
     owner_email: Mapped[str] = mapped_column(String, ForeignKey('users.email'), nullable=False, index=True) # Added FK

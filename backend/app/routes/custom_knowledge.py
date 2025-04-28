@@ -37,7 +37,7 @@ class ProcessedFileOut(BaseModel):
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
     status: str
-    uploaded_at: datetime = Field(..., alias="uploaded_at")
+    created_at: datetime = Field(..., alias="created_at")
     updated_at: datetime = Field(..., alias="updated_at")
     error_message: Optional[str] = None
 
@@ -176,7 +176,7 @@ def get_custom_knowledge_history(
             ProcessedFile.owner_email == current_user.email,
             ProcessedFile.source_type == 'custom_upload' # Filter specifically for custom uploads
         ).order_by(
-            ProcessedFile.uploaded_at.desc() # Order by most recent first
+            ProcessedFile.created_at.desc() # Sort by creation time (most recent first)
         ).limit(100).all() # Limit the results to avoid excessive data transfer
 
         logger.info(f"Found {len(records)} custom knowledge history records for user {current_user.email}")
