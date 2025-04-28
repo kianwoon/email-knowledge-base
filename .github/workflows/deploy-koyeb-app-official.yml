@@ -35,6 +35,13 @@ jobs:
             backend/app/celery_app.py
             backend/app/config.py
 
+      # Add step to detect changes in frontend directory
+      - name: Check for frontend changes
+        id: changed_frontend_files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: frontend/**
+
       # Re-add Python setup and CLI install
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,6 +64,13 @@ jobs:
         env:
           KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
         run: koyeb service redeploy $KOYEB_APP_NAME/backend-service
+
+      - name: Redeploy Frontend Service
+        # Only run if files in frontend/ changed
+        if: steps.changed_frontend_files.outputs.any_changed == 'true'
+        env:
+          KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
+        run: koyeb service redeploy email-knowledge-base-2/frontend-service
 
       - name: Redeploy Celery Worker Service
         # Only run if files in services/ or tasks/ changed
