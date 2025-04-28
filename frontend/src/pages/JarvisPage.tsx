@@ -40,6 +40,13 @@ import {
   FormHelperText,
   Center,
   Progress,
+  UnorderedList,
+  OrderedList,
+  ListItem,
+  Code,
+  Link,
+  Divider,
+  Image,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
@@ -695,6 +702,7 @@ const JarvisPage: React.FC = () => {
 
   // --- Memoized Markdown Components ---
   const markdownComponents = useMemo(() => ({
+    // Tables
     table: (props: any) => (
       <TableContainer whiteSpace="normal" my={4}>
         <Table 
@@ -704,11 +712,104 @@ const JarvisPage: React.FC = () => {
         />
       </TableContainer>
     ),
-    thead: (props: any) => <Thead {...props} />,
+    thead: (props: any) => <Thead bg={useColorModeValue('gray.100', 'gray.700')} {...props} />,
     tbody: (props: any) => <Tbody {...props} />,
     tr: (props: any) => <Tr {...props} />,
     th: (props: any) => <Th {...props} />,
     td: (props: any) => <Td {...props} />,
+
+    // Headings
+    h1: (props: any) => <Heading as="h1" size="xl" my={4} {...props} />,
+    h2: (props: any) => <Heading as="h2" size="lg" my={3} {...props} />,
+    h3: (props: any) => <Heading as="h3" size="md" my={2} {...props} />,
+    h4: (props: any) => <Heading as="h4" size="sm" my={2} {...props} />,
+    h5: (props: any) => <Heading as="h5" size="xs" my={1} {...props} />,
+    h6: (props: any) => <Heading as="h6" size="xs" my={1} {...props} />,
+
+    // Paragraphs
+    p: (props: any) => <Text my={2} lineHeight="tall" {...props} />,
+
+    // Lists
+    ul: (props: any) => <UnorderedList spacing={1} my={2} pl={4} {...props} />,
+    ol: (props: any) => <OrderedList spacing={1} my={2} pl={4} {...props} />,
+    li: (props: any) => <ListItem {...props} />,
+
+    // Code blocks
+    code: (props: any) => {
+      const { inline, children, className, ...rest } = props;
+      if (inline) {
+        return (
+          <Code
+            bg={useColorModeValue('gray.100', 'gray.700')}
+            px={1}
+            borderRadius="md"
+            {...rest}
+          >
+            {children}
+          </Code>
+        );
+      }
+      return (
+        <Box
+          bg={useColorModeValue('gray.100', 'gray.700')}
+          p={3}
+          borderRadius="md"
+          my={2}
+          overflowX="auto"
+        >
+          <Code
+            display="block"
+            whiteSpace="pre"
+            overflowX="auto"
+            {...rest}
+          >
+            {children}
+          </Code>
+        </Box>
+      );
+    },
+
+    // Blockquotes
+    blockquote: (props: any) => (
+      <Box
+        borderLeft="4px solid"
+        borderColor={useColorModeValue('blue.200', 'blue.700')}
+        pl={4}
+        py={1}
+        my={2}
+        bg={useColorModeValue('blue.50', 'blue.900')}
+        {...props}
+      />
+    ),
+
+    // Links
+    a: (props: any) => (
+      <Link
+        color={useColorModeValue('blue.500', 'blue.300')}
+        _hover={{ textDecoration: 'underline' }}
+        isExternal
+        {...props}
+      />
+    ),
+
+    // Horizontal rule
+    hr: (props: any) => (
+      <Divider
+        my={4}
+        borderColor={useColorModeValue('gray.300', 'gray.600')}
+        {...props}
+      />
+    ),
+
+    // Images
+    img: (props: any) => (
+      <Image
+        borderRadius="md"
+        my={2}
+        maxW="100%"
+        {...props}
+      />
+    ),
   }), [borderColor]);
 
   return (
