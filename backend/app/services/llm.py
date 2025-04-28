@@ -366,9 +366,13 @@ async def generate_openai_rag_response(
         logger.debug(f"Extracted keywords for email search: {keywords_for_email}")
 
         # 2. Retrieve Context from Both Sources Concurrently
-        async def _get_milvus_context():
-            logger.debug("Starting Milvus context retrieval...")
-            # try corresponding to original line 284
+        async def _get_milvus_context(max_items: int, max_chunk_chars: int):
+            logger.debug(f"Starting Milvus context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
+            # Define truncate helper locally
+            def _truncate_text(text: str, max_len: int) -> str:
+                if len(text) > max_len:
+                    return text[:max_len] + "... [TRUNCATED]"
+                return text
             try:
                 retrieval_query = message
                 refined = None
@@ -462,32 +466,45 @@ async def generate_openai_rag_response(
                     combined_results[doc_id]["score"] += score
                 ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
                 logger.debug(f"RAG: Combined {len(ranked_results)} unique Milvus results after RRF.")
-                milvus_context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}" for res in ranked_results[:settings.RAG_MILVUS_CONTEXT_LIMIT or 5]])
+                # Apply item limit and chunk truncation HERE before returning
+                milvus_context = "\n\n---\n\n".join([
+                    f"Document ID: {res['id']}\nContent: {_truncate_text(json.dumps(res['payload']), max_chunk_chars)}"
+                    for res in ranked_results[:max_items] # Use max_items limit
+                ])
                 return milvus_context
             # Add except block for try (line 284)
             except Exception as e_milvus:
                 logger.error(f"Failed to retrieve Milvus context: {e_milvus}", exc_info=True)
                 return "Error retrieving knowledge base context."
 
-        async def _get_email_context():
-            logger.debug("Starting Email (Iceberg/DuckDB) context retrieval...")
+        async def _get_email_context(max_items: int, max_chunk_chars: int):
+            logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
+            # Define truncate helper locally
+            def _truncate_text(text: str, max_len: int) -> str:
+                if len(text) > max_len:
+                    return text[:max_len] + "... [TRUNCATED]"
+                return text
             try:
+                # Use the max_items limit when querying emails
                 email_results = await query_iceberg_emails_duckdb(
                     user_email=user.email,
                     keywords=keywords_for_email,
-                    limit=settings.RAG_EMAIL_CONTEXT_LIMIT or 5,
+                    limit=max_items, # Use max_items for query limit
                     original_message=message
                 )
                 if not email_results:
                     return "No relevant emails found."
+                # Apply chunk truncation HERE before returning
                 email_context = "\n\n---\n\n".join([
                     f"Email ID: {email.get('message_id')}\n"
                     f"Received: {email.get('received_datetime_utc')}\n"
                     f"Sender: {email.get('sender')}\n"
                     f"Subject: {email.get('subject')}\n"
                     f"Tags: {email.get('generated_tags')}\n"
-                    f"Snippet: {email.get('body_snippet', '')}"
-                    for email in email_results
+                    # Truncate email snippet using the helper
+                    f"Snippet: {_truncate_text(email.get('body_snippet', ''), max_chunk_chars)}"
+                    # No need for [:max_items] here as limit was applied in query
+                    for email in email_results 
                 ])
                 return email_context
             except Exception as e_email:
@@ -526,46 +543,30 @@ async def generate_openai_rag_response(
                 return "Error retrieving calendar context."
         # --- END: New Calendar Context Retrieval Helper ---
 
-        # Run retrievals concurrently (ADDED calendar context)
-        retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
-            _get_milvus_context(),
-            _get_email_context(),
-            _get_calendar_context() # Add the new task
-        )
-
-        # --- 3. Intermediate LLM Call for Context Selection/Synthesis (UPDATED prompt) ---
-        logger.debug("Performing intermediate LLM call for context selection/synthesis...")
-
-        # Define the maximum number of results to include in the LLM context
         # Read limits from settings, with defaults
         MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 1))
         MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_EMAIL_LIMIT', 1))
         MAX_CALENDAR_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_CALENDAR_LIMIT', 5))
+        # Define max characters per context item
+        MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
 
         logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS}, Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
+        logger.debug(f"Using max chars per chunk: {MAX_CHUNK_CHARS}")
 
-        # Prepare limited context strings
-        limited_milvus_context = "\n\n---\n\n".join([
-            f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}"
-            # Apply limit here using the fetched ranked_results from _get_milvus_context
-            for res in ranked_results[:MAX_MILVUS_CONTEXT_ITEMS]
-        ]) if 'ranked_results' in locals() else retrieved_milvus_context # Fallback if needed, though unlikely
+        # Run retrievals concurrently, passing the limits
+        retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
+            _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS),
+            _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS),
+            _get_calendar_context() # Calendar still gets full context for now
+        )
 
-        limited_email_context = "\n\n---\n\n".join([
-            f"Email ID: {email.get('message_id')}\n"
-            f"Received: {email.get('received_datetime_utc')}\n"
-            f"Sender: {email.get('sender')}\n"
-            f"Subject: {email.get('subject')}\n"
-            f"Tags: {email.get('generated_tags')}\n"
-            f"Snippet: {email.get('body_snippet', '')}"
-            # Apply limit here using the fetched email_results from _get_email_context
-            for email in email_results[:MAX_EMAIL_CONTEXT_ITEMS]
-        ]) if 'email_results' in locals() else retrieved_email_context # Fallback
-
-        # Apply calendar limit dynamically if needed (using MAX_CALENDAR_CONTEXT_ITEMS)
-        # For now, we demonstrate reading the setting, but don't apply slicing unless necessary
-        # If calendar context is also causing issues, slice events[:MAX_CALENDAR_CONTEXT_ITEMS] during formatting.
+        # Now use the already limited/truncated results directly
+        limited_milvus_context = retrieved_milvus_context
+        limited_email_context = retrieved_email_context
         limited_calendar_context = retrieved_calendar_context
+
+        # Log lengths before combining for LLM call
+        logger.debug(f"Context Lengths - Milvus: {len(limited_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
 
         selection_prompt = f"""Based on the user's question: '{message}'
 
@@ -617,6 +618,8 @@ Synthesized Context: [Your concise summary including the count using digits if a
             logger.error(f"Intermediate LLM call for context synthesis failed: {synth_err}", exc_info=True)
             logger.warning("Falling back to combining limited contexts due to synthesis error.")
             # Use the LIMITED contexts in the fallback as well
+            # Also log the lengths here for the fallback scenario
+            logger.debug(f"Fallback Context Lengths - Milvus: {len(limited_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
             synthesized_context = f"Knowledge Base Context (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{limited_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context (Top {MAX_CALENDAR_CONTEXT_ITEMS}):\n{limited_calendar_context}"
 
         # --- 4. Final Answer Generation using Synthesized Context ---
