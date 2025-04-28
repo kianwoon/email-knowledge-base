@@ -382,6 +382,44 @@ async def generate_openai_rag_response(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OpenAI API key required.")
         user_client = AsyncOpenAI(api_key=user_openai_key, timeout=settings.OPENAI_TIMEOUT_SECONDS or 30.0)
 
+        # --- START: Intent Detection (Email vs. General KB) ---
+        async def _detect_query_intent(user_query: str, client: AsyncOpenAI) -> str:
+            logger.debug(f"Detecting intent for query: '{user_query}'")
+            # Use a cheaper/faster model for classification
+            intent_model = getattr(settings, 'INTENT_DETECTION_MODEL', 'gpt-4.1-mini') 
+            prompt = (
+                f"Analyze the user's query and classify its primary information need. Choose ONE category:\n"
+                f"- 'email_focused': The query asks for specific information likely found only in recent emails (e.g., summaries of recent emails, specific email content, counts/lists based on recent communications like 'who left last week', 'emails from X yesterday').\n"
+                f"- 'general_or_mixed': The query asks for general knowledge, policies, procedures, or information that might exist in documents OR emails, or requires combining both (e.g., 'what is the policy on X?', 'explain concept Y', 'rate card for role Z', 'project status update').\n\n"
+                f"User Query: \"{user_query}\"\n\n"
+                f"Respond ONLY with the chosen category ('email_focused' or 'general_or_mixed')."
+            )
+            try:
+                response = await client.chat.completions.create(
+                    model=intent_model,
+                    messages=[
+                        {"role": "system", "content": "You are an intent classifier. Respond only with 'email_focused' or 'general_or_mixed'."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.0,
+                    max_tokens=10 # Ensure response is concise
+                )
+                detected_intent = response.choices[0].message.content.strip().lower()
+                logger.info(f"Detected query intent: {detected_intent}")
+                if detected_intent in ['email_focused', 'general_or_mixed']:
+                    return detected_intent
+                else:
+                    logger.warning(f"Intent detection returned unexpected value: '{detected_intent}'. Defaulting to 'general_or_mixed'.")
+                    return "general_or_mixed"
+            except Exception as intent_err:
+                logger.error(f"Intent detection LLM call failed: {intent_err}", exc_info=True)
+                logger.warning("Defaulting to 'general_or_mixed' due to intent detection error.")
+                return "general_or_mixed"
+
+        # Detect intent before starting retrievals
+        query_intent = await _detect_query_intent(message, user_client)
+        # --- END: Intent Detection ---
+
         # --- START: Simple Intent Detection for Calendar ---
         calendar_keywords = ["meeting", "calendar", "event", "appointment", "schedule", "upcoming"]
         is_calendar_query = any(keyword in message.lower() for keyword in calendar_keywords)
@@ -433,7 +471,7 @@ async def generate_openai_rag_response(
                             },
                             {
                                 "role": "user",
-                                "content": f"Question: {message}\\nRespond with JSON: {{\\\"table\\\":\\\"...\\\", \\\"role\\\":\\\"...\\\"}}. If not applicable return nulls."
+                                "content": f"Question: {message}\\nRespond with JSON: {{ \"table\":\"...\", \"role\":\"...\"}}. If not applicable return nulls."
                             }
                         ]
                         # Ensure the create call parentheses are balanced
@@ -548,7 +586,7 @@ async def generate_openai_rag_response(
                     # Create the prompt for summarizing this batch
                     batch_summary_prompt = f"""The user's question is: '{message}'
 
-Review the following batch of retrieved documents and summarize only the information directly relevant to answering the user's question. Focus on extracting key facts, names, dates, results, or answers pertinent to the query. If a document in the batch is not relevant, ignore it. If the whole batch is irrelevant, state "No relevant information in this batch."
+Review the following batch of retrieved documents and summarize only the information directly relevant to answering the user's question. Focus on extracting key facts, names, dates, results, or answers pertinent to the query. If a document in the batch is not relevant, ignore it. If the whole batch is irrelevant, state \"No relevant information in this batch.\"
 
 Batch Content:
 {truncated_batch_content}
@@ -674,14 +712,35 @@ Relevant Summary of Batch:"""
         logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS}, Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
         logger.debug(f"Using max chars per chunk: {MAX_CHUNK_CHARS}")
 
-        # Run retrievals concurrently, passing the limits AND user_client to email context
-        retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
-            _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS), # This now returns a summary
-            _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client),
-            _get_calendar_context() # Calendar still gets full context for now
-        )
+        # --- START: Conditional Context Retrieval ---
+        # Define coroutines based on intent
+        email_coro = _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client)
+        calendar_coro = _get_calendar_context() # Calendar retrieval runs regardless for now (or based on its own flag)
 
-        # Use the results directly (Milvus context is now summarized)
+        if query_intent == 'email_focused':
+            logger.info("Query intent is email_focused, skipping knowledge base retrieval.")
+            # Define a dummy coroutine for Milvus that returns immediately
+            async def _skipped_milvus_context():
+                return "Knowledge base search skipped (email-focused query)."
+            milvus_coro = _skipped_milvus_context()
+            # Run only email and calendar (and the skipped KB)
+            retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
+                milvus_coro,
+                email_coro,
+                calendar_coro
+            )
+        else: # 'general_or_mixed' intent
+            logger.info("Query intent is general_or_mixed, retrieving from knowledge base and email.")
+            milvus_coro = _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS)
+            # Run all retrievals
+            retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
+                milvus_coro,
+                email_coro,
+                calendar_coro
+            )
+        # --- END: Conditional Context Retrieval ---
+
+        # Use the results directly (Milvus context is now summarized OR skipped message)
         summarized_milvus_context = retrieved_milvus_context
         limited_email_context = retrieved_email_context
         limited_calendar_context = retrieved_calendar_context
@@ -709,10 +768,10 @@ Evaluate the relevance of the following retrieved context sections to the user's
 </Calendar Events Context>
 
 Instructions:
-1.  Determine which context source(s) (Knowledge Base Summary, User Emails, Calendar Events) are most relevant for answering the user's question. Consider that the Knowledge Base Summary reflects semantic relevance, User Emails are best for specific facts/filters, and Calendar Events are for schedules.
+1.  Determine which context source(s) (Knowledge Base Summary, User Emails, Calendar Events) are most relevant for answering the user's question. Consider that the Knowledge Base Summary reflects semantic relevance, User Emails are best for specific facts/filters, and Calendar Events are for schedules. Note: The Knowledge Base Summary might indicate it was skipped if the query intent was detected as email-focused.
 2.  Explain your reasoning briefly.
 3.  Synthesize the most pertinent information *only* from the relevant source(s) into a concise summary. This summary will be used to generate the final answer.
-4.  If the user's question asks for a quantity (e.g., "how many", "count", "list all") *generally*, explicitly count the relevant items mentioned *in the context you are summarizing* and state the total count using digits (e.g., "Found 5 relevant items:") in your Synthesized Context.
+4.  If the user's question asks for a quantity (e.g., \"how many\", \"count\", \"list all\") *generally*, explicitly count the relevant items mentioned *in the context you are summarizing* and state the total count using digits (e.g., \"Found 5 relevant items:\") in your Synthesized Context.
 5.  **Special Instruction for Personnel Queries:** If the user asks 'how many' or for a count related to people and specific actions (e.g., resigning, leaving, offboarding, hired, joined), follow these steps **specifically for the User Email Context**:
     a. Carefully scan the individual email snippets within the <User Email Context>.
     b. Identify distinct individuals mentioned explicitly or implicitly in connection with the user's keywords (e.g., 'Mabel Chua offboarding', 'John Doe has resigned').
@@ -892,14 +951,13 @@ async def get_rate_card_response_advanced(
             hyde_doc = q # Default if HyDE fails
             try:
                 hyde_msgs = [
-                    {"role": "system", "content": "Generate a concise, factual hypothetical rate card document answering the query."}, 
+                    {"role": "system", "content": "Generate a concise, factual hypothetical rate card document answering the query."},
                     {"role": "user", "content": q}
                 ]
                 hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
                 gen_doc = hyde_resp.choices[0].message.content.strip()
                 if gen_doc: hyde_doc = gen_doc
             except Exception: pass # Ignore HyDE failure for individual queries
-            hyde_docs[q] = hyde_doc
             
             # Create embedding using the HyDE document (or original query if HyDE failed)
             embedding = await create_retrieval_embedding(hyde_doc)
