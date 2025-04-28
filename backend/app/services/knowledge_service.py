@@ -357,7 +357,7 @@ async def _process_and_store_emails(
                                 ingestion_job_id=ingestion_job_id,
                                 owner_email=owner_email,      # Associate with the user
                                 source_type='email_attachment', # ADDED: Specify source type
-                                status='uploaded' # ADDED: Set initial status after successful upload
+                                status='pending_analysis' 
                                 # OMITTED: r2_bucket (not a direct field)
                             )
                             db_session.add(processed_file_entry)

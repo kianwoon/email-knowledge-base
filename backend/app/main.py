@@ -9,15 +9,26 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-# +++ Explicitly import ALL SQLAlchemy Models +++
-# This forces SQLAlchemy to register them early
+# +++ Explicitly import ALL necessary SQLAlchemy Models +++
+# This ensures they are registered with Base.metadata before routes are loaded
 from app.models.user import UserDB
 from app.models.api_key import APIKeyDB
 from app.models.user_preference import UserPreferenceDB
+from app.db.models.processed_file import ProcessedFile 
+from app.models.custom_knowledge_file import CustomKnowledgeFile # Keep if used
+from app.models.aws_credential import AwsCredential
+from app.models.azure_blob import AzureBlobConnection
+from app.models.azure_blob_sync_item import AzureBlobSyncItem
+from app.models.sharepoint_sync import SharePointSyncItem
+# Add other DB models used by the application here...
+# from app.models.ingestion_job import IngestionJob # Example
 # --- End Model Imports ---
 
 from app.config import settings
-# Import routers
+# Remove the explicit module import we added before
+# import app.models.processed_file 
+
+# Import routers AFTER model imports
 from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token, tasks 
 # Import the new shared_knowledge router
 from app.routes import shared_knowledge 

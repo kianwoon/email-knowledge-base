@@ -2,7 +2,7 @@
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from typing import Optional # Import Optional
+from typing import Optional, List # Import Optional and List
 
 from app.db.models.processed_file import ProcessedFile
 
@@ -63,7 +63,7 @@ def count_processed_files_by_source(db: Session, owner_email: str, source_type: 
         return 0
 
 # TODO: Implement get_processed_file_by_source_id
-def get_processed_file_by_source_id(db: Session, source_identifier: str) -> ProcessedFile | None:
+def get_processed_file_by_source_id(db: Session, source_identifier: str) -> Optional[ProcessedFile]:
     """Retrieves a ProcessedFile record by its source_identifier."""
     try:
         return db.query(ProcessedFile).filter(ProcessedFile.source_identifier == source_identifier).first()

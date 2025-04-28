@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import { CustomKnowledgeFile } from '../models/customKnowledge';
+import { ProcessedFile } from '../models/processedFile';
 
 // New: Upload files as base64 to the backend (no FormData, no multipart)
 export const uploadCustomKnowledgeFiles = async (files: File[]): Promise<void> => {
@@ -23,7 +23,7 @@ export const uploadCustomKnowledgeFiles = async (files: File[]): Promise<void> =
   }
 };
 
-export const getCustomKnowledgeHistory = async (): Promise<CustomKnowledgeFile[]> => {
-  const response = await apiClient.get<CustomKnowledgeFile[]>('/custom-knowledge/history');
+export const getCustomKnowledgeHistory = async (): Promise<ProcessedFile[]> => {
+  const response = await apiClient.get<ProcessedFile[]>('/custom-knowledge/history');
   return response.data;
 };

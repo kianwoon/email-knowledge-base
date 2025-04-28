@@ -48,7 +48,7 @@ import remarkGfm from 'remark-gfm';
 import { sendChatMessage } from '../api/chat';
 import { getOpenAIApiKey, saveOpenAIApiKey, getAllApiKeys, getProviderApiKey, saveProviderApiKey, ApiProvider, deleteProviderApiKey, saveDefaultModel, getDefaultModel } from '../api/user';
 import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/customKnowledge';
-import { CustomKnowledgeFile } from '../models/customKnowledge';
+import { ProcessedFile } from '../models/processedFile';
 import axios from 'axios';
 
 // Types for LLM models
@@ -212,7 +212,7 @@ const JarvisPage: React.FC = () => {
   const [customUploadError, setCustomUploadError] = useState<string | null>(null);
   const [customUploadProgress, setCustomUploadProgress] = useState<number>(0);
   const [customUploadResults, setCustomUploadResults] = useState<{success: boolean, filename: string, error?: string}[]>([]);
-  const [customHistory, setCustomHistory] = useState<CustomKnowledgeFile[]>([]);
+  const [customHistory, setCustomHistory] = useState<ProcessedFile[]>([]);
   const [customHistoryLoading, setCustomHistoryLoading] = useState(false);
   const [customHistoryError, setCustomHistoryError] = useState<string | null>(null);
   const [snippetContent, setSnippetContent] = useState<string>('');
@@ -647,7 +647,11 @@ const JarvisPage: React.FC = () => {
       const data = await getCustomKnowledgeHistory();
       setCustomHistory(data);
     } catch (e: any) {
-      setCustomHistoryError(e.message || 'Failed to load history');
+      if (axios.isAxiosError(e) && e.response?.status === 501) {
+        setCustomHistoryError('History feature is temporarily unavailable.');
+      } else {
+        setCustomHistoryError(e.message || 'Failed to load history');
+      }
     } finally {
       setCustomHistoryLoading(false);
     }
@@ -1000,35 +1004,38 @@ const JarvisPage: React.FC = () => {
                             </Tr>
                           )}
                            {customHistory.map(item => {
-                             const isProcessing = item.status === 'processing' || item.status === 'pending';
+                             const isProcessing = item.status === 'processing' || item.status === 'pending_analysis';
+                             const displayStatusKey = `processedFile.status.${item.status}`;
+                             const displayStatusText = t(displayStatusKey, item.status);
+                             
                              return (
                              <Tr key={item.id} _hover={{ bg: tableHoverBg }}>
                                <Td width="40%">
                                  <HStack spacing={2}>
                                       <Icon as={FaFileAlt} color={fileColor} boxSize="1.2em" />
-                                      <Text noOfLines={1} title={item.filename}>{item.filename}</Text>
+                                      <Text noOfLines={1} title={item.original_filename}>{item.original_filename}</Text>
                                  </HStack>
                                </Td>
-                               <Td isNumeric width="20%">{formatFileSize(item.file_size)}</Td>
+                               <Td isNumeric width="20%">{formatFileSize(item.size_bytes ?? undefined)}</Td>
                                <Td width="20%">
                                   <Tag 
                                       size="sm" 
                                       variant="subtle" 
                                       colorScheme={
-                                           item.status === 'completed' ? 'green' 
-                                         : item.status === 'failed' ? 'red' 
+                                           item.status === 'analysis_complete' || item.status === 'completed' ? 'green'
+                                         : item.status.includes('failed') ? 'red' 
                                          : 'yellow'
                                       }
                                   >
                                      <Icon 
                                        as={
-                                         item.status === 'completed' ? FaCheckCircle : 
-                                         item.status === 'failed' ? FaExclamationTriangle : 
+                                         item.status === 'analysis_complete' || item.status === 'completed' ? FaCheckCircle : 
+                                         item.status.includes('failed') ? FaExclamationTriangle : 
                                          FaSync
                                        } 
                                        mr={1} 
                                      />
-                                    {t(`customKnowledge.statusEnum.${item.status}`, item.status)}
+                                     {displayStatusText}
                                   </Tag>
                                </Td>
                                <Td width="20%">{formatDateTime(item.uploaded_at)}</Td>

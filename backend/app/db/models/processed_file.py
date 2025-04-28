@@ -68,6 +68,8 @@ class ProcessedFile(Base):
     __table_args__ = (
         Index('ix_processed_files_owner_status', 'owner_email', 'status'), # Index for user status lookup
         Index('ix_processed_files_status', 'status'), # Index for finding pending work
+        # Add extend_existing=True as a safety measure
+        {'extend_existing': True}
     )
 
     def __repr__(self) -> str:

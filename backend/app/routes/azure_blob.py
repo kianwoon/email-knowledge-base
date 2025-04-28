@@ -430,7 +430,7 @@ def trigger_azure_ingestion_endpoint(
 
     # 3. Create IngestionJob Record
     job_details = {
-        "connection_id": str(connection_id),
+        "azure_connection_id": str(connection_id),
         "connection_name": connection.name,
         "container_name": connection.container_name, # Optional: Include container if set on connection
         "item_count": len(pending_items), # Store initial pending count
