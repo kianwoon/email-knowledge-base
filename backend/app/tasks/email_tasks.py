@@ -104,26 +104,21 @@ class EmailProcessingTask(Task):
             # Perform upsert/append operation using PyIceberg's capabilities
             # Check if table has identifier fields defined for true upsert
             if table.schema().identifier_field_ids:
-                logger.info(f"Task {job_id}: Performing merge (upsert) into Iceberg table '{table_name}' using identifier fields {table.schema().identifier_field_ids}.")
-                # PyIceberg >= 0.6.0 uses merge_by_identifier
-                # Older versions might need different approach (e.g., overwrite + append)
-                # Assuming merge_by_identifier is available:
+                logger.info(f"Task {job_id}: Performing upsert into Iceberg table '{table_name}' using identifier fields {table.schema().identifier_field_ids}.")
+                # PyIceberg >= 0.9.0 uses upsert (merge by identifier)
                 try:
-                    table.merge_by_identifier(arrow_table)
-                    # Note: merge_by_identifier doesn't directly return counts. 
-                    # We assume success if no exception is raised. A more robust way
-                    # might involve checking table snapshots before/after.
-                    success_count = len(facts)
-                    logger.info(f"Task {job_id}: Merge operation successful for {success_count} records.")
-                except AttributeError:
-                     logger.warning(f"Task {job_id}: table.merge_by_identifier not found. Falling back to overwrite/append (potential duplicates if run concurrently). Schema ID: {table.schema().schema_id}")
-                     # Fallback logic (less safe for concurrent writes)
-                     table.overwrite(arrow_table) # Overwrite with the new data (simulates upsert for this batch)
-                     success_count = len(facts)
-                     logger.info(f"Task {job_id}: Fallback Overwrite operation successful for {success_count} records.")
-                except Exception as merge_err:
-                     logger.error(f"Task {job_id}: Error during Iceberg merge operation for '{table_name}': {merge_err}", exc_info=True)
-                     failure_count = len(facts)
+                    # Use the correct method name: upsert()
+                    result = table.upsert(arrow_table) 
+                    # Note: upsert might return specific results in future versions, 
+                    # but for 0.9.0, success is often implied by lack of exception.
+                    # We can log the result object if needed for debugging.
+                    logger.debug(f"Task {job_id}: Upsert operation returned: {result}") 
+                    success_count = len(facts) # Assume all rows were processed if no error
+                    logger.info(f"Task {job_id}: Upsert operation successful for batch of {success_count} records.")
+                except Exception as upsert_err:
+                     logger.error(f"Task {job_id}: Error during Iceberg upsert operation for '{table_name}': {upsert_err}", exc_info=True)
+                     failure_count = len(facts) # Mark entire batch as failed on error
+                     success_count = 0
             else:
                 logger.warning(f"Task {job_id}: No identifier fields found on table '{table_name}'. Performing append operation.")
                 table.append(arrow_table)
@@ -354,10 +349,32 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
         # --- Initialize Outlook Service ---
         outlook_service = OutlookService(access_token)
 
-        # --- Define Target Milvus Collection --- 
+        # --- Define Target Milvus Collection Name ---
         sanitized_email = user_id.replace('@', '_').replace('.', '_')
-        target_collection_name = f"{sanitized_email}_email_knowledge"
+        # !!! IMPORTANT: Make sure this suffix matches the one used elsewhere (e.g., in embedder.py if it overrides default) !!!
+        target_collection_name = f"{sanitized_email}_knowledge_base_bm" 
         logger.info(f"Task {task_id}: Target Milvus collection: {target_collection_name}")
+
+        # --- Ensure Milvus Collection Exists ---
+        try:
+            logger.info(f"Task {task_id}: Initializing Milvus client.")
+            milvus_client = get_milvus_client() # Get the client instance
+            # Determine the correct embedding dimension
+            # Assuming DENSE_EMBEDDING_DIMENSION holds the dimension for the primary vector field
+            embedding_dim = settings.DENSE_EMBEDDING_DIMENSION
+            if not isinstance(embedding_dim, int) or embedding_dim <= 0:
+                raise ValueError(f"Invalid DENSE_EMBEDDING_DIMENSION found in settings: {embedding_dim}")
+            logger.info(f"Task {task_id}: Ensuring Milvus collection '{target_collection_name}' exists with dimension {embedding_dim}.")
+            ensure_collection_exists(
+                client=milvus_client,
+                collection_name=target_collection_name,
+                dim=embedding_dim
+            )
+            logger.info(f"Task {task_id}: Milvus collection check/creation successful for '{target_collection_name}'.")
+        except Exception as milvus_err:
+            logger.error(f"Task {task_id}: Failed during Milvus initialization or collection check: {milvus_err}", exc_info=True)
+            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed Milvus setup: {milvus_err}'})
+            raise Exception(f"Failed Milvus setup: {milvus_err}") # Reraise to stop the task
 
         # --- Perform Email Processing using Knowledge Service --- 
         logger.info(f"Task {task_id}: Calling knowledge service to process emails for user {user_id}")

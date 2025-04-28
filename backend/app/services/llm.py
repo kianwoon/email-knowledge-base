@@ -76,114 +76,151 @@ async def query_iceberg_emails_duckdb(
     user_email: str,
     keywords: List[str],
     limit: int = 5,
-    original_message: str = "" # Added original_message parameter
+    original_message: str = "",
+    user_client: AsyncOpenAI = None # ADDED user_client parameter
 ) -> List[Dict[str, Any]]:
-    """Queries the email_facts Iceberg table for a user using DuckDB and keywords, with optional date filtering."""
+    """Queries the email_facts Iceberg table for a user using DuckDB and keywords, with LLM-extracted date filtering."""
     results = []
-    if not keywords and not original_message: # Allow query if message contains date phrase even without keywords
-        logger.debug("No keywords provided and no date phrase detected, skipping DuckDB query.")
+    # Keep initial check: if no keywords AND no message, skip.
+    if not keywords and not original_message:
+        logger.debug("No keywords provided and no message for date extraction, skipping DuckDB query.")
         return results
+
+    # Ensure user_client is passed
+    if not user_client:
+        logger.error("DuckDB Query: User-specific OpenAI client (user_client) was not provided.")
+        # Cannot proceed without the client for date extraction
+        return results 
 
     try:
         catalog = await get_iceberg_catalog()
         if not catalog:
-            # Catalog initialization failed earlier
             return results
 
         full_table_name = f"{settings.ICEBERG_DEFAULT_NAMESPACE}.{settings.ICEBERG_EMAIL_FACTS_TABLE}"
-
-        # Load the Iceberg table object
         try:
             iceberg_table = catalog.load_table(full_table_name)
         except NoSuchTableError:
             logger.error(f"Iceberg table {full_table_name} not found.")
             return results
 
-        # Connect to an in-memory DuckDB database
         con = duckdb.connect(database=':memory:', read_only=False)
-
-        # Register the Iceberg table view
         view_name = 'email_facts_view'
         iceberg_table.scan().to_duckdb(table_name=view_name, connection=con)
 
-        # --- START: Date Filtering Logic (Refined) ---
+        # --- START: LLM-based Date Filtering Logic ---
         date_filter_sql = ""
         params = [user_email] # Start params list with user_email
         start_date_utc: Optional[datetime] = None
         end_date_utc: Optional[datetime] = None
 
-        # Simple date phrase parsing (can be expanded)
-        # Assume SGT for relative phrases like "last 2 weeks" if timezone unspecified
-        # TODO: Make timezone configurable or detect from user profile
-        try:
-            sgt = ZoneInfo("Asia/Singapore") 
-            now_local = datetime.now(sgt)
-            message_lower = original_message.lower() if original_message else ""
-
-            if "last 2 weeks" in message_lower or "past 2 weeks" in message_lower:
-                start_date_local = now_local - timedelta(weeks=2)
-                end_date_local = now_local
-                start_date_utc = start_date_local.astimezone(timezone.utc)
-                end_date_utc = end_date_local.astimezone(timezone.utc)
-            elif "last week" in message_lower or "past week" in message_lower:
-                start_date_local = now_local - timedelta(weeks=1)
-                end_date_local = now_local
-                start_date_utc = start_date_local.astimezone(timezone.utc)
-                end_date_utc = end_date_local.astimezone(timezone.utc)
-            elif "yesterday" in message_lower:
-                start_date_local = (now_local - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-                end_date_local = (now_local - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
-                start_date_utc = start_date_local.astimezone(timezone.utc)
-                end_date_utc = end_date_local.astimezone(timezone.utc)
-            elif "today" in message_lower:
-                start_date_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-                end_date_local = now_local # Use current time as end for "today"
-                start_date_utc = start_date_local.astimezone(timezone.utc)
-                end_date_utc = end_date_local.astimezone(timezone.utc)
-            # Add more phrases as needed (e.g., "last month", "this year", specific dates)
-
-            if start_date_utc and end_date_utc:
-                # Ensure end_date includes the full day if it was set to midnight
-                if end_date_utc.hour == 0 and end_date_utc.minute == 0 and end_date_utc.second == 0:
-                    end_date_utc = end_date_utc.replace(hour=23, minute=59, second=59, microsecond=999999)
+        if original_message: # Only attempt date extraction if there's a message
+            logger.debug(f"Attempting LLM date extraction from message: '{original_message}'")
+            try:
+                # Get current time in UTC as reference for LLM
+                now_utc_iso = datetime.now(timezone.utc).isoformat()
                 
-                date_filter_sql = " AND received_datetime_utc >= ? AND received_datetime_utc <= ?" 
-                # Insert date params *after* user_email but *before* keywords
-                params.insert(1, start_date_utc)
-                params.insert(2, end_date_utc)
-                logger.info(f"Applying date filter: >= {start_date_utc.isoformat()} AND <= {end_date_utc.isoformat()} UTC")
-            elif original_message and any(phrase in message_lower for phrase in ["last 2 weeks", "past 2 weeks", "last week", "past week", "yesterday", "today"]):
-                 logger.warning(f"Date phrase detected ('{original_message}') but failed to parse into date range. Querying without date filter.")
+                date_extraction_prompt = f"""Analyze the user's message to determine the intended date range for a search. The current UTC time is {now_utc_iso}.
 
-        except Exception as tz_err:
-            logger.error(f"Could not apply timezone-aware date filter: {tz_err}. Proceeding without date filter.", exc_info=True)
-            date_filter_sql = "" # Ensure filter is empty on error
-            params = [user_email] # Reset params if date parsing fails mid-way
-        # --- END: Date Filtering Logic ---
+User Message: "{original_message}"
+
+Identify the start date and end date implied by the message. Consider relative terms like "yesterday", "last week", "last 2 weeks", "last 4 weeks", "this month", "last month", specific dates, etc. 
+
+Respond ONLY with a JSON object containing two keys: "start_date_utc" and "end_date_utc". 
+The date format MUST be ISO 8601 UTC (e.g., "YYYY-MM-DDTHH:MM:SSZ"). 
+If no specific date range is implied, return null for both keys.
+
+Example for "yesterday": {{"start_date_utc": "2024-08-11T00:00:00Z", "end_date_utc": "2024-08-11T23:59:59Z"}}
+Example for "last 2 weeks" (assuming today is 2024-08-12T10:00:00Z): {{"start_date_utc": "2024-07-29T10:00:00Z", "end_date_utc": "2024-08-12T10:00:00Z"}}
+Example for "show me emails": {{"start_date_utc": null, "end_date_utc": null}}
+
+JSON Response:"""
+                
+                # Use the passed user_client
+                response = await user_client.chat.completions.create(
+                    # Use a fast, cheaper model if possible for this structured task
+                    model=getattr(settings, 'DATE_EXTRACTION_MODEL', 'gpt-4.1-mini'), 
+                    messages=[
+                        {"role": "system", "content": "You are an expert date range extractor. Respond only with the specified JSON format."},
+                        {"role": "user", "content": date_extraction_prompt}
+                    ],
+                    temperature=0.0,
+                    response_format={"type": "json_object"}
+                )
+                
+                date_result_json = response.choices[0].message.content
+                logger.debug(f"LLM Date Extraction Response: {date_result_json}")
+                
+                date_result = json.loads(date_result_json)
+                raw_start = date_result.get("start_date_utc")
+                raw_end = date_result.get("end_date_utc")
+
+                # Attempt to parse the dates
+                if raw_start:
+                    try:
+                        # Ensure timezone info is handled correctly (Z means UTC)
+                        start_date_utc = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
+                        # Convert aware datetime to naive UTC for DuckDB compatibility if needed, or ensure DuckDB handles aware
+                        # start_date_utc = start_date_utc.astimezone(timezone.utc).replace(tzinfo=None) 
+                    except ValueError:
+                        logger.warning(f"LLM returned invalid start date format: {raw_start}. Ignoring date filter.")
+                if raw_end:
+                    try:
+                        end_date_utc = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
+                        # end_date_utc = end_date_utc.astimezone(timezone.utc).replace(tzinfo=None)
+                    except ValueError:
+                        logger.warning(f"LLM returned invalid end date format: {raw_end}. Ignoring date filter.")
+                        start_date_utc = None # Invalidate start date too if end date is bad
+
+                if start_date_utc and end_date_utc:
+                     # Optional: Basic validation (start <= end)
+                    if start_date_utc > end_date_utc:
+                         logger.warning(f"LLM returned start date after end date ({start_date_utc} > {end_date_utc}). Ignoring date filter.")
+                    else:
+                        date_filter_sql = " AND received_datetime_utc >= ? AND received_datetime_utc <= ?"
+                        # Insert date params *after* user_email but *before* keywords
+                        params.insert(1, start_date_utc) 
+                        params.insert(2, end_date_utc)
+                        logger.info(f"Applying LLM-extracted date filter: >= {start_date_utc.isoformat()} AND <= {end_date_utc.isoformat()} UTC")
+                else:
+                     logger.info("LLM did not extract a valid date range from the message.")
+
+            except Exception as llm_date_err:
+                logger.error(f"Error during LLM date extraction: {llm_date_err}", exc_info=True)
+                # Proceed without date filter on error
+                date_filter_sql = ""
+                params = [user_email] # Reset params
+        # --- END: LLM-based Date Filtering Logic ---
 
         # Build WHERE clause for keywords (simple LIKE matching)
         keyword_params = []
         keyword_filter = ""
-        if keywords: 
+        if keywords:
             like_clauses = []
             for kw in keywords:
-                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ?)")
+                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ?)")
                 # Escape % and _ within the keyword itself before adding wildcards
                 safe_kw = kw.replace('%', '\\%').replace('_', '\\_')
-                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
+                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
             keyword_filter = " OR ".join(like_clauses)
             params.extend(keyword_params) # Add keyword params to the list
         else:
-            # If no keywords but date filter exists, we need a valid filter condition
+            # If no keywords AND date filter exists, we need a valid filter condition
             if date_filter_sql:
-                keyword_filter = "1=1" # Or just omit the AND clause later
-            else: # No keywords and no date filter - this case should be handled by the initial check
-                 logger.warning("Querying DuckDB with no keywords and no date filter - should have been skipped.")
-                 con.close()
-                 return []
+                 # No keyword filter needed, date filter is sufficient if present
+                 pass # keyword_filter remains ""
+            else: # No keywords and no date filter - this case should be handled by initial check/original_message presence
+                 # Original logic check: if not keywords and not original_message, return [] early.
+                 # If original_message WAS present but date extraction failed, AND no keywords were given,
+                 # this path might be hit. Should we proceed with just owner_email? Let's log.
+                 logger.warning("Querying DuckDB potentially without keywords OR date filter. Review logic if this occurs unexpectedly.")
+                 # Reverting the forced return for now, let it proceed if date extraction failed but message existed.
+                 # con.close()
+                 # return []
 
         # Construct the full SQL query
         # Ensure AND is added only if both date and keyword filters exist
+        # ORIGINAL SQL Logic restored: Check if keyword_filter has content
         sql_query = f"""
         SELECT
             message_id,
@@ -365,15 +402,22 @@ async def generate_openai_rag_response(
 
         logger.debug(f"Extracted keywords for email search: {keywords_for_email}")
 
+        # --- START: Define constants for hierarchical summarization ---
+        MILVUS_SUMMARY_BATCH_SIZE = int(getattr(settings, 'MILVUS_SUMMARY_BATCH_SIZE', 5)) # How many Milvus results to summarize per LLM call
+        MAX_CHARS_PER_SUMMARY_BATCH = int(getattr(settings, 'MAX_CHARS_PER_SUMMARY_BATCH', 12000)) # Char limit for CONTENT sent in each summary batch prompt (leave room for instructions)
+        # --- END: Define constants ---
+
         # 2. Retrieve Context from Both Sources Concurrently
         async def _get_milvus_context(max_items: int, max_chunk_chars: int):
-            logger.debug(f"Starting Milvus context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
-            # Define truncate helper locally
-            def _truncate_text(text: str, max_len: int) -> str:
-                if len(text) > max_len:
-                    return text[:max_len] + "... [TRUNCATED]"
-                return text
+            # Inner helper to truncate text
+            def _truncate_text_inner(text: str, max_len: int) -> str:
+                return text[:max_len] + "... [TRUNCATED]" if len(text) > max_len else text
+
+            logger.debug(f"Starting Milvus context retrieval (Hierarchical Summarization - Batch Size: {MILVUS_SUMMARY_BATCH_SIZE}, Max Items: {max_items})...")
+            
             try:
+                # --- Retrieval Steps (Query Refinement, HyDE, Search) ---
+                # NOTE: This part remains the same as before, retrieving the initial set of candidates
                 retrieval_query = message
                 refined = None
                 # Query refinement step
@@ -442,16 +486,20 @@ async def generate_openai_rag_response(
 
                 # --- Search Milvus (Dense + Sparse + RRF) (Assumed Correct) ---
                 search_filter = None
-                k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', 5))
-                k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', 5))
+                k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', max_items)) # Use max_items as retrieval limit
+                k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', max_items))# Use max_items as retrieval limit
                 sanitized_email = user.email.replace('@', '_').replace('.', '_')
                 target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-                logger.info(f"RAG: Targeting Milvus search in collection: {target_collection_name}")
+                logger.info(f"RAG (Hierarchical): Initial retrieval from: {target_collection_name} with limit {max_items}")
                 dense_task = search_milvus_knowledge(collection_name=target_collection_name, query_embedding=hyde_embedding, limit=k_dense, filter_expression=search_filter)
                 sparse_task = search_milvus_knowledge_sparse(collection_name=target_collection_name, query_text=retrieval_query, limit=k_sparse, filter_expression=search_filter)
                 dense_search_results, sparse_search_results = await asyncio.gather(dense_task, sparse_task)
-                logger.debug(f"RAG: Milvus Dense search returned {len(dense_search_results)} results.")
-                logger.debug(f"RAG: Milvus Sparse search returned {len(sparse_search_results)} results.")
+
+                if not dense_search_results and not sparse_search_results:
+                    logger.warning(f"RAG (Hierarchical): Initial Milvus search returned no results for collection '{target_collection_name}'.")
+                    return "" # Return empty if initial search yields nothing
+
+                # --- RRF Ranking (remains the same) ---
                 combined_results = {}
                 rrf_k = 60
                 for rank, hit in enumerate(dense_search_results):
@@ -465,19 +513,91 @@ async def generate_openai_rag_response(
                     if doc_id not in combined_results: combined_results[doc_id] = {"score": 0, "payload": hit.get("payload", {}), "id": doc_id}
                     combined_results[doc_id]["score"] += score
                 ranked_results = sorted(combined_results.values(), key=lambda x: x["score"], reverse=True)
-                logger.debug(f"RAG: Combined {len(ranked_results)} unique Milvus results after RRF.")
-                # Apply item limit and chunk truncation HERE before returning
-                milvus_context = "\n\n---\n\n".join([
-                    f"Document ID: {res['id']}\nContent: {_truncate_text(json.dumps(res['payload']), max_chunk_chars)}"
-                    for res in ranked_results[:max_items] # Use max_items limit
-                ])
-                return milvus_context
-            # Add except block for try (line 284)
-            except Exception as e_milvus:
-                logger.error(f"Failed to retrieve Milvus context: {e_milvus}", exc_info=True)
-                return "Error retrieving knowledge base context."
+                logger.debug(f"RAG (Hierarchical): Combined {len(ranked_results)} unique Milvus results after RRF.")
 
-        async def _get_email_context(max_items: int, max_chunk_chars: int):
+                # --- Hierarchical Summarization Step ---
+                batch_summaries = []
+                total_processed_count = 0
+                # Process only up to max_items overall after ranking
+                results_to_summarize = ranked_results[:max_items] 
+                logger.info(f"RAG (Hierarchical): Starting summarization for {len(results_to_summarize)} top Milvus results in batches of {MILVUS_SUMMARY_BATCH_SIZE}.")
+
+                for i in range(0, len(results_to_summarize), MILVUS_SUMMARY_BATCH_SIZE):
+                    batch = results_to_summarize[i:i + MILVUS_SUMMARY_BATCH_SIZE]
+                    batch_content_list = []
+                    current_batch_chars = 0
+
+                    # Format content for the batch, respecting MAX_CHARS_PER_SUMMARY_BATCH budget
+                    for item in batch:
+                        item_content_str = f"Document ID: {item['id']}\\nContent: {json.dumps(item['payload'])}"
+                        # Use the *inner* truncate helper here for individual items if needed later, but focus on batch total first
+                        batch_content_list.append(item_content_str)
+
+                    # Combine content for the batch prompt
+                    batch_full_content = "\\n\\n---\\n\\n".join(batch_content_list)
+                    
+                    # Truncate the *entire batch content* if it exceeds the character limit for the summary prompt
+                    truncated_batch_content = _truncate_text_inner(batch_full_content, MAX_CHARS_PER_SUMMARY_BATCH)
+                    if len(batch_full_content) > len(truncated_batch_content):
+                         logger.warning(f"RAG (Hierarchical): Batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1} content truncated from {len(batch_full_content)} to {len(truncated_batch_content)} chars before summarization.")
+
+                    if not truncated_batch_content.strip():
+                         logger.warning(f"RAG (Hierarchical): Batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1} resulted in empty content after potential truncation, skipping summarization for this batch.")
+                         continue
+
+                    # Create the prompt for summarizing this batch
+                    batch_summary_prompt = f"""The user's question is: '{message}'
+
+Review the following batch of retrieved documents and summarize only the information directly relevant to answering the user's question. Focus on extracting key facts, names, dates, results, or answers pertinent to the query. If a document in the batch is not relevant, ignore it. If the whole batch is irrelevant, state "No relevant information in this batch."
+
+Batch Content:
+{truncated_batch_content}
+
+Relevant Summary of Batch:"""
+                    
+                    try:
+                        # Call LLM to summarize the batch
+                        logger.debug(f"RAG (Hierarchical): Requesting summary for batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1}...")
+                        # Use the same user_client and chat_model as the main RAG function
+                        summary_response = await user_client.chat.completions.create(
+                            model=chat_model, # Use the same model as main RAG
+                            messages=[
+                                {"role": "system", "content": "You are an AI assistant that summarizes batches of documents based on relevance to a user query."},
+                                {"role": "user", "content": batch_summary_prompt}
+                            ],
+                            temperature=0.0 # Low temperature for factual summary
+                            # Add timeout?
+                        )
+                        batch_summary = summary_response.choices[0].message.content.strip()
+                        
+                        # Add the summary if it's not indicating irrelevance
+                        if batch_summary and "no relevant information" not in batch_summary.lower():
+                             batch_summaries.append(batch_summary)
+                             logger.debug(f"RAG (Hierarchical): Received summary for batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1}: {batch_summary[:100]}...")
+                        else:
+                             logger.debug(f"RAG (Hierarchical): Batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1} summary indicated no relevance or was empty.")
+
+                    except Exception as batch_summary_err:
+                        logger.error(f"RAG (Hierarchical): Failed to summarize batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1}: {batch_summary_err}", exc_info=True)
+                        # Optionally add a placeholder error message? For now, just skip the batch.
+                        # batch_summaries.append(f"[Error summarizing batch {i // MILVUS_SUMMARY_BATCH_SIZE + 1}]")
+
+                # Combine all valid batch summaries
+                final_milvus_summary = "\\n\\n---\\n\\n".join(batch_summaries)
+                
+                if not final_milvus_summary.strip():
+                    logger.warning("RAG (Hierarchical): No relevant information found after summarizing all Milvus batches.")
+                    return "Summary: No relevant information found in the knowledge base." # Return informative message
+
+                logger.info(f"RAG (Hierarchical): Completed summarization. Final summary length: {len(final_milvus_summary)} chars.")
+                return final_milvus_summary # Return the combined summaries
+
+            # Catch errors during the overall _get_milvus_context process
+            except Exception as e_milvus:
+                logger.error(f"Failed during Milvus context retrieval/summarization: {e_milvus}", exc_info=True)
+                return "Error retrieving and summarizing knowledge base context." # Return error message
+
+        async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI):
             logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
             # Define truncate helper locally
             def _truncate_text(text: str, max_len: int) -> str:
@@ -490,7 +610,8 @@ async def generate_openai_rag_response(
                     user_email=user.email,
                     keywords=keywords_for_email,
                     limit=max_items, # Use max_items for query limit
-                    original_message=message
+                    original_message=message,
+                    user_client=user_client # Pass the client down
                 )
                 if not email_results:
                     return "No relevant emails found."
@@ -544,8 +665,8 @@ async def generate_openai_rag_response(
         # --- END: New Calendar Context Retrieval Helper ---
 
         # Read limits from settings, with defaults
-        MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 50))
-        MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_EMAIL_LIMIT', 50))
+        MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 20))
+        MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_EMAIL_LIMIT', 100))
         MAX_CALENDAR_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_CALENDAR_LIMIT', 20))
         # Define max characters per context item
         MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
@@ -553,47 +674,60 @@ async def generate_openai_rag_response(
         logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS}, Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
         logger.debug(f"Using max chars per chunk: {MAX_CHUNK_CHARS}")
 
-        # Run retrievals concurrently, passing the limits
+        # Run retrievals concurrently, passing the limits AND user_client to email context
         retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
-            _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS),
-            _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS),
+            _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS), # This now returns a summary
+            _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client),
             _get_calendar_context() # Calendar still gets full context for now
         )
 
-        # Now use the already limited/truncated results directly
-        limited_milvus_context = retrieved_milvus_context
+        # Use the results directly (Milvus context is now summarized)
+        summarized_milvus_context = retrieved_milvus_context
         limited_email_context = retrieved_email_context
         limited_calendar_context = retrieved_calendar_context
 
-        # Log lengths before combining for LLM call
-        logger.debug(f"Context Lengths - Milvus: {len(limited_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
+        # Log lengths before combining for LLM call (Milvus length is now the summary length)
+        logger.debug(f"Context Lengths - Milvus Summary: {len(summarized_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
 
-        selection_prompt = f"""Based on the user's question: '{message}'
+        # MODIFIED: Update selection prompt to reflect Milvus context is a summary
+        selection_prompt = f"""You are an AI assistant evaluating retrieved information to answer a user query.
 
-Evaluate the following three sets of retrieved context:
+User Question: '{message}'
 
-<Knowledge Base Results (Top {MAX_MILVUS_CONTEXT_ITEMS})>
-{limited_milvus_context}
-</Knowledge Base Results>
+Evaluate the relevance of the following retrieved context sections to the user's question:
 
-<User Email Results (Top {MAX_EMAIL_CONTEXT_ITEMS})>
+<Knowledge Base Summary (derived from up to {MAX_MILVUS_CONTEXT_ITEMS} semantically relevant documents)>
+{summarized_milvus_context}
+</Knowledge Base Summary>
+
+<User Email Context (from structured search, max {MAX_EMAIL_CONTEXT_ITEMS} items)>
 {limited_email_context}
-</User Email Results>
+</User Email Context>
 
-<Calendar Events>
+<Calendar Events Context (max {MAX_CALENDAR_CONTEXT_ITEMS} items)>
 {limited_calendar_context}
-</Calendar Events>
+</Calendar Events Context>
 
-Determine which context source (Knowledge Base, Emails, Calendar) is most relevant, or if multiple are needed. Briefly explain your reasoning.
-Then, synthesize the most pertinent information from the relevant source(s) into a concise summary that will directly help answer the user's question.
-If the user's question asks for a quantity (e.g., "how many", "count", "list all"), explicitly count the relevant items found in the context and state the total count using digits (e.g., "Found 5 relevant items:") in your Synthesized Context.
-Focus only on the information needed to answer '{message}'.
+Instructions:
+1.  Determine which context source(s) (Knowledge Base Summary, User Emails, Calendar Events) are most relevant for answering the user's question. Consider that the Knowledge Base Summary reflects semantic relevance, User Emails are best for specific facts/filters, and Calendar Events are for schedules.
+2.  Explain your reasoning briefly.
+3.  Synthesize the most pertinent information *only* from the relevant source(s) into a concise summary. This summary will be used to generate the final answer.
+4.  If the user's question asks for a quantity (e.g., "how many", "count", "list all") *generally*, explicitly count the relevant items mentioned *in the context you are summarizing* and state the total count using digits (e.g., "Found 5 relevant items:") in your Synthesized Context.
+5.  **Special Instruction for Personnel Queries:** If the user asks 'how many' or for a count related to people and specific actions (e.g., resigning, leaving, offboarding, hired, joined), follow these steps **specifically for the User Email Context**:
+    a. Carefully scan the individual email snippets within the <User Email Context>.
+    b. Identify distinct individuals mentioned explicitly or implicitly in connection with the user's keywords (e.g., 'Mabel Chua offboarding', 'John Doe has resigned').
+    c. Attempt to count the number of *unique* individuals identified across all relevant email snippets.
+    d. In your 'Synthesized Context', state the attempted count clearly. For example: 'Based on mentions in the emails, identified approximately 3 individuals related to [action, e.g., leaving]. They are: [List names if easily identifiable and few].' or 'Found mentions related to offboarding for Mabel Chua in the emails.'
+    e. Acknowledge that this count is based *only* on parsing email text and might be approximate or incomplete if names are ambiguous or not clearly linked to the action in the snippets.
+6.  If none of the context is relevant, state that clearly in the Synthesized Context.
+
 Output:
 Reasoning: [Your brief reasoning]
-Synthesized Context: [Your concise summary including the count using digits if applicable, or indicate if none is relevant]
+Synthesized Context: [Your concise summary including counts/personnel counts if applicable, or indicate if none is relevant]
 """
         synthesized_context = "No relevant context synthesized."
         try:
+            # This intermediate call should now be much less likely to hit context limits
             selection_response = await user_client.chat.completions.create(
                 model=chat_model,
                 messages=[
@@ -619,8 +753,8 @@ Synthesized Context: [Your concise summary including the count using digits if a
             logger.warning("Falling back to combining limited contexts due to synthesis error.")
             # Use the LIMITED contexts in the fallback as well
             # Also log the lengths here for the fallback scenario
-            logger.debug(f"Fallback Context Lengths - Milvus: {len(limited_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
-            synthesized_context = f"Knowledge Base Context (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{limited_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context (Top {MAX_CALENDAR_CONTEXT_ITEMS}):\n{limited_calendar_context}"
+            logger.debug(f"Fallback Context Lengths - Milvus: {len(summarized_milvus_context)} chars, Email: {len(limited_email_context)} chars, Calendar: {len(limited_calendar_context)} chars")
+            synthesized_context = f"Knowledge Base Summary (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{summarized_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context (Top {MAX_CALENDAR_CONTEXT_ITEMS}):\n{limited_calendar_context}"
 
         # --- 4. Final Answer Generation using Synthesized Context ---
         # The synthesized_context variable now contains either the LLM synthesis
