@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from pymilvus import MilvusClient
 from fastapi import HTTPException
 import httpx # Keep for now, maybe remove _httpx_search later
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from fastapi.concurrency import run_in_threadpool
 
 from app.config import settings
@@ -18,6 +18,16 @@ from app.db.milvus_client import get_milvus_client
 logger = logging.getLogger(__name__)
 # Configure logger level based on LOG_LEVEL env var
 logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
+
+# --- Initialize Reranker Model ---
+# Define the reranker model name (can be moved to settings if needed)
+RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+_reranker_model = None
+try:
+    _reranker_model = CrossEncoder(RERANKER_MODEL_NAME)
+    logger.info(f"Successfully loaded reranker model: {RERANKER_MODEL_NAME}")
+except Exception as e:
+    logger.warning(f"Failed to load reranker model '{RERANKER_MODEL_NAME}': {e}. Reranking will be skipped.")
 
 # Initialize retrieval models per vector field
 try:
@@ -49,11 +59,13 @@ async def create_embedding(text: str, client: Optional[Any] = None) -> List[floa
 
 # Renamed and refactored for Milvus
 async def search_milvus_knowledge(
-    query_embedding: List[float],
-    limit: int = 3,
-    collection_name: str = settings.MILVUS_DEFAULT_COLLECTION, # Use Milvus default collection
-    filter_expression: Optional[str] = None, # Expect Milvus filter string
-    # vector_name parameter removed as we use a single vector field
+    query_texts: List[str], 
+    collection_name: str,
+    vector_field: str = "dense", # Use actual dense vector field name
+    output_fields: List[str] = ["id", "content", "dense", "metadata"], # Request actual fields
+    limit: int = 10,
+    search_params: Optional[Dict] = None,
+    filter_expr: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Search for similar vectors in the specified Milvus collection.
@@ -63,196 +75,151 @@ async def search_milvus_knowledge(
     
     # Removed Qdrant-specific dimension check logic
 
-    logger.debug(f"Attempting Milvus search in collection '{collection_name}' with limit {limit} and filter: '{filter_expression}'")
+    logger.debug(f"Attempting Milvus search in collection '{collection_name}' with limit {limit} and filter: '{filter_expr}'")
 
     # Ensure structure matches MilvusClient.search requirements (anns_field inside search_params)
-    search_params_for_call = {
-        # "anns_field": "dense",      # REMOVED: Vector field name from params dict based on documentation parameter list
-        "metric_type": "COSINE",
-        "params": {"nprobe": 10}     # Index-specific parameters
-    }
+    default_search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
+    search_params = search_params or default_search_params
 
-    try:
-        # Use keyword arguments ONLY for the MilvusClient.search call
-        search_kwargs = {
-            "collection_name": collection_name,
-            "data": [query_embedding],
-            "anns_field": "dense", # ADDED as a separate top-level argument based on documentation parameter list
-            "limit": limit,
-            "search_params": search_params_for_call, # search_params dict no longer includes anns_field
-            "output_fields": ["id", "content", "vector"] # Corrected PK to 'id' and payload to 'content' and added vector
-        }
+    results = []
+    for query_text in query_texts:
+        try:
+            # Embed the query text
+            query_embedding = await create_embedding(query_text)
+            # Ensure embeddings are list of lists if needed by client
+            if hasattr(query_embedding, 'tolist'):
+                query_embedding_list = query_embedding.tolist()
+            else:
+                query_embedding_list = query_embedding # Assume it's already in correct format
+            # logger.debug(f"Shape of query embeddings: {query_embedding.shape}") # Removed as query_embedding is now a list
 
-        # Conditionally add the filter using the 'filter' keyword
-        if filter_expression:
-            search_kwargs['filter'] = filter_expression
-            logger.debug(f"Adding filter expression to search: {filter_expression}")
-        else:
-            logger.debug("No filter expression provided for search.")
+            # Use keyword arguments ONLY for the MilvusClient.search call
+            search_kwargs = {
+                "collection_name": collection_name,
+                "data": [query_embedding_list],
+                "anns_field": vector_field,
+                "limit": limit,
+                "search_params": search_params,
+                "output_fields": output_fields
+            }
 
-        # Execute vector search via Milvus client using only keyword arguments
-        search_result = milvus_client.search(**search_kwargs)
+            # Conditionally add the filter using the 'filter' keyword
+            if filter_expr:
+                search_kwargs['filter'] = filter_expr
+                logger.debug(f"Adding filter expression to search: {filter_expr}")
+            else:
+                logger.debug("No filter expression provided for search.")
 
-        # Format and return results
-        formatted_results = []
-        if search_result:
-            hits = search_result[0] # Results for the first query
-            for hit in hits:
-                 # --- ADDED DEBUG LOG --- 
-                 logger.debug(f"Raw Milvus search hit: {hit}")
-                 # --- END DEBUG LOG ---
-                 # Access results as dictionary keys, getting content from nested entity
-                 hit_id = hit.get('id') 
-                 score = hit.get('distance') 
-                 entity_dict = hit.get('entity', {}) # Get the nested entity dict
-                 payload_content = entity_dict.get('content', '') # Get content from entity dict
+            # Execute vector search via Milvus client using only keyword arguments
+            search_result = milvus_client.search(**search_kwargs)
 
-                 # Extract the vector if it exists from the main hit dictionary
-                 vector = hit.get('vector') # Get vector from the main hit dictionary
-                 if vector is None:
-                     pass # Avoid indentation error
+            # Format and return results
+            formatted_results = []
+            if search_result:
+                hits = search_result[0] # Results for the first query
+                for hit in hits:
+                    # Extract fields directly from the hit dictionary
+                    # The structure should be flat when output_fields is used
+                    doc_id = hit.get('id')
+                    # Get content and metadata, handling potential nesting in 'entity'
+                    entity_data = hit.get('entity', {})
+                    content = hit.get('content') or entity_data.get('content')
+                    metadata = hit.get('metadata') or entity_data.get('metadata')
+                    dense_vector = hit.get('dense') # Get the actual dense vector
+                    score = hit.get('distance') # Or hit.score depending on client version
 
-                 # Handle potential missing fields gracefully 
-                 if hit_id is None or score is None:
-                     logger.warning(f"Skipping hit due to missing 'id' or 'distance': {hit}")
-                     continue
-                 
-                 formatted_results.append({
-                     "id": hit_id,       
-                     "score": score, 
-                     # Pass the extracted content string as payload
-                     "payload": payload_content,
-                     # Include the vector (potentially None) in the formatted result
-                     "vector": vector
-                 })
+                    if doc_id is not None and content is not None: # Ensure essential fields exist
+                        formatted_results.append({
+                            "id": doc_id,
+                            "score": score,
+                            "content": content,
+                            "metadata": metadata, # Metadata is already a dict/json
+                            "dense": dense_vector # Include dense vector
+                        })
+                    else:
+                        logger.warning(f"Skipping hit due to missing id or content: {hit}")
 
-        logger.debug(f"Milvus search successful. Returning {len(formatted_results)} formatted results.")
-        return formatted_results
-    
-    except Exception as e:
-        # Handle Milvus exceptions (e.g., collection not found, invalid filter)
-        logger.error(f"Milvus search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
-        if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-            logger.warning(f"Milvus collection '{collection_name}' not found during search.")
-            return [] # Return empty list if collection doesn't exist
-        # You might want to check for other specific Milvus errors here
-        # For now, raise a generic HTTPException for other errors
-        raise HTTPException(status_code=500, detail=f"Milvus search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
+            results.append(formatted_results)
 
-# NEW FUNCTION for Sparse Search (using simplified token ID approach)
-async def search_milvus_knowledge_sparse(
-    query_text: str, # Accept raw query text
-    # query_sparse_vector: Dict[int, float], # REMOVE - generated internally now
-    limit: int = 5,
-    collection_name: str = settings.MILVUS_DEFAULT_COLLECTION, 
-    filter_expression: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+        except Exception as e:
+            # Handle Milvus exceptions (e.g., collection not found, invalid filter)
+            logger.error(f"Milvus search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                logger.warning(f"Milvus collection '{collection_name}' not found during search.")
+                # Skip to the next query_text if collection doesn't exist
+                continue # Skip to the next query_text
+            # You might want to check for other specific Milvus errors here
+            # For now, raise a generic HTTPException for other errors
+            raise HTTPException(status_code=500, detail=f"Milvus search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
+
+    logger.debug(f"Milvus search successful. Returning {len(results)} formatted results.")
+    return results
+
+# --- Reranking Function ---
+async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Search using a simplified sparse vector approach based on dense model token IDs.
-    NOTE: This is NOT true BM25 and unlikely to match the Milvus sparse index.
-    It uses token IDs as indices and assigns a uniform value of 1.0.
-    Returns a list of results including payload.
+    Reranks search results using a CrossEncoder model based on the original query.
+    Adds a 'rerank_score' to each result and sorts them.
+    If the reranker model failed to load or an error occurs, returns the original results.
     """
-    milvus_client: MilvusClient = get_milvus_client()
+    if _reranker_model is None:
+        logger.warning("Reranker model not loaded. Skipping reranking.")
+        return results
     
-    logger.debug(f"Attempting Milvus SPARSE search (Simplified Token ID method) in collection '{collection_name}' for query: '{query_text[:50]}...'")
-
-    # --- START: Simplified Sparse Vector Generation (from Qdrant approach) ---
-    sparse_query_dict = {}
-    try:
-        if _dense_model and hasattr(_dense_model, 'tokenizer'):
-            tokenizer = _dense_model.tokenizer
-            token_ids = tokenizer.encode(query_text, add_special_tokens=False)
-            unique_indices = sorted(list(set(token_ids)))
-            
-            if not unique_indices:
-                 logger.warning(f"Simplified sparse search: Query '{query_text[:50]}...' produced no unique tokens.")
-                 return [] # Return empty if no tokens
-
-            # Use unique token IDs as indices and assign a value of 1.0 to each
-            sparse_query_dict = {index: 1.0 for index in unique_indices}
-            logger.debug(f"Simplified sparse search: Created SparseVector dict with {len(unique_indices)} unique indices.")
-        else:
-            logger.warning("Simplified sparse search: Dense model or its tokenizer not available. Cannot create sparse query vector.")
-            return [] # Return empty if tokenizer missing
-            
-    except Exception as e:
-        logger.error(f"Simplified sparse search: Error during tokenization or sparse vector creation: {e}", exc_info=True)
-        return [] # Return empty on error
-    # --- END: Simplified Sparse Vector Generation ---
-
-    # Define search parameters - MIGHT NEED ADJUSTMENT FOR SPARSE
-    search_params_for_call = {
-        "metric_type": "IP",  # Inner Product is common for sparse
-        "params": {} # Sparse indexes might not need specific params like nprobe
-    }
-
-    # Proceed only if we have a valid sparse dict
-    if not sparse_query_dict:
-        logger.error("Simplified sparse search: sparse_query_dict is empty, cannot proceed.")
+    if not results:
+        logger.debug("No results provided to rerank.")
         return []
 
-    try:
-        search_kwargs = {
-            "collection_name": collection_name,
-            "data": [sparse_query_dict], # Use the generated dict
-            "anns_field": "sparse", # Target the sparse field
-            "limit": limit,
-            "search_params": search_params_for_call,
-            "output_fields": ["id", "content", "vector"] # Assuming same output fields needed
-        }
-
-        if filter_expression:
-            search_kwargs['filter'] = filter_expression
-            logger.debug(f"Adding filter expression to SPARSE search: {filter_expression}")
+    # Prepare pairs for the CrossEncoder: (query, document_content)
+    # Ensure content exists and is a string
+    pairs = []
+    valid_results_indices = [] # Keep track of indices of results with valid content
+    for i, res in enumerate(results):
+        content = res.get("content")
+        if isinstance(content, str) and content.strip():
+            pairs.append((query, content))
+            valid_results_indices.append(i)
         else:
-            logger.debug("No filter expression provided for SPARSE search.")
+            logger.warning(f"Skipping result with invalid/missing content for reranking: ID {res.get('id')}")
 
-        search_result = milvus_client.search(**search_kwargs)
+    if not pairs:
+        logger.warning("No valid content found in results to rerank.")
+        return results # Return original results if no valid content
 
-        # Format results (same logic as dense for now)
-        formatted_results = []
-        if search_result:
-            hits = search_result[0] 
-            for hit in hits:
-                logger.debug(f"Raw Milvus SPARSE search hit: {hit}") # Log raw hit
-                # Access results as dictionary keys, getting content from nested entity
-                hit_id = hit.get('id')
-                score = hit.get('distance') 
-                entity_dict = hit.get('entity', {}) # Get the nested entity dict
-                payload_content = entity_dict.get('content', '') # Get content from entity dict
+    try:
+        logger.debug(f"Reranking {len(pairs)} results with model {RERANKER_MODEL_NAME}...")
+        # Run prediction in threadpool as it can be CPU-intensive
+        scores = await run_in_threadpool(_reranker_model.predict, pairs)
+        logger.debug(f"Reranking scores obtained.")
 
-                # Extract vector from the main hit dictionary
-                vector = hit.get('vector')
-                if vector is None:
-                    pass # Avoid indentation error
+        # Add scores back to the corresponding valid results
+        reranked_results_subset = []
+        original_results_with_scores = [] 
+        
+        score_idx = 0
+        for original_idx, res in enumerate(results):
+            if original_idx in valid_results_indices:
+                # Add score to results that were actually reranked
+                res['rerank_score'] = scores[score_idx]
+                reranked_results_subset.append(res)
+                original_results_with_scores.append(res) # Keep track to merge later
+                score_idx += 1
+            else:
+                # Assign a very low score to results that couldn't be reranked
+                res['rerank_score'] = -float('inf') 
+                original_results_with_scores.append(res)
 
-                if hit_id is None or score is None:
-                    logger.warning(f"Skipping SPARSE hit due to missing 'id' or 'distance': {hit}")
-                    continue
-                formatted_results.append({
-                    "id": hit_id, 
-                    "score": score, 
-                    # Pass the extracted content string as payload
-                    "payload": payload_content,
-                    # Include the vector (potentially None) in the formatted result
-                    "vector": vector
-                })
+        # Sort ALL results (including those not reranked) by the new score, highest first
+        # Those with -inf score will end up at the bottom.
+        sorted_results = sorted(original_results_with_scores, key=lambda x: x.get('rerank_score', -float('inf')), reverse=True)
+        
+        logger.info(f"Reranking complete. Returning {len(sorted_results)} results.")
+        return sorted_results
 
-        logger.debug(f"Milvus SPARSE search successful. Returning {len(formatted_results)} formatted results.")
-        return formatted_results
-    
     except Exception as e:
-        logger.error(f"Milvus SPARSE search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
-        # Basic error handling, similar to dense search
-        if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-            logger.warning(f"Milvus collection '{collection_name}' not found during SPARSE search.")
-            return [] 
-        # Raise generic error for others
-        raise HTTPException(status_code=500, detail=f"Milvus SPARSE search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
-
-# Removed search_qdrant_knowledge_sparse function
-# Removed _httpx_search function
+        logger.error(f"Error during reranking with {RERANKER_MODEL_NAME}: {e}", exc_info=True)
+        # Return the original results if reranking fails
+        return results
 
 # create_retrieval_embedding function remains the same as it doesn't interact with the vector DB client
 async def create_retrieval_embedding(text: str, field: str) -> List[float]:

@@ -17,7 +17,7 @@ from ..db.milvus_client import get_milvus_client
 from ..models.token_models import TokenDB
 from ..crud import token_crud
 # Import the specific search function we need
-from ..services.embedder import create_embedding, search_milvus_knowledge 
+from ..services.embedder import create_embedding, search_milvus_knowledge, rerank_results
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -112,14 +112,24 @@ async def search_shared_knowledge(
         # 4. Perform the search using the search_milvus_knowledge helper
         results = await search_milvus_knowledge(
             collection_name=target_collection_name,
-            query_embedding=query_embedding,
+            query_texts=[query], # Pass query text as a list
             limit=limit,
-            filter_expression=milvus_filter_expression
+            filter_expr=milvus_filter_expression
         )
         
-        logger.info(f"Found {len(results)} results for query '{query}' using token {token.id}.")
+        # Ensure results are a list, even if only one query was sent
+        dense_search_results = results[0] if results and isinstance(results, list) and len(results) > 0 else []
+
+        logger.info(f"Initial dense search found {len(dense_search_results)} results for query '{query}' using token {token.id}. Reranking...")
+
+        # 5. Rerank the results using the original query text
+        final_results = await rerank_results(query=query, results=dense_search_results)
+        
+        logger.info(f"Reranking complete. Returning top {len(final_results)} results (or original limit) for query '{query}' using token {token.id}.")
+        
         # The helper already formats results correctly
-        return results
+        # Return the reranked and sorted results
+        return final_results
 
     except HTTPException as http_exc:
         # Re-raise HTTP exceptions (like embedding failure)

@@ -49,57 +49,65 @@ def ensure_collection_exists(client: MilvusClient, collection_name: str, dim: in
         else:
             logger.info(f"Milvus collection '{collection_name}' does not exist. Creating...")
             
-            # Define the schema
+            # Define the schema based on ACTUAL reported schema
             # Primary Key Field
-            pk_field = FieldSchema(
-                name="pk", 
+            id_field = FieldSchema(
+                name="id", # ACTUAL NAME
                 dtype=DataType.VARCHAR, 
                 is_primary=True, 
                 auto_id=False, # We provide our own UUIDs
-                max_length=36 # Length of UUID string
+                max_length=100 # ACTUAL LENGTH
             )
             # Vector Field
-            vector_field = FieldSchema(
-                name="vector", 
+            dense_vector_field = FieldSchema(
+                name="dense", # ACTUAL NAME
                 dtype=DataType.FLOAT_VECTOR, 
-                dim=dim
+                dim=dim # Dimension seems correct (e.g., 1024)
             )
-            # Metadata Fields (adjust max_length as needed)
-            owner_field = FieldSchema(name="owner", dtype=DataType.VARCHAR, max_length=255)
-            source_field = FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=50)
-            type_field = FieldSchema(name="type", dtype=DataType.VARCHAR, max_length=50)
-            email_id_field = FieldSchema(name="email_id", dtype=DataType.VARCHAR, max_length=255, default_value="") # Allow null/empty
-            job_id_field = FieldSchema(name="job_id", dtype=DataType.VARCHAR, max_length=36, default_value="")
-            subject_field = FieldSchema(name="subject", dtype=DataType.VARCHAR, max_length=1024, default_value="")
-            date_field = FieldSchema(name="date", dtype=DataType.VARCHAR, max_length=50, default_value="")
-            status_field = FieldSchema(name="status", dtype=DataType.VARCHAR, max_length=50, default_value="")
-            folder_field = FieldSchema(name="folder", dtype=DataType.VARCHAR, max_length=255, default_value="")
-            # tags_field = FieldSchema(name="tags", dtype=DataType.ARRAY, element_type=DataType.VARCHAR, max_capacity=100, max_length=100) # Requires Milvus 2.3+
+            # Other ACTUAL top-level fields from schema description
+            sparse_vector_field = FieldSchema(name="sparse", dtype=DataType.SPARSE_FLOAT_VECTOR)
+            job_id_field = FieldSchema(name="job_id", dtype=DataType.VARCHAR, max_length=100) # ACTUAL LENGTH
+            content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535) # ACTUAL LENGTH
+            chunk_index_field = FieldSchema(name="chunk_index", dtype=DataType.INT64)
+            sensitivity_field = FieldSchema(name="sensitivity", dtype=DataType.VARCHAR, max_length=50) # ACTUAL LENGTH
+            
             # Using JSON for tags and other metadata for broader compatibility for now
-            metadata_json_field = FieldSchema(name="metadata_json", dtype=DataType.JSON)
-            # --- ADDED Fields ---
-            analysis_status_field = FieldSchema(name="analysis_status", dtype=DataType.VARCHAR, max_length=64, default_value="pending")
-            r2_object_key_field = FieldSchema(name="r2_object_key", dtype=DataType.VARCHAR, max_length=2048, default_value="")
-            # --- END ADDED Fields ---
+            metadata_field = FieldSchema(name="metadata", dtype=DataType.JSON) # ACTUAL NAME
+            # NOTE: owner, source, type, email_id, subject, date, status, folder, etc. are NOT top-level fields
+            # They should reside within the 'metadata' JSON field if used during ingestion.
 
             schema = CollectionSchema(
-                fields=[pk_field, vector_field, owner_field, source_field, type_field, email_id_field, job_id_field, subject_field, date_field, status_field, folder_field, 
-                        # Add new fields to the schema list
-                        analysis_status_field, r2_object_key_field, 
-                        metadata_json_field],
+                # Use the ACTUAL field names and structure
+                fields=[
+                    id_field, 
+                    dense_vector_field, 
+                    sparse_vector_field,
+                    job_id_field,
+                    content_field,
+                    chunk_index_field,
+                    metadata_field,
+                    sensitivity_field 
+                ],
                 description=f"Collection for storing knowledge data for {collection_name}",
-                enable_dynamic_field=False # Explicitly disable dynamic fields unless needed
+                enable_dynamic_field=True # ACTUAL VALUE is True
             )
             
             # Define index parameters (example using IVF_FLAT, adjust as needed)
             index_params = client.prepare_index_params()
             index_params.add_index(
-                field_name="vector",
+                field_name="dense", # ACTUAL vector field name
                 index_type="IVF_FLAT", # Example index type
                 metric_type="COSINE", # Or L2, IP based on embedding type
                 params={"nlist": 128} # Example param
             )
             
+            # Add index for sparse vector if needed (example, adjust type)
+            # index_params.add_index(
+            #     field_name="sparse",
+            #     index_type="SPARSE_INVERTED_INDEX", # Or other sparse index type
+            #     metric_type="IP"
+            # )
+
             # Create the collection
             client.create_collection(
                 collection_name=collection_name,
