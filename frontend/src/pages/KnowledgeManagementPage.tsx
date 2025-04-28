@@ -370,37 +370,6 @@ const KnowledgeManagementPage: React.FC = () => {
             </SimpleGrid>
           </>
         )}
-
-        {(isLoadingTaskStatus || isTaskRunning) && (
-            <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
-                <CardHeader>
-                    <Heading size='md'>{t('knowledgeManagement.task.title', 'Background Task Status')}</Heading>
-                </CardHeader>
-                <CardBody>
-                    {isLoadingTaskStatus ? (
-                        <Center><Spinner size="md" /></Center>
-                    ) : isTaskRunning && activeTask ? (
-                        <VStack align="stretch" spacing={3}>
-                            <Text>
-                                {t('knowledgeManagement.task.processing', 'Knowledge base update in progress...')}
-                                <Text as='span' fontSize='sm' color='gray.500' ml={2}>
-                                    ({t('knowledgeManagement.task.taskId', 'Task ID: {{id}}', { id: activeTask.task_id })})
-                                </Text>
-                            </Text>
-                            <Progress 
-                                value={taskProgress} 
-                                size='sm' 
-                                colorScheme='blue' 
-                                borderRadius="md"
-                                hasStripe 
-                                isAnimated={taskProgress < 100}
-                             />
-                            <Text fontSize='sm' color='gray.500'>{taskStatusMessage}</Text>
-                        </VStack>
-                    ) : null}
-                </CardBody>
-            </Card>
-        )}
       </VStack>
     </Box>
   );
