@@ -1536,5 +1536,87 @@
       "keyPoint2": "邮件 #{{number}} 的关键点 2",
       "keyPoint3": "邮件 #{{number}} 的关键点 3"
     }
+  },
+  "sharepoint": {
+    "title": "SharePoint 文档",
+    "selectSitePlaceholder": "选择一个站点",
+    "noSitesFound": "未找到站点",
+    "noSitesFoundForFilter": "未找到以字母 {{letter}} 开头的站点",
+    "drivesForSite": "{{siteName}} 的文档库",
+    "noDrivesFound": "未找到文档库",
+    "searchDrivePlaceholder": "搜索文档...",
+    "searchDrive": "搜索文档库",
+    "searchResults": "搜索结果",
+    "noItemsFound": "此文件夹中没有内容",
+    "downloadStartedTitle": "下载已启动",
+    "downloadStartedDesc": "正在下载并处理",
+    "downloadTaskRunningTitle": "已有下载任务",
+    "downloadTaskRunningDesc": "正在处理其他文件，请稍后再试",
+    "downloadTaskProgressTitle": "下载和处理状态",
+    "syncTaskProgressTitle": "同步进度",
+    "syncCompleteTitle": "同步完成",
+    "syncCompleteDesc": "所有项目已成功同步",
+    "syncFailedTitle": "同步失败",
+    "syncFailedDesc": "无法同步一个或多个项目",
+    "syncPartialFailureTitle": "部分同步失败",
+    "syncPartialFailureDesc": "部分项目未能同步",
+    "addToSync": "添加到同步列表",
+    "alreadyInSync": "已在同步列表中",
+    "alreadyInSyncList": "此项目已在同步列表中",
+    "fileTypeNotSupported": "不支持此文件类型",
+    "itemAddedToSync": "{{name}} 已添加到同步列表",
+    "itemRemovedFromSync": "{{name}} 已从同步列表中移除",
+    "syncListEmptyTitle": "同步列表为空",
+    "syncListEmptyDesc": "请先添加要同步的项目",
+    "syncAlreadyInProgress": "同步操作正在进行中",
+    "syncProcessStartedTitle": "同步处理已启动",
+    "syncProcessStartedDesc": "正在处理同步列表项目。任务 ID: {{taskId}}",
+    "tabs": {
+      "browseSites": "浏览站点",
+      "quickAccess": "快速访问",
+      "myRecent": "最近访问",
+      "history": "历史记录"
+    },
+    "history": {
+      "title": "已完成的同步项目",
+      "empty": "没有已完成的同步项目",
+      "driveIdLabel": "文档库 ID:"
+    },
+    "errors": {
+      "fetchSitesTitle": "无法加载站点",
+      "fetchDrivesTitle": "无法加载文档库",
+      "fetchItemsTitle": "无法加载项目",
+      "searchQueryMissing": "请输入搜索内容",
+      "searchFailedTitle": "搜索失败",
+      "downloadFailedTitle": "下载失败",
+      "processSyncListError": "处理同步列表时出错",
+      "noDriveSelected": "未选择文档库"
+    }
+  },
+  "common": {
+    "all": "全部",
+    "filterBy": "筛选",
+    "name": "名称",
+    "modified": "修改时间",
+    "size": "大小",
+    "sync": "同步",
+    "success": "成功",
+    "error": "错误",
+    "taskCompleted": "任务已完成",
+    "taskFailed": "任务失败",
+    "taskID": "任务 ID:",
+    "yes": "是",
+    "no": "否",
+    "noResultsFound": "未找到结果",
+    "unnamedDrive": "未命名文档库",
+    "type": "类型",
+    "notApplicable": "不适用",
+    "status": {
+      "completed": "已完成"
+    },
+    "recommendedActions": {
+      "store": "存储",
+      "exclude": "排除"
+    }
   }
 }
