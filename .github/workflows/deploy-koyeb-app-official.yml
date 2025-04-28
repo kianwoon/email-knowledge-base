@@ -42,6 +42,13 @@ jobs:
         with:
           files: frontend/**
 
+      # +++ Add step to detect general backend changes +++
+      - name: Check for backend changes
+        id: changed_backend_files # Use a distinct ID
+        uses: tj-actions/changed-files@v44
+        with:
+          files: backend/** # Target the entire backend directory
+
       # Re-add Python setup and CLI install
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -61,6 +68,8 @@ jobs:
       # Trigger specific service redeploys
       # Note: Add more services here if needed
       - name: Redeploy Backend Service
+        # +++ Add conditional execution +++
+        if: steps.changed_backend_files.outputs.any_changed == 'true'
         env:
           KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
         run: koyeb service redeploy $KOYEB_APP_NAME/backend-service
