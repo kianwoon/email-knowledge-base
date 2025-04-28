@@ -57,6 +57,7 @@ import { getOpenAIApiKey, saveOpenAIApiKey, getAllApiKeys, getProviderApiKey, sa
 import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/customKnowledge';
 import { ProcessedFile } from '../models/processedFile';
 import axios from 'axios';
+import { keyframes } from '@emotion/react';
 
 // Types for LLM models
 interface LLMModel {
@@ -133,35 +134,30 @@ type ChatMessage = {
 interface ChatMessageItemProps {
   msg: ChatMessage;
   components: any; // Type for ReactMarkdown components object
-  // Add color props needed inside the item
-  userBg: string;
-  assistantBg: string;
-  textColor: string;
 }
 
 // --- Memoized Chat Message Item Component ---
-const ChatMessageItem = memo<ChatMessageItemProps>(({ 
-  msg, 
-  components, 
-  userBg, 
-  assistantBg, 
-  textColor 
-}) => {
-  console.log(`Rendering message: ${msg.content.substring(0, 20)}...`); // Add console log for debugging renders
+const ChatMessageItem = memo<ChatMessageItemProps>(({ msg, components }) => {
+  // Use Chakra's theming system for consistent light/dark mode
+  const userBubbleBg = useColorModeValue('blue.50', 'blue.900');
+  const assistantBubbleBg = useColorModeValue('gray.50', 'gray.700');
+  const bubbleBorderColor = useColorModeValue('gray.200', 'gray.600');
+  const userBubbleBorderColor = useColorModeValue('blue.200', 'blue.700');
+  const timestampColor = useColorModeValue('gray.500', 'gray.400');
+  const messageTextColor = useColorModeValue('gray.800', 'gray.100');
+
   return (
-    <Flex
-      w="full"
-      justify={msg.role === 'user' ? 'flex-end' : 'flex-start'}
-      mb={3}
-    >
+    <Flex w="full" justify={msg.role === 'user' ? 'flex-end' : 'flex-start'} mb={3}>
       <Box
         maxW="80%"
-        bg={msg.role === 'user' ? userBg : assistantBg}
-        color={textColor}
+        bg={msg.role === 'user' ? userBubbleBg : assistantBubbleBg}
+        color={messageTextColor}
         px={4}
-        py={2}
-        borderRadius="lg"
+        py={3}
+        borderRadius="xl"
         boxShadow="sm"
+        borderWidth="1px"
+        borderColor={msg.role === 'user' ? userBubbleBorderColor : bubbleBorderColor}
       >
         <HStack align="flex-start">
           <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
@@ -172,14 +168,28 @@ const ChatMessageItem = memo<ChatMessageItemProps>(({
             >
               {msg.content}
             </ReactMarkdown>
+            <Text fontSize="xs" color={timestampColor} mt={1} textAlign="right">
+              {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
           </Box>
         </HStack>
       </Box>
     </Flex>
   );
 });
-// Add display name for better debugging
 ChatMessageItem.displayName = 'ChatMessageItem';
+
+// Add these animations when defining the JarvisPage component (after all other consts)
+const bounce = keyframes`
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+`;
+
+const typingAnimation = {
+  '&:nth-of-type(1)': { animation: `${bounce} 1s infinite ease-in-out 0s` },
+  '&:nth-of-type(2)': { animation: `${bounce} 1s infinite ease-in-out 0.2s` },
+  '&:nth-of-type(3)': { animation: `${bounce} 1s infinite ease-in-out 0.4s` }
+};
 
 const JarvisPage: React.FC = () => {
   const { t } = useTranslation();
@@ -190,8 +200,6 @@ const JarvisPage: React.FC = () => {
   const boxBgColor = useColorModeValue('white', 'gray.700');
   const tableHoverBg = useColorModeValue('gray.100', 'gray.600');
   const borderColor = useColorModeValue('gray.200', 'gray.700');
-  const userBg = useColorModeValue('blue.50', 'blue.900');
-  const assistantBg = useColorModeValue('gray.100', 'gray.700');
   const textColor = useColorModeValue('gray.800', 'whiteAlpha.900');
   const headingColor = useColorModeValue('gray.700', 'white');
   const inputBg = useColorModeValue('white', 'gray.650');
@@ -574,15 +582,12 @@ const JarvisPage: React.FC = () => {
   // useEffect to scroll chat to bottom
   useEffect(() => {
     if (chatContainerRef.current) {
-      const { scrollHeight, clientHeight, scrollTop } = chatContainerRef.current;
-      // Optional: Only auto-scroll if user isn't scrolled up significantly
-      // You can adjust the threshold (e.g., 100 pixels)
-      // const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
-      // if (!isScrolledUp) {
-          chatContainerRef.current.scrollTop = scrollHeight;
-      // }
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
     }
-  }, [chatHistory]); // Dependency array includes chatHistory
+  }, [chatHistory]);
 
   const handleCustomFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -859,16 +864,46 @@ const JarvisPage: React.FC = () => {
                       key={idx} 
                       msg={msg} 
                       components={markdownComponents} 
-                      userBg={userBg}
-                      assistantBg={assistantBg}
-                      textColor={textColor}
                     />
                   ))}
                   {isLoading && (
                     <Flex w="full" justify="flex-start" mb={3}>
-                      <Box maxW="80%" bg={assistantBg} color={textColor} px={4} py={2} borderRadius="lg" boxShadow="sm">
-                        <HStack>
-                          <Spinner size="xs" />
+                      <Box 
+                        maxW="80%" 
+                        bg={useColorModeValue('gray.50', 'gray.700')} 
+                        color={useColorModeValue('gray.800', 'gray.100')} 
+                        px={4} 
+                        py={3} 
+                        borderRadius="xl" 
+                        boxShadow="sm"
+                        borderWidth="1px"
+                        borderColor={useColorModeValue('gray.200', 'gray.600')}
+                      >
+                        <HStack align="center" spacing={3}>
+                          <Icon as={FaRobot} />
+                          <HStack spacing={1} align="center">
+                            <Box
+                              w="8px"
+                              h="8px"
+                              borderRadius="full"
+                              bg={useColorModeValue('blue.500', 'blue.200')}
+                              sx={typingAnimation}
+                            />
+                            <Box
+                              w="8px"
+                              h="8px"
+                              borderRadius="full"
+                              bg={useColorModeValue('blue.500', 'blue.200')}
+                              sx={typingAnimation}
+                            />
+                            <Box
+                              w="8px"
+                              h="8px"
+                              borderRadius="full"
+                              bg={useColorModeValue('blue.500', 'blue.200')}
+                              sx={typingAnimation}
+                            />
+                          </HStack>
                           <Text fontSize="sm" fontStyle="italic">{t('jarvis.thinking', 'Jarvis is thinking...')}</Text>
                         </HStack>
                       </Box>
