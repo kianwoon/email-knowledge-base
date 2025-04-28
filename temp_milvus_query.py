@@ -32,8 +32,8 @@ logger.info(f"Starting Milvus search script... Loaded .env from: {dotenv_path}")
 
 # --- Configuration ---
 COLLECTION_NAME = "kianwoon_wong_int_beyondsoft_com_knowledge_base_bm" # Replace with your actual collection name if different
-SEARCH_TERM = "monetary authority of singapore" # The term to search for
-SEARCH_LIMIT = 5 # Increase limit slightly to see more potential matches
+SEARCH_TERM = "document" # Use a generic term to try and retrieve all chunks
+SEARCH_LIMIT = 10 # Increase limit to capture all reported points
 
 # Initialize embedding model directly
 try:

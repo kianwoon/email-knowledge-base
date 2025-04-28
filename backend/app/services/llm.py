@@ -12,7 +12,9 @@ from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
 from app.models.user import User # Assuming User model is here
 # Import RAG components - Updated for Milvus
-from app.services.embedder import create_embedding, search_milvus_knowledge, rerank_results, create_retrieval_embedding
+from app.services.embedder import create_embedding, search_milvus_knowledge_hybrid, rerank_results, create_retrieval_embedding
+# Keep the old dense search function imported in case it's used elsewhere or for future reference
+from app.services.embedder import search_milvus_knowledge
 # Removed: search_qdrant_knowledge, search_qdrant_knowledge_sparse
 from app.crud import api_key_crud # Import API key CRUD
 from fastapi import HTTPException, status # Import HTTPException
@@ -716,63 +718,138 @@ async def get_rate_card_response_advanced(
         user_client = AsyncOpenAI(api_key=user_openai_key, timeout=30.0)
         chat_model = settings.OPENAI_MODEL_NAME
         logger.debug("RateCardRAG: Analyzing query for key features...")
-        analysis_prompt = (f"Analyze the following rate card query: '{message}'. Extract key features like role, experience level (e.g., junior, mid, senior, principal), specific skills mentioned, location/region (if any), and requested dollar amount (if any). Return a JSON object with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer). If a feature is not mentioned, use null or an empty list.")
-        analysis_response = await user_client.chat.completions.create(model=chat_model,messages=[{"role": "system", "content": "You are a query analyzer specializing in rate card requests."},{"role": "user", "content": analysis_prompt}],response_format={"type": "json_object"},temperature=0.0)
+        # MODIFIED: Updated analysis prompt for better entity extraction
+        analysis_prompt = (
+            f"Analyze the user query: '{message}'. "
+            "Your goal is to extract key details to find the correct document and information within it. "
+            "Identify:\n"
+            "1. The **main subject** or **entity** the query is about (e.g., a client name like 'MAS' or 'GIC', a specific project, or a general role). This will be the 'role' field.\n"
+            "2. Any specified **experience level** (e.g., junior, senior).\n"
+            "3. Any specific **skills** mentioned.\n"
+            "4. Any specified **location** or region.\n"
+            "5. Any specific **dollar amount** mentioned.\n"
+            "6. The **type of document** likely requested (e.g., 'rate card', 'SOW', 'LOA', 'general info', 'unknown').\n\n"
+            "Return a JSON object with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer), 'document_type'. "
+            "Prioritize identifying the 'role' (main subject/entity) accurately. "
+            "If a feature is not mentioned or unclear, use null or an empty list/string or 'unknown' for document_type.\n"
+            "\nExample 1:\nQuery: Show the MAS rate card\nOutput: {\"role\": \"MAS\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
+            "Example 2:\nQuery: What is the rate for a senior GIC developer?\nOutput: {\"role\": \"GIC developer\", \"experience\": \"senior\", \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
+            "Example 3:\nQuery: Tell me about the Beyondsoft SOW\nOutput: {\"role\": \"Beyondsoft\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"SOW\"}"
+        )
+        analysis_response = await user_client.chat.completions.create(
+            model=chat_model,
+            messages=[
+                # MODIFIED: System prompt slightly adjusted
+                {"role": "system", "content": "You accurately extract key features (especially the main subject/role and document type) from user queries according to instructions and return JSON."},
+                {"role": "user", "content": analysis_prompt}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
         query_features = json.loads(analysis_response.choices[0].message.content)
         logger.debug(f"RateCardRAG: Extracted query features: {query_features}")
+        
+        # Extract requested document type
+        requested_doc_type = query_features.get('document_type')
+        if requested_doc_type == 'unknown': requested_doc_type = None # Treat unknown as None
+
+        # 3. Construct Multi-Vector Retrieval Queries
         retrieval_queries = []
+        # MODIFIED: Construct base query including document type
         base_query_parts = [query_features.get(k) for k in ['role', 'experience', 'location'] if query_features.get(k)]
-        if query_features.get('skills'): base_query_parts.extend(query_features['skills'])
-        base_query = " ".join(base_query_parts) if base_query_parts else message
+        if query_features.get('skills'):
+            base_query_parts.extend(query_features['skills'])
+        # Add the document type if identified and not None/empty
+        if requested_doc_type:
+            base_query_parts.append(requested_doc_type)
+            
+        # Filter out None or empty strings before joining
+        filtered_parts = [part for part in base_query_parts if part]
+        base_query = " ".join(filtered_parts) if filtered_parts else message # Fallback to original message if no parts
         retrieval_queries.append(base_query)
-        logger.debug(f"RateCardRAG: Base retrieval query: {base_query}")
-        if query_features.get('role') and query_features.get('experience'): role_exp_query = f"{query_features['role']} {query_features['experience']}"; retrieval_queries.append(role_exp_query); logger.debug(f"RateCardRAG: Role/Experience query: {role_exp_query}")
-        if query_features.get('skills'): skills_query = " ".join(query_features['skills']); retrieval_queries.append(skills_query); logger.debug(f"RateCardRAG: Skills query: {skills_query}")
+        logger.debug(f"RateCardRAG: Refined base retrieval query: {base_query}")
+        
+        # Additional queries (e.g., focusing only on role and experience)
+        # Consider if these should also include doc_type?
+        if query_features.get('role') and query_features.get('experience'):
+            role_exp_query = f"{query_features['role']} {query_features['experience']}"
+            # Optionally add doc_type here too? 
+            # if requested_doc_type: role_exp_query += f" {requested_doc_type}"
+            retrieval_queries.append(role_exp_query)
+            logger.debug(f"RateCardRAG: Role/Experience query: {role_exp_query}")
+        # Consider adding queries focusing only on skills if present
+        if query_features.get('skills'):
+            skills_query = " ".join(query_features['skills'])
+            # Optionally add doc_type here too?
+            # if requested_doc_type: skills_query += f" {requested_doc_type}"
+            retrieval_queries.append(skills_query)
+            logger.debug(f"RateCardRAG: Skills query: {skills_query}")
+            
+        # Deduplicate retrieval queries
         retrieval_queries = list(set(retrieval_queries))
         logger.debug(f"RateCardRAG: Final unique retrieval queries: {retrieval_queries}")
+
+        # 4. Generate Embeddings (potentially HyDE for each query)
         query_vectors = []
         hyde_docs = {}
         for q in retrieval_queries:
-            hyde_doc = q
+            # Optional: Generate HyDE doc for each retrieval query
+            hyde_doc = q # Default if HyDE fails
             try:
-                hyde_msgs = [{"role": "system", "content": "Generate a concise, factual hypothetical rate card document answering the query."}, {"role": "user", "content": q}]
+                # MODIFIED: Adjust HyDE prompt based on document type if available
+                hyde_system_prompt = "Generate a concise, factual hypothetical document answering the query."
+                if requested_doc_type and requested_doc_type != 'general info':
+                    hyde_system_prompt = f"Generate a concise, factual hypothetical **{requested_doc_type}** document snippet answering the query."
+                    
+                hyde_msgs = [
+                    {"role": "system", "content": hyde_system_prompt}, 
+                    {"role": "user", "content": q}
+                ]
                 hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
                 gen_doc = hyde_resp.choices[0].message.content.strip()
                 if gen_doc: hyde_doc = gen_doc
-            except Exception: pass
+            except Exception: pass # Ignore HyDE failure for individual queries
+            
+            # Create embedding using the HyDE document (or original query if HyDE failed)
             embedding = await create_retrieval_embedding(hyde_doc, field='dense')
             query_vectors.append(embedding)
-            logger.debug(f"RateCardRAG: Generated embedding for query: '{q}' (using HyDE: {hyde_doc[:50]}...)")
+            # MODIFIED: Log the actual text used for embedding (HyDE or query)
+            logger.debug(f"RateCardRAG: Generated embedding for query: '{q}' (using text: {hyde_doc[:50]}...)")
+
+        # 5. Perform Multi-Vector Search in Milvus
         k_per_query = int(getattr(settings, 'RATE_CARD_RESULTS_PER_QUERY', 3))
         all_search_results = [] 
-        search_filter = None 
-        for i, vector in enumerate(query_vectors):
-            logger.debug(f"RateCardRAG: Searching with vector {i+1} for query: '{retrieval_queries[i]}'")
+        search_filter = None # Filter logic can be added here if needed later
+
+        # MODIFIED: Call the new hybrid search function for each query vector
+        for i, q in enumerate(retrieval_queries):
+            logger.debug(f"RateCardRAG: Performing HYBRID search for query: '{q}'")
+            # Determine target collection name (RAG collection)
             sanitized_email = user.email.replace('@', '_').replace('.', '_')
             target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-            results = await search_milvus_knowledge(collection_name=target_collection_name, query_texts=[hyde_doc], limit=k_per_query, filter_expr=search_filter)
-            single_query_results = results[0] if results else []
-            all_search_results.extend(single_query_results)
-            logger.debug(f"RateCardRAG: Found {len(results)} results for vector {i+1}.")
-        logger.info(f"RateCardRAG: Total raw results from multi-vector search: {len(all_search_results)}")
-        unique_results = {res['id']: res for res in all_search_results}
-        ranked_results = list(unique_results.values())
-        logger.info(f"RateCardRAG: Unique results after deduplication: {len(ranked_results)}")
-        if ranked_results:
-            logger.debug("RateCardRAG: Re-ranking based on original query similarity...")
-            original_query_embedding = await create_retrieval_embedding(message, field='dense')
-            for result in ranked_results:
-                result_embedding = result.get('vector')
-                result_text = json.dumps(result.get('payload', {}))
-                if result_embedding: similarity = cos_sim(original_query_embedding, result_embedding)
-                else: result_embedding_rerank = await create_retrieval_embedding(result_text, field='dense'); similarity = cos_sim(original_query_embedding, result_embedding_rerank)
-                result['rerank_score'] = similarity 
-                logger.debug(f"RateCardRAG: Result ID {result['id']} rerank similarity: {similarity:.4f}")
-            ranked_results.sort(key=lambda x: x.get('rerank_score', 0.0), reverse=True)
-            logger.debug("RateCardRAG: Completed re-ranking.")
+            
+            # Call the hybrid function (assuming it takes query_text, not pre-computed vectors)
+            hybrid_results = await search_milvus_knowledge_hybrid(
+                query_text=q, # Pass the actual query text
+                collection_name=target_collection_name,
+                limit=k_per_query, 
+                filter_expr=search_filter
+                # Pass dense/sparse params if needed
+            )
+            # The hybrid function returns a single list of fused results for the query
+            all_search_results.extend(hybrid_results) 
+            logger.debug(f"RateCardRAG: Found {len(hybrid_results)} fused results for query '{q}'.")
+            
+        logger.info(f"RateCardRAG: Total raw results from hybrid searches: {len(all_search_results)}")
+
+        # 6. Deduplicate and Re-rank Results (No change needed here, works on the combined list)
+        unique_results = {res['id']: res for res in all_search_results} 
+
+        # 7. Context Selection & Formatting (Select top N re-ranked results)
+        # This part now uses the results reranked by the cross-encoder
         final_context_limit = int(getattr(settings, 'RATE_CARD_FINAL_CONTEXT_LIMIT', 5))
         context_parts = []
-        for res in ranked_results[:final_context_limit]:
+        for res in unique_results.values():
             doc_id = res.get('id', 'N/A')
             # Use 'content' field directly as returned by search_milvus_knowledge
             doc_content = res.get('content', '') 
@@ -792,7 +869,7 @@ async def get_rate_card_response_advanced(
         
         context = "\n\n".join(context_parts)
         # context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res.get('content'))}" for res in ranked_results[:final_context_limit]]) # Original line
-        logger.debug(f"RateCardRAG: Formatted final context (top {len(ranked_results[:final_context_limit])}):\n{context[:500]}...")
+        logger.debug(f"RateCardRAG: Formatted final context (top {len(unique_results.values())}):\n{context[:500]}...")
 
         # 8. Generate Final Response using LLM
         # MODIFIED: Update system prompt to instruct citation
