@@ -20,6 +20,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for changed-files action to compare commits
+
+      # Add step to detect changes in specific backend directories
+      - name: Check for worker-related backend changes
+        id: changed_worker_files
+        uses: tj-actions/changed-files@v44 # Use a specific version
+        with:
+          files: |
+            backend/services/**
+            backend/tasks/**
+            backend/requirements.txt
+            backend/app/celery_app.py
+            backend/app/config.py
 
       # Re-add Python setup and CLI install
       - name: Set up Python
@@ -45,6 +59,8 @@ jobs:
         run: koyeb service redeploy $KOYEB_APP_NAME/backend-service
 
       - name: Redeploy Celery Worker Service
+        # Only run if files in services/ or tasks/ changed
+        if: steps.changed_worker_files.outputs.any_changed == 'true'
         env:
           KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
         run: koyeb service redeploy $KOYEB_APP_NAME/celery-worker
