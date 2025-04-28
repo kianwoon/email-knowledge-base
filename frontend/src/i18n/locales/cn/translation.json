@@ -1017,7 +1017,11 @@
     "size": "大小",
     "modified": "修改时间",
     "lastModified": "最后修改时间",
-    "addedOn": "添加时间"
+    "addedOn": "添加时间",
+    "active": "活动的",
+    "inactive": "非活动的",
+    "refresh": "刷新数据",
+    "notAvailable": "不可用"
   },
   "deleteConfirmation": "您确定要删除此项吗？",
   "deleteSuccess": "项目删除成功。",
@@ -1204,5 +1208,194 @@
         "Azure": "容器",
         "SharePoint": "驱动器ID"
     }
+  },
+  "tokenManagement": {
+    "title": "管理 API 令牌",
+    "errors": {
+      "loadFailed": "加载令牌失败。请尝试刷新页面。"
+    }
+  },
+  "tokenManagementPage": {
+    "subtitle": "创建和管理用于共享知识的访问令牌",
+    "searchPlaceholder": "按名称或描述搜索...",
+    "createTokenButton": "创建令牌",
+    "tabs": {
+      "active": "活动的",
+      "inactive": "非活动的"
+    },
+    "noActiveTokensSearch": "未找到与您的搜索匹配的活动令牌。",
+    "noActiveTokens": "未找到活动令牌。",
+    "noInactiveTokensSearch": "未找到与您的搜索匹配的非活动令牌。",
+    "noInactiveTokens": "未找到非活动令牌。",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "sensitivity": "敏感度",
+      "status": "状态",
+      "expiry": "到期时间",
+      "actions": "操作"
+    },
+    "actions": {
+      "edit": "编辑令牌",
+      "delete": "删除令牌"
+    },
+    "deleteDialog": {
+      "title": "删除令牌",
+      "message": "您确定要删除此令牌吗？此操作无法撤销。"
+    },
+    "toast": {
+      "deleteSuccessTitle": "令牌已删除",
+      "deleteErrorTitle": "删除失败",
+      "deleteErrorDescription": "无法删除令牌。"
+    }
+  },
+  "sidebar": {
+    "dashboard": "Dashboard",
+    "emailAnalysis": "Email Analysis",
+    "knowledgeManagement": "Knowledge Management",
+    "apiTokenManagement": "API Token Management",
+    "reviewQueue": "Review Queue",
+    "settings": "Settings"
+  },
+  "knowledgeManagement": {
+    "title": "知识库概览",
+    "summaryTitle": "数据摘要",
+    "summary": {
+        "lastUpdated": "最后更新: {{time}}",
+        "rawDataLabel": "邮件原始数据",
+        "processedFileSource": "来源: 已处理文件 (类型: {{type}})",
+        "sharepointRawDataLabel": "SharePoint 原始数据",
+        "s3RawDataLabel": "AWS S3 原始数据",
+        "azureBlobRawDataLabel": "Azure Blob 原始数据",
+        "customRawDataLabel": "自定义原始数据",
+        "vectorDataLabel": "向量数据项",
+        "vectorDataSource": "来源: {{vectorCollection}}",
+        "tokenLabel": "API 访问令牌",
+        "tokenHelp": "{{count}} 个活动"
+    },
+    "errors": {
+      "loadFailed": "加载页面数据失败。请重试。",
+      "taskCheckFailed": "检查活动后台任务失败。"
+    },
+    "task": {
+      "title": "后台任务状态",
+      "processing": "知识库更新正在进行中...",
+      "taskId": "任务 ID: {{id}}",
+      "calculating": "计算中...",
+      "pending": "任务待处理...",
+      "started": "任务已开始..."
+    }
+  },
+  "jarvis": {
+    "title": "贾维斯智能助手",
+    "welcomeMessage": "你好！我是贾维斯，你的AI助手。今天我能帮你什么？",
+    "chat": "对话",
+    "thinking": "贾维斯正在思考...",
+    "loadingApiKeys": "正在加载API密钥...",
+    "apiKeySaved": "API密钥已保存",
+    "apiKeySavedDesc": "您的{{provider}} API密钥已成功保存。",
+    "apiKeySaveError": "保存API密钥时出错",
+    "apiKeyDeleted": "API密钥已删除",
+    "apiKeyDeletedDesc": "您的{{provider}} API密钥已被删除。",
+    "apiKeyDeleteError": "删除API密钥时出错",
+    "continueWithoutKeys": "您可以在没有保存API密钥的情况下继续。",
+    "addKnowledge": "添加知识",
+    "snippetTagLabel": "标签（可选）",
+    "snippetTagPlaceholder": "例如：GIC 费率卡",
+    "snippetTagHelper": "可选：分配小写标签，以便您可以在查询中使用 `tag:<your_tag>` 检索此片段。",
+    "snippetPlaceholder": "输入要添加到知识库的文本...",
+    "submitSnippet": "提交",
+    "addKnowledgeSuccess": "知识已添加",
+    "addKnowledgeDesc": "您的文本已添加到知识库。",
+    "settings": "设置",
+    "settingsTitle": "API设置",
+    "settingsContent": {
+      "modelSelection": "模型选择",
+      "modelDescription": "选择用于对话的AI模型。需要API密钥的模型仅在保存相应密钥后可用。",
+      "model": "模型",
+      "modelDefaultHelp": "所选模型将用于新的对话会话。您可以随时更改。",
+      "apiKeyTitle": "API密钥",
+      "apiKey": "API密钥",
+      "apiKeyPlaceholder": "请输入API密钥",
+      "apiKeyHelp": "需要用于如OpenAI、Anthropic、Google等模型。",
+      "openaiApiKeyDescription": "输入您的OpenAI API密钥以启用OpenAI模型。",
+      "openaiApiKeyHelp": "适用于如GPT-3.5、GPT-4等模型。",
+      "anthropicApiKeyDescription": "输入您的Anthropic API密钥以启用Anthropic模型。",
+      "anthropicApiKeyHelp": "适用于如Claude 3等模型。",
+      "googleApiKeyDescription": "输入您的Google API密钥以启用Gemini模型。",
+      "googleApiKeyHelp": "适用于如Gemini 1.5等模型。"
+    },
+    "setAsDefault": "设为默认",
+    "defaultModelSaved": "默认模型已保存",
+    "defaultModelSavedDesc": "您的默认模型偏好已保存。",
+    "defaultModelError": "保存默认模型时出错",
+    "apiKeyDescription": "如需使用某些模型，请提供相应服务商的API密钥：",
+    "apiKeySet": "API密钥已设置",
+    "delete": "删除",
+    "deleteApiKeyTooltip": "删除已保存的密钥",
+    "saveApiKeyTooltip": "保存此密钥",
+    "requiresKey": "需要API密钥"
+  },
+  "customKnowledge": {
+    "uploadTab": "自定义知识上传",
+    "uploadTitle": "上传自定义知识文件",
+    "selectFiles": "选择文件",
+    "uploadHelp": "允许类型：pdf, doc, docx, xls, xlsx, pptx, ppt, csv, txt。每个文件最大20MB。",
+    "filesToUpload": "待上传文件",
+    "noFilesSelected": "尚未选择文件。",
+    "process": "处理所选文件",
+    "historyTab": "上传历史",
+    "historyTitle": "上传历史",
+    "filename": "文件名",
+    "size": "大小",
+    "status": "状态",
+    "uploadedAt": "上传时间",
+    "noHistory": "未找到上传历史。",
+    "duplicateFile": "该文件已被处理。如需重新上传，请重命名文件。",
+    "uploadSuccess": "文件上传成功",
+    "uploadFailed": "部分文件上传失败"
+  },
+  "common": {
+    "send": "发送",
+    "actions": "操作",
+    "remove": "移除",
+    "save": "保存",
+    "retry": "重试",
+    "error": "错误"
+  },
+  "tokenUsage": {
+    "title": "令牌使用情况",
+    "description": "查看和分析您的令牌使用统计数据。",
+    "selectRange": "选择范围",
+    "allTime": "全部时间",
+    "today": "今天",
+    "last7Days": "最近7天",
+    "last30Days": "最近30天",
+    "customRange": "自定义范围",
+    "selectToken": "选择令牌",
+    "allTokens": "全部令牌",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "errorEndDateBeforeStart": "结束日期不能早于开始日期。",
+    "errorFetching": "获取令牌使用数据失败。",
+    "errorFetchingTimeSeries": "获取时间序列数据失败。",
+    "chartTitle": "使用趋势",
+    "chartLineName": "使用次数",
+    "noChartData": "所选范围内没有可用的图表数据。",
+    "tableTitle": "令牌使用表",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "preview": "预览",
+      "usageCount": "使用次数",
+      "lastUsed": "最后使用",
+      "noData": "暂无数据。",
+      "noDataForToken": "所选令牌暂无数据。"
+    }
+  },
+  "common": {
+    "loading": "加载中",
+    "error": "错误",
+    "never": "从未"
   }
 }

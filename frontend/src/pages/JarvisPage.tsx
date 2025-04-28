@@ -821,43 +821,31 @@ const JarvisPage: React.FC = () => {
                   </Heading>
                   <FormControl mb={4}>
                     <FormLabel htmlFor="custom-knowledge-upload" srOnly>
-                      {t('customKnowledge.selectFiles', 'Select Files')}
+                      {t('customKnowledge.selectFiles', '选择文件')}
                     </FormLabel>
-                    <Input
-                      id="custom-knowledge-upload"
-                      type="file"
-                      multiple
-                      accept={ALLOWED_EXTENSIONS.map(ext => '.' + ext).join(',')}
-                      onChange={handleCustomFileSelect}
-                      disabled={customUploadLoading}
-                      p={1.5}
-                      bg={inputBg}
-                      borderColor={borderColor}
-                      sx={{
-                          '::file-selector-button': {
-                            border: 'none',
-                            outline: 'none',
-                            mr: 2,
-                            bg: useColorModeValue('gray.100', 'gray.600'),
-                            px: 3,
-                            py: 1.5,
-                            borderRadius: 'md',
-                            fontSize: 'sm',
-                            cursor: 'pointer',
-                            _hover: { bg: useColorModeValue('gray.200', 'gray.500') }
-                          },
-                      }}
-                    />
-                     <FormHelperText mt={2}>
-                       {t('customKnowledge.uploadHelp', `Allowed types: ${ALLOWED_EXTENSIONS.join(', ')}. Max size: ${formatFileSize(MAX_FILE_SIZE)} per file.`)}
-                     </FormHelperText>
+                    <Button as="label" htmlFor="custom-knowledge-upload" colorScheme="blue" mb={2}>
+                      {t('customKnowledge.selectFiles', '选择文件')}
+                      <Input
+                        id="custom-knowledge-upload"
+                        type="file"
+                        multiple
+                        accept={ALLOWED_EXTENSIONS.map(ext => '.' + ext).join(',')}
+                        onChange={handleCustomFileSelect}
+                        display="none"
+                      />
+                    </Button>
+                    <FormHelperText mt={2}>
+                      {t('customKnowledge.uploadHelp', `允许类型：${ALLOWED_EXTENSIONS.join(', ')}。每个文件最大${formatFileSize(MAX_FILE_SIZE)}。`)}
+                    </FormHelperText>
                   </FormControl>
-                  {customUploadError && (
-                    <Alert status="error" mt={2} borderRadius="md">
-                      <AlertIcon />
-                      {customUploadError}
-                    </Alert>
-                  )}
+                  {/* Display selected file names or 'no files selected' */}
+                  <Box mb={4} color="gray.500">
+                    {customFiles.length === 0
+                      ? t('customKnowledge.noFilesSelected', '尚未选择文件。')
+                      : customFiles.map((file, idx) => (
+                          <Text key={idx}>{file.name}</Text>
+                        ))}
+                  </Box>
                   
                   <Heading size="sm" mt={6} mb={2} color={headingColor}>
                     {t('customKnowledge.filesToUpload', 'Files Ready for Upload')} ({customFiles.length})

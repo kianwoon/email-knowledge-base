@@ -312,25 +312,25 @@ const TokenUsagePage: React.FC = () => {
     <Box py={5} px={{ base: 2, md: 4 }} maxW="1200px" margin="auto">
       <style>{DatePickerWrapperStyles}</style>
       <VStack spacing={6} align="stretch">
-        <Heading as="h1" size="lg">{t('tokenUsage.title')}</Heading>
-        <Text>{t('tokenUsage.description')}</Text>
+        <Heading as="h1" size="lg">{t('tokenUsage.title', 'Token Usage')}</Heading>
+        <Text>{t('tokenUsage.description', 'View and analyze your token usage statistics.')}</Text>
         <Box p={4} borderWidth="1px" borderRadius="md" borderColor={tableBorderColor} bg={tableBg}>
             <VStack align="stretch" spacing={3}>
                 <HStack justify="space-between" spacing={4} flexWrap="wrap">
                     <HStack spacing={2} align="center">
-                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectRange')}:</Text>
+                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectRange', 'Select Range')}:</Text>
                     <ButtonGroup isAttached variant="outline" size="sm">
-                        <Button onClick={() => handleRangeChange('all')} isActive={Boolean(selectedRange === 'all')}>{t('tokenUsage.allTime')}</Button>
-                        <Button onClick={() => handleRangeChange('today')} isActive={Boolean(selectedRange === 'today')}>{t('tokenUsage.today')}</Button>
-                        <Button onClick={() => handleRangeChange('7d')} isActive={Boolean(selectedRange === '7d')}>{t('tokenUsage.last7Days')}</Button>
-                        <Button onClick={() => handleRangeChange('30d')} isActive={Boolean(selectedRange === '30d')}>{t('tokenUsage.last30Days')}</Button>
-                        <Button onClick={() => handleRangeChange('custom')} isActive={Boolean(selectedRange === 'custom')}>{t('tokenUsage.customRange')}</Button>
+                        <Button onClick={() => handleRangeChange('all')} isActive={Boolean(selectedRange === 'all')}>{t('tokenUsage.allTime', 'All Time')}</Button>
+                        <Button onClick={() => handleRangeChange('today')} isActive={Boolean(selectedRange === 'today')}>{t('tokenUsage.today', 'Today')}</Button>
+                        <Button onClick={() => handleRangeChange('7d')} isActive={Boolean(selectedRange === '7d')}>{t('tokenUsage.last7Days', 'Last 7 Days')}</Button>
+                        <Button onClick={() => handleRangeChange('30d')} isActive={Boolean(selectedRange === '30d')}>{t('tokenUsage.last30Days', 'Last 30 Days')}</Button>
+                        <Button onClick={() => handleRangeChange('custom')} isActive={Boolean(selectedRange === 'custom')}>{t('tokenUsage.customRange', 'Custom Range')}</Button>
                     </ButtonGroup>
                     </HStack>
                     <HStack spacing={2} align="center">
-                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectToken')}:</Text>
+                    <Text fontWeight="medium" whiteSpace="nowrap">{t('tokenUsage.selectToken', 'Select Token')}:</Text>
                     <Select size="sm" value={selectedTokenId} onChange={handleTokenChange} minW="200px" isDisabled={Boolean(loading || error || usageData.length === 0)}>
-                        <option value="all">{t('tokenUsage.allTokens')}</option>
+                        <option value="all">{t('tokenUsage.allTokens', 'All Tokens')}</option>
                         {!loading && !error && usageData.map(token => (
                         <option key={token.token_id} value={token.token_id.toString()}>{token.token_name} ({token.token_preview})</option>
                         ))}
@@ -340,11 +340,11 @@ const TokenUsagePage: React.FC = () => {
                 {selectedRange === 'custom' && (
                     <HStack spacing={4} pt={2}>
                     <FormControl id="customStartDate" w="auto">
-                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.startDate')}:</FormLabel>
+                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.startDate', 'Start Date')}:</FormLabel>
                         <DatePicker selected={customStartDate} onChange={(date: Date | null) => setCustomStartDate(date)} selectsStart startDate={customStartDate} endDate={customEndDate} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" maxDate={new Date()} />
                     </FormControl>
                     <FormControl id="customEndDate" w="auto">
-                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.endDate')}:</FormLabel>
+                        <FormLabel fontSize="sm" mb={1}>{t('tokenUsage.endDate', 'End Date')}:</FormLabel>
                         <DatePicker selected={customEndDate} onChange={(date: Date | null) => setCustomEndDate(date)} selectsEnd startDate={customStartDate} endDate={customEndDate} minDate={customStartDate ? customStartDate : undefined} maxDate={new Date()} dateFormat="yyyy-MM-dd" placeholderText="YYYY-MM-DD" />
                     </FormControl>
                     </HStack>
@@ -352,7 +352,7 @@ const TokenUsagePage: React.FC = () => {
             </VStack>
         </Box>
         <Box p={4} borderWidth="1px" borderRadius="md" borderColor={tableBorderColor} bg={tableBg}>
-          <Heading size="md" mb={4}>{t('tokenUsage.chartTitle')}</Heading>
+          <Heading size="md" mb={4}>{t('tokenUsage.chartTitle', 'Usage Over Time')}</Heading>
           {timeSeriesLoading && (
             <Center h="300px"><Spinner /></Center>
           )}
@@ -360,7 +360,7 @@ const TokenUsagePage: React.FC = () => {
             <Center h="300px"><Text color="red.500">{timeSeriesError}</Text></Center>
           )}
           {!timeSeriesLoading && !timeSeriesError && timeSeriesData.length === 0 && (
-            <Center h="300px"><Text color="gray.500">{t('tokenUsage.noChartData')}</Text></Center>
+            <Center h="300px"><Text color="gray.500">{t('tokenUsage.noChartData', 'No chart data available for the selected range.')}</Text></Center>
           )}
           {!timeSeriesLoading && !timeSeriesError && timeSeriesData.length > 0 && (
             <Box height="300px">
@@ -374,18 +374,18 @@ const TokenUsagePage: React.FC = () => {
                     <YAxis allowDecimals={false} />
                     <Tooltip />
                     <Legend />
-                    <Line type="monotone" dataKey="usage_count" name={t('tokenUsage.chartLineName')} stroke={chartStrokeColor} strokeWidth={2} activeDot={{ r: 8 }} />
+                    <Line type="monotone" dataKey="usage_count" name={t('tokenUsage.chartLineName', 'Usage Count')} stroke={chartStrokeColor} strokeWidth={2} activeDot={{ r: 8 }} />
                 </LineChart>
                 </ResponsiveContainer>
             </Box>
           )}
         </Box>
         <Box>
-            <Heading size="md" mb={4}>{t('tokenUsage.tableTitle')}</Heading>
+            <Heading size="md" mb={4}>{t('tokenUsage.tableTitle', 'Token Usage Table')}</Heading>
             {loading && (
             <Box textAlign="center" p={10}>
                 <Spinner size="xl" />
-                <Text mt={2}>{t('common.loading')}</Text>
+                <Text mt={2}>{t('common.loading', 'Loading')}</Text>
             </Box>
             )}
             {error && !loading && (
@@ -398,11 +398,11 @@ const TokenUsagePage: React.FC = () => {
                 <Table variant="simple">
                 <Thead>
                     <Tr>
-                    <SortableTh columnKey="token_name">{t('tokenUsage.table.name')}</SortableTh>
-                    <SortableTh columnKey="token_description">{t('tokenUsage.table.description')}</SortableTh>
-                    <SortableTh columnKey="token_preview">{t('tokenUsage.table.preview')}</SortableTh>
-                    <SortableTh columnKey="usage_count" isNumeric>{t('tokenUsage.table.usageCount')}</SortableTh>
-                    <SortableTh columnKey="last_used_at_date">{t('tokenUsage.table.lastUsed')}</SortableTh>
+                    <SortableTh columnKey="token_name">{t('tokenUsage.table.name', 'Name')}</SortableTh>
+                    <SortableTh columnKey="token_description">{t('tokenUsage.table.description', 'Description')}</SortableTh>
+                    <SortableTh columnKey="token_preview">{t('tokenUsage.table.preview', 'Preview')}</SortableTh>
+                    <SortableTh columnKey="usage_count" isNumeric>{t('tokenUsage.table.usageCount', 'Usage Count')}</SortableTh>
+                    <SortableTh columnKey="last_used_at_date">{t('tokenUsage.table.lastUsed', 'Last Used')}</SortableTh>
                     </Tr>
                 </Thead>
                 <Tbody>
@@ -410,8 +410,8 @@ const TokenUsagePage: React.FC = () => {
                     <Tr>
                         <Td colSpan={5} textAlign="center">
                         {selectedTokenId === 'all' 
-                            ? t('tokenUsage.table.noData') 
-                            : t('tokenUsage.table.noDataForToken')} 
+                            ? t('tokenUsage.table.noData', 'No data available.') 
+                            : t('tokenUsage.table.noDataForToken', 'No data for the selected token.')} 
                         </Td>
                     </Tr>
                     ) : (
@@ -426,7 +426,7 @@ const TokenUsagePage: React.FC = () => {
                         <Td>
                             {token.last_used_at 
                             ? format(parseISO(token.last_used_at), 'yyyy-MM-dd HH:mm:ss')
-                            : t('common.never')}
+                            : t('common.never', 'Never')}
                         </Td>
                         </Tr>
                     ))
