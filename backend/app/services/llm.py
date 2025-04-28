@@ -535,20 +535,49 @@ async def generate_openai_rag_response(
 
         # --- 3. Intermediate LLM Call for Context Selection/Synthesis (UPDATED prompt) ---
         logger.debug("Performing intermediate LLM call for context selection/synthesis...")
+
+        # Define the maximum number of results to include in the LLM context
+        MAX_MILVUS_CONTEXT_ITEMS = 3
+        MAX_EMAIL_CONTEXT_ITEMS = 2
+        MAX_CALENDAR_CONTEXT_ITEMS = 5 # Keep calendar context potentially larger
+
+        # Prepare limited context strings
+        limited_milvus_context = "\n\n---\n\n".join([
+            f"Document ID: {res['id']}\nContent: {json.dumps(res['payload'])}"
+            # Apply limit here using the fetched ranked_results from _get_milvus_context
+            for res in ranked_results[:MAX_MILVUS_CONTEXT_ITEMS]
+        ]) if 'ranked_results' in locals() else retrieved_milvus_context # Fallback if needed, though unlikely
+
+        limited_email_context = "\n\n---\n\n".join([
+            f"Email ID: {email.get('message_id')}\n"
+            f"Received: {email.get('received_datetime_utc')}\n"
+            f"Sender: {email.get('sender')}\n"
+            f"Subject: {email.get('subject')}\n"
+            f"Tags: {email.get('generated_tags')}\n"
+            f"Snippet: {email.get('body_snippet', '')}"
+            # Apply limit here using the fetched email_results from _get_email_context
+            for email in email_results[:MAX_EMAIL_CONTEXT_ITEMS]
+        ]) if 'email_results' in locals() else retrieved_email_context # Fallback
+
+        # Calendar context limit (if needed - assuming it's less likely to exceed limits)
+        # We can use the existing retrieved_calendar_context directly or limit it similarly if required.
+        # For now, we use the full retrieved_calendar_context but keep the variable for consistency.
+        limited_calendar_context = retrieved_calendar_context 
+
         selection_prompt = f"""Based on the user's question: '{message}'
 
 Evaluate the following three sets of retrieved context:
 
-<Knowledge Base Results>
-{retrieved_milvus_context}
+<Knowledge Base Results (Top {MAX_MILVUS_CONTEXT_ITEMS})>
+{limited_milvus_context}
 </Knowledge Base Results>
 
-<User Email Results>
-{retrieved_email_context}
+<User Email Results (Top {MAX_EMAIL_CONTEXT_ITEMS})>
+{limited_email_context}
 </User Email Results>
 
 <Calendar Events>
-{retrieved_calendar_context}
+{limited_calendar_context}
 </Calendar Events>
 
 Determine which context source (Knowledge Base, Emails, Calendar) is most relevant, or if multiple are needed. Briefly explain your reasoning.
@@ -559,7 +588,7 @@ Output:
 Reasoning: [Your brief reasoning]
 Synthesized Context: [Your concise summary including the count using digits if applicable, or indicate if none is relevant]
 """
-        synthesized_context = "No relevant context synthesized." # Default
+        synthesized_context = "No relevant context synthesized."
         try:
             selection_response = await user_client.chat.completions.create(
                 model=chat_model,
@@ -583,10 +612,13 @@ Synthesized Context: [Your concise summary including the count using digits if a
                 synthesized_context = raw_synthesis_output
         except Exception as synth_err:
             logger.error(f"Intermediate LLM call for context synthesis failed: {synth_err}", exc_info=True)
-            logger.warning("Falling back to combining all contexts due to synthesis error.")
-            synthesized_context = f"Knowledge Base Context:\n{retrieved_milvus_context}\n\nEmail Context:\n{retrieved_email_context}\n\nCalendar Context:\n{retrieved_calendar_context}"
+            logger.warning("Falling back to combining limited contexts due to synthesis error.")
+            # Use the LIMITED contexts in the fallback as well
+            synthesized_context = f"Knowledge Base Context (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{limited_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context:\n{limited_calendar_context}"
 
         # --- 4. Final Answer Generation using Synthesized Context ---
+        # The synthesized_context variable now contains either the LLM synthesis
+        # or the limited combined context from the fallback.
         logger.debug(f"Using synthesized context for final answer generation:\n{synthesized_context[:500]}...")
         formatted_history = []
         if chat_history:
