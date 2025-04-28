@@ -1021,7 +1021,47 @@
     "active": "活动的",
     "inactive": "非活动的",
     "refresh": "刷新数据",
-    "notAvailable": "不可用"
+    "notAvailable": "不可用",
+    "tags": {
+      "important": "重要",
+      "routine": "常规",
+      "knowledge": "知识",
+      "email": "邮件",
+      "tag0": "标签0",
+      "tag1": "标签1",
+      "tag2": "标签2",
+      "tag3": "标签3",
+      "tag4": "标签4",
+      "tag5": "标签5",
+      "tag6": "标签6",
+      "tag7": "标签7"
+    },
+    "departments": {
+      "engineering": "工程部",
+      "product": "产品部",
+      "marketing": "市场部",
+      "sales": "销售部"
+    },
+    "sensitivityLevels": {
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "critical": "关键"
+    },
+    "piiTypes": {
+      "email": "电子邮件",
+      "name": "姓名",
+      "phone": "电话",
+      "address": "地址",
+      "id": "身份证号",
+      "credit_card": "信用卡"
+    },
+    "recommendedActions": {
+      "store": "存储",
+      "exclude": "排除"
+    },
+    "yes": "是",
+    "no": "否"
   },
   "deleteConfirmation": "您确定要删除此项吗？",
   "deleteSuccess": "项目删除成功。",
@@ -1397,5 +1437,104 @@
     "loading": "加载中",
     "error": "错误",
     "never": "从未"
+  },
+  "search": {
+    "title": "知识库搜索",
+    "description": "搜索您组织的知识库，找到相关信息和资源。",
+    "queryLabel": "搜索查询",
+    "placeholder": "输入关键词或短语搜索...",
+    "helperText": "提示：使用特定关键词获得更准确的结果。",
+    "searching": "正在搜索...",
+    "results": "找到 {{count}}/{{total}} 个结果",
+    "from": "发件人",
+    "matchPercentage": "匹配度 {{percentage}}%",
+    "viewDetails": "查看详情",
+    "knowledgeItem": "知识项目详情",
+    "source": "来源",
+    "sender": "发件人",
+    "date": "日期",
+    "extractedDate": "提取日期",
+    "content": "内容",
+    "toast": {
+      "emptyQuery": "请输入搜索内容",
+      "searchError": "搜索时出错",
+      "loadError": "加载内容时出错"
+    }
+  },
+  "emailReview": {
+    "pageTitle": "邮件审核",
+    "pageDescription": "审核和批准计划纳入知识库的电子邮件",
+    "filters": {
+      "title": "筛选器",
+      "allDepartments": "所有部门",
+      "allSensitivityLevels": "所有敏感度级别",
+      "allPrivacyLevels": "所有隐私级别"
+    },
+    "table": {
+      "title": "待审核邮件",
+      "subject": "主题",
+      "department": "部门",
+      "sensitivity": "敏感度",
+      "tags": "标签",
+      "private": "隐私",
+      "actions": "操作",
+      "noResults": "没有符合筛选条件的结果"
+    },
+    "actions": {
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "approveSelected": "批准已选",
+      "rejectSelected": "拒绝已选",
+      "viewDetails": "查看详情",
+      "approve": "批准",
+      "reject": "拒绝"
+    },
+    "notes": {
+      "label": "审核备注",
+      "placeholder": "添加关于您的决定的备注或说明..."
+    },
+    "pagination": {
+      "showingRangeOfTotal": "显示 {{start}}-{{end}} 项，共 {{total}} 项",
+      "selectedCount": "已选择 {{count}} 项",
+      "pageInfo": "第 {{currentPage}} 页，共 {{totalPages}} 页"
+    },
+    "drawer": {
+      "title": "邮件详情",
+      "from": "发件人：{{sender}} ({{email}})",
+      "date": "日期：{{date}}",
+      "analysisTitle": "分析结果",
+      "containsPII": "包含个人身份信息",
+      "summary": "摘要",
+      "keyPoints": "要点",
+      "piiDetected": "检测到的个人身份信息",
+      "recommendedAction": "推荐操作",
+      "emailContent": "邮件内容",
+      "attachmentsCount": "附件 ({{count}})",
+      "attachmentType": "类型：{{type}}",
+      "attachmentSize": "大小：{{size}}"
+    },
+    "toast": {
+      "loadErrorTitle": "加载审核列表失败",
+      "approvedSuccess": "邮件已成功批准",
+      "rejectedSuccess": "邮件已成功拒绝",
+      "updateErrorTitle": "更新审核状态失败",
+      "noSelectionTitle": "未选择邮件",
+      "noSelectionDescription": "请先选择至少一封邮件",
+      "bulkApprovedSuccess": "成功批准 {{count}} 封邮件",
+      "bulkRejectedSuccess": "成功拒绝 {{count}} 封邮件",
+      "bulkUpdateErrorTitle": "批量更新失败"
+    },
+    "privacy": {
+      "private": "私密",
+      "notPrivate": "非私密"
+    },
+    "sampleEmails": {
+      "subject": "测试邮件 #{{number}}",
+      "body": "这是测试邮件 #{{number}} 的内容。\n\n它包含一些示例文本，用于演示邮件审核功能。",
+      "summary": "这是邮件 #{{number}} 的摘要。它简要概述了邮件的主要内容。",
+      "keyPoint1": "邮件 #{{number}} 的关键点 1",
+      "keyPoint2": "邮件 #{{number}} 的关键点 2",
+      "keyPoint3": "邮件 #{{number}} 的关键点 3"
+    }
   }
 }
