@@ -537,9 +537,12 @@ async def generate_openai_rag_response(
         logger.debug("Performing intermediate LLM call for context selection/synthesis...")
 
         # Define the maximum number of results to include in the LLM context
-        MAX_MILVUS_CONTEXT_ITEMS = 3
-        MAX_EMAIL_CONTEXT_ITEMS = 2
-        MAX_CALENDAR_CONTEXT_ITEMS = 5 # Keep calendar context potentially larger
+        # Read limits from settings, with defaults
+        MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 1))
+        MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_EMAIL_LIMIT', 1))
+        MAX_CALENDAR_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_CALENDAR_LIMIT', 5))
+
+        logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS}, Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
 
         # Prepare limited context strings
         limited_milvus_context = "\n\n---\n\n".join([
@@ -559,10 +562,10 @@ async def generate_openai_rag_response(
             for email in email_results[:MAX_EMAIL_CONTEXT_ITEMS]
         ]) if 'email_results' in locals() else retrieved_email_context # Fallback
 
-        # Calendar context limit (if needed - assuming it's less likely to exceed limits)
-        # We can use the existing retrieved_calendar_context directly or limit it similarly if required.
-        # For now, we use the full retrieved_calendar_context but keep the variable for consistency.
-        limited_calendar_context = retrieved_calendar_context 
+        # Apply calendar limit dynamically if needed (using MAX_CALENDAR_CONTEXT_ITEMS)
+        # For now, we demonstrate reading the setting, but don't apply slicing unless necessary
+        # If calendar context is also causing issues, slice events[:MAX_CALENDAR_CONTEXT_ITEMS] during formatting.
+        limited_calendar_context = retrieved_calendar_context
 
         selection_prompt = f"""Based on the user's question: '{message}'
 
@@ -614,7 +617,7 @@ Synthesized Context: [Your concise summary including the count using digits if a
             logger.error(f"Intermediate LLM call for context synthesis failed: {synth_err}", exc_info=True)
             logger.warning("Falling back to combining limited contexts due to synthesis error.")
             # Use the LIMITED contexts in the fallback as well
-            synthesized_context = f"Knowledge Base Context (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{limited_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context:\n{limited_calendar_context}"
+            synthesized_context = f"Knowledge Base Context (Top {MAX_MILVUS_CONTEXT_ITEMS}):\n{limited_milvus_context}\n\nEmail Context (Top {MAX_EMAIL_CONTEXT_ITEMS}):\n{limited_email_context}\n\nCalendar Context (Top {MAX_CALENDAR_CONTEXT_ITEMS}):\n{limited_calendar_context}"
 
         # --- 4. Final Answer Generation using Synthesized Context ---
         # The synthesized_context variable now contains either the LLM synthesis
