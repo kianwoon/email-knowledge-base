@@ -110,7 +110,7 @@ async def search_milvus_knowledge(
                  # Extract the vector if it exists from the main hit dictionary
                  vector = hit.get('vector') # Get vector from the main hit dictionary
                  if vector is None:
-                     logger.warning(f"Vector not found in top-level Milvus hit for ID: {hit_id}")
+                     pass # Avoid indentation error
 
                  # Handle potential missing fields gracefully 
                  if hit_id is None or score is None:
@@ -225,7 +225,7 @@ async def search_milvus_knowledge_sparse(
                 # Extract vector from the main hit dictionary
                 vector = hit.get('vector')
                 if vector is None:
-                    logger.warning(f"Vector not found in top-level Milvus SPARSE hit for ID: {hit_id}")
+                    pass # Avoid indentation error
 
                 if hit_id is None or score is None:
                     logger.warning(f"Skipping SPARSE hit due to missing 'id' or 'distance': {hit}")
