@@ -434,11 +434,54 @@ async def generate_openai_rag_response(
         email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         extracted_emails = re.findall(email_pattern, message)
         # Combine and deduplicate
-        keywords_for_email = list(set(basic_keywords + extracted_emails))
+        base_keywords_for_email = list(set(basic_keywords + extracted_emails))
         # Remove empty strings just in case
-        keywords_for_email = [kw for kw in keywords_for_email if kw]
+        base_keywords_for_email = [kw for kw in base_keywords_for_email if kw]
 
-        logger.debug(f"Extracted keywords for email search: {keywords_for_email}")
+        # 1b. Expand Keywords using LLM
+        async def _get_expanded_keywords(user_query: str, client: AsyncOpenAI, base_keywords: List[str]) -> List[str]:
+            logger.debug(f"Attempting LLM keyword expansion for query: '{user_query}'")
+            # Use a cheaper/faster model
+            expansion_model = getattr(settings, 'KEYWORD_EXPANSION_MODEL', 'gpt-4.1-mini')
+            
+            # Create a context string from base keywords if available
+            base_kw_context = ", ".join(base_keywords)
+            if base_kw_context:
+                base_kw_context = f"Initial keywords extracted were: {base_kw_context}. "
+            else:
+                base_kw_context = ""
+
+            prompt = f"""Analyze the user's query and generate a list of related keywords and synonyms that are likely to appear in relevant emails. Focus on variations and related concepts.
+User Query: '{user_query}'
++{base_kw_context}
+Consider terms related to the core intent. For example, if the query is about departures, include terms like resignation, leaving, offboarding, contract end, non-renewal, replacement, terminated, last day, etc.
+
+Respond ONLY with a comma-separated list of 5-10 relevant keywords/phrases. Do not include the original query keywords unless they are highly relevant variations.
+
+Comma-separated keywords:"""
+            try:
+                response = await client.chat.completions.create(
+                    model=expansion_model,
+                    messages=[
+                        {"role": "system", "content": "You are a keyword generator for email search. Respond ONLY with a comma-separated list."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.2, # Allow a little creativity
+                    max_tokens=100 
+                )
+                expanded_keywords_str = response.choices[0].message.content.strip()
+                # Split, strip whitespace from each, and filter empty strings
+                expanded_list = [kw.strip() for kw in expanded_keywords_str.split(',') if kw.strip()]
+                logger.info(f"LLM Expansion generated {len(expanded_list)} keywords: {expanded_list}")
+                return expanded_list
+            except Exception as expansion_err:
+                logger.error(f"LLM keyword expansion failed: {expansion_err}", exc_info=True)
+                return [] # Return empty list on error
+
+        # Combine base + expanded, ensure uniqueness, case-insensitivity handled by query logic later
+        final_keywords_for_email = list(set(base_keywords_for_email + await _get_expanded_keywords(message, user_client, base_keywords_for_email)))
+
+        logger.debug(f"Final keywords for email search (base + expanded): {final_keywords_for_email}")
 
         # --- START: Define constants for hierarchical summarization ---
         MILVUS_SUMMARY_BATCH_SIZE = int(getattr(settings, 'MILVUS_SUMMARY_BATCH_SIZE', 5)) # How many Milvus results to summarize per LLM call
@@ -636,6 +679,7 @@ Relevant Summary of Batch:"""
                 return "Error retrieving and summarizing knowledge base context." # Return error message
 
         async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI):
+            # This function now receives the final, expanded keyword list
             logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
             # Define truncate helper locally
             def _truncate_text(text: str, max_len: int) -> str:
@@ -643,28 +687,36 @@ Relevant Summary of Batch:"""
                     return text[:max_len] + "... [TRUNCATED]"
                 return text
             try:
+                # 1. Initial Retrieval from DuckDB
                 # Use the max_items limit when querying emails
-                email_results = await query_iceberg_emails_duckdb(
+                initial_email_results = await query_iceberg_emails_duckdb(
+                    # Pass the final keyword list here
                     user_email=user.email,
-                    keywords=keywords_for_email,
+                    keywords=final_keywords_for_email, 
                     limit=max_items, # Use max_items for query limit
                     original_message=message,
                     user_client=user_client # Pass the client down
                 )
-                if not email_results:
+                if not initial_email_results:
+                    logger.info("Email Retrieval: No initial results from DuckDB.")
                     return "No relevant emails found."
-                # Apply chunk truncation HERE before returning
+                
+                logger.info(f"Email Retrieval: Initially retrieved {len(initial_email_results)} emails from DuckDB.")
+
+                # 3. Format Final Context from Initial Results
+                # Always use the initial_email_results now
                 email_context = "\n\n---\n\n".join([
                     f"Email ID: {email.get('message_id')}\n"
                     f"Received: {email.get('received_datetime_utc')}\n"
                     f"Sender: {email.get('sender')}\n"
                     f"Subject: {email.get('subject')}\n"
                     f"Tags: {email.get('generated_tags')}\n"
-                    # Truncate email snippet using the helper
+                    # Truncate email snippet using the helper and original max_chunk_chars
                     f"Snippet: {_truncate_text(email.get('body_snippet', ''), max_chunk_chars)}"
-                    # No need for [:max_items] here as limit was applied in query
-                    for email in email_results 
+                    # Iterate over the initial list of results
+                    for email in initial_email_results 
                 ])
+                logger.debug(f"Email Retrieval: Final formatted context length: {len(email_context)} chars from {len(initial_email_results)} emails.")
                 return email_context
             except Exception as e_email:
                 logger.error(f"Failed to retrieve Email context: {e_email}", exc_info=True)
@@ -714,6 +766,7 @@ Relevant Summary of Batch:"""
 
         # --- START: Conditional Context Retrieval ---
         # Define coroutines based on intent
+        # Pass the FINAL keyword list to the email coroutine setup
         email_coro = _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client)
         calendar_coro = _get_calendar_context() # Calendar retrieval runs regardless for now (or based on its own flag)
 
@@ -771,14 +824,15 @@ Instructions:
 1.  Determine which context source(s) (Knowledge Base Summary, User Emails, Calendar Events) are most relevant for answering the user's question. Consider that the Knowledge Base Summary reflects semantic relevance, User Emails are best for specific facts/filters, and Calendar Events are for schedules. Note: The Knowledge Base Summary might indicate it was skipped if the query intent was detected as email-focused.
 2.  Explain your reasoning briefly.
 3.  Synthesize the most pertinent information *only* from the relevant source(s) into a concise summary. This summary will be used to generate the final answer.
-4.  If the user's question asks for a quantity (e.g., \"how many\", \"count\", \"list all\") *generally*, explicitly count the relevant items mentioned *in the context you are summarizing* and state the total count using digits (e.g., \"Found 5 relevant items:\") in your Synthesized Context.
-5.  **Special Instruction for Personnel Queries:** If the user asks 'how many' or for a count related to people and specific actions (e.g., resigning, leaving, offboarding, hired, joined), follow these steps **specifically for the User Email Context**:
+4.  **Prioritize Recency:** When synthesizing, if you encounter conflicting information about the same topic or entity across different context snippets (e.g., emails, documents), prioritize the information associated with the most recent date indicated within those snippets (e.g., 'Received' date for emails, modification dates if available).
+5.  If the user's question asks for a quantity (e.g., \"how many\", \"count\", \"list all\") *generally*, explicitly count the relevant items mentioned *in the context you are summarizing* and state the total count using digits (e.g., \"Found 5 relevant items:\") in your Synthesized Context.
+6.  **Special Instruction for Personnel Queries:** If the user asks 'how many' or for a count related to people and specific actions (e.g., resigning, leaving, offboarding, hired, joined), follow these steps **specifically for the User Email Context**:
     a. Carefully scan the individual email snippets within the <User Email Context>.
     b. Identify distinct individuals mentioned explicitly or implicitly in connection with the user's keywords (e.g., 'Mabel Chua offboarding', 'John Doe has resigned').
     c. Attempt to count the number of *unique* individuals identified across all relevant email snippets.
     d. In your 'Synthesized Context', state the attempted count clearly. For example: 'Based on mentions in the emails, identified approximately 3 individuals related to [action, e.g., leaving]. They are: [List names if easily identifiable and few].' or 'Found mentions related to offboarding for Mabel Chua in the emails.'
     e. Acknowledge that this count is based *only* on parsing email text and might be approximate or incomplete if names are ambiguous or not clearly linked to the action in the snippets.
-6.  If none of the context is relevant, state that clearly in the Synthesized Context.
+7.  If none of the context is relevant, state that clearly in the Synthesized Context.
 
 Output:
 Reasoning: [Your brief reasoning]
