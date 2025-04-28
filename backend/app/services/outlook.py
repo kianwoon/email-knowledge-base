@@ -6,6 +6,8 @@ from fastapi import HTTPException, status
 import asyncio
 import base64
 import binascii # For Base64 decoding errors
+from dateutil.parser import isoparse # Added import
+from pydantic import ValidationError # Added import
 
 from app.models.email import EmailPreview, EmailContent, EmailAttachment, EmailFilter
 from app.config import settings
@@ -376,144 +378,165 @@ class OutlookService:
             }
 
     async def get_email_content(self, email_id: str) -> EmailContent:
-        """Get full email content by ID"""
-        logger.info(f"Fetching content for email ID: {email_id}")
+        """Fetches full email content including body and attachments."""
+        logger.info(f"[EMAIL-CONTENT] Fetching content for email ID: {email_id}")
+        if not email_id:
+            raise HTTPException(status_code=400, detail="Email ID cannot be empty")
+
+        select_fields = "id,subject,sender,toRecipients,ccRecipients,bccRecipients,receivedDateTime,sentDateTime,body,hasAttachments,importance,parentFolderId,attachments"
+        expand_attachments = "attachments" # Expand attachments to get their details
+
         try:
-            # Step 1: Get message metadata and basic attachment info (IDs, names, etc.)
             response = await self.client.get(
                 f"/me/messages/{email_id}",
-                params={
-                    "$select": "id,internetMessageId,subject,sender,toRecipients,ccRecipients,receivedDateTime,sentDateTime,body,isRead,importance,parentFolderId",
-                    # Only expand to get metadata, not contentBytes directly here
-                    "$expand": "attachments($select=id,name,contentType,size,isInline)" 
-                }
+                params={"$select": select_fields, "$expand": expand_attachments}
             )
+            logger.info(f"[EMAIL-CONTENT] Request URL: {response.request.url}")
             response.raise_for_status()
             data = response.json()
+            logger.debug(f"[EMAIL-CONTENT] Raw data received for {email_id}: {data}") # Log raw data for debugging
 
-            # --- Extract common fields --- 
-            sender_data = data.get("sender", {}).get("emailAddress", {})
-            sender_email = sender_data.get("address", "unknown@sender.com")
-            sender_name = sender_data.get("name", sender_email)
-            to_recipients = [rcp.get("emailAddress", {}).get("address") for rcp in data.get("toRecipients", []) if rcp.get("emailAddress", {}).get("address")]
-            cc_recipients = [rcp.get("emailAddress", {}).get("address") for rcp in data.get("ccRecipients", []) if rcp.get("emailAddress", {}).get("address")]
-            folder_id = data.get("parentFolderId", "unknown_folder_id")
-            folder_name = "Unknown Folder" # Placeholder
-            body_content = data.get("body", {}).get("content", "")
-            is_html = data.get("body", {}).get("contentType", "").lower() == "html"
-            # --- End common fields --- 
+            # Log the raw attachments data received
+            raw_attachments = data.get('attachments', [])
+            logger.debug(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {raw_attachments}")
 
-            # Step 2: Fetch contentBytes for each attachment individually
+            # --- Helper function for extracting recipients ---
+            def get_recipient_info(recipient_list):
+                if not recipient_list:
+                    return []
+                return [{"name": r.get("emailAddress", {}).get("name"), 
+                         "email": r.get("emailAddress", {}).get("address")} 
+                        for r in recipient_list]
+
+            # --- Helper function for parsing datetime ---
+            def parse_datetime_to_utc(dt_str: Optional[str]) -> Optional[str]:
+                 if not dt_str:
+                     return None
+                 try:
+                     # Attempt to parse with different possible formats from Graph API
+                     dt_obj = isoparse(dt_str)
+                     # Ensure timezone is UTC
+                     if dt_obj.tzinfo is None:
+                         dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                     else:
+                         dt_obj = dt_obj.astimezone(timezone.utc)
+                     # Format consistently
+                     return dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z')
+                 except ValueError as e:
+                     logger.warning(f"[DATE-PARSE] Failed to parse datetime string '{dt_str}': {e}")
+                     return None # Return None if parsing fails
+
+            # --- Default value handling ---
+            sender_info = data.get("sender", {}).get("emailAddress", {})
+            sender_email = sender_info.get("address", "")
+            sender_name = sender_info.get("name", "")
+
+            recipients_raw = data.get("toRecipients", [])
+            cc_recipients_raw = data.get("ccRecipients", [])
+            attachments_raw = data.get("attachments", [])
+
+            # --- Attachment processing ---
             attachments_list = []
-            if "attachments" in data:
-                attachment_metadata_list = data["attachments"]
-                logger.debug(f"Found {len(attachment_metadata_list)} attachments for email {email_id}. Fetching content individually...")
-                for att_meta in attachment_metadata_list:
-                    attachment_id = att_meta.get("id")
-                    content_bytes = None # Default to None
-                    content_type = att_meta.get("contentType", "").lower() # Get content type
+            if data.get("hasAttachments"):
+                logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {attachments_raw}")
+            if data.get("hasAttachments") and attachments_raw:
+                 # logger.debug(f"[EMAIL-CONTENT] Processing {len(attachments_raw)} attachments found in raw data for email {email_id}.") # Commented out debug log
+                 for att in attachments_raw:
+                     # Skip inline attachments based on common indicators
+                     if att.get('isInline'): 
+                         # logger.debug(f"[ATTACHMENT-SKIP] Skipping inline attachment based on isInline flag: {att.get('name')} (ID: {att.get('id')})") # Commented out debug log
+                         continue
 
-                    # --- Check if attachment is an image before fetching content --- 
-                    if attachment_id and not content_type.startswith("image/"):
-                        # Only fetch content if it's not an image
-                        try:
-                            logger.debug(f"Fetching details for non-image attachment ID: {attachment_id}, Type: {content_type}")
-                            # Make separate call for this attachment's details, explicitly selecting contentBytes
-                            att_response = await self.client.get(
-                                f"/me/messages/{email_id}/attachments/{attachment_id}",
-                                params={"\$select": "id,name,contentType,size,isInline,contentBytes"} # Explicitly select
-                            )
-                            att_response.raise_for_status() # Raise exception for 4xx/5xx errors
-                            attachment_details = att_response.json()
-                            content_bytes = attachment_details.get("contentBytes") # Get contentBytes if available
-                            if content_bytes:
-                                logger.debug(f"Successfully fetched contentBytes for attachment {attachment_id}")
-                            else:
-                                # This might happen for non-file attachments even if not image
-                                logger.warning(f"Attachment {attachment_id} (Name: {att_meta.get('name')}) has no contentBytes.")
-                        except httpx.HTTPStatusError as attach_err:
-                            logger.error(f"Failed to fetch details for attachment {attachment_id} (Name: {att_meta.get('name')}): {attach_err.response.status_code} - {attach_err.response.text}")
-                        except Exception as attach_err_other:
-                            logger.error(f"Unexpected error fetching details for attachment {attachment_id}: {attach_err_other}", exc_info=True)
-                    elif attachment_id and content_type.startswith("image/"):
-                        # Log skipping image attachment content fetch
-                        logger.info(f"Skipping content fetch for image attachment ID: {attachment_id}, Name: {att_meta.get('name')}, Type: {content_type}")
-                    # --- End image check --- 
-                    
-                    # Create the EmailAttachment model using metadata and fetched content (will be None for images)
-                    attachments_list.append(EmailAttachment(
-                        id=att_meta.get("id"),
-                        name=att_meta.get("name"),
-                        content_type=att_meta.get("contentType"), # Store original contentType
-                        size=att_meta.get("size"),
-                        content=content_bytes 
-                    ))
-            else:
-                 logger.debug(f"No attachments found in initial metadata for email {email_id}.")
+                     # Handle potential missing contentBytes or other fields gracefully
+                     content_type = att.get("contentType")
+                     if not content_type:
+                         logger.warning(f"[ATTACHMENT-WARN] Attachment '{att.get('name')}' for email '{email_id}' is missing 'contentType'. Setting to 'application/octet-stream'.")
+                         content_type = "application/octet-stream" # Default if missing
+
+                     # Check for contentBytes explicitly if it's expected but might be missing
+                     # Note: Graph API sometimes doesn't return contentBytes in the initial message fetch even with $expand
+                     # It often requires a separate call to get the attachment content itself.
+                     # Here, we are creating the model based on metadata. Actual bytes are fetched later if needed.
+                     has_content_bytes = 'contentBytes' in att
+
+                     try:
+                        attachment_obj = EmailAttachment(
+                            id=att.get("id", ""), # Provide default empty string if id is missing
+                            name=att.get("name", "Unnamed Attachment"), # Default name
+                            content_type=content_type, # Use defaulted content_type
+                            size=att.get("size", 0), # Default size 0
+                            is_inline=att.get("isInline", False),
+                            # content_bytes might not be present here; handle appropriately later
+                            # content_bytes=att.get("contentBytes") # This line likely causes errors if not present
+                        )
+                        attachments_list.append(attachment_obj)
+                        # logger.debug(f"[ATTACHMENT-ADD] Added attachment metadata: {attachment_obj.name} (ID: {attachment_obj.id})") # Commented out debug log
+                     except ValidationError as ve:
+                         logger.error(f"[ATTACHMENT-ERROR] Pydantic validation error for attachment in email {email_id}: {ve}. Attachment data: {att}")
+                         # Decide how to handle validation errors: skip attachment, log and continue, etc.
+                         # For now, we log and skip this attachment.
+                     except Exception as ex:
+                         logger.error(f"[ATTACHMENT-ERROR] Unexpected error processing attachment in email {email_id}: {ex}. Attachment data: {att}")
+                         # Log and skip
+
+
+            # --- Helper function to extract email addresses ---
+            def get_email_address(recipient: Dict) -> Optional[str]:
+                return recipient.get("emailAddress", {}).get("address")
+
+            # --- Prepare data for EmailContent ---
+            recipients_list = [addr for r in recipients_raw if (addr := get_email_address(r))]
+            cc_recipients_list = [addr for r in cc_recipients_raw if (addr := get_email_address(r))]
             
-            # --- Step 3: Parse receivedDateTime ---
-            received_dt_str = data.get("receivedDateTime")
-            parsed_received_dt = None
-            if received_dt_str:
-                try:
-                    # Replace Z with +00:00 for better Python compatibility across versions
-                    # This handles both "2023-10-27T10:00:00Z" and "2023-10-27T18:00:00+08:00"
-                    parsed_received_dt = datetime.fromisoformat(received_dt_str.replace('Z', '+00:00'))
-                    logger.debug(f"Successfully parsed receivedDateTime: {received_dt_str} -> {parsed_received_dt}")
-                except ValueError:
-                    logger.error(f"Could not parse receivedDateTime string: '{received_dt_str}' for email {email_id}. Setting received_date to None.")
-                except Exception as dt_parse_err:
-                    logger.error(f"Unexpected error parsing receivedDateTime string '{received_dt_str}': {dt_parse_err}", exc_info=True)
+            # Determine if body is HTML
+            body_content_type = data.get("body", {}).get("contentType", "html").lower()
+            is_html_body = body_content_type == "html"
 
-            # --- START: Parse sentDateTime --- 
-            sent_dt_str = data.get("sentDateTime")
-            parsed_sent_dt = None
-            if sent_dt_str:
-                try:
-                    # Replace Z with +00:00 for compatibility
-                    parsed_sent_dt = datetime.fromisoformat(sent_dt_str.replace('Z', '+00:00'))
-                    logger.debug(f"Successfully parsed sentDateTime: {sent_dt_str} -> {parsed_sent_dt}")
-                except ValueError:
-                    logger.error(f"Could not parse sentDateTime string: '{sent_dt_str}' for email {email_id}. Setting sent_date to None.")
-                except Exception as dt_parse_err:
-                    logger.error(f"Unexpected error parsing sentDateTime string '{sent_dt_str}': {dt_parse_err}", exc_info=True)
-            # --- END: Parse sentDateTime ---
+            # --- Final EmailContent Creation with Defaults ---
+            try:
+                email_content = EmailContent(
+                    id=data.get("id", ""), # Use 'id' field name
+                    internet_message_id=data.get("internetMessageId"), # Add if needed, matches model field
+                    subject=data.get("subject", ""), 
+                    sender=sender_name, # Using sender_name for now
+                    sender_email=sender_email, # Adding sender_email field
+                    recipients=recipients_list, # Pass list of email strings
+                    cc_recipients=cc_recipients_list, # Pass list of email strings
+                    received_date=data.get("receivedDateTime"), # Pass raw string, let Pydantic handle if possible
+                    sent_date=data.get("sentDateTime"), # Pass raw string, let Pydantic handle
+                    body=data.get("body", {}).get("content", ""), # Use 'body' field name
+                    is_html=is_html_body, # Set based on contentType
+                    folder_id=data.get("parentFolderId", ""), 
+                    # folder_name needs separate lookup if essential
+                    attachments=attachments_list, 
+                    importance=data.get("importance", "normal"), 
+                )
+                logger.info(f"[EMAIL-CONTENT] Successfully created EmailContent for {email_id}. Attachments processed: {len(attachments_list)}")
+                return email_content
+            except ValidationError as ve:
+                logger.error(f"[EMAIL-CONTENT-ERROR] Pydantic validation error creating EmailContent for {email_id}: {ve}. Processed data snippet: sender={sender_email}, subject='{data.get('subject', '')[:50]}...'")
+                # Re-raise or handle as appropriate
+                raise HTTPException(status_code=500, detail=f"Data validation error processing email {email_id}: {ve}")
+            except Exception as ex:
+                 logger.error(f"[EMAIL-CONTENT-ERROR] Unexpected error creating EmailContent for {email_id}: {ex}")
+                 raise HTTPException(status_code=500, detail=f"Unexpected error processing email {email_id}: {ex}")
 
-            # Step 4: Construct final EmailContent object
-            return EmailContent(
-                id=data.get("id"),
-                internet_message_id=data.get("internetMessageId"),
-                subject=data.get("subject", ""),
-                sender=sender_name, 
-                sender_email=sender_email,
-                recipients=to_recipients,
-                cc_recipients=cc_recipients,
-                received_date=received_dt_str, # Assign ORIGINAL string received date
-                sent_date=parsed_sent_dt, # Assign parsed sent date
-                body=body_content,
-                is_html=is_html,
-                folder_id=folder_id,
-                folder_name=folder_name,
-                attachments=attachments_list,
-                importance=data.get("importance", "normal")
-            )
 
         except httpx.HTTPStatusError as e:
             error_body = e.response.text
-            logger.error(f"Graph API HTTP error: {e.response.status_code} - Response: {error_body}")
-            detail_message = f"Error fetching email content: Status {e.response.status_code}"
-            try:
-                 error_data = e.response.json()
-                 detail_message = error_data.get('error', {}).get('message', detail_message)
-            except Exception:
-                 pass 
+            logger.error(f"[EMAIL-CONTENT] Graph API HTTP error fetching email {email_id}: {e.response.status_code} - {error_body}", exc_info=True)
+            detail_message = f"Error fetching email content for ID {email_id}: Status {e.response.status_code}"
             raise HTTPException(status_code=e.response.status_code, detail=detail_message)
         except Exception as e:
-            logger.error(f"[ERROR] Unexpected error during email content processing: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Internal server error during email content processing: {str(e)}")
+            logger.error(f"[EMAIL-CONTENT] Unexpected error fetching email {email_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Internal server error fetching email content for {email_id}")
 
     async def get_attachment_content(self, message_id: str, attachment_id: str) -> Optional[bytes]:
-        """Fetches the contentBytes of a specific attachment and decodes it."""
+        """Fetches the raw content (bytes) of a specific attachment."""
+        logger.info(f"[ATTACHMENT-CONTENT] Fetching content for message {message_id}, attachment {attachment_id}")
+        if not message_id or not attachment_id:
+            raise HTTPException(status_code=400, detail="Message ID and Attachment ID cannot be empty")
+
         endpoint = f"/me/messages/{message_id}/attachments/{attachment_id}"
         logger.info(f"Fetching attachment content from endpoint: {endpoint}")
         try:

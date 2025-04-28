@@ -79,7 +79,7 @@ class EmailAttachment(BaseModel):
     """Model for email attachments"""
     id: str
     name: str
-    content_type: str
+    content_type: Optional[str]
     size: int
     content: Optional[str] = None
 
@@ -93,7 +93,7 @@ class EmailContent(BaseModel):
     sender_email: Optional[str] = None
     recipients: Optional[List[str]] = None
     cc_recipients: Optional[List[str]] = None
-    received_date: str
+    received_date: Optional[str]
     sent_date: Optional[datetime] = None
     body: str
     is_html: bool = False

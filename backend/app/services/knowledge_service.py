@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import asyncio
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
+import os
 
 import openai
 # Remove Qdrant imports
@@ -147,21 +148,166 @@ async def _process_and_store_emails(
                 attachments_payload = []
                 # Graph API uses contentBytes for attachments
                 if email_content.attachments:
-                    for att in email_content.attachments:
-                        # Ensure fields exist before accessing
+                    # logger.debug(f"[Op:{operation_id}] Starting attachment processing loop for email {email_id}. Found {len(email_content.attachments)} potential attachments.") # Commented out debug log
+                    for att_index, att in enumerate(email_content.attachments):
+                        # Initialize flags for success tracking within the loop
+                        upload_success = False
+                        db_record_success = False
                         filename = getattr(att, 'name', 'unknown_filename')
-                        mimetype = getattr(att, 'contentType', 'unknown')
-                        size = getattr(att, 'size', 0)
-                        att_id = getattr(att, 'id', None) # Get attachment ID if available
-                        is_inline = getattr(att, 'isInline', False) # Check if inline
-                        # REMOVED contentBytes
-                        attachments_payload.append({
-                            "id": att_id, # Include attachment ID
-                            "filename": filename,
-                            "mimetype": mimetype,
-                            "size": size,
-                            "is_inline": is_inline
-                        })
+                        att_id = getattr(att, 'id', str(uuid.uuid4())) # Use uuid.uuid4() for fallback ID
+                        # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}/{len(email_content.attachments)}] Processing: ID={att_id}, Name='{filename}'") # Commented out debug log
+
+                        try:
+                            # content_bytes_b64 = getattr(att, 'contentBytes', None) # Check for contentBytes specifically -> Content fetched later
+                            
+                            # --- NEW: Check for existing ProcessedFile record FIRST ---
+                            source_uri = f"email://{email_id}/attachment/{att_id}"
+                            existing_record = None
+                            if db_session and att_id:
+                                try:
+                                    # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Checking DB for existing record with source_uri: {source_uri}") # Commented out debug log
+                                    existing_record = crud_processed_file.get_processed_file_by_source_id(db=db_session, source_identifier=source_uri)
+                                    if existing_record:
+                                         # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Found existing record: DB ID {existing_record.id}, R2 Key {existing_record.r2_object_key}") # Commented out debug log
+                                         pass # Keep pass here to maintain structure
+                                    else:
+                                         # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] No existing record found in DB.") # Commented out debug log
+                                         pass # Keep pass here
+                                except Exception as db_check_err:
+                                    logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Error checking DB for existing ProcessedFile for {source_uri}: {db_check_err}", exc_info=True)
+                                    # Decide if we should proceed or fail this attachment - let's proceed cautiously but log the error
+                            else:
+                                logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping DB check for {att_id} due to missing DB session or attachment ID.")
+
+                            
+                            if existing_record:
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Attachment {att_id} ('{filename}') already processed (DB ID: {existing_record.id}, R2 Key: {existing_record.r2_object_key}). Skipping re-processing.")
+                                # IMPORTANT: Count previously processed as success for metrics
+                                processed_attachment_count += 1 
+                                continue # Skip to the next attachment
+
+                            # --- END Check ---
+
+                            # --- Skip Inline/Images/Specific Extensions (No R2 Upload/DB Record) ---
+                            is_inline = getattr(att, 'isInline', False)
+                            filename_lower = filename.lower()
+                            # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Details: isInline={is_inline}, filename='{filename}'") # Commented out debug log
+                            
+                            # --- Define allowed extensions --- 
+                            allowed_extensions = ['.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.pdf']
+                            # MODIFIED: Use os.path.splitext for robust extension extraction
+                            attachment_extension = os.path.splitext(filename)[1].lower()
+                            # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Detected extension: '{attachment_extension}'") # Commented out debug log
+                            
+                            # --- NEW: Skip if inline OR not an allowed extension --- 
+                            if is_inline:
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping attachment: {att_id} ('{filename}'). Reason: Inline ({is_inline}).")
+                                continue # Skip to next attachment
+                            if not attachment_extension in allowed_extensions:
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping attachment: {att_id} ('{filename}'). Reason: Disallowed Extension ('{attachment_extension}'). Allowed: {allowed_extensions}")
+                                continue # Skip to next attachment
+                            # --- End Skip Logic ---
+                            
+                            # --- Fetch contentBytes separately --- 
+                            attachment_content_bytes = None
+                            if r2_client and db_session:
+                                # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Attachment not skipped. Checking R2/DB client availability: R2 OK={bool(r2_client)}, DB OK={bool(db_session)}") # Commented out debug log
+                                try:
+                                    # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Fetching contentBytes for attachment {att_id} ('{filename}')...") # Commented out debug log
+                                    # Use the existing service method designed for this
+                                    attachment_content_bytes = await outlook_service.get_attachment_content(
+                                        message_id=email_id, 
+                                        attachment_id=att_id
+                                    )
+                                    if attachment_content_bytes:
+                                        logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Successfully fetched {len(attachment_content_bytes)} bytes for attachment {att_id}.")
+                                    else:
+                                        logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Fetched attachment {att_id} but contentBytes was missing or empty.")
+                                        # This attachment cannot be processed further
+                                except Exception as content_fetch_err:
+                                    logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Failed to fetch contentBytes for attachment {att_id}: {content_fetch_err}", exc_info=True)
+                                    # Count as failed if content fetch fails
+                                    failed_attachment_count += 1
+                                    continue # Skip to next attachment
+                            else:
+                                logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping contentBytes fetch for {att_id} due to missing R2 client or DB session.")
+                                failed_attachment_count += 1
+                                continue # Skip to next attachment
+
+                            # Proceed only if we have contentBytes AND an R2 client/DB session
+                            if attachment_content_bytes:
+                                content_type = getattr(att, 'contentType', 'application/octet-stream') # Get content type from original metadata
+                                r2_key = generate_email_attachment_r2_key(email_id, att_id, filename)
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Preparing to upload attachment '{filename}' as '{r2_key}' to R2 (Size: {len(attachment_content_bytes)} bytes).")
+
+                                # +++ ADDED LOG BEFORE UPLOAD +++
+                                # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Calling r2_service.upload_bytes_to_r2 for key: {r2_key}") # Commented out debug log
+                                
+                                # MODIFIED: Corrected parameter names and added bucket_name
+                                upload_successful = await r2_service.upload_bytes_to_r2(
+                                    r2_client=r2_client,
+                                    bucket_name=settings.R2_BUCKET_NAME, # Added bucket name from settings
+                                    object_key=r2_key, # Corrected parameter name
+                                    data_bytes=attachment_content_bytes, # Corrected parameter name
+                                    content_type=content_type
+                                )
+                                
+                                # Check the boolean return value from the upload function
+                                if upload_successful:
+                                    # +++ ADDED LOG AFTER UPLOAD SUCCESS +++
+                                    logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Successfully uploaded to R2 as '{r2_key}'.")
+                                    upload_success = True # Mark upload as successful
+                                else:
+                                    logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Call to r2_service.upload_bytes_to_r2 failed for key '{r2_key}'. Check previous logs for ClientError.")
+                                    # Do not proceed to create DB record if upload failed
+                                    failed_attachment_count += 1 # Increment failure count
+                                    continue # Skip to the next attachment
+                                
+                                # Create processed_file record only AFTER successful upload
+                                try:
+                                    file_metadata = {
+                                        "r2_object_key": r2_key,
+                                        "original_filename": filename,
+                                        "source_type": "email_attachment",
+                                        "source_identifier": source_uri, # MODIFIED: Corrected key name
+                                        "content_type": content_type,
+                                        "size_bytes": getattr(att, 'size', 0),
+                                        "status": "pending_analysis" # Initial status
+                                    }
+                                    # MODIFIED: Use the correct function name create_processed_file_entry
+                                    created_record = crud_processed_file.create_processed_file_entry(
+                                        db=db_session,
+                                        # Assuming create_processed_file_entry takes the dictionary directly
+                                        # or expects a ProcessedFile object constructed from it.
+                                        # If it expects an object, we need to create it first.
+                                        # Let's assume it takes the dict for now, based on typical CRUD patterns.
+                                        file_data=ProcessedFile(**file_metadata, 
+                                                              ingestion_job_id=ingestion_job_id, 
+                                                              owner_email=owner_email)
+                                        # file_info=file_metadata,
+                                        # ingestion_job_id=ingestion_job_id,
+                                        # owner_email=owner_email # Pass owner email
+                                    )
+                                    if created_record:
+                                        logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Saved ProcessedFile {created_record.id} for attachment {att_id} ('{filename}').")
+                                        db_record_success = True # Mark DB record as successful
+                                    else:
+                                         logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] CRUD function failed to return ProcessedFile record for attachment {att_id} ('{filename}').")
+                                
+                                except Exception as db_err:
+                                    logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Failed to save ProcessedFile record for attachment {att_id} ('{filename}') after R2 upload: {db_err}", exc_info=True)
+                                
+                                if upload_success and db_record_success:
+                                    processed_attachment_count += 1
+                                else:
+                                    failed_attachment_count += 1
+
+                        except Exception as att_error:
+                            # General catch-all for errors during the attachment loop iteration
+                            failed_attachment_count += 1
+                            logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Unhandled error processing attachment {att_id} ('{filename}'): {att_error}", exc_info=True)
+                            # Attempt to save a failure record? (Optional, similar to above)
+
                 has_attachments_bool = bool(attachments_payload)
 
                 raw_text_content = email_content.body or ""
@@ -257,149 +403,6 @@ async def _process_and_store_emails(
                 facts_for_iceberg.append(email_fact_record)
                 processed_email_count += 1
                 logger.debug(f"[Op:{operation_id}] Prepared Iceberg record for email_id: {email_id}. Sender: {sender_address}")
-
-                # --- Process Attachments -> R2 + PostgreSQL --- 
-                local_processed_attachments = 0
-                local_failed_attachments = 0
-                if email_content.attachments:
-                    logger.info(f"[Op:{operation_id}] Processing {len(email_content.attachments)} attachments for email {email_id}.")
-                    for attachment in email_content.attachments:
-                        # Basic info (already extracted for the main email payload)
-                        att_id = getattr(attachment, 'id', None)
-                        att_name = getattr(attachment, 'name', 'unknown_filename')
-                        att_content_type = getattr(attachment, 'contentType', 'unknown')
-                        att_size = getattr(attachment, 'size', 0)
-                        is_inline = getattr(attachment, 'isInline', False)
-                        
-                        # Define source URI for checking existence
-                        source_uri = f"email://{email_id}/attachment/{att_id}"
-
-                        # --- ADDED: Check if attachment was already processed ---
-                        existing_record = None
-                        if db_session and att_id:
-                            try:
-                                existing_record = crud_processed_file.get_processed_file_by_source_id(db=db_session, source_identifier=source_uri)
-                            except Exception as db_check_err:
-                                logger.error(f"[Op:{operation_id}] Error checking for existing ProcessedFile for {source_uri}: {db_check_err}", exc_info=True)
-                                # Decide if we should proceed or fail this attachment - let's proceed cautiously but log the error
-                        
-                        if existing_record:
-                            logger.info(f"[Op:{operation_id}] Attachment {att_id} ({att_name}) already processed (DB ID: {existing_record.id}). Skipping re-processing.")
-                            # Find the corresponding entry in attachments_payload and add the existing R2 key
-                            for att_payload in attachments_payload:
-                                if att_payload.get("id") == att_id:
-                                    att_payload["r2_object_key"] = existing_record.r2_object_key
-                                    break
-                            local_processed_attachments += 1 # Count as processed if already exists
-                            continue # Skip to the next attachment
-                        # --- END ADDED Check --- 
-                            
-                        # Skip processing if attachment ID is missing (should be rare)
-                        if not att_id:
-                            logger.warning(f"[Op:{operation_id}] Skipping attachment without ID in email {email_id}.")
-                            local_failed_attachments += 1
-                            continue
-
-                        # Skip images/inline attachments (or other unwanted types) based on ContentType and extension
-                        filename_lower = att_name.lower()
-                        is_common_image_extension = any(filename_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp'])
-                        if is_inline or (att_content_type and att_content_type.startswith("image/")) or is_common_image_extension:
-                            logger.info(f"[Op:{operation_id}] Skipping image/inline/common image extension attachment: {att_id} ('{att_name}'), Type: {att_content_type}.")
-                            # Note: We don't count skipped images/inline as failed
-                            continue # Skip to next attachment, don't increment failure/success
-
-                        # Proceed only if R2 client and DB session are available
-                        if not r2_client or not db_session:
-                            logger.warning(f"[Op:{operation_id}] Skipping R2 upload/DB record for attachment {att_id} due to missing R2 client or DB session.")
-                            local_failed_attachments += 1
-                            continue
-
-                        try:
-                            # Fetch attachment content (Bytes)
-                            # Note: Uses a separate call that includes contentBytes
-                            logger.debug(f"[Op:{operation_id}] Fetching content for attachment {att_id} ('{att_name}').")
-                            attachment_content_bytes = await outlook_service.get_attachment_content(email_id, att_id)
-                            
-                            if attachment_content_bytes is None:
-                                # Log warning if content is missing (as seen in previous logs)
-                                logger.warning(f"[Op:{operation_id}] No content downloaded for attachment {att_id} ('{att_name}'). Skipping.")
-                                local_failed_attachments += 1
-                                continue # Skip this attachment
-                                
-                            # Generate R2 object key
-                            r2_object_key = generate_email_attachment_r2_key(email_id, att_id, att_name)
-
-                            # Upload to R2 using run_in_threadpool
-                            logger.info(f"[Op:{operation_id}] Uploading attachment copy as '{r2_object_key}' to R2 Bucket '{settings.R2_BUCKET_NAME}'")
-                            await run_in_threadpool(
-                                r2_service.upload_bytes_to_r2, # Use the function from r2_service
-                                r2_client=r2_client, # Pass the client 
-                                bucket_name=settings.R2_BUCKET_NAME,
-                                object_key=r2_object_key,
-                                data_bytes=attachment_content_bytes,
-                                content_type=att_content_type
-                            )
-                            logger.info(f"[Op:{operation_id}] Upload attachment to R2 successful. Object Key: {r2_object_key}")
-
-                            # Find the corresponding entry in attachments_payload and add the R2 key
-                            for att_payload in attachments_payload:
-                                if att_payload.get("id") == att_id:
-                                    att_payload["r2_object_key"] = r2_object_key
-                                    break
-
-                            # Create ProcessedFile record (only if upload succeeded)
-                            processed_file_entry = ProcessedFile(
-                                source_identifier=source_uri, # CORRECTED: Use source_identifier field
-                                original_filename=att_name,   # ADDED: Store original filename
-                                content_type=att_content_type,# CORRECTED: Use content_type field
-                                size_bytes=att_size,          # CORRECTED: Use size_bytes field
-                                r2_object_key=r2_object_key,
-                                ingestion_job_id=ingestion_job_id,
-                                owner_email=owner_email,      # Associate with the user
-                                source_type='email_attachment', # ADDED: Specify source type
-                                status='pending_analysis' 
-                                # OMITTED: r2_bucket (not a direct field)
-                            )
-                            db_session.add(processed_file_entry)
-                            # Flush to get the ID for logging, but commit happens later
-                            db_session.flush()
-                            logger.info(f"[Op:{operation_id}] Saved ProcessedFile {processed_file_entry.id} for attachment {att_id}")
-                            local_processed_attachments += 1
-
-                        except Exception as att_proc_err:
-                            logger.error(f"[Op:{operation_id}] Failed to process attachment {att_id} ('{att_name}'): {att_proc_err}", exc_info=True)
-                            local_failed_attachments += 1
-                            # Attempt to add a failure record to ProcessedFile if possible
-                            # Important: Avoid using r2_object_key if upload failed!
-                            try:
-                                failed_file_entry = ProcessedFile(
-                                    source_identifier=source_uri, # CORRECTED
-                                    original_filename=att_name,   # ADDED
-                                    content_type=att_content_type,# CORRECTED
-                                    size_bytes=att_size,          # CORRECTED
-                                    status='failed',
-                                    error_message=str(att_proc_err)[:1024], # Truncate error
-                                    r2_object_key=None, # Explicitly None on failure
-                                    ingestion_job_id=ingestion_job_id,
-                                    owner_email=owner_email,
-                                    source_type='email_attachment' # ADDED
-                                    # OMITTED: r2_bucket
-                                )
-                                db_session.add(failed_file_entry)
-                                db_session.flush()
-                                logger.info(f"[Op:{operation_id}] Saved FAILED ProcessedFile record {failed_file_entry.id} for attachment {att_id}")
-                            except Exception as db_fail_err:
-                                # Log if even saving the failure record fails
-                                logger.error(f"[Op:{operation_id}] Could not save FAILED ProcessedFile record for {source_uri}: {db_fail_err}")
-                                # Don't rollback here, let the main loop handle transaction
-                    # -- End Attachment Loop --
-                    
-                # --- Add the full record for the EMAIL to the Iceberg list ---
-                # Convert recipient lists to comma-separated strings if needed by Iceberg schema
-                # (Assuming schema wants strings, adjust if it expects arrays/lists)
-                to_recipients_str = ", ".join(to_recipients)
-                cc_recipients_str = ", ".join(cc_recipients)
-                bcc_recipients_str = ", ".join(bcc_recipients)
 
             except Exception as fetch_err: # Catch errors during individual email processing
                 failed_email_count += 1
