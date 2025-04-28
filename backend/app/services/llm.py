@@ -783,16 +783,28 @@ Relevant Summary of Batch:"""
                 calendar_coro
             )
         else: # 'general_or_mixed' intent
-            logger.info("Query intent is general_or_mixed, retrieving from knowledge base and email.")
+            logger.info("Query intent is general_or_mixed, retrieving from knowledge base first, then potentially email.")
             milvus_coro = _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS)
-            # Run all retrievals
-            retrieved_milvus_context, retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
-                milvus_coro,
-                email_coro,
+            
+            # Run Milvus and Calendar concurrently first
+            logger.debug("Running Milvus KB and Calendar retrieval concurrently...")
+            retrieved_milvus_context, retrieved_calendar_context = await asyncio.gather(
+                milvus_coro, 
                 calendar_coro
             )
-        # --- END: Conditional Context Retrieval ---
+            
+            # Check if Milvus context is sufficient
+            milvus_sufficient = False
+            if retrieved_milvus_context and "error retrieving" not in retrieved_milvus_context.lower() and "no relevant information" not in retrieved_milvus_context.lower():
+                milvus_sufficient = True
+                logger.info("Milvus KB context deemed sufficient, skipping email retrieval.")
+                retrieved_email_context = "Email search skipped as relevant knowledge base context was found."
+            else:
+                logger.info("Milvus KB context is insufficient or errored, proceeding with email retrieval.")
+                retrieved_email_context = await email_coro
 
+        # --- END: Optimized Conditional Context Retrieval ---
+ 
         # Use the results directly (Milvus context is now summarized OR skipped message)
         summarized_milvus_context = retrieved_milvus_context
         limited_email_context = retrieved_email_context
@@ -1014,7 +1026,7 @@ async def get_rate_card_response_advanced(
             except Exception: pass # Ignore HyDE failure for individual queries
             
             # Create embedding using the HyDE document (or original query if HyDE failed)
-            embedding = await create_retrieval_embedding(hyde_doc)
+            embedding = await create_retrieval_embedding(hyde_doc, field='dense')
             query_vectors.append(embedding)
             logger.debug(f"RateCardRAG: Generated embedding for query: '{q}' (using HyDE: {hyde_doc[:50]}...)")
 
@@ -1057,7 +1069,8 @@ async def get_rate_card_response_advanced(
         # Re-ranking based on relevance to the *original* user message
         if ranked_results:
             logger.debug("RateCardRAG: Re-ranking based on original query similarity...")
-            original_query_embedding = await create_retrieval_embedding(message)
+            # Provide the mandatory 'field' argument
+            original_query_embedding = await create_retrieval_embedding(message, field='dense')
             
             # Calculate similarity between original query and each result's content/embedding
             for result in ranked_results:
@@ -1070,8 +1083,9 @@ async def get_rate_card_response_advanced(
                     similarity = cos_sim(original_query_embedding, result_embedding)
                 else:
                     # Option 2: Re-embed result text (less efficient but fallback)
-                    logger.warning(f"RateCardRAG: Re-embedding result ID {result['id']} for re-ranking as vector not found.")
-                    result_embedding_rerank = await create_retrieval_embedding(result_text)
+                    # logger.warning(f"RateCardRAG: Re-embedding result ID {result['id']} for re-ranking as vector not found.") # Commented out as this is expected fallback
+                    # Provide the mandatory 'field' argument
+                    result_embedding_rerank = await create_retrieval_embedding(result_text, field='dense')
                     similarity = cos_sim(original_query_embedding, result_embedding_rerank)
                 
                 # Assign similarity score for sorting (can combine with original distance if needed)

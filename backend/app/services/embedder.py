@@ -80,7 +80,7 @@ async def search_milvus_knowledge(
             "anns_field": "dense", # ADDED as a separate top-level argument based on documentation parameter list
             "limit": limit,
             "search_params": search_params_for_call, # search_params dict no longer includes anns_field
-            "output_fields": ["id", "content"] # Corrected PK to 'id' and payload to 'content'
+            "output_fields": ["id", "content", "vector"] # Corrected PK to 'id' and payload to 'content' and added vector
         }
 
         # Conditionally add the filter using the 'filter' keyword
@@ -107,6 +107,11 @@ async def search_milvus_knowledge(
                  entity_dict = hit.get('entity', {}) # Get the nested entity dict
                  payload_content = entity_dict.get('content', '') # Get content from entity dict
 
+                 # Extract the vector if it exists from the main hit dictionary
+                 vector = hit.get('vector') # Get vector from the main hit dictionary
+                 if vector is None:
+                     logger.warning(f"Vector not found in top-level Milvus hit for ID: {hit_id}")
+
                  # Handle potential missing fields gracefully 
                  if hit_id is None or score is None:
                      logger.warning(f"Skipping hit due to missing 'id' or 'distance': {hit}")
@@ -116,7 +121,9 @@ async def search_milvus_knowledge(
                      "id": hit_id,       
                      "score": score, 
                      # Pass the extracted content string as payload
-                     "payload": payload_content 
+                     "payload": payload_content,
+                     # Include the vector (potentially None) in the formatted result
+                     "vector": vector
                  })
 
         logger.debug(f"Milvus search successful. Returning {len(formatted_results)} formatted results.")
@@ -192,7 +199,7 @@ async def search_milvus_knowledge_sparse(
             "anns_field": "sparse", # Target the sparse field
             "limit": limit,
             "search_params": search_params_for_call,
-            "output_fields": ["id", "content"] # Assuming same output fields needed
+            "output_fields": ["id", "content", "vector"] # Assuming same output fields needed
         }
 
         if filter_expression:
@@ -215,6 +222,11 @@ async def search_milvus_knowledge_sparse(
                 entity_dict = hit.get('entity', {}) # Get the nested entity dict
                 payload_content = entity_dict.get('content', '') # Get content from entity dict
 
+                # Extract vector from the main hit dictionary
+                vector = hit.get('vector')
+                if vector is None:
+                    logger.warning(f"Vector not found in top-level Milvus SPARSE hit for ID: {hit_id}")
+
                 if hit_id is None or score is None:
                     logger.warning(f"Skipping SPARSE hit due to missing 'id' or 'distance': {hit}")
                     continue
@@ -222,7 +234,9 @@ async def search_milvus_knowledge_sparse(
                     "id": hit_id, 
                     "score": score, 
                     # Pass the extracted content string as payload
-                    "payload": payload_content
+                    "payload": payload_content,
+                    # Include the vector (potentially None) in the formatted result
+                    "vector": vector
                 })
 
         logger.debug(f"Milvus SPARSE search successful. Returning {len(formatted_results)} formatted results.")
