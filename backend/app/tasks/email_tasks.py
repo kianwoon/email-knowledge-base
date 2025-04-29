@@ -38,6 +38,7 @@ from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, TableAlreadyExistsError, NoSuchTableError # ADDED Iceberg exceptions from diff
 # ADD PyIceberg types and schema helpers
 from pyiceberg.schema import Schema # REMOVED field import
+from pyiceberg.expressions import EqualTo # ADDED this import
 from pyiceberg.types import ( 
     NestedField, # ADDED NestedField import
     BooleanType, 
@@ -76,60 +77,83 @@ class EmailProcessingTask(Task):
 
     def _write_to_iceberg(self, catalog: RestCatalog, table_name: str, facts: List[Dict[str, Any]], job_id: str) -> Tuple[int, int]:
         """
-        Writes email facts to Iceberg table with proper upsert logic.
+        Writes email facts to Iceberg table, ensuring data for the specific owner is overwritten
+        without affecting other owners.
         Returns tuple of (success_count, failure_count)
         """
         success_count = 0
         failure_count = 0
-        
+
+        if not facts:
+            logger.info(f"Task {job_id}: No facts provided to write to Iceberg table '{table_name}'. Skipping.")
+            return (0, 0)
+
+        # --- Determine the owner email for this batch --- 
+        try:
+            # Assuming all facts in the list belong to the same owner
+            owner_email_for_batch = facts[0].get('owner_email')
+            if not owner_email_for_batch or not isinstance(owner_email_for_batch, str):
+                 raise ValueError("Missing or invalid 'owner_email' in the first fact record.")
+            # Optional: Verify all facts have the same owner if needed
+            # all_owners = {fact.get('owner_email') for fact in facts}
+            # if len(all_owners) > 1 or owner_email_for_batch not in all_owners:
+            #     raise ValueError(f"Multiple or inconsistent owner emails found in the batch for job {job_id}.")
+            logger.info(f"Task {job_id}: Preparing to write/overwrite data for owner '{owner_email_for_batch}' in table '{table_name}'.")
+        except (IndexError, ValueError, KeyError) as owner_err:
+            logger.error(f"Task {job_id}: Could not determine owner email from facts data: {owner_err}. Cannot write to Iceberg.", exc_info=True)
+            return (0, len(facts))
+
         try:
             # Get or create the table
             try:
                 table = catalog.load_table(table_name)
             except NoSuchTableError:
-                logger.info(f"Task {job_id}: Creating new Iceberg table '{table_name}'") # Use job_id for logging consistency
+                logger.info(f"Task {job_id}: Creating new Iceberg table '{table_name}'")
                 table = catalog.create_table(
                     identifier=table_name,
-                    schema=EMAIL_FACTS_SCHEMA, # Assumes EMAIL_FACTS_SCHEMA is accessible here
-                    partition_spec=EMAIL_FACTS_PARTITION_SPEC # Assumes PARTITION_SPEC is accessible
+                    schema=EMAIL_FACTS_SCHEMA,
+                    partition_spec=EMAIL_FACTS_PARTITION_SPEC
                 )
                 logger.info(f"Task {job_id}: Created Iceberg table '{table_name}'")
-            
-            # Convert list of dictionaries to Arrow Table using the table's schema
-            # Ensures correct types and handles potential missing columns gracefully
-            arrow_schema = schema_to_pyarrow(table.schema()) 
+
+            # Convert list of dictionaries to Arrow Table
+            arrow_schema = schema_to_pyarrow(table.schema())
             arrow_table = pa.Table.from_pylist(facts, schema=arrow_schema)
-            logger.debug(f"Task {job_id}: Converted {len(facts)} records to Arrow table for '{table_name}'.")
-            
-            # Perform upsert/append operation using PyIceberg's capabilities
+            logger.debug(f"Task {job_id}: Converted {len(facts)} records to Arrow table for owner '{owner_email_for_batch}'.")
+
+            # --- REVERTED: Use Upsert (Merge based on identifier) --- 
             # Check if table has identifier fields defined for true upsert
             if table.schema().identifier_field_ids:
-                logger.info(f"Task {job_id}: Performing upsert into Iceberg table '{table_name}' using identifier fields {table.schema().identifier_field_ids}.")
-                # PyIceberg >= 0.9.0 uses upsert (merge by identifier)
+                logger.info(f"Task {job_id}: Performing UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier fields {table.schema().identifier_field_ids}.")
+                # PyIceberg upsert handles merging based on the schema's identifier fields.
+                # It should implicitly handle partitioning if implemented correctly in the library/catalog.
                 try:
-                    # Use the correct method name: upsert()
-                    result = table.upsert(arrow_table) 
-                    # Note: upsert might return specific results in future versions, 
-                    # but for 0.9.0, success is often implied by lack of exception.
-                    # We can log the result object if needed for debugging.
-                    logger.debug(f"Task {job_id}: Upsert operation returned: {result}") 
+                    result = table.upsert(arrow_table)
+                    logger.debug(f"Task {job_id}: Upsert operation returned: {result}")
                     success_count = len(facts) # Assume all rows were processed if no error
-                    logger.info(f"Task {job_id}: Upsert operation successful for batch of {success_count} records.")
+                    logger.info(f"Task {job_id}: Upsert operation successful for owner '{owner_email_for_batch}', batch of {success_count} records.")
                 except Exception as upsert_err:
-                     logger.error(f"Task {job_id}: Error during Iceberg upsert operation for '{table_name}': {upsert_err}", exc_info=True)
-                     failure_count = len(facts) # Mark entire batch as failed on error
-                     success_count = 0
+                    logger.error(f"Task {job_id}: Error during Iceberg UPSERT operation for owner '{owner_email_for_batch}' in '{table_name}': {upsert_err}", exc_info=True)
+                    failure_count = len(facts)
+                    success_count = 0
             else:
-                logger.warning(f"Task {job_id}: No identifier fields found on table '{table_name}'. Performing append operation.")
-                table.append(arrow_table)
-                success_count = len(facts)
-                logger.info(f"Task {job_id}: Append operation successful for {success_count} records.")
-                
+                # Fallback to append if no identifier is defined (should not happen with our schema)
+                logger.warning(f"Task {job_id}: No identifier fields found on table '{table_name}'. Performing append operation for owner '{owner_email_for_batch}'.")
+                try:
+                    table.append(arrow_table)
+                    success_count = len(facts)
+                    logger.info(f"Task {job_id}: Append operation successful for owner '{owner_email_for_batch}', {success_count} records.")
+                except Exception as append_err:
+                    logger.error(f"Task {job_id}: Error during Iceberg APPEND operation for owner '{owner_email_for_batch}' in '{table_name}': {append_err}", exc_info=True)
+                    failure_count = len(facts)
+                    success_count = 0
+            # --- END REVERTED SECTION --- 
+
         except Exception as table_error:
-            logger.error(f"Task {job_id}: Iceberg table operation failed for '{table_name}': {table_error}", exc_info=True)
+            logger.error(f"Task {job_id}: Iceberg table operation failed for owner '{owner_email_for_batch}' in '{table_name}': {table_error}", exc_info=True)
             failure_count = len(facts)
-            success_count = 0 # Ensure success is 0 on failure
-            
+            success_count = 0
+
         return (success_count, failure_count)
 
 # Define the expected schema for the email_facts table
@@ -407,7 +431,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
                 table_namespace = settings.ICEBERG_DEFAULT_NAMESPACE
                 table_name = settings.ICEBERG_EMAIL_FACTS_TABLE
                 full_table_name = f"{table_namespace}.{table_name}"
-                logger.info(f"Task {task_id}: Preparing to write/upsert {len(facts_data)} records to Iceberg table '{full_table_name}'.")
+                logger.info(f"Task {task_id}: Preparing to write/overwrite {len(facts_data)} records to Iceberg table '{full_table_name}'.")
 
                 # *** Call the method correctly via self ***
                 iceberg_success_count, iceberg_failure_count = self._write_to_iceberg(
@@ -422,7 +446,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
                     # Decide if this constitutes a task failure or partial success
                     # For now, we'll let the final status check handle it, but log the error
                 else:
-                    logger.info(f"Task {task_id}: Successfully wrote/upserted {iceberg_success_count} records to Iceberg.")
+                    logger.info(f"Task {task_id}: Successfully wrote/overwrote {iceberg_success_count} records to Iceberg.")
 
             except Exception as iceberg_err: # Catch errors during the call to _write_to_iceberg or setup
                 logger.error(f"Task {task_id}: Failed Iceberg operation for table '{full_table_name}': {iceberg_err}", exc_info=True)

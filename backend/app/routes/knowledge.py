@@ -29,6 +29,13 @@ from app.db.session import get_db # Corrected import name
 from app.crud import crud_processed_file
 # --- End Import ---
 
+# --- ADDED: Iceberg Imports ---
+import pandas as pd
+from pyiceberg.catalog import load_catalog, Catalog
+from pyiceberg.exceptions import NoSuchTableError, NoSuchNamespaceError
+from pyiceberg.expressions import EqualTo
+# --- END: Iceberg Imports ---
+
 router = APIRouter()
 logger = logging.getLogger("app")
 
@@ -62,6 +69,7 @@ class AddTextResponse(BaseModel):
 # NEW: Response model for the combined knowledge base summary
 class KnowledgeSummaryResponseModel(BaseModel):
     raw_data_count: int # Email raw data
+    email_facts_count: int # ADDED: Count from Iceberg email_facts table
     sharepoint_raw_data_count: int # SharePoint raw data
     s3_raw_data_count: int # S3 raw data
     azure_blob_raw_data_count: int # Azure Blob raw data
@@ -73,6 +81,58 @@ class KnowledgeSummaryResponseModel(BaseModel):
 class SnippetRequest(BaseModel):
     content: str
     metadata: Optional[Dict[str, Any]] = {}
+
+# --- ADDED: Iceberg Helper Function (Minimal Implementation) ---
+# Ideally, move this to a dedicated service/CRUD file
+# Caching can be added here for performance
+_iceberg_catalog_instance: Catalog | None = None
+
+def get_iceberg_catalog_cached() -> Catalog | None:
+    """Initializes and returns a cached Iceberg catalog instance."""
+    global _iceberg_catalog_instance
+    if _iceberg_catalog_instance is None:
+        try:
+            logger.info("Initializing Iceberg REST Catalog for summary...")
+            catalog_props = {
+                "name": settings.ICEBERG_DUCKDB_CATALOG_NAME or "r2_catalog_summary_api",
+                "uri": settings.R2_CATALOG_URI,
+                "warehouse": settings.R2_CATALOG_WAREHOUSE,
+                "token": settings.R2_CATALOG_TOKEN,
+            }
+            catalog_props = {k: v for k, v in catalog_props.items() if v is not None}
+            _iceberg_catalog_instance = load_catalog(**catalog_props)
+            logger.info("Iceberg Catalog initialized successfully for summary.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Iceberg Catalog for summary: {e}", exc_info=True)
+            _iceberg_catalog_instance = None # Ensure it's None on failure
+    return _iceberg_catalog_instance
+
+def get_email_facts_count(owner_email: str) -> int:
+    """Counts records in email_facts table for a specific owner."""
+    catalog = get_iceberg_catalog_cached()
+    if not catalog:
+        logger.warning("Cannot count email facts, Iceberg catalog not available.")
+        return 0
+
+    full_table_name = f"{settings.ICEBERG_DEFAULT_NAMESPACE}.{settings.ICEBERG_EMAIL_FACTS_TABLE}"
+    count = 0
+    try:
+        logger.debug(f"Attempting to load Iceberg table '{full_table_name}' to count facts for {owner_email}")
+        table = catalog.load_table(full_table_name)
+        owner_filter = EqualTo("owner_email", owner_email)
+        # Scan minimal data with filter
+        filtered_scan = table.scan(row_filter=owner_filter, selected_fields=("owner_email",))
+        # Efficiently count rows (converting to pandas just for len is okay for moderate counts)
+        count = len(filtered_scan.to_pandas())
+        logger.debug(f"Found {count} email facts records for {owner_email} in '{full_table_name}'.")
+    except (NoSuchTableError, NoSuchNamespaceError):
+        logger.warning(f"Iceberg table '{full_table_name}' not found while counting facts for {owner_email}. Returning 0.")
+        count = 0
+    except Exception as e:
+        logger.error(f"Error counting email facts in '{full_table_name}' for {owner_email}: {e}", exc_info=True)
+        count = 0 # Default to 0 on error
+    return count
+# --- END: Iceberg Helper Function ---
 
 @router.get("/summary/{collection_name}", response_model=CollectionSummaryResponseModel)
 async def get_collection_summary_route(
@@ -158,9 +218,10 @@ async def get_knowledge_summary_route(
     vector_collection_name = f"{sanitized_email}_knowledge_base_bm" # CORRECTED NAME
     
     # Log all collections being queried (adjust log message if needed)
-    logger.info(f"User '{current_user.email}' requesting combined knowledge summary from DB and Milvus for collections: {custom_knowledge_collection_name}, {vector_collection_name}")
+    logger.info(f"User '{current_user.email}' requesting combined knowledge summary from DB, Iceberg, and Milvus for collections: {custom_knowledge_collection_name}, {vector_collection_name}")
 
     email_raw_count = 0 # Initialize Email count (will come from DB)
+    email_facts_count = 0 # ADDED: Iceberg email facts count
     sharepoint_raw_count = 0
     s3_raw_count = 0 # Initialize S3 count
     azure_blob_raw_count = 0 # Initialize Azure Blob count
@@ -189,6 +250,11 @@ async def get_knowledge_summary_route(
             azure_blob_raw_count = 0
             # custom_raw_count = 0
         # --- End ProcessedFiles counts ---
+
+        # --- ADDED: Get count from Iceberg email_facts --- 
+        email_facts_count = get_email_facts_count(owner_email=current_user.email)
+        logger.info(f"Iceberg email_facts count for {current_user.email}: {email_facts_count}")
+        # --- END: Get count from Iceberg --- 
 
         # Get CUSTOM raw data count using Milvus API (if still applicable)
         try:
@@ -234,6 +300,7 @@ async def get_knowledge_summary_route(
         # Construct the response
         response_data = KnowledgeSummaryResponseModel(
             raw_data_count=email_raw_count, # Use count from DB
+            email_facts_count=email_facts_count, # ADDED: Iceberg count
             sharepoint_raw_data_count=sharepoint_raw_count, # Use count from DB
             s3_raw_data_count=s3_raw_count, # Use count from DB
             azure_blob_raw_data_count=azure_blob_raw_count, # Use count from DB

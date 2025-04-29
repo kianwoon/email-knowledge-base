@@ -40,7 +40,7 @@ interface UserInfo {
 }
 
 interface CombinedSummary {
-  rawDataCount: number;
+  emailFactsCount: number;
   sharepointRawDataCount: number;
   s3RawDataCount: number;
   azureBlobRawDataCount: number;
@@ -108,7 +108,7 @@ const KnowledgeManagementPage: React.FC = () => {
         getCurrentUser()
       ]);
       
-      console.log("Knowledge Summary:", knowledgeSummary);
+      console.log("Knowledge Summary API Response:", knowledgeSummary);
       console.log("Tokens:", tokens);
       console.log("Current User:", user);
 
@@ -116,7 +116,7 @@ const KnowledgeManagementPage: React.FC = () => {
       const activeTokens = tokens.filter((token: Token) => token.is_active).length;
       
       setSummaryData({
-        rawDataCount: knowledgeSummary.raw_data_count ?? 0,
+        emailFactsCount: knowledgeSummary.email_facts_count ?? 0,
         sharepointRawDataCount: knowledgeSummary.sharepoint_raw_data_count ?? 0,
         s3RawDataCount: knowledgeSummary.s3_raw_data_count ?? 0,
         azureBlobRawDataCount: knowledgeSummary.azure_blob_raw_data_count ?? 0,
@@ -256,15 +256,15 @@ const KnowledgeManagementPage: React.FC = () => {
             >
               {/* Raw Data Sources Group */}
               <VStack spacing={4} align="stretch" flexShrink={0}>
-                {/* Email Raw Data Card - Always show if data available */}
-                {summaryData.rawDataCount > 0 && (
+                {/* Email Facts Card - Show if data available */}
+                {summaryData.emailFactsCount >= 0 && (
                   <Card variant="outline" bg={cardBg} borderColor={cardBorder}>
                     <CardBody>
                       <Stat>
-                        <StatLabel>{t('knowledgeManagement.summary.rawDataLabel', 'Email Raw Data')}</StatLabel>
-                        <StatNumber>{summaryData.rawDataCount}</StatNumber>
+                        <StatLabel>{t('knowledgeManagement.summary.emailFactsLabel', 'Email Facts Records')}</StatLabel>
+                        <StatNumber>{summaryData.emailFactsCount}</StatNumber>
                         <StatHelpText fontSize="xs" noOfLines={1}>
-                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 'email_attachment' })}
+                          {t('knowledgeManagement.summary.emailFactsSource', 'Source: email_facts table')}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
