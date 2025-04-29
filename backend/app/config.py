@@ -131,6 +131,18 @@ class Settings(BaseSettings):
     RATE_CARD_RESULTS_PER_QUERY: Optional[int] = int(os.getenv("RATE_CARD_RESULTS_PER_QUERY", "3"))
     RATE_CARD_FINAL_CONTEXT_LIMIT: Optional[int] = int(os.getenv("RATE_CARD_FINAL_CONTEXT_LIMIT", "5"))
 
+    # Composite scoring metadata filter settings
+    ENABLE_METADATA_FILTER: bool = os.getenv("ENABLE_METADATA_FILTER", "False") == "True"
+    METADATA_FILTER_FIELD: Optional[str] = os.getenv("METADATA_FILTER_FIELD", None)
+    METADATA_FILTER_VALUE: Optional[str] = os.getenv("METADATA_FILTER_VALUE", None)
+
+    # Composite scoring weights (must be floats)
+    COMPOSITE_WEIGHT_DENSE: float = float(os.getenv("COMPOSITE_WEIGHT_DENSE", "0.4"))
+    COMPOSITE_WEIGHT_SPARSE: float = float(os.getenv("COMPOSITE_WEIGHT_SPARSE", "0.4"))
+    COMPOSITE_WEIGHT_META:   float = float(os.getenv("COMPOSITE_WEIGHT_META",   "0.2"))
+    # Number of top results to return when composite scoring is enabled
+    COMPOSITE_TOP_K: int = int(os.getenv("COMPOSITE_TOP_K", "5"))
+
     # Milvus settings
     MILVUS_URI: str = os.getenv("MILVUS_URI") # validated by check_required_env_vars
     MILVUS_TOKEN: str = os.getenv("MILVUS_TOKEN") # validated by check_required_env_vars

@@ -77,6 +77,11 @@ async def search_milvus_knowledge_hybrid(
     Returns a fused list of results including payload.
     Assumes collection has appropriate dense and sparse (BM25) indexes.
     """
+    # If metadata filtering is enabled, enforce the metadata filter as the Milvus filter expression
+    if settings.ENABLE_METADATA_FILTER and settings.METADATA_FILTER_FIELD and settings.METADATA_FILTER_VALUE:
+        # Build filter expression for Milvus: metadata field equals the configured value
+        filter_expr = f"{settings.METADATA_FILTER_FIELD} == \"{settings.METADATA_FILTER_VALUE}\""
+        logger.debug(f"Applying metadata filter to hybrid search: {filter_expr}")
     milvus_client: MilvusClient = get_milvus_client()
     
     logger.debug(f"Attempting Milvus HYBRID search in collection '{collection_name}' for query '{query_text}' with limit {limit} and filter: '{filter_expr}'")
@@ -102,66 +107,152 @@ async def search_milvus_knowledge_hybrid(
     default_sparse_params = {"type": "BM25", "params": {"k1": 1.2, "b": 0.75}}
     final_sparse_params = sparse_params or default_sparse_params
 
-    # --- Construct Hybrid Search Requests --- 
+    # --- Construct Hybrid Search Requests ---
     # Dense Search Request
     dense_req = {
-        "data": [query_dense_vector],
-        "anns_field": dense_vector_field, # Keep anns_field here
-        "param": final_dense_params, # RESTORED: Param defined inside request
-        "limit": limit 
+        "anns_field": dense_vector_field,
+        "search_params": final_dense_params,
+        "search_data": [query_dense_vector],
+        "limit": limit
     }
-    
-    # Sparse Search Request (using text field for dynamic BM25)
+
+    # Sparse Search Request (BM25)
     sparse_req = {
-        "type": final_sparse_params["type"],
-        "data": [query_text],
         "anns_field": sparse_text_field,
-        "param": final_sparse_params["params"],
+        "search_params": final_sparse_params,
+        "search_data": [query_text],
         "limit": limit
     }
 
     search_requests = [dense_req, sparse_req]
-    
-    # --- Execute Hybrid Search --- 
-    try:
-        # MODIFIED: Call search() with search_params as search_requests
-        search_result = milvus_client.search(
-            collection_name=collection_name,
-            data=[query_dense_vector],
-            search_params=search_requests,
-            output_fields=output_fields,
-            filter=filter_expr
-        )
-        
-        # --- Format Results --- 
-        formatted_results = []
-        if search_result:
-            hits = search_result[0] 
-            for hit in hits:
-                doc_id = hit.get('id')
-                entity_data = hit.get('entity', {})
-                content = hit.get('content') or entity_data.get('content')
-                metadata = hit.get('metadata') or entity_data.get('metadata')
-                score = hit.get('distance', hit.get('score')) 
-                if doc_id is not None and content is not None:
-                    formatted_results.append({
-                        "id": doc_id,
-                        "score": score, 
-                        "content": content,
-                        "metadata": metadata
-                    })
-                else:
-                    logger.warning(f"Skipping hit due to missing id or content: {hit}")
-        
-        logger.debug(f"Milvus hybrid search successful. Returning {len(formatted_results)} fused results.")
-        return formatted_results
 
-    except Exception as e:
-        logger.error(f"Milvus hybrid search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
-        if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-            logger.warning(f"Milvus collection '{collection_name}' not found during hybrid search.")
-            return []
-        raise HTTPException(status_code=500, detail=f"Milvus hybrid search failed unexpectedly: {str(e)}")
+    # --- Composite Scoring Option ---
+    if settings.ENABLE_COMPOSITE_SCORING:
+        # Dense-only search
+        dense_kwargs = {
+            "collection_name": collection_name,
+            "data": [query_dense_vector],
+            "anns_field": dense_vector_field,
+            "search_params": final_dense_params,
+            "limit": limit,
+            "output_fields": output_fields
+        }
+        if filter_expr:
+            dense_kwargs["filter"] = filter_expr
+        dense_res = milvus_client.search(**dense_kwargs)[0]
+
+        # Generate vector embedding for sparse (BM25 alternative) via dense model
+        try:
+            query_sparse_vector = await create_embedding(query_text)
+        except Exception as e:
+            logger.warning(f"Failed to create sparse embedding, falling back to dense: {e}")
+            query_sparse_vector = query_dense_vector
+
+        # Sparse-only search via vector embedding
+        sparse_kwargs = {
+            "collection_name": collection_name,
+            "data": [query_sparse_vector],
+            "anns_field": dense_vector_field,  # vector field
+            "search_params": final_sparse_params,  # reuse sparse_params or configure separately
+            "limit": limit,
+            "output_fields": output_fields
+        }
+        if filter_expr:
+            sparse_kwargs["filter"] = filter_expr
+        sparse_res = milvus_client.search(**sparse_kwargs)[0]
+
+        # Build score maps
+        max_sparse = max(
+            (hit.get("score", hit.get("distance", 0.0)) for hit in sparse_res),
+            default=1.0
+        )
+        scores = {}
+        for hit in dense_res:
+            doc_id = hit.get("id")
+            score_val = hit.get("score", hit.get("distance", 0.0))
+            content = hit.get("content") or hit.get("entity", {}).get("content")
+            metadata = hit.get("metadata") or hit.get("entity", {}).get("metadata")
+            scores[doc_id] = {
+                "dense": (score_val + 1) / 2.0,
+                "sparse": 0.0,
+                "meta": 0.0,
+                "content": content,
+                "metadata": metadata
+            }
+        for hit in sparse_res:
+            doc_id = hit.get("id")
+            score_val = hit.get("score", hit.get("distance", 0.0))
+            content = hit.get("content") or hit.get("entity", {}).get("content")
+            metadata = hit.get("metadata") or hit.get("entity", {}).get("metadata")
+            entry = scores.setdefault(doc_id, {
+                "dense": 0.0,
+                "sparse": 0.0,
+                "meta": 0.0,
+                "content": content,
+                "metadata": metadata
+            })
+            entry["sparse"] = score_val / max_sparse
+        # Compute composite and collect
+        formatted_results = []
+        for doc_id, vals in scores.items():
+            # metadata boost
+            if settings.ENABLE_METADATA_FILTER and settings.METADATA_FILTER_VALUE and \
+               vals["metadata"].get(settings.METADATA_FILTER_FIELD) == settings.METADATA_FILTER_VALUE:
+                vals["meta"] = 1.0
+            comp = (settings.COMPOSITE_WEIGHT_DENSE * vals["dense"] +
+                    settings.COMPOSITE_WEIGHT_SPARSE * vals["sparse"] +
+                    settings.COMPOSITE_WEIGHT_META * vals["meta"])
+            formatted_results.append({
+                "id": doc_id,
+                "score": comp,
+                "content": vals["content"],
+                "metadata": vals["metadata"]
+            })
+        # Safely determine how many results to return
+        top_k = settings.COMPOSITE_TOP_K if isinstance(settings.COMPOSITE_TOP_K, int) else limit
+        return sorted(formatted_results, key=lambda x: x["score"], reverse=True)[: top_k]
+    else:
+        try:
+            # REVERT: Use reqs parameter for hybrid search (not search_params)
+            search_result = milvus_client.search(
+                collection_name=collection_name,
+                data=[query_dense_vector],
+                anns_field=dense_vector_field,
+                reqs=search_requests,
+                limit=limit,
+                output_fields=output_fields,
+                filter=filter_expr
+            )
+            
+            # --- Format Results --- 
+            formatted_results = []
+            if search_result:
+                hits = search_result[0] 
+                for hit in hits:
+                    doc_id = hit.get('id')
+                    entity_data = hit.get('entity', {})
+                    content = hit.get('content') or entity_data.get('content')
+                    metadata = hit.get('metadata') or entity_data.get('metadata')
+                    score = hit.get('distance', hit.get('score')) 
+                    if doc_id is not None and content is not None:
+                        formatted_results.append({
+                            "id": doc_id,
+                            "score": score, 
+                            "content": content,
+                            "metadata": metadata
+                        })
+                    else:
+                        logger.warning(f"Skipping hit due to missing id or content: {hit}")
+            
+            logger.debug(f"Milvus hybrid search successful. Returning {len(formatted_results)} fused results.")
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Milvus hybrid search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
+            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
+                logger.warning(f"Milvus collection '{collection_name}' not found during hybrid search.")
+                return []
+            raise HTTPException(status_code=500, detail=f"Milvus hybrid search failed unexpectedly: {str(e)}")
 
 # Renamed and refactored for Milvus
 async def search_milvus_knowledge(
