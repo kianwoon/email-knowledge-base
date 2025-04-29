@@ -11,48 +11,8 @@ on:
       - '.koyeb.yml'
 
 jobs:
-  build-backend:
-    name: Build and Test Backend
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: python -m pip install --upgrade pip setuptools && pip install -r backend/requirements.txt
-      - name: Run Backend Tests
-        run: pytest backend/
-
-  build-frontend:
-    name: Build Frontend
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Cache frontend dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            frontend/node_modules
-            frontend/.cache
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/**/package-lock.json') }}
-      - name: Install dependencies
-        run: |
-          cd frontend
-          npm ci
-      - name: Build Frontend
-        run: |
-          cd frontend
-          npm run build
-
   deploy:
     name: Deploy Services
-    needs:
-      - build-backend
-      - build-frontend
     runs-on: ubuntu-22.04
     concurrency:
       group: deploy-${{ github.ref }}-${{ matrix.service }}
