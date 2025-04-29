@@ -377,12 +377,38 @@ async def generate_openai_rag_response(
     try: # Outer try block
         # Determine model and user-specific client
         chat_model = model_id or settings.OPENAI_MODEL_NAME
-        logger.debug(f"Using LLM model: {chat_model} for user {user.email}")
-        user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
-        if not user_openai_key:
-            logger.warning(f"User {user.email} missing OpenAI key.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OpenAI API key required.")
-        user_client = AsyncOpenAI(api_key=user_openai_key, timeout=settings.OPENAI_TIMEOUT_SECONDS or 30.0)
+        provider = "openai" # Hardcoded for now, ideally determine from model_id
+        logger.debug(f"Using LLM model: {chat_model} for user {user.email} via provider {provider}")
+
+        # --- MODIFIED: Fetch APIKeyDB object and decrypt key (replaces get_decrypted_credentials) ---
+        # Fetch the stored API key record
+        db_api_key = api_key_crud.get_api_key(db, user.email, provider)
+        if not db_api_key:
+            logger.warning(f"User {user.email} missing active {provider} key.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{provider.capitalize()} API key required.")
+        # Decrypt the key
+        user_api_key = decrypt_token(db_api_key.encrypted_key)
+        if not user_api_key:
+            logger.error(f"Failed to decrypt stored {provider} key for user {user.email}. Key ID: {db_api_key.id}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not decrypt stored API key.")
+        # Retrieve custom base URL if any
+        user_base_url = db_api_key.model_base_url
+        # --- End Modification ---
+
+        # --- MODIFIED: Conditionally set base_url for the client (logic remains same) --- 
+        client_kwargs = {
+            "api_key": user_api_key,
+            "timeout": settings.OPENAI_TIMEOUT_SECONDS or 30.0
+        }
+        if user_base_url:
+            logger.info(f"Using custom base URL for {provider} for user {user.email}: {user_base_url}")
+            client_kwargs["base_url"] = user_base_url
+        else:
+            logger.info(f"Using default base URL for {provider} for user {user.email}")
+            # No base_url kwarg passed, library uses default
+
+        user_client = AsyncOpenAI(**client_kwargs)
+        # --- End Modification ---
 
         # --- START: Intent Detection (Email vs. General KB) ---
         async def _detect_query_intent(user_query: str, client: AsyncOpenAI) -> str:
@@ -818,8 +844,13 @@ async def get_rate_card_response_advanced(
 
         # 5. Perform Multi-Vector Search in Milvus
         k_per_query = int(getattr(settings, 'RATE_CARD_RESULTS_PER_QUERY', 3))
-        all_search_results = [] 
-        search_filter = None # Filter logic can be added here if needed later
+        all_search_results = []
+        # Build filename filter requiring all key terms
+        terms = ['rate', 'card']
+        role_term = query_features.get('role')
+        if role_term:
+            terms.insert(0, role_term)
+        logger.debug(f"RateCardRAG: Using filename terms for pre-filtering: {terms}")
 
         # MODIFIED: Call the new hybrid search function for each query vector
         for i, q in enumerate(retrieval_queries):
@@ -827,17 +858,17 @@ async def get_rate_card_response_advanced(
             # Determine target collection name (RAG collection)
             sanitized_email = user.email.replace('@', '_').replace('.', '_')
             target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-            
-            # Call the hybrid function (assuming it takes query_text, not pre-computed vectors)
+
+            # Call the hybrid function with the filename terms list
             hybrid_results = await search_milvus_knowledge_hybrid(
-                query_text=q, # Pass the actual query text
+                query_text=q,  # Pass the actual query text
                 collection_name=target_collection_name,
-                limit=k_per_query, 
-                filter_expr=search_filter
-                # Pass dense/sparse params if needed
+                limit=k_per_query,
+                # Pass the list of terms directly
+                filename_terms=terms 
             )
             # The hybrid function returns a single list of fused results for the query
-            all_search_results.extend(hybrid_results) 
+            all_search_results.extend(hybrid_results)
             logger.debug(f"RateCardRAG: Found {len(hybrid_results)} fused results for query '{q}'.")
             
         logger.info(f"RateCardRAG: Total raw results from hybrid searches: {len(all_search_results)}")

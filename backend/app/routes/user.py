@@ -52,16 +52,16 @@ async def save_openai_api_key(
         if not api_key_data.get("api_key"):
             raise HTTPException(status_code=400, detail="API key is required")
         
-        # Create API key create object
         api_key_in = APIKeyCreate(
             provider="openai",
-            key=api_key_data["api_key"]
+            key=api_key_data["api_key"],
+            model_base_url=api_key_data.get("model_base_url")
         )
         
         # Check if key already exists
         existing_key = api_key_crud.get_api_key(db, current_user.email, "openai")
         if existing_key:
-            api_key_crud.update_api_key(db, current_user.email, "openai", api_key_in.key)
+            api_key_crud.update_api_key(db, current_user.email, "openai", new_key=api_key_in.key, model_base_url=api_key_in.model_base_url)
         else:
             api_key_crud.create_api_key(db, current_user.email, api_key_in)
         
@@ -88,16 +88,16 @@ async def save_provider_api_key(
         if provider not in ["openai", "anthropic", "google"]:
             raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google")
         
-        # Create API key create object
         api_key_in = APIKeyCreate(
             provider=provider,
-            key=api_key_data["api_key"]
+            key=api_key_data["api_key"],
+            model_base_url=api_key_data.get("model_base_url")
         )
         
         # Check if key already exists
         existing_key = api_key_crud.get_api_key(db, current_user.email, provider)
         if existing_key:
-            api_key_crud.update_api_key(db, current_user.email, provider, api_key_in.key)
+            api_key_crud.update_api_key(db, current_user.email, provider, new_key=api_key_in.key, model_base_url=api_key_in.model_base_url)
         else:
             api_key_crud.create_api_key(db, current_user.email, api_key_in)
         
@@ -178,27 +178,20 @@ async def delete_provider_api_key(
         logger.error(f"Error deleting {provider} API key: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error deleting {provider} API key: {str(e)}")
 
-@router.get("/provider-api-keys", response_model=List[APIKeyInfoResponse])
+@router.get("/provider-api-keys", response_model=List[APIKey])
 async def get_all_api_keys(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get all API keys for the user across all providers."""
+    """Get all active API keys for the user across all providers."""
     try:
-        api_keys = api_key_crud.get_all_api_keys(db, current_user.email)
+        # Fetch only active keys directly using CRUD is better if possible,
+        # but filtering here works too.
+        all_db_keys = api_key_crud.get_all_api_keys(db, current_user.email)
+        active_keys = [key for key in all_db_keys if key.is_active]
         
-        # Format the response
-        response = []
-        for key in api_keys:
-            if key.is_active:
-                key_info = APIKeyInfoResponse(
-                    provider=key.provider,
-                    created_at=key.created_at.isoformat(),
-                    last_used=key.last_used.isoformat() if key.last_used else None
-                )
-                response.append(key_info)
-        
-        return response
+        # Pydantic will automatically map the fields based on the APIKey schema
+        return active_keys
     except Exception as e:
         logger.error(f"Error getting API keys: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting API keys: {str(e)}")

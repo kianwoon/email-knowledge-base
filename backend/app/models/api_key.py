@@ -20,6 +20,7 @@ class APIKeyDB(Base):
     user_email: Mapped[str] = mapped_column(ForeignKey("users.email", ondelete="CASCADE"), nullable=False)
     provider: Mapped[str] = mapped_column(nullable=False)
     encrypted_key: Mapped[str] = mapped_column(Text, nullable=False)
+    model_base_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_used: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -37,6 +38,7 @@ class APIKeyDB(Base):
 # Pydantic models for API
 class APIKeyBase(BaseModel):
     provider: str
+    model_base_url: Optional[str] = None
     
 class APIKeyCreate(APIKeyBase):
     key: str  # Raw API key to be encrypted

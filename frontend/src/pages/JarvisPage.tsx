@@ -47,6 +47,7 @@ import {
   Link,
   Divider,
   Image,
+  FormErrorMessage,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
@@ -209,10 +210,12 @@ const JarvisPage: React.FC = () => {
   // State for model selection and API keys
   const [selectedModel, setSelectedModel] = useState<string>(''); // Initialize as empty, loaded from default
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [apiBaseUrls, setApiBaseUrls] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKeyLoading, setApiKeyLoading] = useState(false); 
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [savedKeysStatus, setSavedKeysStatus] = useState<Record<string, boolean>>({});
   const [modelLoading, setModelLoading] = useState(true); // Added loading state for model
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
@@ -322,6 +325,12 @@ const JarvisPage: React.FC = () => {
           const parsed = JSON.parse(cachedKeys);
           setApiKeys(parsed);
           setHasApiKey(Object.keys(parsed).length > 0);
+          // Initialize savedKeysStatus from parsed keys
+          const initialStatus: Record<string, boolean> = {};
+          Object.keys(parsed).forEach(provider => {
+            initialStatus[provider] = Boolean(parsed[provider]);
+          });
+          setSavedKeysStatus(initialStatus);
           return;
         } catch (e) {
           console.error("Failed to parse cached API keys:", e);
@@ -337,7 +346,7 @@ const JarvisPage: React.FC = () => {
 
   // Load keys only when entering Settings tab
   useEffect(() => {
-    if (activeTab === 1) { // Settings tab
+    if (activeTab === 4) { // Settings tab index
       loadApiKeys(false);
     }
   }, [activeTab]);
@@ -356,58 +365,43 @@ const JarvisPage: React.FC = () => {
   const loadApiKeys = async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) {
       setApiKeyLoading(true);
-      setApiKeyError(null);
     }
-
+    setApiKeyError(null);
     try {
-      const providersToCheck: ApiProvider[] = ['openai', 'anthropic', 'google'];
-      
-      const keyPromises = providersToCheck.map(async (provider) => {
-        try {
-          let apiKey: string | null = null;
-          if (provider === 'openai') {
-            try {
-              apiKey = await getOpenAIApiKey();
-              if (apiKey === null) {
-                apiKey = await getProviderApiKey(provider);
-              }
-            } catch (legacyError) {
-              apiKey = await getProviderApiKey(provider);
-            }
-          } else {
-            apiKey = await getProviderApiKey(provider);
-          }
-          return { provider, apiKey };
-        } catch (error) {
-          console.error(`Error loading ${provider} API key:`, error);
-          return { provider, apiKey: null };
+      const allKeys = await getAllApiKeys(); // This fetches [{provider: 'openai', is_set: true, model_base_url: '...'}, ...]
+      console.log("Fetched API Keys:", allKeys); // Debug log
+
+      // Process fetched keys
+      // We don't need the actual keys here, just their status and base URL
+      const updatedBaseUrlsState: Record<string, string> = {};
+      const updatedSavedKeysStatus: Record<string, boolean> = {}; 
+
+      (['openai', 'anthropic', 'google'] as ApiProvider[]).forEach(provider => {
+        const keyInfo = allKeys.find(k => k.provider === provider);
+        if (keyInfo) {
+          // Key exists in backend for this provider
+          updatedSavedKeysStatus[provider] = true; 
+          updatedBaseUrlsState[provider] = keyInfo.model_base_url || ''; 
+        } else {
+          // Key does not exist in backend for this provider
+          updatedSavedKeysStatus[provider] = false; 
+          updatedBaseUrlsState[provider] = ''; // Ensure base URL is cleared if key is not set
         }
       });
 
-      const results = await Promise.allSettled(keyPromises);
-      const newApiKeys: Record<string, string> = {};
-      let hasAnyKey = false;
-      
-      results.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value.apiKey) {
-          newApiKeys[result.value.provider] = result.value.apiKey;
-          hasAnyKey = true;
-        }
-      });
+      // Update state
+      // Don't update apiKeys state from here, let user input manage it
+      setApiBaseUrls(updatedBaseUrlsState); // Update base URLs based on fetched data
+      setSavedKeysStatus(updatedSavedKeysStatus); // Update the saved status
+      setLastKeyRefresh(Date.now());
 
-      setApiKeys(newApiKeys);
-      setHasApiKey(hasAnyKey);
-      sessionStorage.setItem('jarvis_api_keys', JSON.stringify(newApiKeys));
+      // Update the general hasApiKey state (maybe phase this out?)
+      setHasApiKey(!!allKeys.find(k => k.provider === 'openai')); 
 
-      if (hasAnyKey) {
-        setRetryCount(0);
-        localStorage.setItem('jarvis_had_api_key', 'true');
-      }
     } catch (error) {
-      console.error("Failed to load API keys:", error);
-      if (!isBackgroundRefresh) {
-        setApiKeyError("Failed to load saved API keys");
-      }
+      console.error("Error loading API keys:", error);
+      setApiKeyError("Failed to load API keys.");
+      setSavedKeysStatus({}); // Reset status on error
     } finally {
       if (!isBackgroundRefresh) {
         setApiKeyLoading(false);
@@ -415,32 +409,65 @@ const JarvisPage: React.FC = () => {
     }
   };
 
-  // Handle API key updates
-  const handleApiKeyUpdate = (provider: string, key: string) => {
-    const newKeys = {
-      ...apiKeys,
+  // Handle API key and Base URL updates
+  const handleApiKeyUpdate = (provider: string, key: string, baseUrl?: string) => {
+    setApiKeys(prev => ({
+      ...prev,
       [provider]: key
-    };
-    setApiKeys(newKeys);
+    }));
+    // Also update base URL state if provided (e.g., from its own input)
+    if (baseUrl !== undefined) {
+      setApiBaseUrls(prev => ({
+        ...prev,
+        [provider]: baseUrl
+      }));
+    }
   };
+  
+  // --- ADDED: Handler specifically for Base URL input changes --- 
+  const handleBaseUrlUpdate = (provider: string, baseUrl: string) => {
+      setApiBaseUrls(prev => ({
+        ...prev,
+        [provider]: baseUrl
+      }));
+  };
+  // --- END ---
 
-  // Save API keys
+  // Save API keys and Base URL
   const handleSaveApiKey = async (provider: string) => {
+    console.log(`[Save Button Clicked] Provider: ${provider}`); // Log 1: Function entry
     try {
-      if (!apiKeys[provider]) return;
-      
-      if (provider === 'openai') {
-        await saveOpenAIApiKey(apiKeys[provider]);
-      } else {
-        await saveProviderApiKey(provider as ApiProvider, apiKeys[provider]);
+      const apiKeyToSave = apiKeys[provider];
+      const baseUrlToSave = apiBaseUrls[provider]; // Get base URL from state
+      console.log(`[Save Handler] API Key Input: '${apiKeyToSave}' (Length: ${apiKeyToSave?.length || 0})`); // Log 2: Key Input Value
+      console.log(`[Save Handler] Base URL Input: '${baseUrlToSave}'`); // Log 3: Base URL Input Value
+      console.log(`[Save Handler] Is Key Saved Status: ${savedKeysStatus[provider]}`); // Log 4: Saved Status
+
+      // RE-ADDED: Prevent saving if the API key input is empty, as the backend requires it.
+      if (!apiKeyToSave) {
+        console.warn(`[Save Handler] Aborting save for ${provider}: API key input field is empty.`); // Log 5: Abort Reason
+        toast({
+          title: "Save Not Attempted",
+          description: "Please re-enter the API key to save changes.",
+          status: "warning",
+          duration: 4000,
+          isClosable: true,
+        });
+        return;
       }
+
+      console.log(`[Save Handler] Proceeding to call saveProviderApiKey for ${provider}...`); // Log 6: Proceeding
+
+      // Use the updated API function
+      await saveProviderApiKey(provider as ApiProvider, apiKeyToSave, baseUrlToSave);
+      console.log(`[Save Handler] saveProviderApiKey call successful for ${provider}.`); // Log 7: API Success
       
       // Update sessionStorage after successful save to DB
       sessionStorage.setItem('jarvis_api_keys', JSON.stringify(apiKeys));
       
       toast({
-        title: t('jarvis.apiKeySaved', 'API Key Saved'),
-        description: t('jarvis.apiKeySavedDesc', 'Your {{provider}} API key has been saved successfully.', { provider: provider.toUpperCase() }),
+        title: t('jarvis.apiKeySaved'),
+        description: t('jarvis.apiKeySavedDesc', { provider: provider.toUpperCase() }),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -448,10 +475,14 @@ const JarvisPage: React.FC = () => {
       
       setHasApiKey(true);
       localStorage.setItem('jarvis_had_api_key', 'true');
-    } catch (error) {
+      // No longer clear the input fields after successful save
+      // setSavedKeysStatus still updates status
+      setSavedKeysStatus(prev => ({ ...prev, [provider]: true })); // <-- Update status on save
+      setLastKeyRefresh(Date.now()); // Trigger potential refresh elsewhere if needed
+    } catch (error: any) {
       console.error(`Error saving ${provider} API key:`, error);
       toast({
-        title: t('jarvis.apiKeySaveError', 'Error Saving API Key'),
+        title: t('jarvis.apiKeySaveError'),
         description: error instanceof Error ? error.message : String(error),
         status: 'error',
         duration: 5000,
@@ -481,9 +512,9 @@ const JarvisPage: React.FC = () => {
       setLastKeyRefresh(0);
       
       toast({
-        title: t('jarvis.apiKeyDeleted', 'API Key Deleted'),
-        description: t('jarvis.apiKeyDeletedDesc', 'Your {{provider}} API key has been deleted.', { provider: provider.toUpperCase() }),
-        status: 'info',
+        title: t('jarvis.apiKeyDeleted'),
+        description: t('jarvis.apiKeyDeletedDesc', { provider: provider.toUpperCase() }),
+        status: 'info', // Use info for deletion confirmation
         duration: 3000,
         isClosable: true,
       });
@@ -492,10 +523,15 @@ const JarvisPage: React.FC = () => {
       setTimeout(() => {
         loadApiKeys(false);
       }, 500);
-    } catch (error) {
+      // Clear the input fields after successful delete
+      handleApiKeyUpdate(provider, '', '');
+      handleBaseUrlUpdate(provider, '');
+      setSavedKeysStatus(prev => ({ ...prev, [provider]: false })); // <-- Update status on delete
+      setLastKeyRefresh(Date.now()); // Trigger potential refresh elsewhere if needed
+    } catch (error: any) {
       console.error(`Error deleting ${provider} API key:`, error);
       toast({
-        title: t('jarvis.apiKeyDeleteError', 'Error Deleting API Key'),
+        title: t('jarvis.apiKeyDeleteError'),
         description: error instanceof Error ? error.message : String(error),
         status: 'error',
         duration: 5000,
@@ -559,8 +595,8 @@ const JarvisPage: React.FC = () => {
       // Call the API to save the default model
       await saveDefaultModel(selectedModel);
       toast({
-        title: t('jarvis.defaultModelSaved', 'Default Model Saved'),
-        description: t('jarvis.defaultModelSavedDesc', 'Your default model preference has been saved.'),
+        title: t('jarvis.defaultModelSaved'),
+        description: t('jarvis.defaultModelSavedDesc'),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -568,7 +604,7 @@ const JarvisPage: React.FC = () => {
     } catch (error) {
       console.error("Error saving default model:", error);
       toast({
-        title: t('jarvis.defaultModelError', 'Error Saving Default Model'),
+        title: t('jarvis.defaultModelError'),
         description: error instanceof Error ? error.message : String(error),
         status: 'error',
         duration: 5000,
@@ -645,9 +681,9 @@ const JarvisPage: React.FC = () => {
     setCustomUploadLoading(false);
     const failed = results.filter(r => !r.success);
     if (failed.length === 0) {
-      toast({ title: t('customKnowledge.uploadSuccess', 'Files uploaded successfully'), status: 'success' });
+      toast({ title: t('customKnowledge.uploadSuccess'), status: 'success' });
     } else {
-      toast({ title: t('customKnowledge.uploadFailed', 'Some files failed'), description: failed.map(f => `${f.filename}: ${f.error}`).join('\n'), status: 'error', duration: 8000 });
+      toast({ title: t('customKnowledge.uploadFailed'), description: failed.map(f => `${f.filename}: ${f.error}`).join('\n'), status: 'error', duration: 8000 });
     }
     fetchCustomHistory();
   };
@@ -683,8 +719,8 @@ const JarvisPage: React.FC = () => {
       const body = { content: snippetContent, metadata: snippetTag ? { tag: snippetTag } : {} };
       const response = await axios.post('/api/v1/knowledge/snippet', body);
       toast({
-        title: t('jarvis.addKnowledgeSuccess', 'Knowledge added'),
-        description: t('jarvis.addKnowledgeDesc', 'Your text has been added to your knowledge base.'),
+        title: t('jarvis.addKnowledgeSuccess'),
+        description: t('jarvis.addKnowledgeDesc'),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -826,6 +862,12 @@ const JarvisPage: React.FC = () => {
           <Alert status="warning" borderRadius="md">
             <AlertIcon />
             {apiKeyError} - {t('jarvis.continueWithoutKeys', 'You can continue without saved API keys.')}
+          </Alert>
+        )}
+        {Object.values(savedKeysStatus).some(v => v) && !apiKeyError && (
+          <Alert status="success" borderRadius="md" mt={2}>
+            <AlertIcon />
+            {t('jarvis.keysConfigured', 'API key configured')}
           </Alert>
         )}
 
@@ -1245,73 +1287,131 @@ const JarvisPage: React.FC = () => {
                            const hasModels = AVAILABLE_MODELS.some(model => model.provider === provider && model.requiresKey);
                            if (!hasModels) return null;
                            
+                           // Determine if the key is currently saved based on state
+                           const isKeySaved = savedKeysStatus[provider] === true;
+
+                           // --- ADDED: Define conditional background color based on saved status ---
+                           const cardBgColor = isKeySaved 
+                             ? useColorModeValue('green.50', 'gray.750') // Subtle green tint when saved
+                             : boxBgColor; // Default background otherwise
+                           // --- END ADDITION ---
+                           
                            return (
-                             <Box key={provider} borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
+                             <Box 
+                               key={provider} 
+                               borderWidth="1px" 
+                               borderRadius="lg" 
+                               p={4} 
+                               // --- MODIFIED: Apply conditional background color ---
+                               bg={cardBgColor} 
+                               // --- END MODIFICATION ---
+                               shadow="sm"
+                               // --- REVERTED: Use default border color ---
+                               borderColor={borderColor} 
+                               // --- END REVERT ---
+                             >
                                <Heading size="sm" mb={3} color={headingColor}>{provider.toUpperCase()} {t('jarvis.settingsContent.apiKeyTitle')}</Heading>
                                <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>
                                  {t(`jarvis.settingsContent.${provider}ApiKeyDescription`,
                                     `Enter your ${provider.toUpperCase()} API key to enable ${provider.toUpperCase()}-powered models.`)}
                                </Text>
                                
-                                <Stack direction={{ base: 'column', sm: 'row' }} spacing={3} align="center">
+                                <VStack spacing={3} align="stretch">
+                                  {/* API Key Input */}
                                   <FormControl flex={1}>
-                                    <FormLabel htmlFor={`${provider}-apiKey`} srOnly>
+                                    <FormLabel htmlFor={`${provider}-apiKey`} fontWeight="semibold">
                                       {t('jarvis.settingsContent.apiKey', { provider: provider.toUpperCase() })}
                                     </FormLabel>
                                     <InputGroup size="md">
                                       <Input
                                         id={`${provider}-apiKey`}
-                                        type="password"
-                                        value={apiKeys[provider] || ''}
-                                        onChange={(e) => handleApiKeyUpdate(provider, e.target.value)}
-                                        placeholder={t('jarvis.settingsContent.apiKeyPlaceholder')}
+                                        type="password" 
+                                        value={apiKeys[provider] || ''} 
+                                        onChange={(e) => handleApiKeyUpdate(provider, e.target.value, apiBaseUrls[provider])} 
+                                        placeholder={isKeySaved ? '********' : t('jarvis.settingsContent.apiKeyPlaceholder')} 
                                         bg={inputBg}
                                         borderColor={borderColor}
-                                        pr="6rem"
                                       />
-                                      <InputRightElement width="auto" pr={1}>
-                                         <HStack spacing={1}> 
-                                             {apiKeys[provider] && (
-                                                <IconButton
-                                                  aria-label={t('jarvis.delete', 'Delete Key')}
-                                                  icon={<FaTrashAlt />}
-                                                  size="sm"
-                                                  variant="ghost"
-                                                  colorScheme="red"
-                                                  onClick={() => handleDeleteApiKey(provider)}
-                                                  title={t('jarvis.deleteApiKeyTooltip', 'Delete Saved Key')}
-                                                />
-                                             )}
-                                             <Button h="1.75rem" size="sm"
-                                              onClick={() => handleSaveApiKey(provider)}
-                                              isDisabled={!apiKeys[provider] || apiKeys[provider].length < 5}
-                                              colorScheme={apiKeys[provider] ? 'green' : 'blue'}
-                                              title={t('jarvis.saveApiKeyTooltip', 'Save This Key')}
-                                            >
-                                              {t('common.save', 'Save')}
-                                            </Button>
-                                          </HStack>
-                                      </InputRightElement>
+                                      {isKeySaved && (
+                                        <InputRightElement>
+                                          <IconButton
+                                            aria-label={t('jarvis.deleteApiKeyTooltip', 'Delete Saved Key')}
+                                            icon={<FaTrashAlt />}
+                                            size="sm"
+                                            variant="ghost"
+                                            colorScheme="red"
+                                            onClick={() => handleDeleteApiKey(provider)}
+                                            title={t('jarvis.deleteApiKeyTooltip', 'Delete Saved Key')}
+                                          />
+                                        </InputRightElement>
+                                      )}
                                     </InputGroup>
+                                     {isKeySaved && (
+                                       <HStack mt={1}>
+                                          <Icon as={FaCheckCircle} color="green.500" boxSize="0.8em"/>
+                                          <Text fontSize="xs" color="green.500">
+                                            {t('jarvis.apiKeySet')}
+                                          </Text>
+                                        </HStack>
+                                     )}
                                   </FormControl>
-                                </Stack>
+                                  
+                                  {/* Base URL Input */}
+                                  <FormControl flex={1}>
+                                    <FormLabel htmlFor={`${provider}-baseUrl`} fontWeight="semibold">
+                                      {t('jarvis.settingsContent.modelBaseUrl', 'Model Base URL (Optional)')} 
+                                    </FormLabel>
+                                    <InputGroup size="md">
+                                      <Input
+                                        id={`${provider}-baseUrl`}
+                                        type="text"
+                                        value={apiBaseUrls[provider] || ''} 
+                                        onChange={(e) => handleBaseUrlUpdate(provider, e.target.value)}
+                                        placeholder={t('jarvis.settingsContent.baseUrlPlaceholder', 'e.g., https://api.openai.com/v1')}
+                                        bg={inputBg}
+                                        borderColor={borderColor}
+                                      />
+                                      {apiBaseUrls[provider] && (
+                                        <InputRightElement>
+                                          <IconButton
+                                            aria-label={t('jarvis.clearBaseUrlTooltip', 'Clear Base URL')}
+                                            icon={<FaTrashAlt />}
+                                            size="sm"
+                                            variant="ghost"
+                                            colorScheme="red" 
+                                            onClick={() => handleBaseUrlUpdate(provider, '')}
+                                            title={t('jarvis.clearBaseUrlTooltip', 'Clear Base URL')} 
+                                          />
+                                        </InputRightElement>
+                                      )}
+                                    </InputGroup>
+                                    <FormHelperText fontSize="xs">
+                                      {t('jarvis.settingsContent.baseUrlHelp', 'Only needed for custom deployments or proxies.')}
+                                    </FormHelperText>
+                                  </FormControl>
+                                  
+                                  {/* Save Button */}
+                                  <Button
+                                    onClick={() => handleSaveApiKey(provider)}
+                                    isDisabled={!(savedKeysStatus[provider] === true || (apiKeys[provider] && apiKeys[provider].length >= 5))}
+                                    colorScheme="blue"
+                                    title={t('jarvis.saveApiKeyTooltip', 'Save Settings for {{provider}}', { provider: provider.toUpperCase() })}
+                                    alignSelf="flex-end"
+                                    leftIcon={<FaSync />}
+                                  >
+                                    {t('common.save', 'Save')}
+                                  </Button>
+                                </VStack>
                                 
-                                {apiKeys[provider] && (
-                                   <HStack mt={2}>
-                                     <Icon as={FaCheckCircle} color="green.500" />
-                                     <Text fontSize="xs" color="green.500">
-                                      {t('jarvis.apiKeySet', 'API key is set')}
-                                     </Text>
-                                   </HStack>
-                                )}
+                                 {/* Model Help Text */}
                                  <FormControl> 
                                    <FormHelperText mt={2}>
                                      {t(`jarvis.settingsContent.${provider}ApiKeyHelp`, `Needed for models like ${AVAILABLE_MODELS.filter(m => m.provider === provider).map(m => m.name).join(', ')}.`)}
                                    </FormHelperText>
                                  </FormControl>
                                </Box>
-                             );
-                           })}
+                           );
+                         })}
                         </VStack>
                         {apiKeyError && (
                           <Alert status="error" borderRadius="md">

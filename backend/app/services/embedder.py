@@ -66,32 +66,73 @@ async def create_embedding(text: str, client: Optional[Any] = None) -> List[floa
 
 # MODIFIED: Add new function for Hybrid Search
 async def search_milvus_knowledge_hybrid(
-    query_text: str, # Take single text query 
+    query_text: str, # Take single text query
     collection_name: str,
     dense_vector_field: str = "dense",
     # Assuming the text field for BM25 sparse search is 'content'
-    sparse_text_field: str = "content", 
+    sparse_text_field: str = "content",
     output_fields: List[str] = ["id", "content", "metadata"], # Don't need dense vector back necessarily
     limit: int = 10,
     # Parameters for dense search (e.g., HNSW)
-    dense_params: Optional[Dict] = None, 
+    dense_params: Optional[Dict] = None,
     # Parameters for sparse search (e.g., BM25 rank parameters)
-    sparse_params: Optional[Dict] = None, 
-    filter_expr: Optional[str] = None
+    sparse_params: Optional[Dict] = None,
+    # ADDED parameter for filename filtering terms
+    filename_terms: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
     Search for similar vectors/text in the specified Milvus collection using HYBRID search (dense + sparse).
     Returns a fused list of results including payload.
     Assumes collection has appropriate dense and sparse (BM25) indexes.
+    Performs pre-filtering based on filename terms if provided.
     """
-    # If metadata filtering is enabled, enforce the metadata filter as the Milvus filter expression
-    if settings.ENABLE_METADATA_FILTER and settings.METADATA_FILTER_FIELD and settings.METADATA_FILTER_VALUE:
-        # Build filter expression for Milvus: metadata field contains the configured value (substring match)
-        filter_expr = f"contains({settings.METADATA_FILTER_FIELD}, \"{settings.METADATA_FILTER_VALUE}\")"
-        logger.debug(f"Applying metadata filter to hybrid search: {filter_expr}")
     milvus_client: MilvusClient = get_milvus_client()
-    
-    logger.debug(f"Attempting Milvus HYBRID search in collection '{collection_name}' for query '{query_text}' with limit {limit} and filter: '{filter_expr}'")
+
+    # Pre-filter by filename terms if provided
+    id_filter = None
+    if filename_terms:
+        try:
+            logger.debug(f"[Prefilter] Filtering by filename terms: {filename_terms}")
+            # Fetch IDs and metadata for all documents (no initial filter)
+            # We fetch all because complex string contains filtering isn't reliable in Milvus expr
+            # Consider adding a limit here if performance is an issue, but risks missing matches.
+            meta_hits = milvus_client.query(
+                collection_name=collection_name,
+                filter="", # Fetch all initially
+                output_fields=["id", "metadata"],
+                limit=1000 # ADDED: Limit the pre-fetch query
+            )
+            
+            allowed_ids = []
+            # Filter in Python
+            for hit in meta_hits:
+                metadata = hit.get("metadata")
+                if metadata and isinstance(metadata, dict):
+                    original_filename = metadata.get("original_filename")
+                    if original_filename and isinstance(original_filename, str):
+                        # Check if filename contains ALL terms (case-insensitive)
+                        if all(term.lower() in original_filename.lower() for term in filename_terms):
+                            allowed_ids.append(hit["id"])
+                            
+            logger.debug(f"[Prefilter] matched IDs after Python filtering: {allowed_ids}")
+            
+            if not allowed_ids:
+                logger.debug("No documents match filename terms filter; returning empty list.")
+                return []
+            
+            # Ensure IDs are strings for the 'in' operator if they are not already
+            id_list = ",".join(f'"{str(i)}"' if isinstance(i, str) else str(i) for i in allowed_ids)
+            id_filter = f"id in [{id_list}]"
+            logger.debug(f"Pre-filter ID list for subsequent vector searches: {id_filter}")
+            
+        except Exception as e:
+            # Log error but proceed without filter to avoid breaking search entirely
+            logger.error(f"Filename pre-filter failed: {e}. Proceeding without filename filter.", exc_info=True)
+            id_filter = None # Ensure filter is None if pre-filtering failed
+
+    # Use the generated id_filter (which might be None) in subsequent search calls
+    # The logger message needs adjustment as filter_expr is removed.
+    logger.debug(f"Attempting Milvus HYBRID search in collection \'{collection_name}\' for query \'{query_text}\' with limit {limit} and ID filter: \'{id_filter}\'")
 
     # --- Dense Vector Preparation ---
     try:
@@ -144,8 +185,8 @@ async def search_milvus_knowledge_hybrid(
             "limit": limit,
             "output_fields": output_fields
         }
-        if filter_expr:
-            dense_kwargs["filter"] = filter_expr
+        if id_filter:
+            dense_kwargs["filter"] = id_filter
         dense_res = milvus_client.search(**dense_kwargs)[0]
 
         # Generate vector embedding for sparse (BM25 alternative) via dense model
@@ -164,8 +205,8 @@ async def search_milvus_knowledge_hybrid(
             "limit": limit,
             "output_fields": output_fields
         }
-        if filter_expr:
-            sparse_kwargs["filter"] = filter_expr
+        if id_filter:
+            sparse_kwargs["filter"] = id_filter
         sparse_res = milvus_client.search(**sparse_kwargs)[0]
 
         # Build score maps
@@ -228,7 +269,7 @@ async def search_milvus_knowledge_hybrid(
                 search_params=final_dense_params,
                 limit=limit,
                 output_fields=output_fields,
-                filter=filter_expr
+                filter=id_filter
             )[0]
             sparse_hits = milvus_client.search(
                 collection_name=collection_name,
@@ -237,7 +278,7 @@ async def search_milvus_knowledge_hybrid(
                 search_params=final_sparse_params,
                 limit=limit,
                 output_fields=output_fields,
-                filter=filter_expr
+                filter=id_filter
             )[0]
 
             # Normalize and fuse scores equally
@@ -276,6 +317,35 @@ async def search_milvus_knowledge_hybrid(
                 reverse=True
             )[:limit]
 
+            # If no hybrid results, fall back to metadata filename search
+            if not formatted_results:
+                logger.debug("No hybrid results; falling back to metadata-based search.")
+                try:
+                    # Build fallback expression matching each term in the query
+                    import re
+                    terms = re.findall(r"\w+", query_text)
+                    expr_parts = [f'contains(original_filename, "{term}")' for term in terms]
+                    expr = " and ".join(expr_parts)
+                    meta_hits = milvus_client.query(
+                        collection_name=collection_name,
+                        expr=expr,
+                        output_fields=output_fields
+                    )
+                    # Map query results to same format
+                    fallback = [
+                        {
+                            "id": hit.get("id"),
+                            "score": 0.0,
+                            "content": hit.get("content") or "",
+                            "metadata": hit.get("metadata") or {}
+                        }
+                        for hit in meta_hits
+                    ]
+                    if fallback:
+                        logger.debug(f"Metadata fallback returned {len(fallback)} results.")
+                        return fallback[:limit]
+                except Exception as me:
+                    logger.error(f"Metadata fallback failed: {me}", exc_info=True)
             logger.debug(f"Milvus hybrid search successful. Returning {len(formatted_results)} fused results.")
             return formatted_results
 

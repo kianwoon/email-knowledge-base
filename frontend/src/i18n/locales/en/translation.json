@@ -1495,6 +1495,7 @@
     "delete": "Delete Key",
     "deleteApiKeyTooltip": "Delete Saved Key",
     "saveApiKeyTooltip": "Save This Key",
+    "apiKeySet": "API key is set",
     "apiKeySaved": "API Key Saved",
     "apiKeySavedDesc": "Your {{provider}} API key has been saved successfully.",
     "apiKeySaveError": "Error Saving API Key",
