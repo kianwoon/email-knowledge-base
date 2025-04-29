@@ -10,6 +10,13 @@ import httpx # Keep for now, maybe remove _httpx_search later
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from fastapi.concurrency import run_in_threadpool
 
+import re
+from collections import Counter
+
+def text_to_term_freq(text: str) -> Dict[str, int]:
+    tokens = re.findall(r"\w+", text.lower())
+    return dict(Counter(tokens))
+
 from app.config import settings
 # Import Milvus client getter
 from app.db.milvus_client import get_milvus_client
@@ -120,7 +127,7 @@ async def search_milvus_knowledge_hybrid(
     sparse_req = {
         "anns_field": sparse_text_field,
         "search_params": final_sparse_params,
-        "search_data": [query_text],
+        "search_data": [ text_to_term_freq(query_text) ],
         "limit": limit
     }
 
