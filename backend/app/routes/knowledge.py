@@ -238,9 +238,10 @@ async def get_knowledge_summary_route(
             sharepoint_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='sharepoint')
             s3_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='s3')
             azure_blob_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='azure_blob')
-            # Assuming 'custom' is another source_type to count here? 
-            # custom_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='custom') 
-            logger.info(f"ProcessedFiles counts - Email: {email_raw_count}, SharePoint: {sharepoint_raw_count}, S3: {s3_raw_count}, Azure Blob: {azure_blob_raw_count}")
+            # --- ADDED: Query for custom_upload source type --- 
+            custom_raw_count = crud_processed_file.count_processed_files_by_source(db=db, owner_email=current_user.email, source_type='custom_upload') 
+            # --- End Added --- 
+            logger.info(f"ProcessedFiles counts - Email: {email_raw_count}, SharePoint: {sharepoint_raw_count}, S3: {s3_raw_count}, Azure Blob: {azure_blob_raw_count}, Custom: {custom_raw_count}") # Updated log
         except Exception as db_err:
             logger.error(f"Error querying ProcessedFiles table counts for owner {current_user.email}: {db_err}", exc_info=True)
             # Set counts to 0 but don't raise HTTPException, allow other counts to proceed
@@ -248,34 +249,17 @@ async def get_knowledge_summary_route(
             sharepoint_raw_count = 0
             s3_raw_count = 0
             azure_blob_raw_count = 0
-            # custom_raw_count = 0
-        # --- End ProcessedFiles counts ---
-
-        # --- ADDED: Get count from Iceberg email_facts --- 
+            custom_raw_count = 0 # Also set custom count to 0 on error
+            
+        # --- ADDED: Get count from Iceberg email_facts table ---
         email_facts_count = get_email_facts_count(owner_email=current_user.email)
         logger.info(f"Iceberg email_facts count for {current_user.email}: {email_facts_count}")
         # --- END: Get count from Iceberg --- 
 
-        # Get CUSTOM raw data count using Milvus API (if still applicable)
-        try:
-            # Ensure collection is loaded before getting stats
-            if vector_db_client.has_collection(collection_name=custom_knowledge_collection_name) and not vector_db_client.get_load_state(collection_name=custom_knowledge_collection_name).get("state", "") == "Loaded":
-                logger.info(f"Loading collection {custom_knowledge_collection_name} into memory for stats...")
-                vector_db_client.load_collection(collection_name=custom_knowledge_collection_name)
-            
-            logger.debug(f"Calling MilvusClient.get_collection_stats for CUSTOM raw data collection: {custom_knowledge_collection_name}")
-            stats_custom = vector_db_client.get_collection_stats(collection_name=custom_knowledge_collection_name)
-            custom_raw_count = int(stats_custom.get('row_count', 0))
-            logger.debug(f"CUSTOM raw data count for {custom_knowledge_collection_name}: {custom_raw_count}")
-        except Exception as e:
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"CUSTOM raw data collection '{custom_knowledge_collection_name}' not found. Setting count to 0.")
-                custom_raw_count = 0
-            else:
-                logger.error(f"Milvus error getting stats for {custom_knowledge_collection_name}: {e}")
-                custom_raw_count = 0 
-                logger.warning(f"Non-not-found Milvus error getting stats for {custom_knowledge_collection_name}: {e}. Setting count to 0.")
-                # Optionally re-raise if custom count is critical
+        # --- REMOVED Milvus query for CUSTOM raw data count --- 
+        # This was overwriting the correct count from the ProcessedFiles table.
+        # The custom_raw_count obtained from the DB query above is now used directly.
+        # ------------------------------------------------------
 
         # Get VECTOR data count from Milvus (assuming this is the RAG collection)
         try:

@@ -319,8 +319,8 @@ const KnowledgeManagementPage: React.FC = () => {
                       <Stat>
                         <StatLabel>{t('knowledgeManagement.summary.customRawDataLabel', 'Custom Raw Data')}</StatLabel>
                         <StatNumber>{summaryData.customRawDataCount}</StatNumber>
-                        <StatHelpText fontSize="xs" noOfLines={1} title={customRawCollectionNameDisplay}>
-                          Source: {customRawCollectionNameDisplay}
+                        <StatHelpText fontSize="xs" noOfLines={1}>
+                          {t('knowledgeManagement.summary.processedFileSource', 'Source: Processed Files (Type: {{type}})', { type: 'custom_upload' })}
                         </StatHelpText>
                       </Stat>
                     </CardBody>
