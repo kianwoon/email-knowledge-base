@@ -137,11 +137,11 @@ class Settings(BaseSettings):
     METADATA_FILTER_VALUE: Optional[str] = os.getenv("METADATA_FILTER_VALUE", None)
 
     # Composite scoring weights (must be floats)
-    COMPOSITE_WEIGHT_DENSE: float = float(os.getenv("COMPOSITE_WEIGHT_DENSE", "0.4"))
-    COMPOSITE_WEIGHT_SPARSE: float = float(os.getenv("COMPOSITE_WEIGHT_SPARSE", "0.4"))
-    COMPOSITE_WEIGHT_META:   float = float(os.getenv("COMPOSITE_WEIGHT_META",   "0.2"))
+    COMPOSITE_WEIGHT_DENSE: float = float(os.getenv("COMPOSITE_WEIGHT_DENSE") or "0.4")
+    COMPOSITE_WEIGHT_SPARSE: float = float(os.getenv("COMPOSITE_WEIGHT_SPARSE") or "0.4")
+    COMPOSITE_WEIGHT_META:   float = float(os.getenv("COMPOSITE_WEIGHT_META")   or "0.2")
     # Number of top results to return when composite scoring is enabled
-    COMPOSITE_TOP_K: int = int(os.getenv("COMPOSITE_TOP_K", "5"))
+    COMPOSITE_TOP_K:         int   = int(  os.getenv("COMPOSITE_TOP_K")         or "5")
 
     # Milvus settings
     MILVUS_URI: str = os.getenv("MILVUS_URI") # validated by check_required_env_vars
