@@ -99,7 +99,7 @@ async def search_milvus_knowledge_hybrid(
     final_dense_params = dense_params or default_dense_params
     
     # Default Sparse Params (Example for BM25)
-    default_sparse_params = {}
+    default_sparse_params = {"type": "BM25", "params": {"k1": 1.2, "b": 0.75}}
     final_sparse_params = sparse_params or default_sparse_params
 
     # --- Construct Hybrid Search Requests --- 
@@ -113,26 +113,24 @@ async def search_milvus_knowledge_hybrid(
     
     # Sparse Search Request (using text field for dynamic BM25)
     sparse_req = {
-        "data": [query_text], 
-        "anns_field": sparse_text_field, # Keep anns_field here
-        "param": final_sparse_params, # RESTORED: Param defined inside request
-        "limit": limit 
+        "type": final_sparse_params["type"],
+        "data": [query_text],
+        "anns_field": sparse_text_field,
+        "param": final_sparse_params["params"],
+        "limit": limit
     }
 
     search_requests = [dense_req, sparse_req]
     
     # --- Execute Hybrid Search --- 
     try:
-        # MODIFIED: Call search() with required 'data' and 'anns_field', but params stay in reqs
+        # MODIFIED: Call search() with search_params as search_requests
         search_result = milvus_client.search(
             collection_name=collection_name,
-            data=[query_dense_vector],        # Required top-level data parameter
-            anns_field=dense_vector_field,    # RESTORED: Required top-level anns_field parameter
-            # param=final_dense_params,       # Keep removed: Defined within reqs
-            limit=limit,                      # Explicit limit
-            reqs=search_requests,             # Explicit reqs list with internal params
-            output_fields=output_fields,      # Explicit output fields
-            filter=filter_expr                # Explicit filter 
+            data=[query_dense_vector],
+            search_params=search_requests,
+            output_fields=output_fields,
+            filter=filter_expr
         )
         
         # --- Format Results --- 
