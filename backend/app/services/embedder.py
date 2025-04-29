@@ -86,8 +86,8 @@ async def search_milvus_knowledge_hybrid(
     """
     # If metadata filtering is enabled, enforce the metadata filter as the Milvus filter expression
     if settings.ENABLE_METADATA_FILTER and settings.METADATA_FILTER_FIELD and settings.METADATA_FILTER_VALUE:
-        # Build filter expression for Milvus: metadata field equals the configured value
-        filter_expr = f"{settings.METADATA_FILTER_FIELD} == \"{settings.METADATA_FILTER_VALUE}\""
+        # Build filter expression for Milvus: metadata field contains the configured value (substring match)
+        filter_expr = f"contains({settings.METADATA_FILTER_FIELD}, \"{settings.METADATA_FILTER_VALUE}\")"
         logger.debug(f"Applying metadata filter to hybrid search: {filter_expr}")
     milvus_client: MilvusClient = get_milvus_client()
     
@@ -220,37 +220,62 @@ async def search_milvus_knowledge_hybrid(
         return sorted(formatted_results, key=lambda x: x["score"], reverse=True)[: top_k]
     else:
         try:
-            # REVERT: Use reqs parameter for hybrid search (not search_params)
-            search_result = milvus_client.search(
+            # Perform separate dense and sparse searches
+            dense_hits = milvus_client.search(
                 collection_name=collection_name,
                 data=[query_dense_vector],
                 anns_field=dense_vector_field,
-                reqs=search_requests,
+                search_params=final_dense_params,
                 limit=limit,
                 output_fields=output_fields,
                 filter=filter_expr
-            )
-            
-            # --- Format Results --- 
-            formatted_results = []
-            if search_result:
-                hits = search_result[0] 
-                for hit in hits:
-                    doc_id = hit.get('id')
-                    entity_data = hit.get('entity', {})
-                    content = hit.get('content') or entity_data.get('content')
-                    metadata = hit.get('metadata') or entity_data.get('metadata')
-                    score = hit.get('distance', hit.get('score')) 
-                    if doc_id is not None and content is not None:
-                        formatted_results.append({
-                            "id": doc_id,
-                            "score": score, 
-                            "content": content,
-                            "metadata": metadata
-                        })
-                    else:
-                        logger.warning(f"Skipping hit due to missing id or content: {hit}")
-            
+            )[0]
+            sparse_hits = milvus_client.search(
+                collection_name=collection_name,
+                data=[text_to_term_freq(query_text)],
+                anns_field=sparse_text_field,
+                search_params=final_sparse_params,
+                limit=limit,
+                output_fields=output_fields,
+                filter=filter_expr
+            )[0]
+
+            # Normalize and fuse scores equally
+            max_dense = max((hit.get("score", hit.get("distance", 0.0)) for hit in dense_hits), default=1.0)
+            max_sparse = max((hit.get("score", hit.get("distance", 0.0)) for hit in sparse_hits), default=1.0)
+            combined = {}
+            for hit in dense_hits:
+                doc_id = hit.get("id")
+                combined.setdefault(doc_id, {
+                    "content": hit.get("content") or hit.get("entity", {}).get("content"),
+                    "metadata": hit.get("metadata") or hit.get("entity", {}).get("metadata"),
+                    "dense": 0.0,
+                    "sparse": 0.0
+                })["dense"] = hit.get("score", hit.get("distance", 0.0)) / max_dense
+            for hit in sparse_hits:
+                doc_id = hit.get("id")
+                combined.setdefault(doc_id, {
+                    "content": hit.get("content") or hit.get("entity", {}).get("content"),
+                    "metadata": hit.get("metadata") or hit.get("entity", {}).get("metadata"),
+                    "dense": 0.0,
+                    "sparse": 0.0
+                })["sparse"] = hit.get("score", hit.get("distance", 0.0)) / max_sparse
+
+            # Build formatted list with average of normalized scores
+            formatted_results = sorted(
+                [
+                    {
+                        "id": doc_id,
+                        "score": (vals["dense"] + vals["sparse"]) / 2.0,
+                        "content": vals["content"],
+                        "metadata": vals["metadata"],
+                    }
+                    for doc_id, vals in combined.items()
+                ],
+                key=lambda x: x["score"],
+                reverse=True
+            )[:limit]
+
             logger.debug(f"Milvus hybrid search successful. Returning {len(formatted_results)} fused results.")
             return formatted_results
 
