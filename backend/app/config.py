@@ -143,6 +143,10 @@ class Settings(BaseSettings):
     # Number of top results to return when composite scoring is enabled
     COMPOSITE_TOP_K:         int   = int(  os.getenv("COMPOSITE_TOP_K")         or "5")
 
+    # --- ADDED: Feature flag for Composite Scoring --- 
+    ENABLE_COMPOSITE_SCORING: bool = os.getenv("ENABLE_COMPOSITE_SCORING", "False") == "True"
+    # --- END ADDED --- 
+
     # Milvus settings
     MILVUS_URI: str = os.getenv("MILVUS_URI") # validated by check_required_env_vars
     MILVUS_TOKEN: str = os.getenv("MILVUS_TOKEN") # validated by check_required_env_vars
