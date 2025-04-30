@@ -12,7 +12,10 @@ console.log('[ApiClient] Final API_BASE_URL:', BACKEND_URL);
 const apiClient = axios.create({
   baseURL: `${BACKEND_URL}`, 
   withCredentials: true, 
-  timeout: 60000, // Example timeout
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 120000, // Increased timeout to 120 seconds
 });
 
 // Function to set up interceptors (can be called from main app setup)
