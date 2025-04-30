@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status, Request, Response
+from fastapi import Depends, HTTPException, status, Request, Response, Security
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 import msal
@@ -14,13 +14,14 @@ from starlette.concurrency import run_in_threadpool
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
 from app.db.session import get_db
-from app.crud import user_crud # Corrected import
-from app.crud import token_crud # Import the module directly
+from app.crud import user_crud, token_crud # Import the module directly
 from app.models.token_models import TokenDB # Import TokenDB for type hint
-from app.utils.security import decrypt_token # Import decrypt_token function
-from app.utils.security import encrypt_token # Import encrypt_token function
+from app.utils.security import decrypt_token, encrypt_token # Import decrypt_token and encrypt_token functions
 from app.utils.auth_utils import create_access_token # Import the moved JWT creation helper
 from app.crud.user_crud import get_user_with_refresh_token, update_user_refresh_token # Import specific CRUD functions needed
+from app.crud import crud_export_job # Import token_crud
+from app.tasks.export_tasks import export_data_task # Import export_data_task
+from app.db.models.export_job import ExportJobStatus # Import ExportJobStatus
 
 # Create MSAL app for authentication
 msal_app = msal.ConfidentialClientApplication(
@@ -501,3 +502,57 @@ async def get_current_user_from_cookie(
 
     # Return the Pydantic User model (potentially updated with refreshed token)
     return user 
+
+# --- API Key Header for Bearer token --- 
+# Use the same scheme as used elsewhere for consistency
+api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+
+# --- Copied Token Validation Dependency --- 
+
+async def get_validated_token(
+    authorization: Optional[str] = Security(api_key_header),
+    db: Session = Depends(get_db)
+) -> TokenDB:
+    """
+    Validates the Bearer token from the Authorization header.
+    Checks hash, active status, and expiry.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    if authorization is None or not authorization.lower().startswith("bearer "):
+        logger.debug("Authorization header missing or not Bearer")
+        raise credentials_exception
+
+    token_value = authorization.split(" ", 1)[1]
+    if not token_value:
+        logger.debug("Bearer token value missing")
+        raise credentials_exception
+
+    # Fetch token by comparing hashes (logic from existing crud.get_token_by_value)
+    # Ensure token_crud is imported
+    db_token = token_crud.get_token_by_value(db, token_value)
+
+    if db_token is None:
+        # Avoid logging token value directly
+        logger.debug(f"Token not found for provided Bearer token.") 
+        raise credentials_exception
+
+    # Check if token is active and not expired
+    now = datetime.now(timezone.utc)
+    is_expired = db_token.expiry is not None and db_token.expiry <= now
+    if not db_token.is_active or is_expired:
+        logger.warning(f"Token {db_token.id} is inactive or expired.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Token is inactive or expired"
+        )
+
+    # Log success with token ID and owner for traceability
+    logger.info(f"Successfully validated token {db_token.id} for owner {db_token.owner_email}")
+    return db_token
+
+# --- End Copied Dependency --- 

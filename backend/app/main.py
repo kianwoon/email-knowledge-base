@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter
+# Import counters from the new metrics module
+from app.metrics import COLUMN_BLOCKS, ATTACHMENT_REDACTIONS
 
 # +++ Explicitly import ALL necessary SQLAlchemy Models +++
 # This ensures they are registered with Base.metadata before routes are loaded
@@ -29,21 +33,19 @@ from app.config import settings
 # import app.models.processed_file 
 
 # Import routers AFTER model imports
-from app.routes import auth, email, review, vector, webhooks, websockets, knowledge, token, tasks 
+from app.routes import (
+    auth, email, review, vector, knowledge, token,
+    sharepoint, s3, azure_blob, custom_knowledge,
+    tasks, export # Removed ingestion, added tasks back
+)
 # Import the new shared_knowledge router
 from app.routes import shared_knowledge 
 # Import the new chat router
 from app.routes import chat 
 # Import the user router for API key management
 from app.routes import user
-# Import the new SharePoint router
-from app.routes import sharepoint 
-# Import the new S3 router
-from app.routes import s3 as s3_router
-# Import the new Azure Blob router
-from app.routes import azure_blob
-# Import the new custom_knowledge router
-from app.routes import custom_knowledge
+# Import the new schema router
+from app.routes import schema 
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.session import SessionLocal, engine
@@ -77,6 +79,11 @@ logging.basicConfig(level=log_level, stream=sys.stdout,
 
 logger.info(f"Root logger configured with level: {logging.getLevelName(log_level)}")
 # --- End Logging Configuration ---
+
+# --- Metrics Definition --- 
+# -- Counters moved to app/metrics.py --
+# COLUMN_BLOCKS = Counter(...)
+# ATTACHMENT_REDACTIONS = Counter(...)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -128,6 +135,14 @@ app = FastAPI(
     lifespan=lifespan # Use the new lifespan context manager
 )
 
+# Instrument the app after creation
+# This automatically exposes /metrics and adds default metrics (latency, requests)
+Instrumentator().instrument(app).expose(app)
+
+# Register custom metrics so they are known to the instrumentator
+Instrumentator().add(COLUMN_BLOCKS)
+Instrumentator().add(ATTACHMENT_REDACTIONS)
+
 # Middleware for logging requests
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -159,46 +174,35 @@ app.include_router(review.router, prefix=f"{settings.API_PREFIX}/review", tags=[
 app.include_router(vector.router, prefix=f"{settings.API_PREFIX}/vector", tags=["Vector Database"])
 app.include_router(knowledge.router, prefix=f"{settings.API_PREFIX}/knowledge", tags=["Knowledge"])
 app.include_router(token.router, prefix=f"{settings.API_PREFIX}/token", tags=["Token"])
-app.include_router(webhooks.router, prefix=f"{settings.API_PREFIX}/webhooks", tags=["Webhooks"])
-app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["Websockets"])
-app.include_router(shared_knowledge.router, prefix=settings.API_PREFIX, tags=["Shared Knowledge"])
+app.include_router(sharepoint.router, prefix=f"{settings.API_PREFIX}/sharepoint", tags=["SharePoint"])
+app.include_router(s3.router, prefix=f"{settings.API_PREFIX}/s3", tags=["S3"])
+app.include_router(azure_blob.router, prefix=f"{settings.API_PREFIX}/azure_blob", tags=["Azure Blob Storage"])
+app.include_router(custom_knowledge.router, prefix=f"{settings.API_PREFIX}/custom-knowledge", tags=["Custom Knowledge"])
 app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"])
+app.include_router(export.router, prefix=f"{settings.API_PREFIX}/export", tags=["Export"])
 
 # --- Include Chat Router --- 
 app.include_router(chat.router, prefix=f"{settings.API_PREFIX}/chat", tags=["Chat"])
-# --- End Include ---
-
+# --- Include Shared Knowledge Router ---
+app.include_router(shared_knowledge.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge"]) 
 # --- Include User Router ---
 app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["User"])
-# --- End Include ---
+# --- Include Schema Router ---
+app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=["Schema"])
 
-# --- Include SharePoint Router ---
-app.include_router(
-    sharepoint.router, 
-    prefix=f"{settings.API_PREFIX}/sharepoint", 
-    tags=["SharePoint"]
-)
-# --- End Include ---
-
-# --- Include S3 Router ---
-app.include_router(
-    s3_router.router, 
-    prefix=f"{settings.API_PREFIX}/s3", # Set the prefix for S3 routes
-    tags=["S3"] # Tag for API docs
-)
-# --- End Include ---
-
-# --- Include Azure Blob Router ---
-app.include_router(
-    azure_blob.router,
-    prefix=f"{settings.API_PREFIX}/azure_blob",
-    tags=["Azure Blob Storage"]
-)
-# --- End Include ---
-
-# --- Include Custom Knowledge Router ---
-app.include_router(custom_knowledge.router, prefix=f"{settings.API_PREFIX}/custom-knowledge", tags=["Custom Knowledge"])
-# --- End Include ---
+# --- Log Registered Routes --- #
+logger.info("--- Registered Routes --- DUMP START ---")
+for route in app.routes:
+    if hasattr(route, "path"):
+        logger.info(f"Route: {route.path} Methods: {getattr(route, 'methods', 'N/A')}")
+    elif hasattr(route, "routes"):
+        # Handle mounted applications or APIRouters
+        logger.info(f"Mounted Router/App: {route.path}")
+        for sub_route in route.routes:
+             if hasattr(sub_route, "path"):
+                  logger.info(f"  - Sub-Route: {sub_route.path} Methods: {getattr(sub_route, 'methods', 'N/A')}")
+logger.info("--- Registered Routes --- DUMP END ---")
+# --- End Log ---
 
 # Root endpoint (optional - for basic API check)
 @app.get("/", tags=["Root"])

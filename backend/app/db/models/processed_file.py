@@ -47,7 +47,8 @@ class ProcessedFile(Base):
     size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True) # Store size in bytes
 
     # Processing status (tracks workflow after R2 upload)
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default='pending_analysis', index=True)
+    # Setting index=False to prevent create_all from trying to create ix_processed_files_status
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default='pending_analysis', index=False)
     # e.g., 'pending_analysis', 'analysis_in_progress', 'analysis_complete', 'analysis_failed', 
     #       'embedding_pending', 'embedding_in_progress', 'embedding_complete', 'embedding_failed'
 
@@ -67,7 +68,7 @@ class ProcessedFile(Base):
 
     __table_args__ = (
         Index('ix_processed_files_owner_status', 'owner_email', 'status'), # Index for user status lookup
-        Index('ix_processed_files_status', 'status'), # Index for finding pending work
+        # Removing Index('ix_processed_files_status', 'status'), # Index for finding pending work - prevent create_all conflict
         # Add extend_existing=True as a safety measure
         {'extend_existing': True}
     )

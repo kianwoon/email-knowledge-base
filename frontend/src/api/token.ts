@@ -3,6 +3,12 @@ import axiosInstance from './apiClient';
 // Define interfaces for Token data (align with backend models)
 // Consider sharing types via a common package if project grows
 
+// Define TokenType Enum matching backend
+export enum TokenType {
+  PUBLIC = 'public',
+  SHARE = 'share',
+}
+
 // Interface for creating a token (sent to backend)
 export interface TokenCreatePayload {
   name: string;
@@ -13,6 +19,14 @@ export interface TokenCreatePayload {
   allow_embeddings?: string[];
   deny_embeddings?: string[];
   expiry_days?: number | null;
+  is_editable?: boolean;
+  token_type?: TokenType;
+  provider_base_url?: string;
+  audience?: Record<string, any>;
+  can_export_vectors?: boolean;
+  allow_columns?: string[];
+  allow_attachments?: boolean;
+  row_limit?: number;
 }
 
 // Interface for updating a token (sent to backend)
@@ -22,27 +36,41 @@ export interface TokenUpdatePayload {
   sensitivity?: string;
   allow_rules?: string[];
   deny_rules?: string[];
-  allow_embeddings?: string[];
-  deny_embeddings?: string[];
   expiry?: string | null;
+  expiry_days?: number | null;
   is_active?: boolean;
+  is_editable?: boolean;
+  provider_base_url?: string;
+  audience?: Record<string, any>;
+  can_export_vectors?: boolean;
+  allow_columns?: string[];
+  allow_attachments?: boolean;
+  row_limit?: number;
 }
 
 // Interface for a token received from the backend
 export interface Token {
   id: number;
   name: string;
-  description?: string | null;
+  description: string | null;
   sensitivity: string;
   token_preview: string;
   owner_email: string;
   created_at: string; // ISO string format from backend
-  expiry?: string | null; // ISO string format or null
+  expiry: string | null; // ISO string format or null
   is_active: boolean;
-  allow_rules?: string[];
-  deny_rules?: string[];
-  allow_embeddings?: string[];
-  deny_embeddings?: string[];
+  is_editable: boolean;
+  allow_rules: string[] | null;
+  deny_rules: string[] | null;
+  token_type: TokenType;
+  provider_base_url?: string | null;
+  audience?: Record<string, any> | null;
+  accepted_by?: number | null;
+  accepted_at?: string | null;
+  can_export_vectors: boolean;
+  allow_columns?: string[] | null;
+  allow_attachments: boolean;
+  row_limit: number;
 }
 
 // Interface for the response when creating a token (includes the raw value)

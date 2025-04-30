@@ -56,8 +56,7 @@ def get_last_emails(
 
         logger.info("Scanning relevant table data into Pandas via PyIceberg...")
         # Scan without any row filter
-        relevant_cols = ['owner_email', 'sender', 'subject', 'received_datetime_utc', 'body_text', 'message_id', 'ingested_at_utc'] 
-        all_data_df = iceberg_table.scan(selected_fields=tuple(relevant_cols)).to_pandas()
+        all_data_df = iceberg_table.scan().to_pandas()
         total_count = len(all_data_df)
         logger.info(f"Successfully read {total_count} total rows into Pandas.")
 
@@ -90,8 +89,7 @@ def get_last_emails(
         pd.set_option('display.width', 2000)
         pd.set_option('display.max_colwidth', 100) 
         # Display relevant columns, ensure they exist in results_df
-        existing_display_cols = [col for col in relevant_cols if col in results_df.columns]
-        print(results_df[existing_display_cols])
+        print(results_df)
         print("--------------------------------------------------------")
 
     except (NoSuchTableError, NoSuchNamespaceError):

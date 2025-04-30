@@ -16,7 +16,7 @@ from app.dependencies.auth import get_current_active_user
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
     TokenExport, TokenDB, TokenBundleRequest, 
-    TokenCreateResponse
+    TokenCreateResponse, TokenType
 )
 from ..crud.token_crud import (
     create_user_token, 
@@ -480,7 +480,7 @@ async def export_active_tokens(
 # ==========================================
 
 def token_db_to_response(token_db: TokenDB) -> TokenResponse:
-    """Converts a TokenDB database object to a TokenResponse API model."""
+    """Converts a TokenDB database object to a TokenResponse API model, handling potential missing fields for older tokens."""
     if not token_db:
         raise ValueError("Cannot convert None TokenDB object to response.")
 
@@ -488,7 +488,7 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
         hashed = token_db.hashed_token
         token_preview_value = f"{hashed[:4]}...{hashed[-4:]}" if hashed and len(hashed) > 8 else "[Invalid Hash]"
 
-        # Construct the input dictionary for validation
+        # Construct the input dictionary for validation, using getattr for new/optional fields
         response_data = {
             "id": token_db.id,
             "name": token_db.name,
@@ -499,26 +499,36 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
             "created_at": token_db.created_at,
             "expiry": token_db.expiry,
             "is_active": token_db.is_active,
-            "allow_rules": token_db.allow_rules,
-            "deny_rules": token_db.deny_rules,
-            # Include embeddings in the input dict. Pydantic ignores fields not in the target model.
-            "allow_embeddings": token_db.allow_embeddings, 
-            "deny_embeddings": token_db.deny_embeddings, 
+            "is_editable": getattr(token_db, 'is_editable', True), # Default to True if missing
+            "allow_rules": getattr(token_db, 'allow_rules', []), # Default to empty list
+            "deny_rules": getattr(token_db, 'deny_rules', []),   # Default to empty list
+            # V3 fields - Provide defaults if missing from older records
+            "token_type": getattr(token_db, 'token_type', TokenType.PUBLIC), # Default to PUBLIC if missing
+            "provider_base_url": getattr(token_db, 'provider_base_url', None),
+            "audience": getattr(token_db, 'audience', None),
+            "accepted_by": getattr(token_db, 'accepted_by', None),
+            "accepted_at": getattr(token_db, 'accepted_at', None),
+            "can_export_vectors": getattr(token_db, 'can_export_vectors', False), # Default to False if missing
+            "allow_columns": getattr(token_db, 'allow_columns', None), # Default to None (allow all) if missing
+            "allow_attachments": getattr(token_db, 'allow_attachments', None), # Default to None (allow all) if missing
+            "row_limit": getattr(token_db, 'row_limit', None) # Default to None (no limit) if missing
+            # NOTE: We no longer include allow/deny_embeddings here as they are not in TokenResponse
         }
-        
+
         # Validate the dictionary to create the TokenResponse object
         response = TokenResponse.model_validate(response_data)
 
-        # Ensure list fields *that exist on TokenResponse* are never None
-        response.allow_rules = response.allow_rules or []
-        response.deny_rules = response.deny_rules or []
-        # DO NOT access response.allow_embeddings or response.deny_embeddings here
+        # Ensure list fields that exist on TokenResponse are never None (already handled by getattr defaults)
+        # response.allow_rules = response.allow_rules or []
+        # response.deny_rules = response.deny_rules or []
+        # response.allow_columns = response.allow_columns or [] # Not needed if default is None
+        # response.allow_attachments = response.allow_attachments or [] # Not needed if default is None
 
         return response
     except Exception as e:
         token_id = getattr(token_db, 'id', 'UNKNOWN')
         logger.error(f"Error converting TokenDB ID {token_id} to TokenResponse: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error processing token data for token ID {token_id}."
         ) 

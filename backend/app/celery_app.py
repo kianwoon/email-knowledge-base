@@ -35,7 +35,13 @@ celery_app = Celery(
     'app', # Main name of the application module package
     broker=broker_url,
     backend=backend_url,
-    include=['app.tasks.email_tasks', 'app.tasks.sharepoint_tasks', 'app.tasks.s3_tasks', 'app.tasks.azure_tasks'] # Removed custom knowledge tasks
+    include=[
+        'app.tasks.email_tasks', 
+        'app.tasks.sharepoint_tasks', 
+        'app.tasks.s3_tasks', 
+        'app.tasks.azure_tasks',
+        'app.tasks.export_tasks' # Add the new export tasks module
+    ]
 )
 
 # Optional configuration settings

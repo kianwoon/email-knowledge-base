@@ -29,6 +29,8 @@ from pyiceberg.catalog import load_catalog, Catalog
 from pyiceberg.exceptions import NoSuchTableError
 from app.services.outlook import OutlookService # ADDED: Import OutlookService
 from app.utils.security import decrypt_token, encrypt_token
+from ..models.token_models import TokenDB # Import TokenDB
+from ..config import settings # Import settings if not already
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -81,19 +83,16 @@ async def query_iceberg_emails_duckdb(
     keywords: List[str],
     limit: int = 5,
     original_message: str = "",
-    user_client: AsyncOpenAI = None # ADDED user_client parameter
+    user_client: AsyncOpenAI = None,
+    token: Optional[TokenDB] = None # ADDED: Optional Token parameter
 ) -> List[Dict[str, Any]]:
-    """Queries the email_facts Iceberg table for a user using DuckDB and keywords, with LLM-extracted date filtering."""
+    """Queries the email_facts Iceberg table using DuckDB, applying token scope (columns) if provided.""" # Updated docstring
     results = []
-    # Keep initial check: if no keywords AND no message, skip.
     if not keywords and not original_message:
         logger.debug("No keywords provided and no message for date extraction, skipping DuckDB query.")
         return results
-
-    # Ensure user_client is passed
     if not user_client:
         logger.error("DuckDB Query: User-specific OpenAI client (user_client) was not provided.")
-        # Cannot proceed without the client for date extraction
         return results 
 
     try:
@@ -222,17 +221,36 @@ JSON Response:"""
                  # con.close()
                  # return []
 
-        # Construct the full SQL query
-        # Ensure AND is added only if both date and keyword filters exist
-        # ORIGINAL SQL Logic restored: Check if keyword_filter has content
+        # --- START: Determine SELECT columns based on token --- 
+        select_columns = "*" # Default to selecting all columns
+        # Define columns essential for the query logic (WHERE, ORDER BY) even if not explicitly allowed
+        essential_query_cols = {"owner_email", "received_datetime_utc", "subject", "body_text", "sender", "sender_name", "generated_tags"}
+        
+        if token and token.allow_columns: # Check if token exists and allow_columns is set
+            allowed_set = set(token.allow_columns)
+            # Ensure essential columns are included
+            final_select_set = allowed_set.union(essential_query_cols)
+            # We need to check against actual columns in the view to avoid errors
+            view_columns = set([desc[0] for desc in con.execute(f"DESCRIBE {view_name};").fetchall()])
+            valid_select_cols = [col for col in final_select_set if col in view_columns]
+            
+            if valid_select_cols:
+                select_columns = ", ".join([f'"{col}"' for col in valid_select_cols]) # Quote column names
+                logger.info(f"Applying column projection based on token {token.id}. Selecting: {select_columns}")
+            else:
+                # This case should be rare if essential cols exist, but prevents selecting nothing
+                logger.warning(f"Token {token.id} allow_columns resulted in empty valid selection. Defaulting to SELECT *.")
+                select_columns = "*"
+        # --- END: Determine SELECT columns ---
+
+        # Construct the full SQL query with dynamic SELECT
+        # The limit is already handled by the 'limit' parameter passed to this function
+        effective_limit = token.row_limit if token else limit # Prioritize token limit if available
+        effective_limit = min(effective_limit, limit) # Ensure it doesn't exceed the requested limit
+
         sql_query = f"""
         SELECT
-            message_id,
-            subject,
-            sender,
-            received_datetime_utc,
-            generated_tags,
-            body_text as body_snippet
+            {select_columns}
         FROM {view_name}
         WHERE owner_email = ? 
           {date_filter_sql} 
@@ -240,17 +258,13 @@ JSON Response:"""
         ORDER BY received_datetime_utc DESC
         LIMIT ?;
         """
-        params.append(limit) # Add limit to parameters
+        params.append(effective_limit) # Add the final limit to parameters
 
         logger.debug(f"Executing DuckDB query for user {user_email}. SQL: {sql_query.strip()} PARAMS: {params}")
-
-        # Execute and fetch results
         result_df = con.execute(sql_query, params).fetchdf()
         logger.info(f"DuckDB query returned {len(result_df)} email facts for user {user_email}.")
 
-        # Convert to list of dicts
         results = result_df.to_dict('records')
-
         con.close()
 
     except Exception as e:

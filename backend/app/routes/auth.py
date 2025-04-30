@@ -165,6 +165,10 @@ async def auth_callback(
         user_info = await outlook_service.get_user_info()
         if not user_info:
             raise ValueError("Could not retrieve user info from MS Graph.")
+            
+        # +++ ADD LOGGING +++
+        logger.info(f"DEBUG: Received user_info from MS Graph: {json.dumps(user_info, indent=2)}") 
+        # --- END LOGGING ---
 
         photo_url = await outlook_service.get_user_photo() # Optional
         

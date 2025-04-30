@@ -11,7 +11,7 @@ import asyncio
 # Import embedding function (adjust path if needed)
 from app.services.embedder import create_embedding
 
-from ..models.token_models import TokenDB, TokenCreateRequest, TokenUpdateRequest # Removed AccessRule
+from ..models.token_models import TokenDB, TokenCreateRequest, TokenUpdateRequest, TokenType # Added TokenType
 from ..models.user import UserDB # Assuming UserDB is needed for other functions
 from ..config import settings # Assuming settings might be needed elsewhere
 from app.models.email import EmailAnalysis # Adjust import path if needed
@@ -68,24 +68,23 @@ def get_user_tokens(db: Session, owner_email: str) -> List[TokenDB]:
     return results
 
 async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_email: str) -> TokenDB:
-    """Creates a new token for a user, generating embeddings from rules."""
+    """Creates a new token for a user, handling v3 fields.""" # Updated docstring
     raw_token_value = secrets.token_urlsafe(32)
     hashed_value = bcrypt.hashpw(raw_token_value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     expiry_datetime = None
-    if hasattr(token_data, 'expiry_days') and token_data.expiry_days is not None and token_data.expiry_days > 0:
+    if token_data.expiry_days is not None and token_data.expiry_days > 0:
         try:
             expiry_datetime = datetime.now(timezone.utc) + timedelta(days=int(token_data.expiry_days))
         except (ValueError, TypeError):
             logger.warning(f"Invalid expiry_days value: {token_data.expiry_days}. Setting expiry to None.")
             expiry_datetime = None
 
-    # Generate embeddings from rules
-    allow_rules = token_data.allow_rules or []
-    deny_rules = token_data.deny_rules or []
-    
-    allow_embeddings_db = await _generate_embeddings_for_rules(allow_rules)
-    deny_embeddings_db = await _generate_embeddings_for_rules(deny_rules)
+    # Generate embeddings from rules - NO embeddings created when saving to collection (as per rules)
+    # allow_rules = token_data.allow_rules or []
+    # deny_rules = token_data.deny_rules or []
+    # allow_embeddings_db = await _generate_embeddings_for_rules(allow_rules)
+    # deny_embeddings_db = await _generate_embeddings_for_rules(deny_rules)
 
     db_token = TokenDB(
         name=token_data.name,
@@ -96,49 +95,91 @@ async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_e
         expiry=expiry_datetime,
         is_active=True,
         is_editable=token_data.is_editable,
-        allow_rules=allow_rules, 
-        deny_rules=deny_rules,
-        allow_embeddings=allow_embeddings_db, # Save generated embeddings
-        deny_embeddings=deny_embeddings_db   # Save generated embeddings
+        allow_rules=token_data.allow_rules or [], 
+        deny_rules=token_data.deny_rules or [],
+        # Do not store embeddings upon creation
+        allow_embeddings=None,
+        deny_embeddings=None,
+        # --- NEW v3 Fields ---
+        token_type=token_data.token_type, 
+        provider_base_url=token_data.provider_base_url if token_data.token_type == TokenType.SHARE else None,
+        audience=token_data.audience,
+        # accepted_by/at are set when a receiver accepts a share token, not on creation
+        can_export_vectors=token_data.can_export_vectors,
+        allow_columns=token_data.allow_columns,
+        allow_attachments=token_data.allow_attachments,
+        row_limit=token_data.row_limit,
+        # --- End NEW v3 Fields ---
     )
     db.add(db_token)
     db.commit()
     db.refresh(db_token)
 
-    setattr(db_token, 'token_value', raw_token_value)
+    setattr(db_token, 'token_value', raw_token_value) # Return raw token only on creation
     return db_token
 
 async def update_user_token(db: Session, token_id: int, token_update_data: TokenUpdateRequest) -> Optional[TokenDB]:
-    """Updates an existing token, regenerating embeddings if rules change."""
+    """Updates an existing token, handling v3 fields. Does NOT regenerate embeddings.""" # Updated docstring
     db_token = db.get(TokenDB, token_id)
     if not db_token:
+        logger.warning(f"Attempted to update non-existent token ID {token_id}.")
         return None
 
+    if not db_token.is_editable:
+        logger.warning(f"Attempted to update non-editable token ID {token_id}.")
+        # Consider raising an HTTPException(status_code=403, detail="Token is not editable") here
+        return None # Or raise error
+
     update_data = token_update_data.model_dump(exclude_unset=True)
-    needs_embedding_update = False
+    # needs_embedding_update = False # Embedding regeneration removed
 
+    # Handle expiry_days update separately
+    new_expiry_datetime = db_token.expiry # Keep existing expiry by default
+    if 'expiry_days' in update_data:
+        expiry_days = update_data.pop('expiry_days') # Remove from main update dict
+        if expiry_days is not None:
+            if expiry_days > 0:
+                try:
+                    new_expiry_datetime = datetime.now(timezone.utc) + timedelta(days=int(expiry_days))
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid expiry_days value during update: {expiry_days}. Expiry not changed.")
+                    new_expiry_datetime = db_token.expiry # Revert to original on error
+            else: # 0 or negative means clear expiry
+                 new_expiry_datetime = None
+        # If expiry_days is None in update_data, expiry is unchanged
+        setattr(db_token, 'expiry', new_expiry_datetime)
+
+    # Apply remaining updates
     for key, value in update_data.items():
-        if key == "allow_rules":
-            setattr(db_token, key, value)
-            needs_embedding_update = True
-        elif key == "deny_rules":
-            setattr(db_token, key, value)
-            needs_embedding_update = True
+        # if key in ["allow_rules", "deny_rules"]:
+            # needs_embedding_update = True # Embedding regeneration removed
+        if key == "provider_base_url" and db_token.token_type != TokenType.SHARE:
+            logger.warning(f"Cannot set provider_base_url for non-share token ID {token_id}. Skipping field.")
+            continue # Skip setting provider_base_url if not a share token
+        if hasattr(db_token, key):
+             setattr(db_token, key, value)
         else:
-            setattr(db_token, key, value)
+             logger.warning(f"Attempted to update unknown field '{key}' on token ID {token_id}.")
 
-    if needs_embedding_update:
-        logger.info(f"Rules updated for token {token_id}, regenerating embeddings...")
-        allow_embeddings_new = await _generate_embeddings_for_rules(db_token.allow_rules)
-        deny_embeddings_new = await _generate_embeddings_for_rules(db_token.deny_rules)
-        if allow_embeddings_new is not None:
-             setattr(db_token, 'allow_embeddings', allow_embeddings_new)
-        if deny_embeddings_new is not None:
-             setattr(db_token, 'deny_embeddings', deny_embeddings_new)
+    # Embedding regeneration removed based on project rules
+    # if needs_embedding_update:
+    #    logger.info(f"Rules updated for token {token_id}, regenerating embeddings...")
+    #    allow_embeddings_new = await _generate_embeddings_for_rules(db_token.allow_rules)
+    #    deny_embeddings_new = await _generate_embeddings_for_rules(db_token.deny_rules)
+    #    if allow_embeddings_new is not None:
+    #         setattr(db_token, 'allow_embeddings', allow_embeddings_new)
+    #    if deny_embeddings_new is not None:
+    #         setattr(db_token, 'deny_embeddings', deny_embeddings_new)
 
-    db.commit()
-    db.refresh(db_token)
-    return db_token
+    try:
+        db.commit()
+        db.refresh(db_token)
+        logger.info(f"Successfully updated token ID {token_id}.")
+        return db_token
+    except Exception as e:
+        logger.error(f"Database error updating token ID {token_id}: {e}", exc_info=True)
+        db.rollback()
+        return None
 
 def delete_user_token(db: Session, token_id: int) -> bool:
     """Soft deletes a token by setting its is_active flag to False."""
