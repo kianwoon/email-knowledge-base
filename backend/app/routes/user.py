@@ -85,8 +85,8 @@ async def save_provider_api_key(
         
         # Validate provider
         provider = provider.lower()
-        if provider not in ["openai", "anthropic", "google"]:
-            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google")
+        if provider not in ["openai", "anthropic", "google", "deepseek"]:
+            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google, deepseek")
         
         api_key_in = APIKeyCreate(
             provider=provider,
@@ -132,8 +132,8 @@ async def get_provider_api_key(
     try:
         # Validate provider
         provider = provider.lower()
-        if provider not in ["openai", "anthropic", "google"]:
-            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google")
+        if provider not in ["openai", "anthropic", "google", "deepseek"]:
+            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google, deepseek")
         
         # Get from the API keys table
         decrypted_key = api_key_crud.get_decrypted_api_key(db, current_user.email, provider)
@@ -168,8 +168,8 @@ async def delete_provider_api_key(
     try:
         # Validate provider
         provider = provider.lower()
-        if provider not in ["openai", "anthropic", "google"]:
-            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google")
+        if provider not in ["openai", "anthropic", "google", "deepseek"]:
+            raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google, deepseek")
         
         # Delete from the API keys table
         api_key_crud.delete_api_key(db, current_user.email, provider)
