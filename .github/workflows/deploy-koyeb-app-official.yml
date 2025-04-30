@@ -11,11 +11,71 @@ on:
       - '.koyeb.yml'
 
 jobs:
-  deploy:
-    name: Deploy Services
+  deploy-backend:
+    name: Deploy Backend Service
     runs-on: ubuntu-22.04
     env:
       KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for backend changes
+        id: changed_backend_files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            backend/**
+            !backend/services/**
+            !backend/tasks/**
+            !backend/app/celery_app.py
+            !backend/app/config.py
+
+      - name: Install and configure the Koyeb CLI
+        uses: koyeb-community/koyeb-actions@v2
+        with:
+          api_token: ${{ secrets.KOYEB_API_TOKEN }}
+
+      - name: Redeploy Backend Service
+        if: steps.changed_backend_files.outputs.any_changed == 'true'
+        run: |
+          koyeb service redeploy email-knowledge-base-2/backend-service
+
+  deploy-frontend:
+    name: Deploy Frontend Service
+    runs-on: ubuntu-22.04
+    env:
+      KOYEB_APP_NAME: ${{ secrets.KOYEB_API_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for frontend changes
+        id: changed_frontend_files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            frontend/**
+
+      - name: Install and configure the Koyeb CLI
+        uses: koyeb-community/koyeb-actions@v2
+        with:
+          api_token: ${{ secrets.KOYEB_API_TOKEN }}
+
+      - name: Redeploy Frontend Service
+        if: steps.changed_frontend_files.outputs.any_changed == 'true'
+        run: |
+          koyeb service redeploy email-knowledge-base-2/frontend-service
+
+  deploy-worker:
+    name: Deploy Celery Worker
+    runs-on: ubuntu-22.04
+    env:
+      KOYEB_APP_NAME: ${{ secrets.KOYEB_API_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,41 +93,12 @@ jobs:
             backend/app/celery_app.py
             backend/app/config.py
 
-      - name: Check for frontend changes
-        id: changed_frontend_files
-        uses: tj-actions/changed-files@v44
-        with:
-          files: |
-            frontend/**
-
-      - name: Check for backend changes
-        id: changed_backend_files
-        uses: tj-actions/changed-files@v44
-        with:
-          files: |
-            backend/**
-            !backend/services/**
-            !backend/tasks/**
-            !backend/requirements.txt
-            !backend/app/celery_app.py
-            !backend/app/config.py
-
       - name: Install and configure the Koyeb CLI
         uses: koyeb-community/koyeb-actions@v2
         with:
           api_token: ${{ secrets.KOYEB_API_TOKEN }}
 
-      - name: Redeploy Backend Service
-        if: steps.changed_backend_files.outputs.any_changed == 'true'
-        run: |
-          koyeb service redeploy email-knowledge-base-2/backend-service
-
-      - name: Redeploy Frontend Service
-        if: steps.changed_frontend_files.outputs.any_changed == 'true'
-        run: |
-          koyeb service redeploy email-knowledge-base-2/frontend-service
-
       - name: Redeploy Celery Worker
         if: steps.changed_worker_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy email-knowledge-base-2/celery-worker-service
+          koyeb service redeploy email-knowledge-base-2/celery-worker
