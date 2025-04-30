@@ -80,6 +80,8 @@ const AVAILABLE_MODELS: LLMModel[] = [
   { id: 'claude-3-haiku', name: 'Claude 3 Haiku', provider: 'anthropic', requiresKey: true },
   { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'google', requiresKey: true },
   { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'google', requiresKey: true },
+  { id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'deepseek', requiresKey: true },
+  { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', provider: 'deepseek', requiresKey: true },
 ];
 
 const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "xls", "xlsx", "pptx", "ppt", "csv", "txt"];
@@ -1283,7 +1285,7 @@ const JarvisPage: React.FC = () => {
                       </Text>
                       
                       <VStack spacing={4} align="stretch">
-                         {(['openai', 'anthropic', 'google'] as ApiProvider[]).map(provider => {
+                         {uniqueProviders.map(provider => {
                            const hasModels = AVAILABLE_MODELS.some(model => model.provider === provider && model.requiresKey);
                            if (!hasModels) return null;
                            
@@ -1364,7 +1366,7 @@ const JarvisPage: React.FC = () => {
                                         type="text"
                                         value={apiBaseUrls[provider] || ''} 
                                         onChange={(e) => handleBaseUrlUpdate(provider, e.target.value)}
-                                        placeholder={t('jarvis.settingsContent.baseUrlPlaceholder', 'e.g., https://api.openai.com/v1')}
+                                        placeholder={t(`jarvis.settingsContent.${provider}BaseUrlPlaceholder`, `e.g., https://api.${provider}.com/v1`)}
                                         bg={inputBg}
                                         borderColor={borderColor}
                                       />

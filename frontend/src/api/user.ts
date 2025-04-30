@@ -1,7 +1,8 @@
 import apiClient from './apiClient';
 import { handleApiError } from './errorHandlers';
 
-export type ApiProvider = 'openai' | 'anthropic' | 'google';
+// Define the provider type
+export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'deepseek';
 
 // Legacy function for backward compatibility
 export const saveOpenAIApiKey = async (apiKey: string): Promise<void> => {
