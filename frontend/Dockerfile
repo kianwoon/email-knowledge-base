@@ -5,7 +5,11 @@ WORKDIR /app
 
 # Copy package files and install
 COPY frontend/package*.json ./
-RUN npm install
+# Adjust build script to skip TypeScript checks
+RUN sed -i 's/tsc && vite build/vite build/g' package.json
+
+# Install dependencies reproducibly
+RUN npm ci
 
 # Copy source files
 COPY frontend/ ./
@@ -18,9 +22,6 @@ ENV VITE_WEBSOCKET_URL=wss://email-knowledge-base-2-automationtesting-ba741710.k
 # Set optional build flags (if needed)
 ENV TSC_COMPILE_ON_ERROR=true
 ENV CI=false
-
-# Skip TypeScript checks if needed (if needed)
-RUN sed -i 's/tsc && vite build/vite build/g' package.json
 
 # Build the frontend - URLs are now baked in
 RUN npm run build

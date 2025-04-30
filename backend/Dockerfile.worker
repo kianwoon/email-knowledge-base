@@ -15,16 +15,13 @@ WORKDIR /app
 # Copy requirements from the backend directory
 COPY backend/requirements.txt /app/requirements.txt
 
-# Install build tools and Cython FIRST
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
- && rm -rf /var/lib/apt/lists/* \
- && pip install --no-cache-dir cython
-
-# Now install the rest of the requirements
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir cython \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy the backend application code specifically
 COPY backend/ /app/
@@ -32,4 +29,4 @@ COPY backend/ /app/
 # Command to run the Celery worker
 # The working directory is /app, and the code is copied into /app,
 # so 'app.celery_app' should now correctly resolve to /app/app/celery_app.py
-CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-P", "solo"] 
+CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-P", "solo"]
