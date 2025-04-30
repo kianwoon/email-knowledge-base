@@ -1012,27 +1012,24 @@ def cos_sim(a, b):
 async def get_rate_card_response_advanced(
     message: str,
     user: User,
-    db: Session
+    db: Session,
+    model_id: Optional[str] = None # Add model_id parameter
 ) -> str:
     logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
     try:
-        # Determine model and provider
-        # NOTE: This function doesn't take model_id, so it uses the default setting.
-        # If rate card RAG needs to support different models per query, model_id should be passed.
-        chat_model = settings.OPENAI_MODEL_NAME 
-        if not chat_model: # Add fallback if setting is missing
-             logger.error("RateCardRAG: OPENAI_MODEL_NAME setting is not configured.")
+        # Determine model and provider using passed model_id or fallback
+        chat_model = model_id or settings.OPENAI_MODEL_NAME 
+        if not chat_model:
+             logger.error("RateCardRAG: LLM model name not configured (model_id missing and OPENAI_MODEL_NAME setting not set).")
              raise HTTPException(status_code=500, detail="LLM model name not configured for rate card search.")
              
-        # Determine provider based on the configured model name
+        # Determine provider based on the model name
         if chat_model.lower().startswith("deepseek"):
             provider = "deepseek"
         # Add other providers here if needed
-        # elif chat_model.lower().startswith("another-provider"):
-        #     provider = "another-provider"
         else:
             provider = "openai" # Default to openai
-        logger.debug(f"RateCardRAG: Using LLM model: {chat_model} via provider {provider}")
+        logger.debug(f"RateCardRAG: Using LLM model: {chat_model} (from model_id: {model_id}) via provider {provider}")
 
         # Fetch API key and base URL dynamically based on provider
         db_api_key = api_key_crud.get_api_key(db, user.email, provider)

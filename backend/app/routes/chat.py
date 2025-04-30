@@ -44,7 +44,8 @@ async def chat_endpoint(
             response_content = await get_rate_card_response_advanced(
                 message=chat_message.message,
                 user=current_user,
-                db=db
+                db=db,
+                model_id=chat_message.model_id # Pass model_id here too
             )
         else:
             # Use the standard RAG pipeline
