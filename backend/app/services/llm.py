@@ -1,12 +1,13 @@
 import json
 import re  # For rate-card dollar filtering
 from typing import Dict, Any, List, Optional
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError # Import RateLimitError
 from sqlalchemy.orm import Session
 import logging # Import logging
 import asyncio  # For async operations
 from datetime import datetime, timedelta, timezone # Added datetime imports
 from zoneinfo import ZoneInfo # Added ZoneInfo import
+import tiktoken # ADDED tiktoken import
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
@@ -360,6 +361,57 @@ Return a JSON object with the following fields:
         )
 
 
+# --- Helper function for token counting ---
+_token_encoders = {}
+
+def count_tokens(text: str, model: str = "gpt-4") -> int:
+    """Estimates the number of tokens for a given text and model."""
+    if model not in _token_encoders:
+        try:
+            _token_encoders[model] = tiktoken.encoding_for_model(model)
+        except KeyError:
+            logger.warning(f"Model {model} not found in tiktoken. Using cl100k_base encoding.")
+            _token_encoders[model] = tiktoken.get_encoding("cl100k_base")
+    
+    if not isinstance(text, str):
+        logger.warning(f"Attempted to count tokens for non-string type: {type(text)}. Returning 0.")
+        return 0
+        
+    try:
+        encoder = _token_encoders[model]
+        return len(encoder.encode(text))
+    except Exception as e:
+        logger.error(f"Error encoding text for token count: {e}", exc_info=True)
+        return 0 # Return 0 on error
+
+def truncate_text_by_tokens(text: str, model: str, max_tokens: int) -> str:
+    """Truncates text to a maximum number of tokens."""
+    if not isinstance(text, str):
+        logger.warning(f"Attempted to truncate non-string type: {type(text)}. Returning empty string.")
+        return ""
+        
+    if model not in _token_encoders:
+        try:
+            _token_encoders[model] = tiktoken.encoding_for_model(model)
+        except KeyError:
+            logger.warning(f"Model {model} not found for truncation. Using cl100k_base encoding.")
+            _token_encoders[model] = tiktoken.get_encoding("cl100k_base")
+            
+    try:
+        encoder = _token_encoders[model]
+        tokens = encoder.encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        truncated_tokens = tokens[:max_tokens]
+        # Use decode with error handling
+        return encoder.decode(truncated_tokens, errors='replace') + "...[TRUNCATED BY TOKEN LIMIT]"
+    except Exception as e:
+        logger.error(f"Error truncating text by tokens: {e}", exc_info=True)
+        # Fallback to character truncation if tokenization fails
+        fallback_chars = max_tokens * 3 # Rough estimate
+        return text[:fallback_chars] + "...[TRUNCATED BY CHAR LIMIT DUE TO ERROR]"
+# --- End Helper ---
+
 # CORRECTED Function Definition
 async def generate_openai_rag_response(
     message: str,
@@ -620,9 +672,40 @@ Comma-separated keywords:"""
                 retrieved_email_context = "Email search skipped as knowledge base context was retrieved."
         # --- END: Conditional Context Retrieval (Refactored) ---
         
-        # --- REMOVED Intermediate Synthesis Step --- 
+        # --- Token Budgeting Setup ---
+        # Use the actual model name determined earlier
+        tokenizer_model = chat_model 
+        # Define max context tokens, leaving room for response generation (e.g., ~4k)
+        MODEL_MAX_TOKENS = getattr(settings, 'MODEL_MAX_TOKENS', 128000) # Example for gpt-4-turbo
+        RESPONSE_BUFFER_TOKENS = getattr(settings, 'RESPONSE_BUFFER_TOKENS', 4096)
+        MAX_CONTEXT_TOKENS = MODEL_MAX_TOKENS - RESPONSE_BUFFER_TOKENS
+        logger.debug(f"Token budgeting: Model={tokenizer_model}, Max Context Tokens={MAX_CONTEXT_TOKENS}")
 
-        # --- START: Construct Final Context Directly ---
+        # Estimate tokens for base prompt components (system, history, user message)
+        # Build temporary messages list *without* the large context for estimation
+        temp_system_prompt_structure = f"""You are Jarvis, an AI assistant.
+        You are chatting with {user.display_name or user.email}.
+        Your task is to answer the user's question based *only* on the information presented in the context sections below...
+        **Crucially, when you use information from a specific Knowledge Base Document, you MUST cite...**
+        Do not add information not present in the context...
+        Context Provided:
+        <CONTEXT_PLACEHOLDER>
+        """ # Simplified structure for estimation
+        base_tokens = count_tokens(temp_system_prompt_structure, tokenizer_model)
+        base_tokens += count_tokens(message, tokenizer_model) 
+        for msg in chat_history:
+            base_tokens += count_tokens(msg.get("content", ""), tokenizer_model)
+        
+        remaining_token_budget = MAX_CONTEXT_TOKENS - base_tokens
+        logger.debug(f"Token budgeting: Base prompt tokens={base_tokens}, Remaining budget for context={remaining_token_budget}")
+
+        if remaining_token_budget <= 0:
+            logger.warning("Token budget exceeded by base prompt and history alone. Cannot add context.")
+            # Handle this case - maybe return an error or a response without context?
+            raise HTTPException(status_code=400, detail="Query and history are too long to process.")
+        # --- End Token Budgeting Setup ---
+
+        # --- START: Construct Final Context Directly (with Token Budgeting) ---
         final_context_parts = []
 
         # 1. Format Milvus Documents
@@ -630,6 +713,11 @@ Comma-separated keywords:"""
             milvus_context_str = "<Knowledge Base Documents>\n"
             def _truncate_context_text(text: str, max_len: int) -> str: # Define helper here
                 return text[:max_len] + "...[TRUNCATED]" if len(text) > max_len else text
+                
+            # Estimate tokens used by boilerplate text for each doc
+            doc_boilerplate_template = "--- Document {idx} (Source: {src}, ID: {id}, Score: {score:.4f}) ---\n{content}\n--- End Document {idx} ---\n"
+            estimated_boilerplate_tokens_per_doc = count_tokens(doc_boilerplate_template.format(idx=1, src="a.pdf", id="x", score=1.0, content=""), tokenizer_model)
+
             for idx, doc in enumerate(retrieved_milvus_docs):
                 doc_content = doc.get("content", "")
                 doc_id = doc.get("id", "N/A")
@@ -641,9 +729,28 @@ Comma-separated keywords:"""
                     try: meta_dict = json.loads(doc_metadata); source_filename = meta_dict.get('original_filename', 'Unknown Source')
                     except json.JSONDecodeError: source_filename = "Metadata Parse Error"
                 truncated_content = _truncate_context_text(doc_content, MAX_CHUNK_CHARS) 
-                milvus_context_str += (f"--- Document {idx+1} (Source: {source_filename}, ID: {doc_id}, Score: {doc_score:.4f}) ---\\n"
-                                     f"{truncated_content}\\n"
-                                     f"--- End Document {idx+1} ---\\n")
+                
+                # Token-based truncation for Milvus docs
+                current_doc_tokens = count_tokens(doc_content, tokenizer_model)
+                max_allowed_tokens_for_this_doc = max(0, remaining_token_budget - estimated_boilerplate_tokens_per_doc) # Ensure non-negative
+                
+                if current_doc_tokens > max_allowed_tokens_for_this_doc:
+                    logger.warning(f"Truncating Milvus doc {doc_id} (Source: {source_filename}) from {current_doc_tokens} tokens to fit budget {max_allowed_tokens_for_this_doc}.")
+                    truncated_content = truncate_text_by_tokens(doc_content, tokenizer_model, max_allowed_tokens_for_this_doc)
+                else:
+                    truncated_content = doc_content # Use original if it fits
+
+                # Add the (potentially truncated) content to the context string
+                milvus_context_str += (f"--- Document {idx+1} (Source: {source_filename}, ID: {doc_id}, Score: {doc_score:.4f}) ---\n"
+                                     f"{truncated_content}\n"
+                                     f"--- End Document {idx+1} ---\n")
+                # Update remaining budget
+                tokens_added = count_tokens(milvus_context_str.split("--- Document {idx+1}")[-1], tokenizer_model) # Count tokens for the added part
+                remaining_token_budget -= tokens_added
+                if remaining_token_budget <= 0:
+                    logger.warning("Token budget exhausted while adding Milvus documents. Stopping context addition.")
+                    break # Stop adding more docs if budget is gone
+
             milvus_context_str += "</Knowledge Base Documents>"
             final_context_parts.append(milvus_context_str)
         else:
@@ -651,22 +758,43 @@ Comma-separated keywords:"""
              else: final_context_parts.append("<Knowledge Base Documents>\nNo relevant documents found in the knowledge base.\n</Knowledge Base Documents>")
 
         # 2. Format Email Context
-        if retrieved_email_context: final_context_parts.append(f"<User Email Context>\n{retrieved_email_context}\n</User Email Context>")
+        if retrieved_email_context and remaining_token_budget > 0:
+            email_boilerplate_tokens = count_tokens("<User Email Context>\n\n</User Email Context>", tokenizer_model)
+            allowed_email_tokens = max(0, remaining_token_budget - email_boilerplate_tokens)
+            current_email_tokens = count_tokens(retrieved_email_context, tokenizer_model)
+            
+            if current_email_tokens > allowed_email_tokens:
+                logger.warning(f"Truncating Email context from {current_email_tokens} tokens to fit budget {allowed_email_tokens}.")
+                truncated_email_context = truncate_text_by_tokens(retrieved_email_context, tokenizer_model, allowed_email_tokens)
+            else:
+                truncated_email_context = retrieved_email_context
+                
+            final_context_parts.append(f"<User Email Context>\n{truncated_email_context}\n</User Email Context>")
+            remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
         else: final_context_parts.append("<User Email Context>\nNo relevant emails found or search skipped.\n</User Email Context>")
 
         # 3. Format Calendar Context
-        if retrieved_calendar_context and "error retrieving" not in retrieved_calendar_context.lower() and "query not detected" not in retrieved_calendar_context.lower():
-            final_context_parts.append(f"<Calendar Events Context>\n{retrieved_calendar_context}\n</Calendar Events Context>")
+        if retrieved_calendar_context and remaining_token_budget > 0 and "error retrieving" not in retrieved_calendar_context.lower() and "query not detected" not in retrieved_calendar_context.lower():
+            calendar_boilerplate_tokens = count_tokens("<Calendar Events Context>\n\n</Calendar Events Context>", tokenizer_model)
+            allowed_calendar_tokens = max(0, remaining_token_budget - calendar_boilerplate_tokens)
+            current_calendar_tokens = count_tokens(retrieved_calendar_context, tokenizer_model)
+            
+            if current_calendar_tokens <= allowed_calendar_tokens:
+                final_context_parts.append(f"<Calendar Events Context>\n{retrieved_calendar_context}\n</Calendar Events Context>")
+                remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
+            else:
+                logger.warning(f"Skipping Calendar context ({current_calendar_tokens} tokens) as it exceeds remaining budget ({allowed_calendar_tokens}).")
+                final_context_parts.append("<Calendar Events Context>\nCalendar events found but omitted due to token limits.\n</Calendar Events Context>")
         else: final_context_parts.append("<Calendar Events Context>\nNo relevant calendar events found or search skipped.\n</Calendar Events Context>")
 
         # Combine all parts into the final context string
         final_context = "\n\n".join(final_context_parts)
-        logger.debug(f"Constructed final context for LLM (Length: {len(final_context)} chars):\n{final_context[:1000]}...")
+        final_context_tokens = count_tokens(final_context, tokenizer_model)
+        logger.info(f"Constructed final context for LLM. Estimated tokens: {final_context_tokens} (Budget remaining: {remaining_token_budget})")
+        logger.debug(f"Final Context Snippet:\n{final_context[:1000]}...")
         # --- END: Construct Final Context Directly ---
 
         # --- 4. Final Answer Generation using NEW Final Context ---
-        # Correctly formatted log line (commented out)
-        # logger.debug(f"Using final context for LLM (Length: {len(final_context)} chars):\n{final_context[:500]}...") 
         formatted_history = []
         if chat_history:
             for msg in chat_history:
@@ -695,15 +823,41 @@ Comma-separated keywords:"""
 
         logger.debug(f"Sending final prompt to {chat_model}...")
         # Ensure this await call is properly indented within the async function
-        final_response_obj = await user_client.chat.completions.create(
-            model=chat_model,
-            messages=final_messages,
-            temperature=settings.OPENAI_TEMPERATURE
-        )
-        final_response = final_response_obj.choices[0].message.content
-        logger.debug(f"RAG: Received final response from {chat_model}.")
-        # Ensure this return is properly indented within the async function
-        return final_response
+        # ADDED RETRY LOGIC FOR RATE LIMIT
+        max_retries = 2
+        retry_delay = 5 # seconds
+        for attempt in range(max_retries + 1):
+            try:
+                final_response_obj = await user_client.chat.completions.create(
+                    model=chat_model,
+                    messages=final_messages,
+                    temperature=settings.OPENAI_TEMPERATURE
+                )
+                final_response = final_response_obj.choices[0].message.content
+                logger.debug(f"RAG: Received final response from {chat_model} after attempt {attempt+1}.")
+                return final_response # Success!
+            except RateLimitError as rle:
+                logger.warning(f"OpenAI Rate Limit Error (Attempt {attempt+1}/{max_retries+1}): {rle}")
+                if attempt < max_retries:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2 # Exponential backoff
+                else:
+                    logger.error("Max retries reached for OpenAI rate limit error.")
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="OpenAI API rate limit exceeded after multiple retries. Please try again later."
+                    ) from rle
+            except Exception as final_call_err:
+                # Catch other potential errors during the final call
+                logger.error(f"Error during final OpenAI API call: {final_call_err}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="An unexpected error occurred during the final response generation."
+                ) from final_call_err
+
+        # Should not be reached if logic is correct, but as a fallback:
+        raise HTTPException(status_code=500, detail="Failed to generate response after retries.") 
 
     # Outer except blocks, correctly indented
     except HTTPException as http_exc:
@@ -713,11 +867,10 @@ Comma-separated keywords:"""
         logger.error(f"Error generating RAG response for user {user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating the response." 
+            detail=f"An error occurred while generating the response." # Consider adding more detail from e?
         )
 
 # --- Helper function for cosine similarity --- 
-# (Rest of the file assumed correct indentation)
 import numpy as np
 
 def cos_sim(a, b):
@@ -896,7 +1049,7 @@ async def get_rate_card_response_advanced(
                 except json.JSONDecodeError:
                     source_filename = "Metadata Parse Error"
             # Format string including source
-            context_parts.append(f"--- Document ID: {doc_id} (Source: {source_filename}) ---\\nContent: {doc_content}")
+            context_parts.append(f"--- Document ID: {doc_id} (Source: {source_filename}) ---\nContent: {doc_content}")
         
         context = "\n\n".join(context_parts)
         # context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res.get('content'))}" for res in ranked_results[:final_context_limit]]) # Original line
