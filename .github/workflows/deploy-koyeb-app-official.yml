@@ -20,9 +20,9 @@ jobs:
     strategy:
       matrix:
         service:
-          - backend-service
-          - frontend-service
-          - celery-worker
+          - email-knowledge-base-2/backend-service
+          - email-knowledge-base-2/frontend-service
+          - email-knowledge-base-2/celery-worker
     env:
       KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
     steps:
@@ -68,8 +68,8 @@ jobs:
 
       - name: Redeploy Service
         if: |
-          (matrix.service == 'backend-service' && steps.changed_backend_files.outputs.any_changed == 'true') ||
-          (matrix.service == 'frontend-service' && steps.changed_frontend_files.outputs.any_changed == 'true') ||
-          (matrix.service == 'celery-worker' && steps.changed_worker_files.outputs.any_changed == 'true')
+          (matrix.service == 'email-knowledge-base-2/backend-service' && steps.changed_backend_files.outputs.any_changed == 'true') ||
+          (matrix.service == 'email-knowledge-base-2/frontend-service' && steps.changed_frontend_files.outputs.any_changed == 'true') ||
+          (matrix.service == 'email-knowledge-base-2/celery-worker' && steps.changed_worker_files.outputs.any_changed == 'true')
         run: |
-          koyeb service redeploy "email-knowledge-base-2/${{ matrix.service }}"
+          koyeb service redeploy "${{ matrix.service }}"</file>
