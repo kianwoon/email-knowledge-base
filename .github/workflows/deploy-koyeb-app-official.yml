@@ -14,15 +14,6 @@ jobs:
   deploy:
     name: Deploy Services
     runs-on: ubuntu-22.04
-    concurrency:
-      group: deploy-${{ github.ref }}-${{ matrix.service }}
-      cancel-in-progress: true
-    strategy:
-      matrix:
-        service:
-          - email-knowledge-base-2/backend-service
-          - email-knowledge-base-2/frontend-service
-          - email-knowledge-base-2/celery-worker
     env:
       KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
     steps:
@@ -66,10 +57,17 @@ jobs:
         with:
           api_token: ${{ secrets.KOYEB_API_TOKEN }}
 
-      - name: Redeploy Service
-        if: |
-          (matrix.service == 'email-knowledge-base-2/backend-service' && steps.changed_backend_files.outputs.any_changed == 'true') ||
-          (matrix.service == 'email-knowledge-base-2/frontend-service' && steps.changed_frontend_files.outputs.any_changed == 'true') ||
-          (matrix.service == 'email-knowledge-base-2/celery-worker' && steps.changed_worker_files.outputs.any_changed == 'true')
+      - name: Redeploy Backend Service
+        if: steps.changed_backend_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy "${{ matrix.service }}"</file>
+          koyeb service redeploy email-knowledge-base-2/backend-service
+
+      - name: Redeploy Frontend Service
+        if: steps.changed_frontend_files.outputs.any_changed == 'true'
+        run: |
+          koyeb service redeploy email-knowledge-base-2/frontend-service
+
+      - name: Redeploy Celery Worker
+        if: steps.changed_worker_files.outputs.any_changed == 'true'
+        run: |
+          koyeb service redeploy email-knowledge-base-2/celery-worker
