@@ -12,6 +12,7 @@ import uuid
 from ..services import token_service
 from ..models.user import User
 from ..db.session import get_db
+from app.dependencies.auth import get_current_active_user
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
     TokenExport, TokenDB, TokenBundleRequest, 

@@ -158,6 +158,16 @@ def delete_user_token(db: Session, token_id: int) -> bool:
          db.rollback() # Rollback transaction on error
          return False
 
+def get_active_tokens(db: Session) -> List[TokenDB]:
+    """Fetches all tokens that are currently active (not expired and is_active=True)."""
+    now = datetime.now(timezone.utc)
+    statement = select(TokenDB).where(
+        TokenDB.is_active == True,
+        (TokenDB.expiry == None) | (TokenDB.expiry > now)
+    )
+    results = db.execute(statement).scalars().all()
+    return results
+
 # --- Token Bundling Logic Helper --- 
 
 def _union_string_lists(string_lists: List[Optional[List[str]]]) -> List[str]:
