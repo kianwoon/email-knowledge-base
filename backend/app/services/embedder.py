@@ -99,9 +99,9 @@ async def search_milvus_knowledge_hybrid(
             meta_hits = milvus_client.query(
                 collection_name=collection_name,
                 filter="", # Fetch all initially
-                # MODIFICATION: Only request ID initially to see if metadata field causes the issue
-                output_fields=["id"], 
-                limit=1000 # ADDED: Limit the pre-fetch query
+                # MODIFICATION: Remove output_fields entirely for this pre-filter query
+                # output_fields=["id"], 
+                limit=1000 # Keep limit
             )
             
             # MODIFICATION: Temporarily disable Python filtering as metadata is not fetched
