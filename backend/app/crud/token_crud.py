@@ -159,16 +159,6 @@ def delete_user_token(db: Session, token_id: int) -> bool:
          db.rollback() # Rollback transaction on error
          return False
 
-def get_active_tokens(db: Session) -> List[TokenDB]:
-    """Fetches all tokens that are currently active."""
-    now = datetime.now(timezone.utc)
-    statement = select(TokenDB).where(
-        TokenDB.is_active == True,
-        (TokenDB.expiry == None) | (TokenDB.expiry > now)
-    )
-    results = db.execute(statement).scalars().all()
-    return results
-
 # --- Token Bundling Logic Helper --- 
 
 def _union_string_lists(string_lists: List[Optional[List[str]]]) -> List[str]:
@@ -267,48 +257,6 @@ async def create_bundled_token(db: Session, name: str, description: Optional[str
     setattr(db_token, 'token_value', raw_token_value)
     return db_token
 
-# --- Qdrant Filter Generation (Keep for reference or potential future use) ---
-def create_qdrant_filter_from_token(token: TokenDB) -> Optional[qdrant_models.Filter]:
-    """Creates a Qdrant Filter object based on token rules."""
-    must_conditions = []
-    must_not_conditions = [] # Usually unused for Qdrant standard filters
-
-    # Sensitivity Filtering
-    token_rank = SENSITIVITY_RANK.get(token.sensitivity, -1)
-    if token_rank < 0:
-        logger.warning(f"Token {token.id} has invalid sensitivity '{token.sensitivity}'. Applying most restrictive filter (no results).")
-        return qdrant_models.Filter(must=[qdrant_models.FieldCondition(key="non_existent_field", match=qdrant_models.MatchValue(value="impossible"))])
-
-    allowed_levels = SENSITIVITY_ORDER[:token_rank + 1]
-    if allowed_levels:
-        # Assuming sensitivity is stored directly in payload
-        must_conditions.append(
-            qdrant_models.FieldCondition(
-                key="sensitivity", # ADJUST FIELD NAME IN PAYLOAD IF NEEDED
-                match=qdrant_models.MatchAny(any=allowed_levels)
-            )
-        )
-    else:
-        return qdrant_models.Filter(must=[qdrant_models.FieldCondition(key="non_existent_field", match=qdrant_models.MatchValue(value="impossible"))])
-
-    # Department Filtering (Allow Rules)
-    if token.allow_rules:
-         # Assuming departments stored directly in payload as 'department'
-        must_conditions.append(
-            qdrant_models.FieldCondition(
-                key="department", # ADJUST FIELD NAME IN PAYLOAD IF NEEDED
-                match=qdrant_models.MatchAny(any=token.allow_rules)
-            )
-        )
-
-    # Deny Rules are generally not handled by Qdrant filters directly for semantic content
-
-    if not must_conditions:
-        return None # No filters needed
-
-    return qdrant_models.Filter(must=must_conditions)
-
-
 # --- NEW FUNCTION FOR MILVUS ---
 def create_milvus_filter_from_token(token: TokenDB) -> Optional[str]:
     """
@@ -369,4 +317,4 @@ def create_milvus_filter_from_token(token: TokenDB) -> Optional[str]:
     logger.debug(f"Generated Milvus filter expression for token {token.id}: {final_filter}")
     return final_filter
 
-# --- End Token Bundling Logic --- 
+# --- End Helper --- 

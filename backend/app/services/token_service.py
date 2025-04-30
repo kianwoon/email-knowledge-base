@@ -2,14 +2,14 @@
 import logging
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
-from typing import List, Optional
-
-from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct, Distance, VectorParams, Filter, FieldCondition, MatchValue, PointIdsList
-from qdrant_client.http.exceptions import UnexpectedResponse
+from typing import List, Optional, Dict, Any
+from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models.token import Token, TokenCreate, TokenUpdate, TokenPayload, AccessRule
+from ..models.token_models import TokenDB # Assuming TokenDB is the SQLAlchemy model
+from ..models.user import UserDB # Assuming UserDB is the SQLAlchemy model
+from ..db.session import get_db # Assuming session management
 
 # Configure logging
 logger = logging.getLogger(__name__)

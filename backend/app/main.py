@@ -46,11 +46,12 @@ from app.routes import azure_blob
 from app.routes import custom_knowledge
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
-from app.db.qdrant_client import get_qdrant_client
 from app.db.session import SessionLocal, engine
 from app.db.job_mapping_db import initialize_db as initialize_job_mapping_db
 # Import Base and engine from the new base module to ensure models are registered
 from app.db.base import Base, engine 
+from app.db.milvus_client import get_milvus_client, ensure_collection_exists
+from app.db.init_db import init_db # Import the init_db function
 
 # Configure logging
 logger = logging.getLogger("app")

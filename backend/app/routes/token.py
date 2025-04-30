@@ -3,16 +3,14 @@ import logging
 from uuid import UUID
 from typing import List, Optional, Any, Dict
 import json
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Response, Query
-from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 import uuid
 
 from ..services import token_service
 from ..models.user import User
-from ..db.qdrant_client import get_qdrant_client
-from ..dependencies.auth import get_current_active_user_or_token_owner as get_request_user
 from ..db.session import get_db
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
@@ -39,6 +37,9 @@ from ..models.external_audit_log import ExternalAuditLog
 # Import necessary types and functions
 from sqlalchemy import func, select
 from pydantic import BaseModel
+
+from app.db.milvus_client import get_milvus_client # Import Milvus client getter
+from app.services.embedder import create_embedding # Import embedding function
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ async def get_token_usage_report(
     start_date: Optional[date] = Query(None, description="Filter usage logs from this date (inclusive). Format: YYYY-MM-DD"),
     end_date: Optional[date] = Query(None, description="Filter usage logs up to this date (inclusive). Format: YYYY-MM-DD"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Retrieves usage statistics for tokens owned by the current user."""
     try:
@@ -167,7 +168,7 @@ async def get_token_usage_timeseries(
     start_date: Optional[date] = Query(None, description="Filter usage logs from this date (inclusive). Format: YYYY-MM-DD"),
     end_date: Optional[date] = Query(None, description="Filter usage logs up to this date (inclusive). Format: YYYY-MM-DD"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     try:
         logger.info(f"Fetching token usage time series for user '{current_user.email}' (Token: {token_id}, Start: {start_date}, End: {end_date})")
@@ -240,7 +241,7 @@ async def get_token_usage_timeseries(
 @router.get("/", response_model=List[TokenResponse])
 async def read_user_tokens(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """List all API tokens for the authenticated user."""
     try:
@@ -267,7 +268,7 @@ async def read_user_tokens(
 async def create_token_route(
     token_in: TokenCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Create a new API token for the authenticated user."""
     try:
@@ -298,7 +299,7 @@ async def create_token_route(
 async def read_token(
     token_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     db_token = get_token_by_id(db, token_id=token_id)
     if db_token is None:
@@ -313,7 +314,7 @@ async def update_token_route(
     token_id: int,
     token_in: TokenUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Update an API token owned by the authenticated user."""
     try:
@@ -354,7 +355,7 @@ async def update_token_route(
 async def delete_token(
     token_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Delete an API token owned by the authenticated user."""
     try:
@@ -393,7 +394,7 @@ async def delete_token(
 async def create_bundled_token_route(
     bundle_request: TokenBundleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_request_user)
+    current_user: User = Depends(get_current_active_user)
 ):
     """Creates a new, non-editable token by bundling the rules and sensitivity of existing tokens."""
     logger.info(f"User {current_user.email} requesting to bundle tokens: {bundle_request.token_ids}")
@@ -438,7 +439,7 @@ async def create_bundled_token_route(
             )
 async def export_active_tokens(
     db: Session = Depends(get_db),
-    requesting_user: User = Depends(get_request_user)
+    requesting_user: User = Depends(get_current_active_user)
 ):
     """Exports all active tokens (unexpired, is_active=True) for the authenticated user.
     Accessible via user session or Bearer token authentication.
