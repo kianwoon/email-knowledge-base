@@ -188,7 +188,7 @@ async def get_current_user(
                 logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
                 
                 # --- Wrap MSAL call in threadpool and add timeout --- 
-                REFRESH_TIMEOUT = 20 # Timeout in seconds
+                REFRESH_TIMEOUT = 60 # MODIFIED: Increased timeout to 60 seconds
                 try:
                     # Define the synchronous function call
                     sync_msal_call = lambda: msal_app.acquire_token_by_refresh_token(
