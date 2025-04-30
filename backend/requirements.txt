@@ -61,7 +61,7 @@ PyYAML>=6.0
 # ADDED for Iceberg / R2 Catalog
 pyarrow
 pandas
-pyiceberg>=0.6.0,<0.7.0
+pyiceberg>=0.8.0
 duckdb
 backoff
 tiktoken
