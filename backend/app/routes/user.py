@@ -87,18 +87,36 @@ async def save_provider_api_key(
         provider = provider.lower()
         if provider not in ["openai", "anthropic", "google", "deepseek"]:
             raise HTTPException(status_code=400, detail="Invalid provider. Supported providers: openai, anthropic, google, deepseek")
-        
-        api_key_in = APIKeyCreate(
-            provider=provider,
-            key=api_key_data["api_key"],
-            model_base_url=api_key_data.get("model_base_url")
-        )
-        
+
+        raw_key = api_key_data["api_key"]
+        encrypted_key = encrypt_token(raw_key)
+        if not encrypted_key:
+             logger.error(f"Failed to encrypt API key for user {current_user.email}, provider {provider}")
+             raise HTTPException(status_code=500, detail=f"Error saving {provider} API key: Encryption failed")
+
+        # Data for creating/updating the DB record (contains encrypted key)
+        api_key_db_data = {
+            "provider": provider,
+            "encrypted_key": encrypted_key,
+            "model_base_url": api_key_data.get("model_base_url")
+        }
+
+        # Prepare the Pydantic model instance with the encrypted key
+        api_key_in = APIKeyCreate(**api_key_db_data)
+
         # Check if key already exists
         existing_key = api_key_crud.get_api_key(db, current_user.email, provider)
         if existing_key:
-            api_key_crud.update_api_key(db, current_user.email, provider, new_key=api_key_in.key, model_base_url=api_key_in.model_base_url)
+            # Update using the pre-encrypted key and base URL
+            api_key_crud.update_api_key(
+                db,
+                current_user.email,
+                provider,
+                new_encrypted_key=encrypted_key, # Pass the encrypted key
+                model_base_url=api_key_in.model_base_url
+            )
         else:
+            # Create using the Pydantic model containing the encrypted key
             api_key_crud.create_api_key(db, current_user.email, api_key_in)
         
         return Response(status_code=status.HTTP_204_NO_CONTENT)

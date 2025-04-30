@@ -370,35 +370,35 @@ const JarvisPage: React.FC = () => {
     }
     setApiKeyError(null);
     try {
-      const allKeys = await getAllApiKeys(); // This fetches [{provider: 'openai', is_set: true, model_base_url: '...'}, ...]
-      console.log("Fetched API Keys:", allKeys); // Debug log
+      const keysData = await getAllApiKeys(); // Fetches all keys including metadata
+      
+      const fetchedKeys: Record<string, string> = {};
+      const fetchedStatus: Record<string, boolean> = {};
+      const fetchedBaseUrls: Record<string, string> = {}; // Initialize base URLs record
 
-      // Process fetched keys
-      // We don't need the actual keys here, just their status and base URL
-      const updatedBaseUrlsState: Record<string, string> = {};
-      const updatedSavedKeysStatus: Record<string, boolean> = {}; 
-
-      (['openai', 'anthropic', 'google'] as ApiProvider[]).forEach(provider => {
-        const keyInfo = allKeys.find(k => k.provider === provider);
-        if (keyInfo) {
-          // Key exists in backend for this provider
-          updatedSavedKeysStatus[provider] = true; 
-          updatedBaseUrlsState[provider] = keyInfo.model_base_url || ''; 
-        } else {
-          // Key does not exist in backend for this provider
-          updatedSavedKeysStatus[provider] = false; 
-          updatedBaseUrlsState[provider] = ''; // Ensure base URL is cleared if key is not set
+      let anyKeySet = false;
+      keysData.forEach(keyInfo => {
+        if (keyInfo.provider && keyInfo.is_active) {
+          fetchedStatus[keyInfo.provider] = true; // Mark provider as having a saved key
+          anyKeySet = true;
+          // --- ADDED: Store the base URL if it exists --- 
+          if (keyInfo.model_base_url) {
+            fetchedBaseUrls[keyInfo.provider] = keyInfo.model_base_url;
+          }
+          // --- END ADDED ---
+          
+          // Note: We don't store the actual key value in state for security display
+          // We rely on the checkmark (fetchedStatus) and the masked input
+          // fetchedKeys[keyInfo.provider] = '********'; // Placeholder if needed, but status is better
         }
       });
-
-      // Update state
-      // Don't update apiKeys state from here, let user input manage it
-      setApiBaseUrls(updatedBaseUrlsState); // Update base URLs based on fetched data
-      setSavedKeysStatus(updatedSavedKeysStatus); // Update the saved status
-      setLastKeyRefresh(Date.now());
-
-      // Update the general hasApiKey state (maybe phase this out?)
-      setHasApiKey(!!allKeys.find(k => k.provider === 'openai')); 
+      
+      setApiKeys({}); // Clear actual keys from state, rely on status
+      setSavedKeysStatus(fetchedStatus);
+      setApiBaseUrls(fetchedBaseUrls); // Set the fetched base URLs
+      setHasApiKey(anyKeySet); // Update based on if any active key was found
+      setLastLoadTime(Date.now()); // Record successful load time
+      setRetryCount(0); // Reset retry count on success
 
     } catch (error) {
       console.error("Error loading API keys:", error);

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Application settings
     DEBUG: bool = os.getenv("DEBUG") == "True"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT") # validated by check_required_env_vars
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper() # Added Log Level Setting
+    LOG_LEVEL: str = "INFO"
 
     @computed_field
     @property
@@ -90,17 +90,26 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM") # validated by check_required_env_vars
     JWT_EXPIRATION: int = int(os.getenv("JWT_EXPIRATION")) # validated by pydantic & check_required
 
-    # OpenAI settings
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY") # validated by check_required_env_vars
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") # validated by check_required_env_vars
-    EMBEDDING_DIMENSION: int = int(os.getenv("EMBEDDING_DIMENSION")) # validated by pydantic & check_required
-    OPENAI_MODEL_NAME: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-    OPENAI_TIMEOUT_SECONDS: Optional[int] = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
-    OPENAI_TEMPERATURE: Optional[float] = float(os.getenv("OPENAI_TEMPERATURE", "0.1")) # Added Temperature Setting
+    # OpenAI settings (used as default if provider not specified or no specific key)
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL_NAME: str = "gpt-4o"
+    OPENAI_TIMEOUT_SECONDS: Optional[float] = None # Keep optional
+
+    # --- NEW: Default Timeout Settings --- 
+    DEFAULT_LLM_TIMEOUT_SECONDS: float = 30.0
+    DEFAULT_DEEPSEEK_TIMEOUT_SECONDS: float = 60.0
+    # --- END: Default Timeout Settings --- 
+
+    # Provider specific timeout settings (Optional)
+    DEEPSEEK_TIMEOUT_SECONDS: Optional[float] = None
+    # Add others if needed, e.g., ANTHROPIC_TIMEOUT_SECONDS: Optional[float] = None
+
+    # Embedding Model
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
 
     # Per-field embedding configuration
-    DENSE_EMBEDDING_MODEL: str = os.getenv("DENSE_EMBEDDING_MODEL", EMBEDDING_MODEL)
-    DENSE_EMBEDDING_DIMENSION: int = int(os.getenv("DENSE_EMBEDDING_DIMENSION", EMBEDDING_DIMENSION)) # Ensure result is int
+    DENSE_EMBEDDING_MODEL: str = os.getenv("DENSE_EMBEDDING_MODEL", "BAAI/bge-m3")
+    DENSE_EMBEDDING_DIMENSION: int = int(os.getenv("DENSE_EMBEDDING_DIMENSION", "1024")) # Default for bge-m3
     COLBERT_EMBEDDING_MODEL: str = os.getenv("COLBERT_EMBEDDING_MODEL", "colbert-ir/colbertv2.0")
     COLBERT_EMBEDDING_DIMENSION: int = int(os.getenv("COLBERT_EMBEDDING_DIMENSION", "512"))
     BM25_EMBEDDING_MODEL: str = os.getenv("BM25_EMBEDDING_MODEL", "Qdrant/bm25")

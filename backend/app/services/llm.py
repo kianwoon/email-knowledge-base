@@ -83,8 +83,9 @@ async def query_iceberg_emails_duckdb(
     keywords: List[str],
     limit: int = 5,
     original_message: str = "",
-    user_client: AsyncOpenAI = None,
-    token: Optional[TokenDB] = None # ADDED: Optional Token parameter
+    user_client: AsyncOpenAI = None, # Client configured for the correct provider
+    token: Optional[TokenDB] = None, # ADDED: Optional Token parameter
+    provider: str = "openai" # ADDED: Provider name ('openai', 'deepseek', etc.)
 ) -> List[Dict[str, Any]]:
     """Queries the email_facts Iceberg table using DuckDB, applying token scope (columns) if provided.""" # Updated docstring
     results = []
@@ -139,10 +140,18 @@ Example for "show me emails": {{"start_date_utc": null, "end_date_utc": null}}
 
 JSON Response:"""
                 
-                # Use the passed user_client
+                # Determine the model based on the provider
+                date_extraction_model = getattr(settings, 'DATE_EXTRACTION_MODEL', 'gpt-4.1-mini')
+                if provider == "deepseek":
+                    # Use a suitable Deepseek model for this task
+                    date_extraction_model = "deepseek-chat" # Or another appropriate deepseek model
+                    logger.debug(f"Using Deepseek model ({date_extraction_model}) for date extraction.")
+                else:
+                    logger.debug(f"Using OpenAI model ({date_extraction_model}) for date extraction.")
+
+                # Use the passed user_client and the determined model
                 response = await user_client.chat.completions.create(
-                    # Use a fast, cheaper model if possible for this structured task
-                    model=getattr(settings, 'DATE_EXTRACTION_MODEL', 'gpt-4.1-mini'), 
+                    model=date_extraction_model, 
                     messages=[
                         {"role": "system", "content": "You are an expert date range extractor. Respond only with the specified JSON format."},
                         {"role": "user", "content": date_extraction_prompt}
@@ -470,16 +479,35 @@ async def generate_openai_rag_response(
         # --- End Modification ---
 
         # --- MODIFIED: Conditionally set base_url for the client (logic remains same) --- 
+        # --- START: Provider-specific timeout --- 
+        # Use default timeout from settings
+        default_timeout = settings.DEFAULT_LLM_TIMEOUT_SECONDS 
+        provider_timeout = default_timeout # Default
+        if provider == "deepseek":
+            # Use specific Deepseek setting OR the Deepseek default setting
+            provider_timeout = float(settings.DEEPSEEK_TIMEOUT_SECONDS or settings.DEFAULT_DEEPSEEK_TIMEOUT_SECONDS)
+            logger.info(f"Using specific timeout for Deepseek: {provider_timeout} seconds")
+        else:
+             # Use specific OpenAI setting OR the general default setting
+             provider_timeout = float(settings.OPENAI_TIMEOUT_SECONDS or default_timeout)
+        # --- END: Provider-specific timeout ---
+
         client_kwargs = {
             "api_key": user_api_key,
-            "timeout": settings.OPENAI_TIMEOUT_SECONDS or 30.0
+            "timeout": provider_timeout # Use provider-specific timeout
         }
         if user_base_url:
             logger.info(f"Using custom base URL for {provider} for user {user.email}: {user_base_url}")
             client_kwargs["base_url"] = user_base_url
         else:
             logger.info(f"Using default base URL for {provider} for user {user.email}")
-            # No base_url kwarg passed, library uses default
+            # --- START: Add default base URL for Deepseek --- 
+            if provider == "deepseek":
+                deepseek_default_base_url = "https://api.deepseek.com/v1"
+                logger.warning(f"No custom base URL found for Deepseek for user {user.email}. Defaulting to {deepseek_default_base_url}")
+                client_kwargs["base_url"] = deepseek_default_base_url
+            # --- END: Add default base URL for Deepseek --- 
+            # No base_url kwarg passed, library uses default (for OpenAI or others if applicable)
 
         user_client = AsyncOpenAI(**client_kwargs)
         # --- End Modification ---
@@ -749,7 +777,15 @@ Comma-separated keywords:"""
             def _truncate_text(text: str, max_len: int) -> str:
                 if len(text) > max_len: return text[:max_len] + "... [TRUNCATED]"; return text
             try:
-                initial_email_results = await query_iceberg_emails_duckdb(user_email=user.email,keywords=final_keywords_for_email, limit=max_items, original_message=message,user_client=user_client)
+                # Pass the provider name to the query function
+                initial_email_results = await query_iceberg_emails_duckdb(
+                    user_email=user.email,
+                    keywords=final_keywords_for_email, 
+                    limit=max_items, 
+                    original_message=message,
+                    user_client=user_client,
+                    provider=provider # Pass the determined provider
+                )
                 if not initial_email_results: logger.info("Email Retrieval: No initial results from DuckDB."); return "No relevant emails found."
                 logger.info(f"Email Retrieval: Initially retrieved {len(initial_email_results)} emails from DuckDB.")
                 email_context = "\n\n---\n\n".join([f"Email ID: {email.get('message_id')}\nReceived: {email.get('received_datetime_utc')}\nSender: {email.get('sender')}\nSubject: {email.get('subject')}\nTags: {email.get('generated_tags')}\nSnippet: {_truncate_text(email.get('body_snippet', ''), max_chunk_chars)}" for email in initial_email_results ])
@@ -1057,15 +1093,34 @@ async def get_rate_card_response_advanced(
         user_base_url = db_api_key.model_base_url
 
         # Initialize client dynamically
+        # --- START: Provider-specific timeout --- 
+        # Use default timeout from settings
+        default_timeout = settings.DEFAULT_LLM_TIMEOUT_SECONDS
+        provider_timeout = default_timeout # Default
+        if provider == "deepseek":
+            # Use specific Deepseek setting OR the Deepseek default setting
+            provider_timeout = float(settings.DEEPSEEK_TIMEOUT_SECONDS or settings.DEFAULT_DEEPSEEK_TIMEOUT_SECONDS)
+            logger.info(f"RateCardRAG: Using specific timeout for Deepseek: {provider_timeout} seconds")
+        else:
+             # Use specific OpenAI setting OR the general default setting
+             provider_timeout = float(settings.OPENAI_TIMEOUT_SECONDS or default_timeout)
+        # --- END: Provider-specific timeout ---
+
         client_kwargs = {
             "api_key": user_api_key,
-            "timeout": settings.OPENAI_TIMEOUT_SECONDS or 30.0 # Reuse timeout setting
+            "timeout": provider_timeout # Use provider-specific timeout
         }
         if user_base_url:
             logger.info(f"RateCardRAG: Using custom base URL for {provider} for user {user.email}: {user_base_url}")
             client_kwargs["base_url"] = user_base_url
         else:
             logger.info(f"RateCardRAG: Using default base URL for {provider} for user {user.email}")
+            # --- START: Add default base URL for Deepseek --- 
+            if provider == "deepseek":
+                deepseek_default_base_url = "https://api.deepseek.com/v1"
+                logger.warning(f"RateCardRAG: No custom base URL found for Deepseek for user {user.email}. Defaulting to {deepseek_default_base_url}")
+                client_kwargs["base_url"] = deepseek_default_base_url
+            # --- END: Add default base URL for Deepseek --- 
             
         user_client = AsyncOpenAI(**client_kwargs)
         # --- End Dynamic Client Init ---

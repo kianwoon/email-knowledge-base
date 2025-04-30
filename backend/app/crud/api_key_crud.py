@@ -11,8 +11,10 @@ from ..utils.security import encrypt_token, decrypt_token
 logger = logging.getLogger(__name__)
 
 def create_api_key(db: Session, user_email: str, api_key_in: APIKeyCreate) -> APIKeyDB:
-    """Create a new API key for a user, or reactivate/update an existing inactive one."""
-    logger.debug(f"Attempting to create/update {api_key_in.provider} API key for user {user_email}")
+    """Create a new API key for a user, or reactivate/update an existing inactive one.
+       Expects APIKeyCreate model with pre-encrypted key.
+    """
+    logger.debug(f"Attempting to create/update {api_key_in.provider} API key for user {user_email} with provided encrypted key.")
 
     # --- MODIFICATION START: Check for existing inactive key --- 
     inactive_key_statement = (
@@ -26,16 +28,15 @@ def create_api_key(db: Session, user_email: str, api_key_in: APIKeyCreate) -> AP
     existing_inactive_key = result.unique().scalar_one_or_none()
 
     if existing_inactive_key:
-        logger.info(f"Found existing inactive {api_key_in.provider} key for {user_email}. Reactivating and updating.")
-        encrypted_key = encrypt_token(api_key_in.key)
-        if not encrypted_key:
-            logger.error(f"Failed to encrypt API key for reactivation, user {user_email}")
-            raise ValueError("Failed to encrypt API key for reactivation")
+        logger.info(f"Found existing inactive {api_key_in.provider} key for {user_email}. Reactivating and updating with new encrypted key.")
+        if not api_key_in.encrypted_key:
+            logger.error(f"APIKeyCreate object missing encrypted_key for reactivation, user {user_email}")
+            raise ValueError("APIKeyCreate object missing encrypted_key for reactivation")
             
-        existing_inactive_key.encrypted_key = encrypted_key
+        existing_inactive_key.encrypted_key = api_key_in.encrypted_key
         existing_inactive_key.model_base_url = api_key_in.model_base_url
         existing_inactive_key.is_active = True
-        existing_inactive_key.last_used = datetime.now(timezone.utc) # Update last_used on reactivation/update
+        existing_inactive_key.last_used = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(existing_inactive_key)
@@ -44,19 +45,18 @@ def create_api_key(db: Session, user_email: str, api_key_in: APIKeyCreate) -> AP
     # --- MODIFICATION END ---
 
     # --- Original creation logic if no inactive key found ---
-    logger.info(f"No inactive {api_key_in.provider} key found for {user_email}. Creating a new record.")
-    encrypted_key = encrypt_token(api_key_in.key)
-    if not encrypted_key:
-        logger.error(f"Failed to encrypt API key for user {user_email}")
-        raise ValueError("Failed to encrypt API key")
-    
+    logger.info(f"No inactive {api_key_in.provider} key found for {user_email}. Creating a new record with provided encrypted key.")
+    if not api_key_in.encrypted_key:
+        logger.error(f"APIKeyCreate object missing encrypted_key for creation, user {user_email}")
+        raise ValueError("APIKeyCreate object missing encrypted_key for creation")
+
     db_api_key = APIKeyDB(
         id=str(uuid.uuid4()),
         user_email=user_email,
         provider=api_key_in.provider,
-        encrypted_key=encrypted_key,
+        encrypted_key=api_key_in.encrypted_key,
         model_base_url=api_key_in.model_base_url,
-        is_active=True # Ensure new keys are created as active
+        is_active=True
     )
     
     db.add(db_api_key)
@@ -91,29 +91,25 @@ def get_all_api_keys(db: Session, user_email: str) -> List[APIKeyDB]:
     result = result.unique()
     return list(result.scalars().all())
 
-def update_api_key(db: Session, user_email: str, provider: str, new_key: Optional[str] = None, model_base_url: Optional[str] = None) -> Optional[APIKeyDB]:
-    """Update an existing API key."""
+def update_api_key(db: Session, user_email: str, provider: str, new_encrypted_key: Optional[str] = None, model_base_url: Optional[str] = None) -> Optional[APIKeyDB]:
+    """Update an existing API key using a pre-encrypted key."""
     logger.debug(f"Updating {provider} API key for user {user_email}")
     
     db_api_key = get_api_key(db, user_email, provider)
     if not db_api_key:
-        logger.warning(f"No {provider} API key found for user {user_email}")
+        logger.warning(f"No active {provider} API key found for user {user_email} to update.")
         return None
     
     updated = False
-    # Update key if provided
-    if new_key:
-        encrypted_key = encrypt_token(new_key)
-        if not encrypted_key:
-            logger.error(f"Failed to encrypt API key for user {user_email}")
-            raise ValueError("Failed to encrypt API key")
-        db_api_key.encrypted_key = encrypted_key
+    if new_encrypted_key:
+        if not new_encrypted_key:
+            logger.error(f"Attempted to update API key with an empty encrypted key for user {user_email}, provider {provider}")
+            raise ValueError("Cannot update with an empty encrypted key")
+        db_api_key.encrypted_key = new_encrypted_key
         updated = True
         
-    # Update model_base_url unconditionally
-    # Check if the provided value is different from the existing one
     if model_base_url != db_api_key.model_base_url:
-        db_api_key.model_base_url = model_base_url # Assign the new value (could be None or "")
+        db_api_key.model_base_url = model_base_url
         updated = True
 
     if updated:
@@ -124,7 +120,7 @@ def update_api_key(db: Session, user_email: str, provider: str, new_key: Optiona
     else:
         logger.info(f"No update necessary for {provider} API key for user {user_email}")
         
-    return db_api_key
+    return decrypt_token(db_api_key.encrypted_key)
 
 def delete_api_key(db: Session, user_email: str, provider: str) -> bool:
     """Delete (deactivate) an API key. Handles potential duplicates by deactivating all matching keys."""
@@ -190,7 +186,14 @@ def migrate_legacy_openai_key(db: Session, user_email: str, encrypted_key: str) 
             return None
         
         # Create new API key in the new table with the decrypted value
-        api_key_in = APIKeyCreate(provider="openai", key=decrypted_key)
+        # Needs adjustment based on the final APIKeyCreate structure
+        # Re-encrypt the decrypted key before passing to the updated create_api_key
+        re_encrypted_key = encrypt_token(decrypted_key) # Re-encrypt here
+        if not re_encrypted_key:
+             logger.error(f"Could not re-encrypt legacy API key during migration for user {user_email}")
+             return None
+
+        api_key_in = APIKeyCreate(provider="openai", encrypted_key=re_encrypted_key)
         return create_api_key(db, user_email, api_key_in)
     
     except Exception as e:
