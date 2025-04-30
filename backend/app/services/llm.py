@@ -930,6 +930,19 @@ Comma-separated keywords:"""
         {final_context}
         """
         final_messages = [ {"role": "system", "content": final_system_prompt} ]
+        
+        # MODIFICATION START: Handle DeepSeek's first message requirement
+        needs_dummy_user_message = (
+            provider == "deepseek" and 
+            formatted_history and 
+            formatted_history[0].get("role") == "assistant"
+        )
+        
+        if needs_dummy_user_message:
+            logger.debug("Prepending dummy user message for DeepSeek history requirement.")
+            final_messages.append({"role": "user", "content": "Okay."})
+        # END MODIFICATION
+            
         final_messages.extend(formatted_history)
         final_messages.append({"role": "user", "content": message})
 
