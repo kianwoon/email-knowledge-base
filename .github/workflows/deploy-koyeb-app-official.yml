@@ -98,7 +98,11 @@ jobs:
         with:
           api_token: ${{ secrets.KOYEB_API_TOKEN }}
 
+      - name: Debug: List Koyeb services
+        run: |
+          koyeb service list --app email-knowledge-base-2
+
       - name: Redeploy Celery Worker
         if: steps.changed_worker_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy email-knowledge-base-2/celery-worker
+          koyeb service redeploy governing-siusan/celery-worker
