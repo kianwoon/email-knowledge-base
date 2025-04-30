@@ -16,56 +16,40 @@ import {
   VStack
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { AccessRule } from '../../api/token'; // Import the type
 
 // Define allowed fields for rules
 const ALLOWED_RULE_FIELDS = ['tags', 'source_id']; // Extend this list as needed
 
 interface RuleInputProps {
-  onAddRule: (rule: AccessRule, ruleType: 'allow' | 'deny') => void;
+  onAddRule: (rule: string, ruleType: 'allow' | 'deny') => void;
 }
 
 const RuleInput: React.FC<RuleInputProps> = ({ onAddRule }) => {
   const { t } = useTranslation();
-  const [field, setField] = useState<string>(ALLOWED_RULE_FIELDS[0]);
-  const [currentValue, setCurrentValue] = useState<string>('');
-  const [values, setValues] = useState<string[]>([]);
   const toast = useToast();
+  const [ruleType, setRuleType] = useState<'allow' | 'deny'>('allow');
+  const [field, setField] = useState('');
+  const [value, setValue] = useState('');
 
-  const handleAddValue = () => {
-    if (currentValue.trim() && !values.includes(currentValue.trim())) {
-      setValues([...values, currentValue.trim()]);
-      setCurrentValue('');
-    }
-  };
-
-  const handleRemoveValue = (valueToRemove: string) => {
-    setValues(values.filter(value => value !== valueToRemove));
-  };
-
-  const handleAddRuleClick = (ruleType: 'allow' | 'deny') => {
-    if (!field || values.length === 0) {
+  const handleAddClick = () => {
+    if (!field || !value) {
       toast({
         title: t('tokenModal.rules.errorTitle', 'Incomplete Rule'),
-        description: t('tokenModal.rules.errorDescription', 'Please select a field and add at least one value.'),
+        description: t('tokenModal.rules.errorDescription', 'Please select a field and add a value.'),
         status: 'warning',
         duration: 3000,
         isClosable: true,
       });
       return;
     }
-    onAddRule({ field, values }, ruleType);
-    // Reset form after adding
-    setField(ALLOWED_RULE_FIELDS[0]);
-    setValues([]);
-    setCurrentValue('');
-  };
 
-  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault(); // Prevent form submission if inside a form
-      handleAddValue();
-    }
+    // Construct the rule string (e.g., "fieldName:fieldValue")
+    const ruleString = `${field}:${value}`;
+    onAddRule(ruleString, ruleType);
+
+    // Reset fields
+    setField('');
+    setValue('');
   };
 
   return (
@@ -86,35 +70,22 @@ const RuleInput: React.FC<RuleInputProps> = ({ onAddRule }) => {
         <HStack>
           <Input
             placeholder={t('tokenModal.rules.valuePlaceholder', 'Enter a value')}
-            value={currentValue}
-            onChange={(e) => setCurrentValue(e.target.value)}
-            onKeyDown={handleInputKeyDown}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
           />
-          <Button onClick={handleAddValue} size="sm">
-            {t('common.add', 'Add')}
+          <Button onClick={handleAddClick} colorScheme={ruleType === 'allow' ? 'green' : 'red'} size="sm">
+            {t('tokenModal.rules.addButton', 'Add Rule')}
           </Button>
         </HStack>
-        {values.length > 0 && (
-          <Wrap spacing={2} mt={2}>
-            {values.map((value) => (
-              <WrapItem key={value}>
-                <Tag size="md" borderRadius="full" variant="solid" colorScheme="blue">
-                  <TagLabel>{value}</TagLabel>
-                  <TagCloseButton onClick={() => handleRemoveValue(value)} />
-                </Tag>
-              </WrapItem>
-            ))}
-          </Wrap>
-        )}
       </FormControl>
 
       <HStack justify="flex-end" spacing={3}>
-         <Button onClick={() => handleAddRuleClick('allow')} colorScheme="green" size="sm">
-            {t('tokenModal.rules.addAllow', 'Add Allow Rule')}
-         </Button>
-         <Button onClick={() => handleAddRuleClick('deny')} colorScheme="red" size="sm">
-             {t('tokenModal.rules.addDeny', 'Add Deny Rule')}
-         </Button>
+        <Button onClick={() => setRuleType('allow')} colorScheme="green" size="sm">
+          {t('tokenModal.rules.addAllow', 'Add Allow Rule')}
+        </Button>
+        <Button onClick={() => setRuleType('deny')} colorScheme="red" size="sm">
+          {t('tokenModal.rules.addDeny', 'Add Deny Rule')}
+        </Button>
       </HStack>
     </VStack>
   );

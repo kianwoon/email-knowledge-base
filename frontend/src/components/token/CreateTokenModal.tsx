@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   ModalOverlay,
@@ -21,7 +21,7 @@ import {
   Box
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { createToken, TokenCreate, AccessRule } from '../../api/token';
+import { createToken, TokenCreatePayload } from '../../api/token';
 import RuleInput from './RuleInput';
 import RuleDisplay from './RuleDisplay';
 
@@ -43,28 +43,32 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   const [expiry, setExpiry] = useState('');
   const [isEditable, setIsEditable] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null); // State to hold the new token value
   
   // --- Rule State ---
-  const [allowRules, setAllowRules] = useState<AccessRule[]>([]);
-  const [denyRules, setDenyRules] = useState<AccessRule[]>([]);
+  const [allowRules, setAllowRules] = useState<string[]>([]);
+  const [denyRules, setDenyRules] = useState<string[]>([]);
+  const [allowEmbeddings, setAllowEmbeddings] = useState<string[]>([]);
+  const [denyEmbeddings, setDenyEmbeddings] = useState<string[]>([]);
 
   // --- Rule Handlers ---
-  const handleAddRule = (rule: AccessRule, ruleType: 'allow' | 'deny') => {
+  const handleAddRule = (rule: string, ruleType: 'allow' | 'deny') => {
     if (ruleType === 'allow') {
-      if (allowRules.some(existingRule => existingRule.field === rule.field)) {
+      if (allowRules.some(existingRule => existingRule === rule)) {
         toast({
           title: t('tokenModal.rules.duplicateFieldTitle', 'Duplicate Field'),
-          description: t('tokenModal.rules.duplicateFieldDescAllow', `An allow rule for the field '${rule.field}' already exists. Remove the existing rule first to change values.`),
+          description: t('tokenModal.rules.duplicateFieldDescAllow', `An allow rule for the field '${rule}' already exists. Remove the existing rule first to change values.`),
           status: 'warning', duration: 4000, isClosable: true,
         });
         return;
       }
       setAllowRules(prev => [...prev, rule]);
     } else {
-      if (denyRules.some(existingRule => existingRule.field === rule.field)) {
+      if (denyRules.some(existingRule => existingRule === rule)) {
         toast({
           title: t('tokenModal.rules.duplicateFieldTitle', 'Duplicate Field'),
-          description: t('tokenModal.rules.duplicateFieldDescDeny', `A deny rule for the field '${rule.field}' already exists. Remove the existing rule first to change values.`),
+          description: t('tokenModal.rules.duplicateFieldDescDeny', `A deny rule for the field '${rule}' already exists. Remove the existing rule first to change values.`),
           status: 'warning', duration: 4000, isClosable: true,
         });
         return;
@@ -91,6 +95,8 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
     setAllowRules([]); // Reset rules
     setDenyRules([]);  // Reset rules
     setIsLoading(false);
+    setError(null);
+    setCreatedTokenValue(null);
     onClose(); // Call original onClose
   };
 
@@ -107,18 +113,19 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
     }
 
     setIsLoading(true);
-    const tokenData: TokenCreate = {
+    const payload: TokenCreatePayload = {
       name,
-      description: description || null,
+      description,
       sensitivity,
-      expiry: expiry || null,
-      is_editable: isEditable,
-      allow_rules: allowRules, // Include rules from state
-      deny_rules: denyRules,   // Include rules from state
+      allow_rules: allowRules,
+      deny_rules: denyRules,
+      allow_embeddings: allowEmbeddings,
+      deny_embeddings: denyEmbeddings,
+      expiry_days: expiry ? parseInt(expiry, 10) : null,
     };
 
     try {
-      await createToken(tokenData);
+      const token = await createToken(payload);
       toast({
         title: t('tokenModal.createSuccessTitle', 'Token Created'),
         description: t('tokenModal.createSuccessDesc', `Token "${name}" was successfully created.`),
@@ -126,6 +133,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
         duration: 3000,
         isClosable: true,
       });
+      setCreatedTokenValue(token.token_value);
       onTokenCreated(); // Refresh list in parent component
       handleClose(); // Close and reset modal
     } catch (error: any) {
@@ -204,7 +212,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                     <Heading size="sm" colorScheme="green">{t('tokenModal.rules.allowTitle', 'Allow Rules')}</Heading>
                     {allowRules.map((rule, index) => (
                         <RuleDisplay 
-                            key={`${rule.field}-${index}`} // Use index for key as rules can change
+                            key={`${rule}-${index}`} // Use index for key as rules can change
                             rule={rule} 
                             ruleType="allow" 
                             onRemove={() => handleRemoveAllowRule(index)} 
@@ -219,7 +227,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                      <Heading size="sm" colorScheme="red">{t('tokenModal.rules.denyTitle', 'Deny Rules')}</Heading>
                     {denyRules.map((rule, index) => (
                          <RuleDisplay 
-                            key={`${rule.field}-${index}`} // Use index for key
+                            key={`${rule}-${index}`} // Use index for key
                             rule={rule} 
                             ruleType="deny" 
                             onRemove={() => handleRemoveDenyRule(index)} 

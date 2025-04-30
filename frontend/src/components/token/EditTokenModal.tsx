@@ -23,12 +23,15 @@ import {
   Divider,
   Heading,
   Box,
-  Text as ChakraText
+  Text as ChakraText,
+  InputGroup,
+  FormHelperText
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { getTokenById, updateToken, Token, TokenUpdate, AccessRule } from '../../api/token';
+import { getTokenById, updateToken, Token, TokenUpdatePayload } from '../../api/token';
 import RuleInput from './RuleInput';
 import RuleDisplay from './RuleDisplay';
+import { CopyIcon } from '@chakra-ui/icons';
 
 const SENSITIVITY_LEVELS = ['low', 'medium', 'high', 'critical'];
 
@@ -47,31 +50,37 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sensitivity, setSensitivity] = useState(SENSITIVITY_LEVELS[0]);
-  const [expiry, setExpiry] = useState<string | null>(null);
-  const [isEditable, setIsEditable] = useState(true);
-  const [tokenValue, setTokenValue] = useState('');
+  const [expiry, setExpiry] = useState<string>('');
   const [isActive, setIsActive] = useState(true);
 
   // --- Rule State ---
-  const [allowRules, setAllowRules] = useState<AccessRule[]>([]);
-  const [denyRules, setDenyRules] = useState<AccessRule[]>([]);
+  const [allowRules, setAllowRules] = useState<string[]>([]);
+  const [denyRules, setDenyRules] = useState<string[]>([]);
 
   // State for loading/error handling
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Rule Handlers (Identical to Create Modal) ---
-  const handleAddRule = (rule: AccessRule, ruleType: 'allow' | 'deny') => {
+  // --- ADD BACK Rule Handlers ---
+  const handleAddRule = (rule: string, ruleType: 'allow' | 'deny') => {
     if (ruleType === 'allow') {
-      if (allowRules.some(existingRule => existingRule.field === rule.field)) {
-        toast({ title: t('tokenModal.rules.duplicateFieldTitle'), description: t('tokenModal.rules.duplicateFieldDescAllow', { field: rule.field }), status: 'warning', duration: 4000, isClosable: true });
+      if (allowRules.some(existingRule => existingRule === rule)) {
+        toast({
+          title: t('tokenModal.rules.duplicateFieldTitle', 'Duplicate Field'),
+          description: t('tokenModal.rules.duplicateFieldDescAllow', `An allow rule for the field '${rule}' already exists. Remove the existing rule first to change values.`),
+          status: 'warning', duration: 4000, isClosable: true,
+        });
         return;
       }
       setAllowRules(prev => [...prev, rule]);
     } else {
-      if (denyRules.some(existingRule => existingRule.field === rule.field)) {
-        toast({ title: t('tokenModal.rules.duplicateFieldTitle'), description: t('tokenModal.rules.duplicateFieldDescDeny', { field: rule.field }), status: 'warning', duration: 4000, isClosable: true });
+      if (denyRules.some(existingRule => existingRule === rule)) {
+        toast({
+          title: t('tokenModal.rules.duplicateFieldTitle', 'Duplicate Field'),
+          description: t('tokenModal.rules.duplicateFieldDescDeny', `A deny rule for the field '${rule}' already exists. Remove the existing rule first to change values.`),
+          status: 'warning', duration: 4000, isClosable: true,
+        });
         return;
       }
       setDenyRules(prev => [...prev, rule]);
@@ -85,6 +94,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
   const handleRemoveDenyRule = (indexToRemove: number) => {
     setDenyRules(prev => prev.filter((_, index) => index !== indexToRemove));
   };
+  // --- END ADD BACK Rule Handlers ---
 
   // Fetch token details when modal opens or tokenId changes
   const fetchTokenDetails = useCallback(async () => {
@@ -95,13 +105,9 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
       const tokenDetails = await getTokenById(tokenId);
       setName(tokenDetails.name);
       setDescription(tokenDetails.description || '');
-      setSensitivity(tokenDetails.sensitivity);
-      // Format expiry for datetime-local input (needs YYYY-MM-DDTHH:mm)
-      setExpiry(tokenDetails.expiry ? tokenDetails.expiry.slice(0, 16) : null);
-      setIsEditable(tokenDetails.is_editable);
-      setTokenValue(tokenDetails.token_value);
+      setSensitivity(tokenDetails.sensitivity || SENSITIVITY_LEVELS[0]);
+      setExpiry(tokenDetails.expiry ? new Date(tokenDetails.expiry).toISOString().slice(0, 16) : '');
       setIsActive(tokenDetails.is_active);
-      // Initialize rules state
       setAllowRules(tokenDetails.allow_rules || []);
       setDenyRules(tokenDetails.deny_rules || []);
     } catch (err: any) {
@@ -120,9 +126,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
       setName('');
       setDescription('');
       setSensitivity(SENSITIVITY_LEVELS[0]);
-      setExpiry(null);
-      setIsEditable(true);
-      setTokenValue('');
+      setExpiry('');
       setIsActive(true);
       setAllowRules([]);
       setDenyRules([]);
@@ -140,19 +144,18 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
     }
 
     setIsLoading(true);
-    const tokenData: TokenUpdate = {
+    const payload: TokenUpdatePayload = {
       name,
-      description: description || null,
+      description,
       sensitivity,
-      // Ensure expiry is null if empty string, otherwise format if needed (though backend expects ISO string)
+      allow_rules: allowRules,
+      deny_rules: denyRules,
       expiry: expiry || null,
-      is_editable: isEditable,
-      allow_rules: allowRules, // Include rules from state
-      deny_rules: denyRules,   // Include rules from state
+      is_active: isActive,
     };
 
     try {
-      await updateToken(tokenId, tokenData);
+      await updateToken(tokenId, payload);
       toast({
         title: t('tokenModal.updateSuccessTitle', 'Token Updated'),
         description: t('tokenModal.updateSuccessDesc', `Token "${name}" was successfully updated.`),
@@ -203,9 +206,11 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                 <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
               </FormControl>
               <FormControl>
-                 <FormLabel>{t('tokenModal.tokenValueLabel', 'Token Value')}</FormLabel>
-                 <Input isReadOnly value={tokenValue} fontFamily="monospace" />
-                 <ChakraText fontSize="xs">{t('tokenModal.tokenValueNote', 'This value is only shown once upon creation.')}</ChakraText>
+                <FormLabel>{t('tokenModal.tokenValueLabel', 'Token Value')}</FormLabel>
+                <InputGroup>
+                  <Input isReadOnly value={tokenId ? `${tokenId}...` : 'N/A'} fontFamily="monospace" />
+                </InputGroup>
+                <FormHelperText>{t('tokenModal.tokenValueHelper', 'Token preview shown. The full value is only available on creation.')}</FormHelperText>
               </FormControl>
               <FormControl>
                 <FormLabel>{t('tokenModal.sensitivityLabel', 'Sensitivity Level')}</FormLabel>
@@ -219,27 +224,23 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                 <FormLabel>{t('tokenModal.expiryLabel', 'Expiry Date (Optional)')}</FormLabel>
                 <Input 
                   type="datetime-local" 
-                  // Handle null expiry by passing empty string to input
-                  value={expiry ?? ''} 
-                  onChange={(e) => setExpiry(e.target.value || null)} // Set to null if cleared
+                  value={expiry}
+                  onChange={(e) => setExpiry(e.target.value)}
                 />
               </FormControl>
-               <FormControl>
-                 <Checkbox 
-                   isChecked={isEditable} 
-                   onChange={(e) => setIsEditable(e.target.checked)}
-                 >
-                   {t('tokenModal.editableLabel', 'Allow Editing Rules Later')}
-                 </Checkbox>
-                 {!isActive && (
-                    <ChakraText fontSize="sm" color="orange.500" mt={1}>({t('tokenModal.inactiveNote', 'Token is currently inactive due to expiry.')})</ChakraText>
-                 )}
-               </FormControl>
+              <FormControl>
+                <Checkbox 
+                  isChecked={isActive} 
+                  onChange={(e) => setIsActive(e.target.checked)}
+                >
+                  {t('tokenModal.inactiveNote', 'Token is currently inactive due to expiry.')}
+                </Checkbox>
+              </FormControl>
 
               {/* --- Access Rules Section --- */}
               <Divider my={4} />
               <Heading size="md">{t('tokenModal.rules.title', 'Access Rules')}</Heading>
-              <RuleInput onAddRule={handleAddRule} /> 
+              <RuleInput onAddRule={(rule) => handleAddRule(rule, 'allow')} /> 
 
               {/* Display Allow Rules */}
               {allowRules.length > 0 && (
@@ -247,7 +248,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                       <Heading size="sm" colorScheme="green">{t('tokenModal.rules.allowTitle', 'Allow Rules')}</Heading>
                       {allowRules.map((rule, index) => (
                           <RuleDisplay 
-                              key={`allow-${rule.field}-${index}`}
+                              key={`${rule}-${index}`}
                               rule={rule} 
                               ruleType="allow" 
                               onRemove={() => handleRemoveAllowRule(index)} 
@@ -262,7 +263,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                       <Heading size="sm" colorScheme="red">{t('tokenModal.rules.denyTitle', 'Deny Rules')}</Heading>
                       {denyRules.map((rule, index) => (
                           <RuleDisplay 
-                              key={`deny-${rule.field}-${index}`}
+                              key={`${rule}-${index}`}
                               rule={rule} 
                               ruleType="deny" 
                               onRemove={() => handleRemoveDenyRule(index)} 
@@ -289,7 +290,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
             isDisabled={isFetching || error !== null}
             loadingText={t('common.saving', 'Saving...')}
           >
-            {t('tokenModal.updateButton', 'Update Token')}
+            {t('common.save', 'Save Changes')}
           </Button>
         </ModalFooter>
       </ModalContent>

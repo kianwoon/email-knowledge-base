@@ -18,6 +18,7 @@ export interface KnowledgeSummaryResponse {
   azure_blob_raw_data_count?: number;
   custom_raw_data_count?: number;
   vector_data_count?: number;
+  email_facts_count?: number;
   last_updated?: string | null;
 }
 
@@ -69,6 +70,7 @@ export const getKnowledgeBaseSummary = async (): Promise<KnowledgeSummaryRespons
       azure_blob_raw_data_count: 0,
       custom_raw_data_count: 0,
       vector_data_count: 0,
+      email_facts_count: 0,
       last_updated: null,
     };
   }

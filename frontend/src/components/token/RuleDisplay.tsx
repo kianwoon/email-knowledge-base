@@ -1,68 +1,56 @@
 import React from 'react';
 import {
   Box,
+  Badge,
   Text,
-  Tag,
-  TagLabel,
-  TagCloseButton,
-  Wrap,
-  WrapItem,
-  HStack,
+  Flex,
   IconButton,
-  Tooltip
+  CloseButton
 } from '@chakra-ui/react';
 import { CloseIcon } from '@chakra-ui/icons';
 import { useTranslation } from 'react-i18next';
-import { AccessRule } from '../../api/token';
 
 interface RuleDisplayProps {
-  rule: AccessRule;
+  rule: string;
   ruleType: 'allow' | 'deny';
-  onRemove: () => void; // Callback to remove this specific rule
+  onRemove: () => void;
 }
 
 const RuleDisplay: React.FC<RuleDisplayProps> = ({ rule, ruleType, onRemove }) => {
   const { t } = useTranslation();
-  const tagColorScheme = ruleType === 'allow' ? 'green' : 'red';
+  const isAllow = ruleType === 'allow';
 
   return (
-    <Box borderWidth="1px" borderRadius="md" p={3} w="100%">
-      <HStack justify="space-between" align="center">
-        <Box flex="1">
-          <Text fontWeight="bold" display="inline">
-            {t(`tokenModal.rules.${ruleType}Prefix`, ruleType === 'allow' ? 'ALLOW' : 'DENY')} {`: `}
-          </Text>
-           <Text display="inline">{`${rule.field} is `}</Text>
-            {rule.values.length === 1 ? (
-                 <Tag size="sm" variant='solid' colorScheme={tagColorScheme}>{rule.values[0]}</Tag>
-            ) : (
-                 <Text display="inline">one of:</Text>
-            )}
-          {rule.values.length > 1 && (
-             <Wrap spacing={1} mt={1} display="inline-block" verticalAlign="middle">
-                {rule.values.map((value) => (
-                    <WrapItem key={value}>
-                        <Tag size="sm" variant='solid' colorScheme={tagColorScheme}>
-                           <TagLabel>{value}</TagLabel>
-                        </Tag>
-                    </WrapItem>
-                ))}
-            </Wrap>
-          )}
-        </Box>
-         <Tooltip label={t('tokenModal.rules.removeRuleTooltip', 'Remove this rule')} placement="top">
-            <IconButton
-                aria-label={t('tokenModal.rules.removeRuleAriaLabel', 'Remove rule')}
-                icon={<CloseIcon />}
-                size="xs"
-                variant="ghost"
-                colorScheme="red"
-                onClick={onRemove}
-            />
-        </Tooltip>
-      </HStack>
-    </Box>
+    <Flex 
+      justifyContent="space-between" 
+      alignItems="center" 
+      bg={isAllow ? 'green.50' : 'red.50'}
+      p={2} 
+      borderRadius="md" 
+      borderWidth={1} 
+      borderColor={isAllow ? 'green.200' : 'red.200'}
+    >
+      <Badge colorScheme={isAllow ? 'green' : 'red'} mr={2} flexShrink={0}>
+        {isAllow ? t('tokenModal.rules.allow', 'ALLOW') : t('tokenModal.rules.deny', 'DENY')}
+      </Badge>
+      <Text fontSize="sm" fontFamily="monospace" mr={2} flexGrow={1} noOfLines={1} title={rule}> 
+        {formatRuleString(rule)}
+      </Text>
+      <CloseButton size="sm" onClick={onRemove} aria-label={t('common.remove', 'Remove')}/>
+    </Flex>
   );
+};
+
+// Helper function to format the rule string
+const formatRuleString = (rule: string): string => {
+  const parts = rule.split(':');
+  if (parts.length === 2) {
+    const field = parts[0].trim();
+    const value: string = parts[1].trim(); // Explicitly type value
+    const formattedField = field.charAt(0).toUpperCase() + field.slice(1);
+    return `${formattedField}: ${value}`;
+  }
+  return rule; // Return original string if format is unexpected
 };
 
 export default RuleDisplay; 
