@@ -1014,16 +1014,59 @@ async def get_rate_card_response_advanced(
     user: User,
     db: Session
 ) -> str:
-    # ... (Rate Card RAG logic assumed correct indentation)
     logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
     try:
-        user_openai_key = api_key_crud.get_decrypted_api_key(db, user.email, "openai")
-        if not user_openai_key: raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OpenAI API key required.")
-        user_client = AsyncOpenAI(api_key=user_openai_key, timeout=30.0)
-        chat_model = settings.OPENAI_MODEL_NAME
+        # Determine model and provider
+        # NOTE: This function doesn't take model_id, so it uses the default setting.
+        # If rate card RAG needs to support different models per query, model_id should be passed.
+        chat_model = settings.OPENAI_MODEL_NAME 
+        if not chat_model: # Add fallback if setting is missing
+             logger.error("RateCardRAG: OPENAI_MODEL_NAME setting is not configured.")
+             raise HTTPException(status_code=500, detail="LLM model name not configured for rate card search.")
+             
+        # Determine provider based on the configured model name
+        if chat_model.lower().startswith("deepseek"):
+            provider = "deepseek"
+        # Add other providers here if needed
+        # elif chat_model.lower().startswith("another-provider"):
+        #     provider = "another-provider"
+        else:
+            provider = "openai" # Default to openai
+        logger.debug(f"RateCardRAG: Using LLM model: {chat_model} via provider {provider}")
+
+        # Fetch API key and base URL dynamically based on provider
+        db_api_key = api_key_crud.get_api_key(db, user.email, provider)
+        if not db_api_key:
+            logger.warning(f"User {user.email} missing active {provider} key for Rate Card RAG.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{provider.capitalize()} API key required.")
+        user_api_key = decrypt_token(db_api_key.encrypted_key)
+        if not user_api_key:
+            logger.error(f"Failed to decrypt stored {provider} key for user {user.email} (Rate Card RAG). Key ID: {db_api_key.id}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not decrypt stored {provider.capitalize()} API key.")
+        user_base_url = db_api_key.model_base_url
+
+        # Initialize client dynamically
+        client_kwargs = {
+            "api_key": user_api_key,
+            "timeout": settings.OPENAI_TIMEOUT_SECONDS or 30.0 # Reuse timeout setting
+        }
+        if user_base_url:
+            logger.info(f"RateCardRAG: Using custom base URL for {provider} for user {user.email}: {user_base_url}")
+            client_kwargs["base_url"] = user_base_url
+        else:
+            logger.info(f"RateCardRAG: Using default base URL for {provider} for user {user.email}")
+            
+        user_client = AsyncOpenAI(**client_kwargs)
+        # --- End Dynamic Client Init ---
+        
         logger.debug("RateCardRAG: Analyzing query for key features...")
         # MODIFIED: Updated analysis prompt for better entity extraction
-        analysis_prompt = (
+        # MODIFICATION: Prompt adjusted slightly to request JSON within text if JSON mode fails
+        analysis_prompt_instruction = ("Return ONLY a JSON object string with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer), 'document_type'. "
+                                     "Prioritize identifying the 'role' (main subject/entity) accurately. "
+                                     "If a feature is not mentioned or unclear, use null or an empty list/string or 'unknown' for document_type.")
+        analysis_system_content = ("You accurately extract key features (especially the main subject/role and document type) from user queries according to instructions. " + analysis_prompt_instruction)
+        analysis_user_content = (
             f"Analyze the user query: '{message}'. "
             "Your goal is to extract key details to find the correct document and information within it. "
             "Identify:\n"
@@ -1033,24 +1076,61 @@ async def get_rate_card_response_advanced(
             "4. Any specified **location** or region.\n"
             "5. Any specific **dollar amount** mentioned.\n"
             "6. The **type of document** likely requested (e.g., 'rate card', 'SOW', 'LOA', 'general info', 'unknown').\n\n"
-            "Return a JSON object with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer), 'document_type'. "
-            "Prioritize identifying the 'role' (main subject/entity) accurately. "
-            "If a feature is not mentioned or unclear, use null or an empty list/string or 'unknown' for document_type.\n"
+            f"{analysis_prompt_instruction}\n"
             "\nExample 1:\nQuery: Show the MAS rate card\nOutput: {\"role\": \"MAS\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
             "Example 2:\nQuery: What is the rate for a senior GIC developer?\nOutput: {\"role\": \"GIC developer\", \"experience\": \"senior\", \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
             "Example 3:\nQuery: Tell me about the Beyondsoft SOW\nOutput: {\"role\": \"Beyondsoft\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"SOW\"}"
         )
-        analysis_response = await user_client.chat.completions.create(
-            model=chat_model,
-            messages=[
-                # MODIFIED: System prompt slightly adjusted
-                {"role": "system", "content": "You accurately extract key features (especially the main subject/role and document type) from user queries according to instructions and return JSON."},
-                {"role": "user", "content": analysis_prompt}
+        
+        # MODIFICATION START: Conditional JSON format request
+        analysis_args = {
+            "model": chat_model,
+            "messages": [
+                {"role": "system", "content": analysis_system_content},
+                {"role": "user", "content": analysis_user_content}
             ],
-            response_format={"type": "json_object"},
-            temperature=0.0
-        )
-        query_features = json.loads(analysis_response.choices[0].message.content)
+            "temperature": 0.0
+        }
+        # Assume only OpenAI supports JSON mode reliably for now
+        request_json_mode = (provider == "openai")
+        if request_json_mode:
+            analysis_args["response_format"] = {"type": "json_object"}
+        # END MODIFICATION
+
+        analysis_response = await user_client.chat.completions.create(**analysis_args)
+        
+        # MODIFICATION START: Parse response based on whether JSON mode was requested
+        content = analysis_response.choices[0].message.content
+        query_features = None
+        try:
+            if request_json_mode: # Expect direct JSON object
+                query_features = json.loads(content)
+            else: # Parse text response, expecting JSON string
+                content_cleaned = content.strip()
+                # Attempt to extract JSON from potential markdown code blocks
+                if content_cleaned.startswith("```json"):
+                     content_cleaned = content_cleaned.split("\n", 1)[1].rsplit("\n```", 1)[0]
+                elif content_cleaned.startswith("`{") and content_cleaned.endswith("`"):
+                     content_cleaned = content_cleaned[1:-1] # Handle single backticks
+                elif content_cleaned.startswith("{") and content_cleaned.endswith("}"): 
+                     pass # Looks like JSON already
+                else:
+                     logger.warning(f"RateCardRAG: Query analysis for {provider} returned unexpected format: '{content}'. Attempting direct parse.")
+                     # Attempt direct parse anyway, might work
+                query_features = json.loads(content_cleaned) 
+        except json.JSONDecodeError as json_err:
+            logger.error(f"RateCardRAG: Failed to parse query feature analysis response ({provider}, JSON mode={request_json_mode}): {json_err}. Response: '{content}'", exc_info=True)
+            # Raise or fallback? Fallback might be better UX.
+            # raise HTTPException(status_code=500, detail="Failed to analyze query features for rate card search.") from json_err
+            query_features = {} # Fallback to empty dict
+        except Exception as parse_err: # Catch other unexpected errors
+             logger.error(f"RateCardRAG: Error processing query feature analysis response: {parse_err}. Response: '{content}'", exc_info=True)
+             query_features = {} # Fallback
+        # END MODIFICATION
+        
+        # Ensure query_features is a dict even after fallback
+        if query_features is None: query_features = {}
+
         logger.debug(f"RateCardRAG: Extracted query features: {query_features}")
         
         # Extract requested document type
