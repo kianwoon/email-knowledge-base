@@ -99,36 +99,58 @@ async def search_milvus_knowledge_hybrid(
             meta_hits = milvus_client.query(
                 collection_name=collection_name,
                 filter="", # Fetch all initially
-                # MODIFICATION: Remove output_fields entirely for this pre-filter query
-                # output_fields=["id"], 
+                # MODIFICATION: Request only id and metadata for Python filtering
+                output_fields=["id", "metadata"], 
                 limit=1000 # Keep limit
             )
             
-            # MODIFICATION: Temporarily disable Python filtering as metadata is not fetched
-            # allowed_ids = []
-            # # Filter in Python
-            # for hit in meta_hits:
-            #     metadata = hit.get("metadata")
-            #     if metadata and isinstance(metadata, dict):
-            #         original_filename = metadata.get("original_filename")
-            #         if original_filename and isinstance(original_filename, str):
-            #             # Check if filename contains ALL terms (case-insensitive)
-            #             if all(term.lower() in original_filename.lower() for term in filename_terms):
-            #                 allowed_ids.append(hit["id"])
-                            
-            # logger.debug(f"[Prefilter] matched IDs after Python filtering: {allowed_ids}")
+            # RE-ENABLE Python filtering
+            allowed_ids = []
+            # Filter in Python
+            for hit in meta_hits:
+                # Ensure metadata is fetched and is a dictionary
+                metadata = hit.get("metadata")
+                if metadata and isinstance(metadata, dict):
+                    original_filename = metadata.get("original_filename")
+                    # Check filename exists and is a string
+                    if original_filename and isinstance(original_filename, str):
+                        # Check if filename contains ALL terms (case-insensitive)
+                        if all(term.lower() in original_filename.lower() for term in filename_terms):
+                            # Check if ID is valid before appending (basic check)
+                            doc_id = hit.get("id")
+                            if doc_id is not None: # Add check for None ID
+                                allowed_ids.append(doc_id)
+                            else:
+                                logger.warning(f"[Prefilter] Hit found matching filename terms but is missing 'id': {hit}")
+                                
+            logger.debug(f"[Prefilter] matched IDs after Python filtering: {allowed_ids}")
             
-            # if not allowed_ids:
-            #     logger.debug("No documents match filename terms filter; returning empty list.")
-            #     return []
+            if not allowed_ids:
+                logger.debug("No documents match filename terms filter; returning empty list.")
+                return []
             
-            # # Ensure IDs are strings for the 'in' operator if they are not already
-            # id_list = ",".join(f'\"{str(i)}\"' if isinstance(i, str) else str(i) for i in allowed_ids)
-            # id_filter = f"id in [{id_list}]"
-            # logger.debug(f"Pre-filter ID list for subsequent vector searches: {id_filter}")
-            id_filter = None # Set to None as filtering is disabled
-            logger.debug("[Prefilter] Python filename filtering temporarily disabled.")
-            # END MODIFICATION
+            # Ensure IDs are strings for the 'in' operator if they are not already
+            # Handle potential non-string IDs robustly
+            id_list_parts = []
+            for i in allowed_ids:
+                if isinstance(i, str):
+                    # Escape quotes within the string ID itself if necessary
+                    escaped_id = i.replace('"', '\\"')
+                    id_list_parts.append(f'"{escaped_id}"')
+                elif isinstance(i, (int, float)): # Allow numeric IDs directly
+                    id_list_parts.append(str(i))
+                else:
+                    # Log and skip unexpected ID types
+                    logger.warning(f"[Prefilter] Skipping unexpected ID type '{type(i)}' with value '{i}'")
+            
+            if not id_list_parts:
+                 logger.warning("[Prefilter] No valid IDs remained after type checking/formatting.")
+                 return [] # Return empty if no valid IDs left
+
+            id_list = ",".join(id_list_parts)
+            id_filter = f"id in [{id_list}]"
+            logger.debug(f"Pre-filter ID list for subsequent vector searches: {id_filter}")
+            # END RE-ENABLE
             
         except Exception as e:
             # Log error but proceed without filter to avoid breaking search entirely
@@ -137,7 +159,7 @@ async def search_milvus_knowledge_hybrid(
 
     # Use the generated id_filter (which might be None) in subsequent search calls
     # The logger message needs adjustment as filter_expr is removed.
-    logger.debug(f"Attempting Milvus HYBRID search in collection \'{collection_name}\' for query \'{query_text}\' with limit {limit} and ID filter: \'{id_filter}\'")
+    logger.debug(f"Attempting Milvus HYBRID search in collection '{collection_name}' for query '{query_text}' with limit {limit} and ID filter: '{id_filter}'") # Corrected log message
 
     # --- Dense Vector Preparation ---
     try:
