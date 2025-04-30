@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL_NAME: str = "gpt-4o"
     OPENAI_TIMEOUT_SECONDS: Optional[float] = None # Keep optional
+    OPENAI_TEMPERATURE: Optional[float] = 0.1 # ADDED: Default temperature
 
     # --- NEW: Default Timeout Settings --- 
     DEFAULT_LLM_TIMEOUT_SECONDS: float = 30.0
