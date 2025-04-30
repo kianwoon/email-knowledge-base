@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Body, Path, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import logging
 
 from app.db.session import get_db
@@ -34,11 +34,11 @@ class APIKeyInfoResponse(BaseModel):
 # Add Pydantic models for the request and response
 class DefaultModelRequest(BaseModel):
     model_id: str
-    model_config = {'protected_namespaces': ()}
+    model_config = ConfigDict(protected_namespaces=())
 
 class DefaultModelResponse(BaseModel):
     model_id: str
-    model_config = {'protected_namespaces': ()}
+    model_config = ConfigDict(protected_namespaces=())
 
 # Legacy endpoint for backward compatibility - maps to OpenAI provider
 @router.post("/api-key", status_code=status.HTTP_204_NO_CONTENT)
