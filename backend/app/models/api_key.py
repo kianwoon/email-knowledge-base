@@ -39,10 +39,11 @@ class APIKeyDB(Base):
 class APIKeyBase(BaseModel):
     provider: str
     model_base_url: Optional[str] = None
-    
+    model_config = ConfigDict(protected_namespaces=())
+
 class APIKeyCreate(APIKeyBase):
-    key: str  # Raw API key to be encrypted
-    
+    encrypted_key: str
+
 class APIKey(APIKeyBase):
     id: str
     user_email: str
