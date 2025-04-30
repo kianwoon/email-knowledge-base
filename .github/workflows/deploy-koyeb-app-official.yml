@@ -71,6 +71,5 @@ jobs:
           (matrix.service == 'backend-service' && steps.changed_backend_files.outputs.any_changed == 'true') ||
           (matrix.service == 'frontend-service' && steps.changed_frontend_files.outputs.any_changed == 'true') ||
           (matrix.service == 'celery-worker' && steps.changed_worker_files.outputs.any_changed == 'true')
-        uses: ./.github/actions/redeploy
-        with:
-          service: ${{ matrix.service }}
+        run: |
+          koyeb service redeploy ${{ matrix.service }}
