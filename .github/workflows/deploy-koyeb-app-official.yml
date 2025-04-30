@@ -72,4 +72,4 @@ jobs:
           (matrix.service == 'frontend-service' && steps.changed_frontend_files.outputs.any_changed == 'true') ||
           (matrix.service == 'celery-worker' && steps.changed_worker_files.outputs.any_changed == 'true')
         run: |
-          koyeb service redeploy "governing-siusan/${{ matrix.service }}"
+          koyeb service redeploy "email-knowledge-base-2/${{ matrix.service }}"
