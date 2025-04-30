@@ -869,7 +869,14 @@ const JarvisPage: React.FC = () => {
         {Object.values(savedKeysStatus).some(v => v) && !apiKeyError && (
           <Alert status="success" borderRadius="md" mt={2}>
             <AlertIcon />
-            {t('jarvis.keysConfigured', 'API key configured')}
+            {/* Determine model to display using state variables */}
+            {(() => {
+              const modelNameToDisplay = selectedModel || getDefaultModel();
+              const baseText = t('jarvis.keysConfigured', 'API key configured');
+              return modelNameToDisplay 
+                ? `${baseText} (${t('jarvis.usingModel', 'Using')}: ${modelNameToDisplay})` 
+                : baseText;
+            })()}
           </Alert>
         )}
 
