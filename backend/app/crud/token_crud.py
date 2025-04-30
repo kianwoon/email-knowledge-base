@@ -5,7 +5,6 @@ import uuid
 import bcrypt
 import secrets
 from datetime import datetime, timezone, timedelta
-from qdrant_client import models as qdrant_models # Import Qdrant models
 import logging
 import json
 import asyncio
