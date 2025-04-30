@@ -1252,7 +1252,7 @@ const JarvisPage: React.FC = () => {
                                  borderColor={borderColor}
                                >
                                  {AVAILABLE_MODELS.map((model) => {
-                                   const hasRequiredKey = !model.requiresKey || !!apiKeys[model.provider];
+                                   const hasRequiredKey = !model.requiresKey || savedKeysStatus[model.provider] === true;
                                    return (
                                      <option
                                        key={model.id}
