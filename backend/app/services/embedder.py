@@ -93,12 +93,11 @@ async def search_milvus_knowledge_hybrid(
     if filename_terms:
         try:
             logger.debug(f"[Prefilter] Filtering by filename terms: {filename_terms}")
-            # Fetch IDs and metadata for all documents
-            # Use a filter that checks if the primary key 'id' is not empty
-            # This is generally true and avoids potential issues with filter=""
+            # Fetch IDs and metadata for filtering
+            # Remove explicit filter, rely on limit and subsequent Python filtering
             meta_hits = milvus_client.query(
                 collection_name=collection_name,
-                filter="id != \"\"", # Use filter checking for non-empty ID
+                # filter="id != \"\"", # REMOVED explicit filter
                 output_fields=["id", "metadata"],
                 limit=1000 # Keep limit, adjust if needed for performance
             )
