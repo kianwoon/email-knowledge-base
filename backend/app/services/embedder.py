@@ -99,31 +99,36 @@ async def search_milvus_knowledge_hybrid(
             meta_hits = milvus_client.query(
                 collection_name=collection_name,
                 filter="", # Fetch all initially
-                output_fields=["id", "metadata"],
+                # MODIFICATION: Only request ID initially to see if metadata field causes the issue
+                output_fields=["id"], 
                 limit=1000 # ADDED: Limit the pre-fetch query
             )
             
-            allowed_ids = []
-            # Filter in Python
-            for hit in meta_hits:
-                metadata = hit.get("metadata")
-                if metadata and isinstance(metadata, dict):
-                    original_filename = metadata.get("original_filename")
-                    if original_filename and isinstance(original_filename, str):
-                        # Check if filename contains ALL terms (case-insensitive)
-                        if all(term.lower() in original_filename.lower() for term in filename_terms):
-                            allowed_ids.append(hit["id"])
+            # MODIFICATION: Temporarily disable Python filtering as metadata is not fetched
+            # allowed_ids = []
+            # # Filter in Python
+            # for hit in meta_hits:
+            #     metadata = hit.get("metadata")
+            #     if metadata and isinstance(metadata, dict):
+            #         original_filename = metadata.get("original_filename")
+            #         if original_filename and isinstance(original_filename, str):
+            #             # Check if filename contains ALL terms (case-insensitive)
+            #             if all(term.lower() in original_filename.lower() for term in filename_terms):
+            #                 allowed_ids.append(hit["id"])
                             
-            logger.debug(f"[Prefilter] matched IDs after Python filtering: {allowed_ids}")
+            # logger.debug(f"[Prefilter] matched IDs after Python filtering: {allowed_ids}")
             
-            if not allowed_ids:
-                logger.debug("No documents match filename terms filter; returning empty list.")
-                return []
+            # if not allowed_ids:
+            #     logger.debug("No documents match filename terms filter; returning empty list.")
+            #     return []
             
-            # Ensure IDs are strings for the 'in' operator if they are not already
-            id_list = ",".join(f'"{str(i)}"' if isinstance(i, str) else str(i) for i in allowed_ids)
-            id_filter = f"id in [{id_list}]"
-            logger.debug(f"Pre-filter ID list for subsequent vector searches: {id_filter}")
+            # # Ensure IDs are strings for the 'in' operator if they are not already
+            # id_list = ",".join(f'\"{str(i)}\"' if isinstance(i, str) else str(i) for i in allowed_ids)
+            # id_filter = f"id in [{id_list}]"
+            # logger.debug(f"Pre-filter ID list for subsequent vector searches: {id_filter}")
+            id_filter = None # Set to None as filtering is disabled
+            logger.debug("[Prefilter] Python filename filtering temporarily disabled.")
+            # END MODIFICATION
             
         except Exception as e:
             # Log error but proceed without filter to avoid breaking search entirely
