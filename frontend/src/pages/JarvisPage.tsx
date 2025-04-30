@@ -1319,9 +1319,6 @@ const JarvisPage: React.FC = () => {
                                 <VStack spacing={3} align="stretch">
                                   {/* API Key Input */}
                                   <FormControl flex={1}>
-                                    <FormLabel htmlFor={`${provider}-apiKey`} fontWeight="semibold">
-                                      {t('jarvis.settingsContent.apiKey', { provider: provider.toUpperCase() })}
-                                    </FormLabel>
                                     <InputGroup size="md">
                                       <Input
                                         id={`${provider}-apiKey`}
