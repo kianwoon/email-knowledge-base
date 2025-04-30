@@ -15,6 +15,7 @@ from app.services.embedder import create_embedding
 from ..models.token_models import TokenDB, TokenCreateRequest, TokenUpdateRequest # Removed AccessRule
 from ..models.user import UserDB # Assuming UserDB is needed for other functions
 from ..config import settings # Assuming settings might be needed elsewhere
+from app.models.email import EmailAnalysis # Adjust import path if needed
 
 # Configure logging
 logger = logging.getLogger(__name__)
