@@ -429,7 +429,15 @@ async def generate_openai_rag_response(
     try: # Outer try block
         # Determine model and user-specific client
         chat_model = model_id or settings.OPENAI_MODEL_NAME
-        provider = "openai" # Hardcoded for now, ideally determine from model_id
+        # Determine provider based on model name
+        if chat_model.lower().startswith("deepseek"):
+            provider = "deepseek"
+        # Add other providers here if needed
+        # elif chat_model.lower().startswith("another-provider"):
+        #     provider = "another-provider"
+        else:
+            provider = "openai" # Default to openai if not specified
+
         logger.debug(f"Using LLM model: {chat_model} for user {user.email} via provider {provider}")
 
         # --- MODIFIED: Fetch APIKeyDB object and decrypt key (replaces get_decrypted_credentials) ---
@@ -442,7 +450,7 @@ async def generate_openai_rag_response(
         user_api_key = decrypt_token(db_api_key.encrypted_key)
         if not user_api_key:
             logger.error(f"Failed to decrypt stored {provider} key for user {user.email}. Key ID: {db_api_key.id}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not decrypt stored API key.")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not decrypt stored {provider.capitalize()} API key.")
         # Retrieve custom base URL if any
         user_base_url = db_api_key.model_base_url
         # --- End Modification ---
