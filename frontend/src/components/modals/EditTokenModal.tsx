@@ -37,6 +37,8 @@ import {
   Collapse,
   Text as ChakraText,
   useClipboard,
+  InputGroup,
+  InputRightElement,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import { TokenUpdatePayload, Token, getTokenById, updateToken, TokenType } from '../../api/token';
@@ -291,23 +293,21 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
               )}
               
               <FormControl isRequired>
-                <FormLabel>{t('editTokenModal.form.name.label', 'Token Name')}</FormLabel>
-                <Input ref={initialRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('editTokenModal.form.name.placeholder', 'e.g., My API Key')} />
+                <FormLabel>{t('createTokenModal.form.name.label', 'Token Name')}</FormLabel>
+                <Input ref={initialRef} placeholder={t('createTokenModal.form.name.placeholder', 'e.g., Project X API Key')} value={name} onChange={(e) => setName(e.target.value)} />
+                <FormHelperText>{t('createTokenModal.form.nameHelp', 'A descriptive name to identify this token')}</FormHelperText>
               </FormControl>
               <FormControl>
-                <FormLabel>{t('editTokenModal.form.description.label', 'Description')}</FormLabel>
-                <Textarea
-                  placeholder={t('editTokenModal.form.description.placeholder', 'Optional: Describe the purpose of this token')}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
+                <FormLabel>{t('createTokenModal.form.description.label', 'Description')}</FormLabel>
+                <Textarea placeholder={t('createTokenModal.form.description.placeholder', 'Optional: Describe the purpose of this token')} value={description} onChange={(e) => setDescription(e.target.value)} />
               </FormControl>
 
               <Grid templateColumns="repeat(2, 1fr)" gap={4}>
                 <GridItem>
                   <FormControl>
                     <FormLabel>{t('createTokenModal.form.tokenType.label', 'Token Type')}</FormLabel>
-                    <Input value={tokenType} isReadOnly variant="filled" />
+                    <Input value={tokenType} isReadOnly isDisabled />
+                    <FormHelperText>{t('createTokenModal.form.tokenTypeHelp', 'The token type cannot be changed after creation')}</FormHelperText>
                   </FormControl>
                 </GridItem>
                 <GridItem>
@@ -329,24 +329,27 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
               <Grid templateColumns="repeat(2, 1fr)" gap={4}>
                 <GridItem>
                   <FormControl isRequired>
-                    <FormLabel>{t('editTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
+                    <FormLabel>{t('createTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
                     <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value)}>
                       {SENSITIVITY_LEVELS.map((level) => (
-                        <option key={level} value={level}>{level}</option>
+                        <option key={level} value={level}>
+                         {t(`createTokenModal.form.sensitivityOptions.${level.replace('-', '_')}`)}
+                        </option>
                       ))}
                     </Select>
-                    <FormHelperText>{t('editTokenModal.form.sensitivity.helper', 'Maximum data sensitivity accessible.')}</FormHelperText>
+                    <FormHelperText>{t('createTokenModal.form.sensitivityHelp', 'Controls what data this token can access')}</FormHelperText>
                   </FormControl>
                 </GridItem>
                 <GridItem>
                   <FormControl>
-                    <FormLabel>{t('editTokenModal.form.expiry.label', 'Expiry Date (Optional)')}</FormLabel>
+                    <FormLabel>{t('editTokenModal.form.setExpiry.label', 'Set Expiry Date')}</FormLabel>
                     <Input
                       type="datetime-local"
                       value={expiry}
                       onChange={(e) => setExpiry(e.target.value)}
+                      min={new Date().toISOString().slice(0, 16)} // Prevent setting past dates
                     />
-                    <FormHelperText>{t('editTokenModal.form.expiry.helper', 'Token will become inactive after this date. Clear to remove expiry.')}</FormHelperText>
+                    <FormHelperText>{t('editTokenModal.form.setExpiry.helper', 'When this token should expire')}</FormHelperText>
                   </FormControl>
                 </GridItem>
               </Grid>
@@ -354,35 +357,35 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
               <Divider />
 
               <FormControl>
-                <FormLabel>{t('editTokenModal.form.allowRules.label', 'Allow Rules')}</FormLabel>
+                <FormLabel>{t('createTokenModal.form.allowRules.label', 'Allow Rules')}</FormLabel>
                 <TagInput
-                  placeholder={t('editTokenModal.form.allowRules.placeholder', 'Enter allowed rule and press Enter')}
                   value={allowRules}
                   onChange={setAllowRules}
+                  placeholder={t('createTokenModal.form.allowRules.placeholder', 'Enter allowed rule and press Enter')}
                 />
-                <FormHelperText>{t('editTokenModal.form.allowRules.helper', 'Data must match ALL these rules.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.allowRulesHelp', 'Patterns to explicitly allow access to')}</FormHelperText>
               </FormControl>
 
               <FormControl>
-                <FormLabel>{t('editTokenModal.form.denyRules.label', 'Deny Rules')}</FormLabel>
+                <FormLabel>{t('createTokenModal.form.denyRules.label', 'Deny Rules')}</FormLabel>
                 <TagInput
-                  placeholder={t('editTokenModal.form.denyRules.placeholder', 'Enter denied rule and press Enter')}
                   value={denyRules}
                   onChange={setDenyRules}
+                  placeholder={t('createTokenModal.form.denyRules.placeholder', 'Enter denied rule and press Enter')}
                 />
-                <FormHelperText>{t('editTokenModal.form.denyRules.helper', 'Data matching ANY of these rules is excluded.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.denyRulesHelp', 'Patterns to explicitly deny access to')}</FormHelperText>
               </FormControl>
 
               <Divider />
               
               <FormControl>
                 <FormLabel>{t('createTokenModal.form.audience.label', 'Audience Restrictions (Optional)')}</FormLabel>
-                <Input
-                  placeholder={t('createTokenModal.form.audience.placeholder', 'e.g., 192.168.1.0/24, example.org')}
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
+                <Input 
+                    placeholder={t('createTokenModal.form.audience.placeholder', 'e.g., 192.168.1.0/24, example.org')} 
+                    value={audience} 
+                    onChange={(e) => setAudience(e.target.value)} 
                 />
-                <FormHelperText>{t('createTokenModal.form.audience.helper', 'Comma-separated IP ranges or domains allowed to use token.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.audienceHelp', 'Restrict token use to specific IPs or domains')}</FormHelperText>
               </FormControl>
               
               <Divider />
@@ -399,7 +402,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                     <FormLabel htmlFor='allow-attachments-edit' mb='0'>
                       {t('createTokenModal.form.allowAttachments.label', 'Allow Attachments')}
                     </FormLabel>
-                    <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.allowAttachments.helper', 'Allow viewing/exporting file attachments.')}</FormHelperText>
+                    <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.allowAttachmentsHelp', 'Enable access to email attachments')}</FormHelperText>
                   </FormControl>
                 </GridItem>
                 <GridItem>
@@ -413,7 +416,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                     <FormLabel htmlFor='can-export-vectors-edit' mb='0'>
                       {t('createTokenModal.form.canExportVectors.label', 'Allow Vector Export')}
                     </FormLabel>
-                    <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.canExportVectors.helper', 'Allow exporting raw vector embeddings.')}</FormHelperText>
+                    <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.canExportVectorsHelp', 'Allow exporting vector embeddings')}</FormHelperText>
                   </FormControl>
                 </GridItem>
                 <GridItem>
@@ -422,8 +425,8 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                     <NumberInput 
                       min={1} 
                       value={rowLimit} 
-                      onChange={(valueString) => setRowLimit(valueString)}
-                      allowMouseWheel
+                      onChange={(valueString) => setRowLimit(valueString || DEFAULT_ROW_LIMIT)}
+                      defaultValue={originalToken?.row_limit ?? DEFAULT_ROW_LIMIT}
                     >
                       <NumberInputField />
                       <NumberInputStepper>
@@ -431,7 +434,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                         <NumberDecrementStepper />
                       </NumberInputStepper>
                     </NumberInput>
-                    <FormHelperText>{t('createTokenModal.form.rowLimit.helper', 'Max rows per search/export.')}</FormHelperText>
+                    <FormHelperText>{t('createTokenModal.form.rowLimitHelp', 'Maximum rows returned per request')}</FormHelperText>
                     <FormErrorMessage>{t('createTokenModal.errors.invalidRowLimit', 'Row limit must be a positive number.')}</FormErrorMessage>
                   </FormControl>
                 </GridItem>
@@ -441,6 +444,7 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
 
               <FormControl>
                 <FormLabel>{t('createTokenModal.form.allowColumns.label', 'Allowed Columns (Optional)')}</FormLabel>
+                <FormHelperText mb={2}>{t('createTokenModal.form.allowColumnsHelp', 'Specific columns this token can access')}</FormHelperText>
                 {columnsLoading && <Spinner size="sm" />}
                 {columnsError && <ChakraText color="red.500">{columnsError}</ChakraText>}
                 {!columnsLoading && !columnsError && availableColumns.length > 0 && (
@@ -459,23 +463,14 @@ const EditTokenModal: React.FC<EditTokenModalProps> = ({ isOpen, onClose, onToke
                 {!columnsLoading && !columnsError && availableColumns.length === 0 && (
                   <ChakraText fontSize="sm" color="gray.500">{t('editTokenModal.noColumnsAvailable', 'No columns available or failed to load schema.')}</ChakraText>
                 )}
-                <FormHelperText>
-                  {t('createTokenModal.form.allowColumns.helper', 'Select columns allowed in search/export. If none selected, all are allowed (except filtered attachments/vectors).')}
-                </FormHelperText>
               </FormControl>
 
               <Divider />
 
               <FormControl display="flex" alignItems="center">
-                <FormLabel htmlFor="is-active-edit" mb="0">
-                  {t('editTokenModal.form.active.label', 'Active')}
-                </FormLabel>
-                <Switch
-                  id="is-active-edit"
-                  isChecked={isActive}
-                  onChange={(e) => setIsActive(e.target.checked)}
-                />
-                <FormHelperText ml={2}>{t('editTokenModal.form.active.helper', 'Inactive tokens cannot be used.')}</FormHelperText>
+                <FormLabel htmlFor="is-active" mb="0">{t('editTokenModal.form.isActive.label', 'Token Active')}</FormLabel>
+                <Switch id="is-active" isChecked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+                <FormHelperText>{t('editTokenModal.form.isActive.helper', 'Disable to temporarily revoke access')}</FormHelperText>
               </FormControl>
 
             </VStack>

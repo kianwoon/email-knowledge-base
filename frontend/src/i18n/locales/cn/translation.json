@@ -3,6 +3,99 @@
     "name": "电子邮件知识库",
     "tagline": "一个平台。所有知识。AI 就绪"
   },
+  "common": {
+    "loading": "加载中",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "info": "信息",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "add": "添加",
+    "remove": "移除",
+    "retry": "重试",
+    "submit": "提交",
+    "close": "关闭",
+    "view": "查看",
+    "details": "详情",
+    "name": "名称",
+    "description": "描述",
+    "status": {
+        "pending": "待处理",
+        "running": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "error": "错误",
+        "queued": "已排队"
+    },
+    "taskCompleted": "任务成功完成。",
+    "taskFailed": "任务失败。",
+    "taskID": "任务ID:",
+    "type": "类型",
+    "size": "大小",
+    "modified": "修改时间",
+    "lastModified": "最后修改时间",
+    "addedOn": "添加时间",
+    "active": "活动的",
+    "inactive": "非活动的",
+    "refresh": "刷新数据",
+    "notAvailable": "不可用",
+    "tags": {
+      "important": "重要",
+      "routine": "常规",
+      "knowledge": "知识",
+      "email": "邮件",
+      "tag0": "标签0",
+      "tag1": "标签1",
+      "tag2": "标签2",
+      "tag3": "标签3",
+      "tag4": "标签4",
+      "tag5": "标签5",
+      "tag6": "标签6",
+      "tag7": "标签7"
+    },
+    "departments": {
+      "engineering": "工程部",
+      "product": "产品部",
+      "marketing": "市场部",
+      "sales": "销售部"
+    },
+    "sensitivityLevels": {
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "critical": "关键"
+    },
+    "piiTypes": {
+      "email": "电子邮件",
+      "name": "姓名",
+      "phone": "电话",
+      "address": "地址",
+      "id": "身份证号",
+      "credit_card": "信用卡"
+    },
+    "recommendedActions": {
+      "store": "存储",
+      "exclude": "排除"
+    },
+    "yes": "是",
+    "no": "否",
+    "saveChanges": "保存更改",
+    "copy": "复制",
+    "copied": "已复制",
+    "send": "发送",
+    "actions": "操作",
+    "never": "从未",
+    "all": "全部",
+    "filterBy": "筛选",
+    "sync": "同步",
+    "noResultsFound": "未找到结果",
+    "unnamedDrive": "未命名文档库",
+    "notApplicable": "不适用"
+  },
   "home": {
     "hero": {
       "title": "从日常邮件任务中解放时间",
@@ -908,7 +1001,6 @@
       "analyze": "分析数据",
       "analyzing": "正在分析...",
       "save": "保存",
-      "cancel": "取消",
       "refresh": "刷新结果",
       "proceedGenerateKB": "立即生成知识库"
     },
@@ -982,86 +1074,6 @@
       "completeTitle": "分析完成",
       "failedTitle": "分析失败"
     }
-  },
-  "common": {
-    "loading": "加载中...",
-    "error": "错误",
-    "success": "成功",
-    "warning": "警告",
-    "info": "信息",
-    "cancel": "取消",
-    "confirm": "确认",
-    "save": "保存",
-    "delete": "删除",
-    "edit": "编辑",
-    "add": "添加",
-    "remove": "移除",
-    "retry": "重试",
-    "submit": "提交",
-    "close": "关闭",
-    "view": "查看",
-    "details": "详情",
-    "name": "名称",
-    "description": "描述",
-    "status": "状态",
-    "status_pending": "待处理",
-    "status_running": "运行中",
-    "status_completed": "已完成",
-    "status_failed": "失败",
-    "status_error": "错误",
-    "status_queued": "已排队",
-    "taskCompleted": "任务成功完成。",
-    "taskFailed": "任务失败。",
-    "taskID": "任务ID:",
-    "type": "类型",
-    "size": "大小",
-    "modified": "修改时间",
-    "lastModified": "最后修改时间",
-    "addedOn": "添加时间",
-    "active": "活动的",
-    "inactive": "非活动的",
-    "refresh": "刷新数据",
-    "notAvailable": "不可用",
-    "tags": {
-      "important": "重要",
-      "routine": "常规",
-      "knowledge": "知识",
-      "email": "邮件",
-      "tag0": "标签0",
-      "tag1": "标签1",
-      "tag2": "标签2",
-      "tag3": "标签3",
-      "tag4": "标签4",
-      "tag5": "标签5",
-      "tag6": "标签6",
-      "tag7": "标签7"
-    },
-    "departments": {
-      "engineering": "工程部",
-      "product": "产品部",
-      "marketing": "市场部",
-      "sales": "销售部"
-    },
-    "sensitivityLevels": {
-      "low": "低",
-      "medium": "中",
-      "high": "高",
-      "critical": "关键"
-    },
-    "piiTypes": {
-      "email": "电子邮件",
-      "name": "姓名",
-      "phone": "电话",
-      "address": "地址",
-      "id": "身份证号",
-      "credit_card": "信用卡"
-    },
-    "recommendedActions": {
-      "store": "存储",
-      "exclude": "排除"
-    },
-    "yes": "是",
-    "no": "否"
   },
   "deleteConfirmation": "您确定要删除此项吗？",
   "deleteSuccess": "项目删除成功。",
@@ -1256,37 +1268,172 @@
   },
   "tokenManagementPage": {
     "subtitle": "创建和管理用于共享知识的访问令牌",
-    "searchPlaceholder": "按名称或描述搜索...",
     "createTokenButton": "创建令牌",
+    "searchPlaceholder": "按名称或描述搜索...",
     "tabs": {
-      "active": "活动的",
-      "inactive": "非活动的"
+      "active": "活跃",
+      "inactive": "非活跃"
     },
-    "noActiveTokensSearch": "未找到与您的搜索匹配的活动令牌。",
-    "noActiveTokens": "未找到活动令牌。",
-    "noInactiveTokensSearch": "未找到与您的搜索匹配的非活动令牌。",
-    "noInactiveTokens": "未找到非活动令牌。",
     "table": {
       "name": "名称",
       "description": "描述",
       "sensitivity": "敏感度",
       "status": "状态",
-      "expiry": "到期时间",
+      "expiry": "到期",
       "actions": "操作"
     },
     "actions": {
-      "edit": "编辑令牌",
-      "delete": "删除令牌"
+        "edit": "编辑令牌",
+        "delete": "删除令牌"
     },
-    "deleteDialog": {
-      "title": "删除令牌",
-      "message": "您确定要删除此令牌吗？此操作无法撤销。"
-    },
+    "noActiveTokens": "没有找到活跃令牌。",
+    "noActiveTokensSearch": "没有找到匹配搜索的活跃令牌。",
+    "noInactiveTokens": "没有找到非活跃令牌。",
+    "noInactiveTokensSearch": "没有找到匹配搜索的非活跃令牌。",
     "toast": {
       "deleteSuccessTitle": "令牌已删除",
       "deleteErrorTitle": "删除失败",
       "deleteErrorDescription": "无法删除令牌。"
+    },
+    "deleteDialog": {
+        "title": "删除令牌",
+        "message": "您确定要删除此令牌吗？此操作无法撤消。"
+    },
+    "errors": {
+      "loadFailed": "加载令牌失败。请尝试刷新页面。"
     }
+  },
+  "createTokenModal": {
+    "title": "创建新访问令牌",
+    "successTitle": "令牌创建成功",
+    "successMessage": "您的新API令牌已创建。请复制并安全存储。您将无法再次查看此令牌。",
+    "newTokenLabel": "新API令牌",
+    "errors": {
+      "fetchColumnsFailed": "加载列列表失败。请检查后端连接。",
+      "invalidRowLimit": "行限制必须是正数。",
+      "invalidExpiry": "如果提供，到期天数必须是正数。"
+    },
+    "toast": {
+      "successTitle": "令牌已创建",
+      "successDescription": "令牌 \"{{name}}\" 已成功创建。",
+      "errorTitle": "创建失败",
+      "errorDescription": "无法创建令牌。"
+    },
+    "copySuccess": "令牌已复制",
+    "success": {
+        "alertTitle": "令牌已生成！",
+        "alertDescription": "复制下面的令牌。您以后将无法再次查看它。",
+        "tokenLabel": "您的新令牌：",
+        "copyButton": "复制令牌",
+        "copiedButton": "已复制！",
+        "closeButton": "关闭"
+    },
+    "form": {
+      "name": {
+        "label": "令牌名称",
+        "placeholder": "例如：只读市场营销访问"
+      },
+      "nameHelp": "令牌的描述性名称",
+      "description": {
+        "label": "描述",
+        "placeholder": "可选：描述此令牌的用途或预期用户"
+      },
+      "sensitivity": {
+        "label": "敏感度级别"
+      },
+      "sensitivityHelp": "确定默认访问级别。可以在下面添加更严格的规则。",
+      "sensitivityOptions": {
+        "public": "公开",
+        "internal": "内部",
+        "confidential": "机密",
+        "strict_confidential": "严格机密"
+      },
+      "expiryDays": "到期（天数）",
+      "expiryPlaceholder": "留空表示永不过期",
+      "expiryHelp": "令牌自动过期前的天数。",
+      "allowRules": {
+        "label": "允许规则",
+        "placeholder": "输入允许的规则并按回车键"
+      },
+      "allowRulesHelp": "数据必须匹配所有这些规则。",
+      "denyRules": {
+        "label": "拒绝规则",
+        "placeholder": "输入拒绝的规则并按回车键"
+      },
+      "denyRulesHelp": "匹配任何这些规则的数据将被排除。",
+      "tokenType": {
+        "label": "令牌类型"
+      },
+      "tokenTypeHelp": "公共令牌用于一般共享，分享令牌用于特定提供者集成。",
+      "tokenTypeOptions": {
+        "PUBLIC": "公共",
+        "SHARE": "分享（用于LLM提供者）"
+      },
+      "providerBaseUrl": {
+        "label": "提供者基础URL",
+        "placeholder": "例如：https://api.openai.com/v1",
+        "helper": "此令牌专用的LLM提供者的基础URL（分享类型必填）。"
+      },
+      "audience": {
+        "label": "受众限制（可选）",
+        "placeholder": "例如：192.168.1.0/24, example.org"
+      },
+      "audienceHelp": "允许使用令牌的IP范围或域名，用逗号分隔。",
+      "rowLimit": {
+        "label": "行限制"
+      },
+      "rowLimitHelp": "每次搜索/导出的最大行数。",
+      "allowAttachments": {
+        "label": "允许附件"
+      },
+      "allowAttachmentsHelp": "允许查看/导出文件附件。",
+      "canExportVectors": {
+        "label": "允许向量导出"
+      },
+      "canExportVectorsHelp": "允许导出原始向量嵌入。",
+      "allowColumns": {
+        "label": "允许的列（可选）"
+      },
+      "allowColumnsHelp": "选择搜索/导出中允许的列。如果未选择，则允许所有列（除过滤的附件/向量外）。",
+      "columnsLoading": "加载可用列...",
+      "columnsError": "加载列列表时出错。",
+      "createButton": "创建令牌",
+      "creatingButton": "创建中..."
+    }
+  },
+  "editTokenModal": {
+    "title": "编辑访问令牌",
+    "loading": "加载令牌数据...",
+    "errors": {
+      "fetchFailed": "加载令牌数据或列架构失败。请重试。"
+    },
+    "toast": {
+      "noChangesTitle": "无变更",
+      "noChangesDescription": "未检测到任何变更。",
+      "successTitle": "令牌已更新",
+      "successDescription": "令牌 \"{{name}}\" 已成功更新。",
+      "errorTitle": "更新失败",
+      "errorDescription": "无法更新令牌。"
+    },
+    "form": {
+      "tokenValueLabel": "令牌值",
+      "tokenValueHelp": "实际令牌值（不可更改）。",
+      "copyButton": "复制",
+      "copiedButton": "已复制",
+      "isActive": {
+        "label": "令牌活跃",
+        "helper": "非活跃令牌无法使用。"
+      },
+      "expiryDateLabel": "当前过期日期",
+      "expiryDatePlaceholder": "未设置过期日期",
+      "setExpiry": {
+        "label": "过期日期",
+        "helper": "令牌将在此日期后失效。清除以移除过期日期。"
+      },
+      "updateButton": "更新令牌",
+      "updatingButton": "更新中..."
+    },
+    "noColumnsAvailable": "没有可用列或加载架构失败。"
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -1398,14 +1545,6 @@
     "uploadSuccess": "文件上传成功",
     "uploadFailed": "部分文件上传失败"
   },
-  "common": {
-    "send": "发送",
-    "actions": "操作",
-    "remove": "移除",
-    "save": "保存",
-    "retry": "重试",
-    "error": "错误"
-  },
   "tokenUsage": {
     "title": "令牌使用情况",
     "description": "查看和分析您的令牌使用统计数据。",
@@ -1435,11 +1574,6 @@
       "noData": "暂无数据。",
       "noDataForToken": "所选令牌暂无数据。"
     }
-  },
-  "common": {
-    "loading": "加载中",
-    "error": "错误",
-    "never": "从未"
   },
   "search": {
     "title": "知识库搜索",
@@ -1594,32 +1728,6 @@
       "downloadFailedTitle": "下载失败",
       "processSyncListError": "处理同步列表时出错",
       "noDriveSelected": "未选择文档库"
-    }
-  },
-  "common": {
-    "all": "全部",
-    "filterBy": "筛选",
-    "name": "名称",
-    "modified": "修改时间",
-    "size": "大小",
-    "sync": "同步",
-    "success": "成功",
-    "error": "错误",
-    "taskCompleted": "任务已完成",
-    "taskFailed": "任务失败",
-    "taskID": "任务 ID:",
-    "yes": "是",
-    "no": "否",
-    "noResultsFound": "未找到结果",
-    "unnamedDrive": "未命名文档库",
-    "type": "类型",
-    "notApplicable": "不适用",
-    "status": {
-      "completed": "已完成"
-    },
-    "recommendedActions": {
-      "store": "存储",
-      "exclude": "排除"
     }
   }
 }

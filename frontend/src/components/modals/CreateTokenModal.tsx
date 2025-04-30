@@ -290,6 +290,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
+                <FormHelperText>{t('createTokenModal.form.nameHelp')}</FormHelperText>
               </FormControl>
 
               <FormControl>
@@ -333,10 +334,10 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                     <FormLabel>{t('createTokenModal.form.sensitivity.label', 'Sensitivity Level')}</FormLabel>
                     <Select value={sensitivity} onChange={(e) => setSensitivity(e.target.value)}>
                       {SENSITIVITY_LEVELS.map((level) => (
-                        <option key={level} value={level}>{level}</option>
+                        <option key={level} value={level}>{t(`createTokenModal.form.sensitivityOptions.${level.replace('-', '_')}`)}</option>
                       ))}
                     </Select>
-                    <FormHelperText>{t('createTokenModal.form.sensitivity.helper', 'Maximum data sensitivity accessible.')}</FormHelperText>
+                    <FormHelperText>{t('createTokenModal.form.sensitivityHelp')}</FormHelperText>
                   </FormControl>
                 </GridItem>
                 <GridItem>
@@ -373,7 +374,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                   value={allowRules}
                   onChange={setAllowRules}
                 />
-                <FormHelperText>{t('createTokenModal.form.allowRules.helper', 'Data must match ALL these rules.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.allowRulesHelp')}</FormHelperText>
               </FormControl>
 
               <FormControl>
@@ -383,7 +384,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                   value={denyRules}
                   onChange={setDenyRules}
                 />
-                <FormHelperText>{t('createTokenModal.form.denyRules.helper', 'Data matching ANY of these rules is excluded.')}</FormHelperText>
+                <FormHelperText>{t('createTokenModal.form.denyRulesHelp')}</FormHelperText>
               </FormControl>
                
                <Divider />
@@ -395,7 +396,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                    value={audience}
                    onChange={(e) => setAudience(e.target.value)}
                  />
-                 <FormHelperText>{t('createTokenModal.form.audience.helper', 'Comma-separated IP ranges or domains allowed to use token.')}</FormHelperText>
+                 <FormHelperText>{t('createTokenModal.form.audienceHelp')}</FormHelperText>
                </FormControl>
                
                <Divider />
@@ -412,9 +413,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                        <FormLabel htmlFor='allow-attachments' mb='0'>
                          {t('createTokenModal.form.allowAttachments.label', 'Allow Attachments')}
                        </FormLabel>
-                       <FormHelperText mt={1} ml="auto" alignSelf="flex-end" textAlign="right" flexGrow={1}>
-                         {t('createTokenModal.form.allowAttachments.helper', 'Allow viewing/exporting file attachments.')}
-                       </FormHelperText>
+                       <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.allowAttachmentsHelp')}</FormHelperText>
                      </FormControl>
                   </GridItem>
                    <GridItem>
@@ -428,9 +427,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                        <FormLabel htmlFor='can-export-vectors' mb='0'>
                          {t('createTokenModal.form.canExportVectors.label', 'Allow Vector Export')}
                        </FormLabel>
-                       <FormHelperText mt={1} ml="auto" alignSelf="flex-end" textAlign="right" flexGrow={1}>
-                         {t('createTokenModal.form.canExportVectors.helper', 'Allow exporting raw vector embeddings.')}
-                       </FormHelperText>
+                       <FormHelperText mt={1} ml={2}>{t('createTokenModal.form.canExportVectorsHelp')}</FormHelperText>
                      </FormControl>
                    </GridItem>
                    <GridItem>
@@ -449,7 +446,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                               <NumberDecrementStepper />
                             </NumberInputStepper>
                           </NumberInput>
-                          <FormHelperText>{t('createTokenModal.form.rowLimit.helper', 'Max rows per search/export.')}</FormHelperText>
+                          <FormHelperText>{t('createTokenModal.form.rowLimitHelp')}</FormHelperText>
                           <FormErrorMessage>{t('createTokenModal.errors.invalidRowLimit', 'Row limit must be a positive number.')}</FormErrorMessage>
                       </FormControl>
                    </GridItem>
@@ -459,6 +456,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
 
                <FormControl>
                     <FormLabel>{t('createTokenModal.form.allowColumns.label', 'Allowed Columns (Optional)')}</FormLabel>
+                    <FormHelperText mb={2}>{t('createTokenModal.form.allowColumnsHelp')}</FormHelperText>
                     {columnsLoading && <Spinner size="sm" />}
                     {columnsError && <ChakraText color="red.500">{columnsError}</ChakraText>}
                     {!columnsLoading && !columnsError && availableColumns.length > 0 && (
@@ -474,10 +472,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                             ))}
                         </VStack>
                     )}
-                    <FormHelperText>
-                      {t('createTokenModal.form.allowColumns.helper', 'Select columns allowed in search/export. If none selected, all are allowed (except filtered attachments/vectors).')}
-                    </FormHelperText>
-                </FormControl>
+               </FormControl>
 
             </VStack>
           )}
@@ -494,7 +489,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
                  {t('common.cancel', 'Cancel')}
               </Button>
               <Button colorScheme="cyan" type="submit" isLoading={isLoading || columnsLoading} isDisabled={isLoading || columnsLoading}>
-                 {t('createTokenModal.submitButton', 'Create Token')}
+                 {t('createTokenModal.form.createButton', 'Create Token')}
               </Button>
             </>
           )}

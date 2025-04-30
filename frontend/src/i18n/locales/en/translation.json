@@ -1036,7 +1036,25 @@
     "addedToSyncList": "Item added to sync list.",
     "removedFromSyncList": "Item removed from sync list.",
     "pendingCount": "{{count}} pending",
-    "never": "Never"
+    "never": "Never",
+    "active": "Active",
+    "inactive": "Inactive",
+    "saving": "Saving...",
+    "copied": "Copied!",
+    "required": "Required",
+    "optional": "Optional",
+    "selectPlaceholder": "Select an option...",
+    "searchPlaceholder": "Search...",
+    "noResults": "No results found.",
+    "showMore": "Show More",
+    "showLess": "Show Less",
+    "status": "Status",
+    "actions": "Actions",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "clear": "Clear",
+    "apply": "Apply"
   },
   "analysis": {
     "classification": {
@@ -1782,6 +1800,145 @@
         "S3": "Bucket",
         "Azure": "Container",
         "SharePoint": "Drive ID" 
+    }
+  },
+  "tokenManagementPage": {
+    "subtitle": "Create and manage access tokens for sharing knowledge",
+    "createTokenButton": "Create Token",
+    "searchPlaceholder": "Search by name or description...",
+    "tabs": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "table": {
+      "name": "Name",
+      "description": "Description",
+      "sensitivity": "Sensitivity",
+      "status": "Status",
+      "expiry": "Expiry",
+      "actions": "Actions"
+    },
+    "actions": {
+        "edit": "Edit Token",
+        "delete": "Delete Token"
+    },
+    "noActiveTokens": "No active tokens found.",
+    "noActiveTokensSearch": "No active tokens found matching your search.",
+    "noInactiveTokens": "No inactive tokens found.",
+    "noInactiveTokensSearch": "No inactive tokens found matching your search.",
+    "toast": {
+      "deleteSuccessTitle": "Token Deleted",
+      "deleteErrorTitle": "Deletion Failed",
+      "deleteErrorDescription": "Could not delete token."
+    },
+    "deleteDialog": {
+        "title": "Delete Token",
+        "message": "Are you sure you want to delete this token? This action cannot be undone."
+    },
+    "errors": {
+      "loadFailed": "Failed to load tokens. Please try refreshing the page."
+    }
+  },
+  "createTokenModal": {
+    "title": "Create New Access Token",
+    "successTitle": "Token Created Successfully",
+    "errors": {
+      "fetchColumnsFailed": "Failed to load column list. Please check backend connection.",
+      "invalidRowLimit": "Row limit must be a positive number.",
+      "invalidExpiry": "Expiry days must be a positive number if provided."
+    },
+    "toast": {
+      "successTitle": "Token Created",
+      "successDescription": "Token \"{{name}}\" was successfully created.",
+      "errorTitle": "Creation Failed",
+      "errorDescription": "Could not create token."
+    },
+    "copySuccess": "Token Copied",
+    "success": {
+        "alertTitle": "Token Generated!",
+        "alertDescription": "Copy the token below. You won't be able to see it again.",
+        "tokenLabel": "Your New Token:",
+        "copyButton": "Copy Token",
+        "copiedButton": "Copied!",
+        "closeButton": "Close"
+    },
+    "form": {
+      "nameLabel": "Token Name",
+      "namePlaceholder": "e.g., Read-Only Marketing Access",
+      "nameHelp": "A descriptive name for the token.",
+      "descriptionLabel": "Description (Optional)",
+      "descriptionPlaceholder": "Describe the purpose or intended users of this token.",
+      "sensitivityLabel": "Sensitivity Level",
+      "sensitivityHelp": "Determines the default access level. More restrictive rules can be added below.",
+      "sensitivityOptions": {
+        "public": "Public",
+        "internal": "Internal",
+        "confidential": "Confidential",
+        "strict_confidential": "Strictly Confidential"
+      },
+      "expiryLabel": "Expiry (Days)",
+      "expiryPlaceholder": "Leave blank for no expiry",
+      "expiryHelp": "Number of days until the token automatically expires.",
+      "allowRulesLabel": "Allow Rules",
+      "allowRulesPlaceholder": "Enter topics or keywords to allow (e.g., project:apollo)",
+      "allowRulesHelp": "Data must match ALL these rules.",
+      "denyRulesLabel": "Deny Rules",
+      "denyRulesPlaceholder": "Enter topics or keywords to deny (e.g., sensitive:financial)",
+      "denyRulesHelp": "Data matching ANY of these rules is excluded.",
+      "tokenTypeLabel": "Token Type",
+      "tokenTypeHelp": "Public tokens are for general sharing, Share tokens are for specific provider integration.",
+      "tokenTypeOptions": {
+        "PUBLIC": "Public",
+        "SHARE": "Share (for LLM Provider)"
+      },
+      "providerBaseUrlLabel": "Provider Base URL",
+      "providerBaseUrlPlaceholder": "e.g., https://api.openai.com/v1",
+      "providerBaseUrlHelp": "The base URL of the LLM provider this token is intended for (required for Share type).",
+      "audienceLabel": "Audience Restrictions (Optional)",
+      "audiencePlaceholder": "e.g., 192.168.1.0/24, example.org",
+      "audienceHelp": "Comma-separated IP ranges or domains allowed to use token.",
+      "rowLimitLabel": "Row Limit",
+      "rowLimitHelp": "Max rows per search/export.",
+      "allowAttachmentsLabel": "Allow Attachments",
+      "allowAttachmentsHelp": "Allow viewing/exporting file attachments.",
+      "canExportVectorsLabel": "Allow Vector Export",
+      "canExportVectorsHelp": "Allow exporting raw vector embeddings.",
+      "allowColumnsLabel": "Allowed Columns (Optional)",
+      "allowColumnsHelp": "Select columns allowed in search/export. If none selected, all are allowed (except filtered attachments/vectors).",
+      "columnsLoading": "Loading available columns...",
+      "columnsError": "Error loading columns list.",
+      "cancelButton": "Cancel",
+      "createButton": "Create Token",
+      "creatingButton": "Creating..."
+    }
+  },
+  "editTokenModal": {
+    "title": "Edit Access Token",
+    "loading": "Loading token data...",
+    "errors": {
+      "fetchFailed": "Failed to load token data or column schema. Please try again."
+    },
+    "toast": {
+      "noChangesTitle": "No Changes",
+      "noChangesDescription": "No changes were detected.",
+      "successTitle": "Token Updated",
+      "successDescription": "Token \"{{name}}\" was successfully updated.",
+      "errorTitle": "Update Failed",
+      "errorDescription": "Could not update token."
+    },
+    "form": {
+      "tokenValueLabel": "Token Value",
+      "tokenValueHelp": "The actual token value (cannot be changed).",
+      "copyButton": "Copy",
+      "copiedButton": "Copied",
+      "isActiveLabel": "Token Active",
+      "isActiveHelp": "Inactive tokens cannot be used.",
+      "expiryDateLabel": "Current Expiry Date",
+      "expiryDatePlaceholder": "No expiry set",
+      "setExpiryLabel": "Expiry Date (Optional)",
+      "setExpiryHelp": "Token will become inactive after this date. Clear to remove expiry.",
+      "updateButton": "Update Token",
+      "updatingButton": "Updating..."
     }
   }
 }
