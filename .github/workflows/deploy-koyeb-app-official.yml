@@ -74,21 +74,3 @@ jobs:
         uses: ./.github/actions/redeploy
         with:
           service: ${{ matrix.service }}
-
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: failure
-          fields: repo,commit,author
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-      - name: Notify Slack on Success
-        if: success()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: success
-          fields: repo,commit,author
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
