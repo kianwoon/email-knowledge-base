@@ -474,31 +474,72 @@ async def generate_openai_rag_response(
         async def _detect_query_intent(user_query: str, client: AsyncOpenAI) -> str:
             logger.debug(f"Detecting intent for query: '{user_query}'")
             # Use a cheaper/faster model for classification
-            intent_model = getattr(settings, 'INTENT_DETECTION_MODEL', 'gpt-4.1-mini') 
+            # MODIFICATION START: Select model based on provider
+            intent_model = chat_model # Default to the main chat model
+            if provider == "openai":
+                 # Use specific cheaper model for OpenAI if defined
+                 intent_model = getattr(settings, 'INTENT_DETECTION_MODEL', 'gpt-4.1-mini') 
+            # MODIFICATION END
+            
+            # MODIFICATION START: Adjust prompt for non-JSON mode if needed
+            prompt_instruction = "Respond ONLY with the chosen category ('email_focused' or 'general_or_mixed')."
+            system_content = f"You are an intent classifier. {prompt_instruction}"
+            # Keep original prompt structure
             prompt = (
-                f"Analyze the user's query and classify its primary information need. Choose ONE category:\n"
-                f"- 'email_focused': The query asks for specific information likely found only in recent emails (e.g., summaries of recent emails, specific email content, counts/lists based on recent communications like 'who left last week', 'emails from X yesterday').\n"
-                f"- 'general_or_mixed': The query asks for general knowledge, policies, procedures, or information that might exist in documents OR emails, or requires combining both (e.g., 'what is the policy on X?', 'explain concept Y', 'rate card for role Z', 'project status update').\n\n"
-                f"User Query: \"{user_query}\"\n\n"
-                f"Respond ONLY with the chosen category ('email_focused' or 'general_or_mixed')."
+                f"Analyze the user's query and classify its primary information need. Choose ONE category:\\n"
+                f"- 'email_focused': The query asks for specific information likely found only in recent emails (e.g., summaries of recent emails, specific email content, counts/lists based on recent communications like 'who left last week', 'emails from X yesterday').\\n"
+                f"- 'general_or_mixed': The query asks for general knowledge, policies, procedures, or information that might exist in documents OR emails, or requires combining both (e.g., 'what is the policy on X?', 'explain concept Y', 'rate card for role Z', 'project status update').\\n\\n"
+                f"User Query: \\\"{user_query}\\\"\\n\\n"
+                f"{prompt_instruction}"
             )
+            # MODIFICATION END
+
             try:
-                response = await client.chat.completions.create(
-                    model=intent_model,
-                    messages=[
-                        {"role": "system", "content": "You are an intent classifier. Respond only with 'email_focused' or 'general_or_mixed'."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.0,
-                    max_tokens=10 # Ensure response is concise
-                )
-                detected_intent = response.choices[0].message.content.strip().lower()
-                logger.info(f"Detected query intent: {detected_intent}")
-                if detected_intent in ['email_focused', 'general_or_mixed']:
-                    return detected_intent
-                else:
-                    logger.warning(f"Intent detection returned unexpected value: '{detected_intent}'. Defaulting to 'general_or_mixed'.")
-                    return "general_or_mixed"
+                 # MODIFICATION START: Conditional response_format
+                 completion_args = {
+                     "model": intent_model,
+                     "messages": [
+                         {"role": "system", "content": system_content},
+                         {"role": "user", "content": prompt}
+                     ],
+                     "temperature": 0.0,
+                     "max_tokens": 15 # Slightly increase for potential variability
+                 }
+                 # Only add response_format if provider is OpenAI (assuming DeepSeek might not support it)
+                 if provider == "openai":
+                      # Check if the selected intent_model for OpenAI supports JSON mode
+                      # We'll assume gpt-4o-mini does, but ideally, this needs model-specific checks
+                      logger.debug(f"Requesting JSON format for intent detection with OpenAI model {intent_model}")
+                      # completion_args["response_format"] = {"type": "json_object"} # Temporarily disabled JSON for testing simpler text parsing first
+                      pass # Keep parsing text response for now even for OpenAI
+
+                 # MODIFICATION END
+                 
+                 # Always expect text response for now
+                 response = await client.chat.completions.create(**completion_args)
+                 
+                 # Parse the text response directly
+                 detected_intent = response.choices[0].message.content.strip().lower()
+                 # Clean up potential extra text or quotes
+                 if 'email_focused' in detected_intent:
+                     detected_intent = 'email_focused'
+                 elif 'general_or_mixed' in detected_intent:
+                     detected_intent = 'general_or_mixed'
+                 else: # Handle unexpected responses
+                    logger.warning(f"Intent detection returned unexpected text: '{response.choices[0].message.content}'. Attempting basic extraction.")
+                    # Simple fallback check
+                    if 'email' in detected_intent: detected_intent = 'email_focused'
+                    else: detected_intent = 'general_or_mixed' # Default if still unclear
+
+                 logger.info(f"Detected query intent: {detected_intent}")
+                 # Check remains the same
+                 if detected_intent in ['email_focused', 'general_or_mixed']:
+                     return detected_intent
+                 else:
+                     # This path should ideally not be hit with the cleanup above, but kept as safeguard
+                     logger.warning(f"Intent detection failed after cleanup: '{detected_intent}'. Defaulting to 'general_or_mixed'.")
+                     return "general_or_mixed"
+                 
             except Exception as intent_err:
                 logger.error(f"Intent detection LLM call failed: {intent_err}", exc_info=True)
                 logger.warning("Defaulting to 'general_or_mixed' due to intent detection error.")
@@ -531,7 +572,12 @@ async def generate_openai_rag_response(
         async def _get_expanded_keywords(user_query: str, client: AsyncOpenAI, base_keywords: List[str]) -> List[str]:
             logger.debug(f"Attempting LLM keyword expansion for query: '{user_query}'")
             # Use a cheaper/faster model
-            expansion_model = getattr(settings, 'KEYWORD_EXPANSION_MODEL', 'gpt-4.1-mini')
+            # MODIFICATION START: Select model based on provider
+            expansion_model = chat_model # Default to the main chat model
+            if provider == "openai":
+                # Use specific cheaper model for OpenAI if defined
+                expansion_model = getattr(settings, 'KEYWORD_EXPANSION_MODEL', 'gpt-4.1-mini')
+            # MODIFICATION END
             
             # Create a context string from base keywords if available
             base_kw_context = ", ".join(base_keywords)
@@ -580,23 +626,81 @@ Comma-separated keywords:"""
             try:
                 retrieval_query = message
                 refined = None
-                if 'rate card' not in message.lower():
+                # MODIFICATION START: Skip refinement if provider is not openai or if specifically disabled
+                # Also skip for rate card explicitly
+                should_refine_query = (provider == "openai") and getattr(settings, 'ENABLE_QUERY_REFINEMENT', True) 
+                
+                if should_refine_query and 'rate card' not in message.lower():
+                # END MODIFICATION
                     try:
+                        # MODIFICATION: Ensure prompt asks for JSON within text if not using JSON mode (though we skip for deepseek now)
+                        refine_prompt = (
+                            f"Question: {message}\\n"
+                            f"Extract the target table/section and the entity from the user question. " 
+                            f"Respond ONLY with a JSON object string containing keys 'table' and 'role', like this: "
+                            f"{{ \"table\":\"...\", \"role\":\"...\"}}. If not applicable return the string 'null' exactly."
+                        )
                         refine_msgs = [
-                            {"role": "system","content": ("You are a query refiner. Extract the target table/section and the entity from the user question. Return JSON with keys 'table' and 'role'.")},
-                            {"role": "user","content": f"Question: {message}\\nRespond with JSON: {{ \"table\":\"...\", \"role\":\"...\"}}. If not applicable return nulls."}
+                            {"role": "system","content": ("You are a query refiner. Extract the target table/section and the entity. Respond ONLY with the JSON string or 'null'.")},
+                            {"role": "user","content": refine_prompt }
                         ]
-                        resp_refine = await user_client.chat.completions.create(model=chat_model,messages=refine_msgs,temperature=0.0,response_format={"type": "json_object"})
+                        
+                        # MODIFICATION START: Only use response_format for OpenAI
+                        refine_args = {
+                            "model": chat_model,
+                            "messages": refine_msgs,
+                            "temperature": 0.0
+                        }
+                        if provider == "openai": # Only OpenAI gets JSON mode for now
+                            refine_args["response_format"] = {"type": "json_object"}
+                        
+                        resp_refine = await user_client.chat.completions.create(**refine_args)
+                        # END MODIFICATION
+                        
                         content = resp_refine.choices[0].message.content
-                        if content and content.strip().lower() != 'null':
-                            refined = json.loads(content)
+                        # MODIFICATION START: Handle parsing based on whether JSON was requested
+                        if provider == "openai": # Assume direct JSON object
+                            if content and content.strip().lower() != 'null':
+                                refined = json.loads(content) # Should already be JSON object if format worked
+                            else:
+                                refined = None
+                        else: # Parse text response assuming it contains JSON string or 'null'
+                            content_cleaned = content.strip()
+                            if content_cleaned.lower() == 'null':
+                                refined = None
+                            else:
+                                try:
+                                    # Extract JSON part if wrapped in ```json ... ``` or similar
+                                    if content_cleaned.startswith("```json"):
+                                        content_cleaned = content_cleaned.split("\n", 1)[1].rsplit("\n```", 1)[0]
+                                    refined = json.loads(content_cleaned)
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Query refinement for {provider} returned non-JSON text: '{content}'. Using original query.")
+                                    refined = None
+                        # END MODIFICATION
+
+                        # Original logic using refined result
+                        if refined and (refined.get('table') or refined.get('role')):
                             parts = []
-                            if refined and refined.get('table'): parts.append(refined['table'])
-                            if refined and refined.get('role'): parts.append(refined['role'])
-                            if parts: retrieval_query = ' '.join(parts); logger.debug(f"RAG: Refined retrieval query for Milvus: {retrieval_query}")
-                        else: logger.debug("Query refinement deemed not applicable.")
-                    except Exception as refine_e: logger.warning(f"Query refinement failed, using original message: {refine_e}", exc_info=True)
-                else: logger.debug("RAG: Skipping query refinement for rate card query.")
+                            if refined.get('table'): parts.append(refined['table'])
+                            if refined.get('role'): parts.append(refined['role'])
+                            if parts: 
+                                retrieval_query = ' '.join(parts)
+                                logger.debug(f"RAG: Refined retrieval query for Milvus: {retrieval_query}")
+                        else: 
+                            logger.debug("Query refinement deemed not applicable or failed.")
+                            
+                    except Exception as refine_e: 
+                        logger.warning(f"Query refinement failed, using original message: {refine_e}", exc_info=True)
+                # MODIFICATION START: Log reason for skipping
+                elif 'rate card' in message.lower():
+                     logger.debug("RAG: Skipping query refinement for rate card query.")
+                else: # Skipped because provider != openai or setting disabled
+                    logger.debug(f"RAG: Skipping query refinement (Provider: {provider}, Enabled: {getattr(settings, 'ENABLE_QUERY_REFINEMENT', True)}).")
+                # END MODIFICATION
+                
+                # HyDE generation logic follows...
+
                 hyde_document = retrieval_query
                 if 'rate card' not in message.lower() and getattr(settings, 'ENABLE_HYDE', True):
                     try:
@@ -816,7 +920,7 @@ Comma-separated keywords:"""
         Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).
         Analyze the context provided and synthesize a comprehensive answer.
         
-        **Crucially, when you use information from a specific Knowledge Base Document, you MUST cite its source filename parenthetically after the information, like this: (Source: document_name.pdf).** Use the 'Source:' value provided for each document.
+        **Crucially, when you use information from a specific Knowledge Base Document, you MUST cite its source filename parenthetically after the information, like this: (Source: filename.ext).** Use the 'Source:' value provided for each document.
         
         Do not add information not present in the context.
         Present the relevant findings clearly, structuring the information using Markdown (lists, bullet points etc.) where appropriate.
