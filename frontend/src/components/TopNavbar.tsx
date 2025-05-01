@@ -97,10 +97,6 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
   // Check if language is Chinese (use 'cn')
   const isChinese = i18n.language === 'cn' || i18n.language.startsWith('zh');
 
-  // Reduce menu button padding for Chinese mode
-  const menuButtonPadding = isChinese ? 2 : 4;
-  const navButtonPadding = isChinese ? 2 : 4;
-
   // User menu component
   const UserMenu = () => {
     if (!user) return <Spinner size="sm" />;
@@ -179,153 +175,184 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
       top="0"
       zIndex="sticky"
     >
-      <Container maxW="1400px" py={2}>
-        <Flex align="center" justify="space-between">
-          <Flex align="center">
-            <Box
-              as={RouterLink}
-              to="/"
-              _hover={{ opacity: 0.8 }}
-              mr={8}
-              display="flex"
-              alignItems="center"
-            >
-              <img src="/NLOGO.svg" alt={t('app.name')} style={{ height: '32px' }} />
-            </Box>
+      <Container maxW="1400px" py={2} px={{ base: 4, md: 8 }}>
+        <Flex align="center" justify="space-evenly" display={{ base: 'none', md: 'flex' }}>
+          <Box
+            as={RouterLink}
+            to="/"
+            _hover={{ opacity: 0.8 }}
+            display="flex"
+            alignItems="center"
+          >
+            <img src="/NLOGO.svg" alt={t('app.name')} style={{ height: '32px' }} />
+          </Box>
 
-            {/* Desktop Navigation */}
-            <HStack spacing={isChinese ? 12 : 1} display={{ base: 'none', md: 'flex' }}>
-              {navItems.map((item) => (
-                item.children ? (
-                  // Render Menu for items with children
-                  <Menu key={item.label}>
-                    <MenuButton
-                      as={Button}
-                      variant="ghost"
-                      _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                      leftIcon={<Icon as={item.icon} />}
-                      rightIcon={<ChevronDownIcon />}
-                      size="md"
-                      fontWeight="medium"
-                      px={4}
-                      color={useColorModeValue('gray.800', 'whiteAlpha.900')}
-                    >
-                      {item.label}
-                    </MenuButton>
-                    <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
-                      {item.children.map((child) => {
-                        const linkProps = !child.disabled ? { to: child.path } : {};
-                        return (
-                          <MenuItem
-                            key={child.path}
-                            as={child.disabled ? 'button' : RouterLink}
-                            {...linkProps}
-                            icon={<Icon as={child.icon} />}
-                            isDisabled={child.disabled}
-                            onClick={child.disabled ? (e) => e.preventDefault() : undefined}
-                            _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                          >
-                            {child.label}
-                          </MenuItem>
-                        );
-                      })}
-                    </MenuList>
-                  </Menu>
-                ) : (
-                  <Button
-                    key={item.path}
-                    as={RouterLink}
-                    to={item.path}
-                    variant="ghost"
-                    isActive={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
-                    _active={{ bg: "blue.500", color: "white" }}
-                    _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                    leftIcon={<Icon as={item.icon} />}
-                    size="md"
-                    fontWeight="medium"
-                    px={4}
-                    color={useColorModeValue('gray.800', 'whiteAlpha.900')}
-                  >
-                    {item.label}
-                  </Button>
-                )
-              ))}
-            </HStack>
-          </Flex>
-
-          {/* Right side controls - remove ml="auto" */}
-          <HStack spacing={2}>
-            {/* Language Switcher */}
-            <Menu>
-              <MenuButton
-                as={Button}
+          {navItems.map((item) => (
+            item.children ? (
+              <Menu key={item.label}>
+                <MenuButton
+                  as={Button}
+                  variant="ghost"
+                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                  leftIcon={<Icon as={item.icon} />}
+                  rightIcon={<ChevronDownIcon />}
+                  size="md"
+                  fontWeight="medium"
+                  px={4}
+                  color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+                >
+                  {item.label}
+                </MenuButton>
+                <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
+                  {item.children.map((child) => {
+                    const linkProps = !child.disabled ? { to: child.path } : {};
+                    return (
+                      <MenuItem
+                        key={child.path}
+                        as={child.disabled ? 'button' : RouterLink}
+                        {...linkProps}
+                        icon={<Icon as={child.icon} />}
+                        isDisabled={child.disabled}
+                        onClick={child.disabled ? (e) => e.preventDefault() : undefined}
+                        _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                      >
+                        {child.label}
+                      </MenuItem>
+                    );
+                  })}
+                </MenuList>
+              </Menu>
+            ) : (
+              <Button
+                key={item.path}
+                as={RouterLink}
+                to={item.path}
                 variant="ghost"
-                leftIcon={<Icon as={FaGlobe} />}
+                isActive={location.pathname === item.path || location.pathname.startsWith(item.path + '/')}
+                _active={{ bg: "blue.500", color: "white" }}
                 _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+                leftIcon={<Icon as={item.icon} />}
                 size="md"
-                px={2}
+                fontWeight="medium"
+                px={4}
                 color={useColorModeValue('gray.800', 'whiteAlpha.900')}
               >
-                {isChinese ? t('language.chinese') : t('language.english')}
-              </MenuButton>
+                {item.label}
+              </Button>
+            )
+          ))}
+
+          <Menu>
+            <MenuButton
+              as={Button}
+              variant="ghost"
+              leftIcon={<Icon as={FaGlobe} />}
+              _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+              size="md"
+              px={2}
+              color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+            >
+              {isChinese ? t('language.chinese') : t('language.english')}
+            </MenuButton>
+            <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
+              <MenuItem
+                onClick={() => changeLanguage('en')}
+                _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+              >
+                {t('language.english')}
+              </MenuItem>
+              <MenuItem
+                onClick={() => changeLanguage('cn')}
+                _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+              >
+                {t('language.chinese')}
+              </MenuItem>
+            </MenuList>
+          </Menu>
+
+          <IconButton
+            aria-label={t('common.toggleColorMode')}
+            icon={colorMode === 'dark' ? <SunIcon /> : <MoonIcon />}
+            onClick={toggleColorMode}
+            variant="ghost"
+            _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
+            color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+          />
+
+          {isAuthenticated ? (
+            <UserMenu />
+          ) : (
+            <Button
+              leftIcon={<Icon as={FaMicrosoft} />}
+              onClick={handleSignIn}
+              size="md"
+              colorScheme="cyan"
+              bg={useColorModeValue('cyan.400', 'cyan.500')}
+              color="white"
+              _hover={{
+                bg: useColorModeValue('cyan.500', 'cyan.600'),
+              }}
+            >
+              {t('home.cta.signIn')}
+            </Button>
+          )}
+        </Flex>
+
+        <Flex display={{ base: 'flex', md: 'none' }} justify="space-between" align="center">
+          <Box
+            as={RouterLink}
+            to="/"
+            _hover={{ opacity: 0.8 }}
+            display="flex"
+            alignItems="center"
+          >
+            <img src="/NLOGO.svg" alt={t('app.name')} style={{ height: '32px' }} />
+          </Box>
+          <Spacer />
+          <HStack spacing={1}>
+            <Menu>
+              <MenuButton
+                as={IconButton}
+                icon={<Icon as={FaGlobe} />}
+                variant="ghost"
+                size="sm"
+              />
               <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
-                <MenuItem
-                  onClick={() => changeLanguage('en')}
-                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                >
-                  {t('language.english')}
-                </MenuItem>
-                <MenuItem
-                  onClick={() => changeLanguage('cn')}
-                  _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-                >
-                  {t('language.chinese')}
-                </MenuItem>
+                <MenuItem onClick={() => changeLanguage('en')}>{t('language.english')}</MenuItem>
+                <MenuItem onClick={() => changeLanguage('cn')}>{t('language.chinese')}</MenuItem>
               </MenuList>
             </Menu>
-
-            {/* Color Mode Toggle */}
             <IconButton
               aria-label={t('common.toggleColorMode')}
               icon={colorMode === 'dark' ? <SunIcon /> : <MoonIcon />}
               onClick={toggleColorMode}
               variant="ghost"
-              _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
-              color={useColorModeValue('gray.800', 'whiteAlpha.900')}
+              size="sm"
             />
-
-            {/* User Menu or Sign In Button */}
             {isAuthenticated ? (
               <UserMenu />
             ) : (
               <Button
                 leftIcon={<Icon as={FaMicrosoft} />}
                 onClick={handleSignIn}
-                size="md"
+                size="sm"
                 colorScheme="cyan"
-                bg={useColorModeValue('cyan.400', 'cyan.500')}
-                color="white"
-                _hover={{
-                  bg: useColorModeValue('cyan.500', 'cyan.600'),
-                }}
+                px={2}
               >
                 {t('home.cta.signIn')}
               </Button>
             )}
-
-            {/* Mobile Menu Button */}
             <IconButton
-              display={{ base: 'flex', md: 'none' }}
               onClick={onDrawerOpen}
               icon={<HamburgerIcon />}
               aria-label={t('common.openMenu')}
               variant="ghost"
+              size="sm"
             />
           </HStack>
         </Flex>
       </Container>
 
-      {/* Mobile Drawer */}
       <Drawer isOpen={isDrawerOpen} placement="right" onClose={onDrawerClose}>
         <DrawerOverlay />
         <DrawerContent bg="bg.primary">
@@ -335,24 +362,22 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
             <VStack spacing={2} align="stretch">
               {navItems.map((item) => (
                 item.children ? (
-                  // Render Menu items directly in drawer (parent as non-interactive header)
                   <React.Fragment key={item.label}>
                     <Text fontWeight="bold" mt={4} mb={2} px={4} color="gray.500">{item.label}</Text>
                     {item.children.map((child) => {
-                      // Create props object, adding 'to' only if not disabled
                       const linkProps = !child.disabled ? { to: child.path } : {};
                       return (
                         <Button
                           key={child.path}
                           as={child.disabled ? 'button' : RouterLink}
-                          {...linkProps} // Spread the conditional props
+                          {...linkProps}
                           variant="ghost"
                           w="full"
                           justifyContent="start"
                           leftIcon={<Icon as={child.icon} />}
                           isDisabled={child.disabled}
-                          onClick={() => { 
-                            if (!child.disabled) onDrawerClose(); 
+                          onClick={() => {
+                            if (!child.disabled) onDrawerClose();
                           }}
                         >
                           {child.label}
@@ -361,7 +386,6 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                     })}
                   </React.Fragment>
                 ) : (
-                  // Render Button for top-level items
                   <Button
                     key={item.path}
                     as={RouterLink}
