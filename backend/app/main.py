@@ -209,6 +209,24 @@ logger.info("--- Registered Routes --- DUMP END ---")
 async def read_root():
     return {"message": f"{app.title} is running!"}
 
+# --- TEMPORARY DEBUG ENDPOINT --- #
+@app.get("/debug-routes", tags=["Debug"])
+async def list_routes():
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "path"):
+            routes.append({"path": route.path, "methods": getattr(route, 'methods', None), "name": getattr(route, 'name', None)})
+        elif hasattr(route, "routes"):
+            # Handle sub-routers/mounted apps
+            for sub_route in route.routes:
+                if hasattr(sub_route, "path"):
+                    # Combine parent path if available
+                    parent_path = getattr(route, "path", "")
+                    full_path = parent_path + sub_route.path
+                    routes.append({"path": full_path, "methods": getattr(sub_route, 'methods', None), "name": getattr(sub_route, 'name', None)})
+    return routes
+# --- END TEMPORARY DEBUG ENDPOINT --- #
+
 # Serve index.html for any other route (React Router handling)
 templates = Jinja2Templates(directory="../../frontend/dist")
 

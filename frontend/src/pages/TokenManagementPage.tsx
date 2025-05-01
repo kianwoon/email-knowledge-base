@@ -463,43 +463,42 @@ const TokenManagementPage: React.FC = () => {
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.endpointTitle', 'API Endpoint')}</Heading>
                             <Text mb={1}>{t('tokenManagementPage.guide.endpointPath', 'The endpoint for querying shared knowledge is:')}</Text>
-                            <Code p={2} borderRadius="md" width="100%">POST /api/v1/shared-knowledge/search</Code>
+                            <Code p={2} borderRadius="md" width="100%">{t('tokenManagementPage.guide.endpointValue', 'GET /api/v1/shared-knowledge/search')}</Code>
                         </Box>
 
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.usageTitle', 'Authentication')}</Heading>
                             <Text mb={1}>{t('tokenManagementPage.guide.usageInstructions', 'To authenticate your request, include the generated token (prefix + secret, separated by a dot) as a Bearer token in the Authorization header:')}</Text>
-                            <Code p={2} borderRadius="md" width="100%">Authorization: Bearer YOUR_PREFIX.YOUR_SECRET</Code>
+                            <Code p={2} borderRadius="md" width="100%">{t('tokenManagementPage.guide.usageValue', 'Authorization: Bearer YOUR_PREFIX.YOUR_SECRET')}</Code>
                         </Box>
 
                         <Box>
-                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.requestBodyTitle', 'Request Body')}</Heading>
-                            <Text mb={1}>{t('tokenManagementPage.guide.requestBodyInstructions', 'Send a POST request with a JSON body containing your search query:')}</Text>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.queryParametersTitle', 'Query Parameters')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.queryParametersInstructions', 'Append your search query and optional limit as URL query parameters:')}</Text>
                             <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
-                                {`{
-    "query": "your search query here"
-}`}
+                                {t('tokenManagementPage.guide.queryParametersValue', '?query=your%20search%20query%20here&limit=10')}
                             </Code>
+                            <Text fontSize="sm" mt={1}>{t('tokenManagementPage.guide.queryParametersNote', 'Ensure the query parameter is URL-encoded. The limit parameter is optional (default: 10).')}</Text>
                         </Box>
                         
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.curlExampleTitle', 'Example cURL Request')}</Heading>
+                             <Text mb={1}>{t('tokenManagementPage.guide.curlExampleNote', 'Use -G to send parameters in the URL for a GET request:')}</Text>
                             <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
-{`curl -X POST YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
+                              {t('tokenManagementPage.guide.curlExampleValue', `curl -G YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
   -H "Authorization: Bearer YOUR_PREFIX.YOUR_SECRET" \ 
-  -H "Content-Type: application/json" \ 
-  -d '{
-        "query": "What were the key decisions made last quarter?"
-      }'`}
+  -H "Accept: application/json" \ 
+  --data-urlencode "query=What were the key decisions made last quarter?" \ 
+  --data-urlencode "limit=10"`)}
                             </Code>
-                             <Text fontSize="sm" mt={1}>Replace `YOUR_API_BASE_URL` with the actual base URL of the application and `YOUR_PREFIX.YOUR_SECRET` with your token.</Text>
+                             <Text fontSize="sm" mt={1}>{t('tokenManagementPage.guide.curlReplaceNote', 'Replace `YOUR_API_BASE_URL` with the actual base URL of the application and `YOUR_PREFIX.YOUR_SECRET` with your token.')}</Text>
                         </Box>
 
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.responseFormatTitle', 'Response Format')}</Heading>
                             <Text mb={1}>{t('tokenManagementPage.guide.responseFormatInstructions', 'A successful response will be a JSON array of search results, similar to this structure (fields may vary based on token permissions):')}</Text>
                             <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
-{`[
+                              {t('tokenManagementPage.guide.responseFormatValue', `[
   {
     "id": "some_unique_document_id",
     "score": 0.85,
@@ -512,7 +511,7 @@ const TokenManagementPage: React.FC = () => {
     "content": "... relevant text chunk from the document ..."
   },
   // ... more results ...
-]`}
+]`)}
                             </Code>
                         </Box>
                         

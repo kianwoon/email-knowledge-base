@@ -36,7 +36,6 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 # --- Router Definition ---
 
 router = APIRouter(
-    prefix="/shared-knowledge",
     tags=["Shared Knowledge"],
     # Add standard error responses for documentation
     responses={
