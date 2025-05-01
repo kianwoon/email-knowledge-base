@@ -161,6 +161,9 @@ const ChatMessageItem = memo<ChatMessageItemProps>(({ msg, components }) => {
         boxShadow="sm"
         borderWidth="1px"
         borderColor={msg.role === 'user' ? userBubbleBorderColor : bubbleBorderColor}
+        overflowWrap="break-word"
+        wordBreak="break-all"
+        whiteSpace="pre-wrap"
       >
         <HStack align="flex-start">
           <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
@@ -770,11 +773,20 @@ const JarvisPage: React.FC = () => {
     h6: (props: any) => <Heading as="h6" size="xs" my={1} {...props} />,
 
     // Paragraphs
-    p: (props: any) => <Text my={2} lineHeight="tall" {...props} />,
+    p: (props: any) => (
+      <Text
+        my={3}
+        lineHeight="tall"
+        overflowWrap="break-word"
+        wordBreak="break-all"
+        whiteSpace="pre-wrap"
+        {...props}
+      />
+    ),
 
     // Lists
-    ul: (props: any) => <UnorderedList spacing={1} my={2} pl={4} {...props} />,
-    ol: (props: any) => <OrderedList spacing={1} my={2} pl={4} {...props} />,
+    ul: (props: any) => <UnorderedList spacing={2} my={3} pl={4} {...props} />,
+    ol: (props: any) => <OrderedList spacing={2} my={3} pl={4} {...props} />,
     li: (props: any) => <ListItem {...props} />,
 
     // Code blocks
@@ -797,13 +809,16 @@ const JarvisPage: React.FC = () => {
           bg={useColorModeValue('gray.100', 'gray.700')}
           p={3}
           borderRadius="md"
-          my={2}
+          my={4}
           overflowX="auto"
+          maxW="100%"
         >
           <Code
             display="block"
-            whiteSpace="pre"
+            whiteSpace="pre-wrap"
             overflowX="auto"
+            overflowWrap="break-word"
+            wordBreak="break-all"
             {...rest}
           >
             {children}
