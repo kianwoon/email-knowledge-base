@@ -110,13 +110,13 @@ async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_e
         expiry=expiry_datetime,
         is_active=True,
         is_editable=token_data.is_editable,
-        allow_rules=token_data.allow_rules or [],
+        allow_rules=token_data.allow_rules or [], 
         deny_rules=token_data.deny_rules or [],
         # Do not store embeddings upon creation
         allow_embeddings=None,
         deny_embeddings=None,
         # --- NEW v3 Fields ---
-        token_type=token_data.token_type,
+        token_type=token_data.token_type, 
         provider_base_url=token_data.provider_base_url if token_data.token_type == TokenType.SHARE else None,
         audience=token_data.audience,
         # accepted_by/at are set when a receiver accepts a share token, not on creation
@@ -341,53 +341,34 @@ async def create_bundled_token(db: Session, name: str, description: Optional[str
 def create_milvus_filter_from_token(token: TokenDB) -> Optional[str]:
     """
     Creates a Milvus boolean filter expression string based on token rules.
-    Assumes metadata is stored within a 'metadata_json' field in Milvus.
+    Assumes fields like 'sensitivity' and 'department' are top-level or directly accessible.
     """
     filter_parts = []
 
     # --- Sensitivity Filtering ---
-    # Assuming sensitivity is stored in metadata_json.sensitivity
     token_rank = SENSITIVITY_RANK.get(token.sensitivity, -1)
     if token_rank < 0:
         logger.warning(f"Token {token.id} has invalid sensitivity '{token.sensitivity}'. Applying most restrictive filter (no results).")
-        # Return a filter that matches nothing, e.g., check a non-existent value
-        return 'pk == "impossible_value"' # Use pk for a definite non-match
+        return 'pk == "impossible_value"' 
 
     allowed_levels = SENSITIVITY_ORDER[:token_rank + 1]
     if not allowed_levels:
-        # Should not happen with valid rank, but safety check
         return 'pk == "impossible_value"'
 
-    # Create an 'in' condition for allowed sensitivity levels
-    # Ensure proper quoting for string values in the list
     allowed_levels_str = ", ".join([f'"{level}"' for level in allowed_levels])
-    # IMPORTANT: Assuming sensitivity is stored at the top level of metadata_json
-    filter_parts.append(f'metadata_json["sensitivity"] in [{allowed_levels_str}]')
+    # CORRECTED: Assume 'sensitivity' is a top-level field
+    filter_parts.append(f'sensitivity in [{allowed_levels_str}]')
 
     # --- Department Filtering (Allow Rules) ---
-    # IMPORTANT: Assuming departments are stored as a list OR single string
-    # in metadata_json.department
+    # CORRECTED: Assume 'department' is a top-level field
     if token.allow_rules:
-        # Create an 'in' condition for allowed department strings
-        # Ensure proper quoting for string values in the list
         allowed_departments_str = ", ".join([f'"{dept}"' for dept in token.allow_rules])
-        # IMPORTANT: Assuming department is stored at the top level of metadata_json
-        filter_parts.append(f'metadata_json["department"] in [{allowed_departments_str}]')
+        # Filter based on top-level 'department' field
+        filter_parts.append(f'department in [{allowed_departments_str}]')
 
-        # Alternate if department is a list within JSON (e.g., ["sales", "emea"])
-        # Requires Milvus support for JSON array checks (e.g., json_contains)
-        # Make sure the field metadata_json.department is indexed appropriately if using this.
-        # conditions = [f'json_contains(metadata_json["department"], \\"{dept}\\")' for dept in token.allow_rules]
-        # filter_parts.append(f'({" or ".join(conditions)})')
-
-
-    # --- Deny Rules ---
-    # Milvus filters primarily work on scalar or array fields within the JSON or top-level fields.
-    # Filtering based on semantic *denial* (deny_rules/embeddings) is complex and not directly
-    # supported by simple filter expressions. We will omit deny rules for now.
+    # --- Deny Rules --- (Still omitted as per previous logic)
     if token.deny_rules:
          logger.warning(f"Token {token.id} has deny_rules, but Milvus filter generation currently does not support semantic denial based on rules.")
-
 
     # Combine conditions with 'and'
     if not filter_parts:

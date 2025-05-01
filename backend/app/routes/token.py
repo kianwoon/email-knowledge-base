@@ -623,6 +623,10 @@ async def test_token_search(
             filter_expr=milvus_filter_expression
         )
 
+        # Log the raw results from Milvus search before processing
+        # Use INFO level to ensure visibility
+        logger.info(f"Raw results received from search_milvus_knowledge: {results}") 
+
         dense_search_results = results[0] if results and isinstance(results, list) and len(results) > 0 else []
         logger.info(f"Test search initial dense search found {len(dense_search_results)} results. Reranking...")
 

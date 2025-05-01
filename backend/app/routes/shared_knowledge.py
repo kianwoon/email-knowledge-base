@@ -103,7 +103,7 @@ async def search_shared_knowledge(
             limit=search_limit, # Use the adjusted limit
             filter_expr=milvus_filter_expression
         )
-
+        
         dense_search_results = results[0] if results and isinstance(results, list) and len(results) > 0 else []
         logger.info(f"Initial dense search found {len(dense_search_results)} results for query '{query}' using token {token.id}. Reranking...")
 
@@ -113,8 +113,8 @@ async def search_shared_knowledge(
 
         # 6. Apply Token Scope: Column Projection and Attachment Filtering
         processed_results = []
-        essential_keys = ['id', 'score']
-        attachment_keys = ['attachments', 'attachment_info', 'files', 'file_data']
+        essential_keys = ['id', 'score'] 
+        attachment_keys = ['attachments', 'attachment_info', 'files', 'file_data'] 
         column_block_count = 0
         attachment_redaction_count = 0
 
@@ -122,7 +122,7 @@ async def search_shared_knowledge(
             processed_result = {}
             metadata = result.get('metadata', {}) # Safely get metadata
             original_metadata_keys = set(metadata.keys())
-
+            
             # Copy essential keys (id, score)
             for key in essential_keys:
                 if key in result:
@@ -130,14 +130,14 @@ async def search_shared_knowledge(
 
             # Apply column projection if allow_columns is set
             filtered_metadata = {}
-            if token.allow_columns:
+            if token.allow_columns: 
                 allowed_col_set = set(token.allow_columns)
                 blocked_cols = []
                 for col_key, col_value in metadata.items():
                     if col_key in allowed_col_set:
                         filtered_metadata[col_key] = col_value
                     else:
-                        if col_key not in essential_keys and col_key not in attachment_keys:
+                        if col_key not in essential_keys and col_key not in attachment_keys: 
                             blocked_cols.append(col_key)
                 if blocked_cols:
                      column_block_count += len(blocked_cols)
@@ -155,7 +155,7 @@ async def search_shared_knowledge(
                 if len(keys_before_filter.intersection(attachment_keys)) > 0:
                     attachment_redaction_count += 1
                     logger.debug(f"Redacted attachment keys for result {result.get('id')} due to token {token.id} policy.")
-
+            
             processed_result['metadata'] = filtered_metadata
             processed_results.append(processed_result)
 

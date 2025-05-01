@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 # from qdrant_client import QdrantClient, models
 # from qdrant_client.http.exceptions import UnexpectedResponse
 # Import Milvus client
-from pymilvus import MilvusClient
+from pymilvus import MilvusClient, Collection, utility
 from fastapi import HTTPException
 import httpx # Keep for now, maybe remove _httpx_search later
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -12,6 +12,8 @@ from fastapi.concurrency import run_in_threadpool
 
 import re
 from collections import Counter
+import json
+import asyncio
 
 def text_to_term_freq(text: str) -> Dict[str, int]:
     tokens = re.findall(r"\w+", text.lower())
@@ -381,6 +383,41 @@ async def search_milvus_knowledge_hybrid(
                 return []
             raise HTTPException(status_code=500, detail=f"Milvus hybrid search failed unexpectedly: {str(e)}")
 
+# --- Add helper for safe metadata extraction ---
+def safe_get_metadata(hit) -> Dict:
+    try:
+        # Check different potential locations for metadata based on Milvus response variations
+        if hasattr(hit, 'entity') and hasattr(hit.entity, 'get') and isinstance(hit.entity.get('metadata'), dict):
+            return hit.entity.get('metadata')
+        elif hasattr(hit, 'get') and isinstance(hit.get('metadata'), dict):
+            return hit.get('metadata')
+        elif hasattr(hit, 'entity') and hasattr(hit.entity, 'metadata') and isinstance(hit.entity.metadata, dict):
+             return hit.entity.metadata
+        elif hasattr(hit, 'metadata') and isinstance(hit.metadata, dict):
+             return hit.metadata
+        else:
+            # Attempt to parse if metadata is a stringified JSON
+            raw_meta = None
+            if hasattr(hit, 'entity') and hasattr(hit.entity, 'get'):
+                raw_meta = hit.entity.get('metadata')
+            elif hasattr(hit, 'get'):
+                 raw_meta = hit.get('metadata')
+            
+            if isinstance(raw_meta, str):
+                 try:
+                      parsed_meta = json.loads(raw_meta)
+                      if isinstance(parsed_meta, dict):
+                           return parsed_meta
+                 except json.JSONDecodeError:
+                      logger.warning(f"Metadata field was a string but failed JSON parsing: {raw_meta}")
+                      return {}
+            logger.warning(f"Could not extract dictionary metadata from hit: {hit}. Structure: {dir(hit)}")
+            return {} # Return empty dict if extraction fails
+    except Exception as e:
+         logger.error(f"Unexpected error extracting metadata from hit {getattr(hit, 'id', '?')}: {e}", exc_info=True)
+         return {}
+# --- End helper ---
+
 # Renamed and refactored for Milvus
 async def search_milvus_knowledge(
     query_texts: List[str], 
@@ -390,94 +427,97 @@ async def search_milvus_knowledge(
     limit: int = 10,
     search_params: Optional[Dict] = None,
     filter_expr: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """
-    Search for similar vectors in the specified Milvus collection.
-    Returns a list of results including payload.
-    """
-    milvus_client: MilvusClient = get_milvus_client()
-    
-    # Removed Qdrant-specific dimension check logic
+) -> List[List[Dict[str, Any]]]: # Return type changed to List[List[...]]
+    """Searches Milvus collection for multiple query texts and returns formatted results."""
+    all_formatted_results = [] # List to hold results for each query
+    try:
+        milvus_client = get_milvus_client()
+        
+        # Use the client instance directly to check for collection existence
+        if not milvus_client.has_collection(collection_name):
+             logger.error(f"Milvus collection '{collection_name}' not found.")
+             # Return a list of empty lists, one for each query
+             return [[] for _ in query_texts]
 
-    logger.debug(f"Attempting Milvus search in collection '{collection_name}' with limit {limit} and filter: '{filter_expr}'")
-
-    # Ensure structure matches MilvusClient.search requirements (anns_field inside search_params)
-    default_search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
-    search_params = search_params or default_search_params
-
-    results = []
-    for query_text in query_texts:
+        # Generate embeddings for all query texts at once
         try:
-            # Embed the query text
-            query_embedding = await create_embedding(query_text)
-            # Ensure embeddings are list of lists if needed by client
-            if hasattr(query_embedding, 'tolist'):
-                query_embedding_list = query_embedding.tolist()
-            else:
-                query_embedding_list = query_embedding # Assume it's already in correct format
-            # logger.debug(f"Shape of query embeddings: {query_embedding.shape}") # Removed as query_embedding is now a list
-
-            # Use keyword arguments ONLY for the MilvusClient.search call
-            search_kwargs = {
-                "collection_name": collection_name,
-                "data": [query_embedding_list],
-                "anns_field": vector_field,
-                "limit": limit,
-                "search_params": search_params,
-                "output_fields": output_fields
-            }
-
-            # Conditionally add the filter using the 'filter' keyword
-            if filter_expr:
-                search_kwargs['filter'] = filter_expr
-                logger.debug(f"Adding filter expression to search: {filter_expr}")
-            else:
-                logger.debug("No filter expression provided for search.")
-
-            # Execute vector search via Milvus client using only keyword arguments
-            search_result = milvus_client.search(**search_kwargs)
-
-            # Format and return results
-            formatted_results = []
-            if search_result:
-                hits = search_result[0] # Results for the first query
-                for hit in hits:
-                    # Extract fields directly from the hit dictionary
-                    # The structure should be flat when output_fields is used
-                    doc_id = hit.get('id')
-                    # Get content and metadata, handling potential nesting in 'entity'
-                    entity_data = hit.get('entity', {})
-                    content = hit.get('content') or entity_data.get('content')
-                    metadata = hit.get('metadata') or entity_data.get('metadata')
-                    dense_vector = hit.get('dense') # Get the actual dense vector
-                    score = hit.get('distance') # Or hit.score depending on client version
-
-                    if doc_id is not None and content is not None: # Ensure essential fields exist
-                        formatted_results.append({
-                            "id": doc_id,
-                            "score": score,
-                            "content": content,
-                            "metadata": metadata, # Metadata is already a dict/json
-                            "dense": dense_vector # Include dense vector
-                        })
-                    else:
-                        logger.warning(f"Skipping hit due to missing id or content: {hit}")
-
-            results.append(formatted_results)
-
+            embeddings = await asyncio.gather(*(create_embedding(text) for text in query_texts))
+            # Ensure embeddings are lists of floats
+            query_vectors = [emb.tolist() if hasattr(emb, 'tolist') else emb for emb in embeddings]
+            if not query_vectors or len(query_vectors) != len(query_texts):
+                 raise ValueError("Embedding generation failed or returned incorrect number of vectors.")
         except Exception as e:
-            # Handle Milvus exceptions (e.g., collection not found, invalid filter)
-            logger.error(f"Milvus search error (collection: '{collection_name}'): {str(e)}", exc_info=True)
-            if "collection not found" in str(e).lower() or "doesn't exist" in str(e).lower():
-                logger.warning(f"Milvus collection '{collection_name}' not found during search.")
-                # Skip to the next query_text if collection doesn't exist
-                continue # Skip to the next query_text
-            # You might want to check for other specific Milvus errors here
-            # For now, raise a generic HTTPException for other errors
-            raise HTTPException(status_code=500, detail=f"Milvus search failed unexpectedly (collection: '{collection_name}'): {str(e)}")
+            logger.error(f"Failed to generate embeddings for queries: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to generate query embeddings.")
 
-    logger.debug(f"Milvus search successful. Returning {len(results)} formatted results.")
-    return results
+        # Define default search parameters if none provided
+        # Example for COSINE metric with HNSW index
+        default_params = {"metric_type": "COSINE", "params": {"ef": 128}}
+        final_params = search_params or default_params
+
+        logger.debug(f"Attempting Milvus search in collection '{collection_name}' for {len(query_texts)} queries with limit {limit} and filter: '{filter_expr}'")
+
+        search_kwargs = {
+            "collection_name": collection_name,
+            "data": query_vectors,
+            "anns_field": vector_field,
+            "limit": limit,
+            "output_fields": output_fields,
+        }
+        if filter_expr:
+            logger.debug(f"Adding filter expression to search: {filter_expr}")
+            search_kwargs["filter"] = filter_expr
+
+        # Perform the search for all queries, using the correct 'search_params' argument
+        search_results = milvus_client.search(
+            search_params=final_params, # <-- CORRECTED ARGUMENT NAME
+            **search_kwargs
+        )
+        logger.info(f"Milvus search completed. Received results for {len(search_results)} queries.") # Log count
+
+        # Process results for each query
+        for i, hits in enumerate(search_results):
+            query_formatted_results = []
+            logger.debug(f"Processing {len(hits)} hits for query {i+1}: '{query_texts[i]}'")
+            logger.debug(f"Raw hits for query {i+1}: {hits}") # <-- LOG RAW HITS
+            
+            for hit in hits:
+                try:
+                    # Safely extract basic fields using dictionary access
+                    doc_id = hit.get('id')
+                    # Use distance as score; adjust if metric type changes
+                    score = hit.get('distance', hit.get('score')) # Check for distance first, then score
+                    
+                    # Check if essential fields are present
+                    if doc_id is None or score is None:
+                        logger.warning(f"Skipping hit due to missing 'id' or 'score'/'distance'. Hit data: {hit}")
+                        continue
+                        
+                    # Use the safe helper to get metadata
+                    metadata = safe_get_metadata(hit)
+                    # No need to log failure here, safe_get_metadata does it
+                    
+                    query_formatted_results.append({
+                        "id": doc_id,
+                        "score": score,
+                        "metadata": metadata
+                    })
+                except Exception as e:
+                    hit_id_str = str(hit.get('id', '[unknown ID]')) # Get ID safely for logging
+                    logger.error(f"Unexpected error processing hit ID '{hit_id_str}' for query {i+1}: {e}", exc_info=True)
+            
+            logger.debug(f"Formatted {len(query_formatted_results)} results for query {i+1}. Previously logged success incorrectly.") # Corrected log
+            all_formatted_results.append(query_formatted_results)
+
+        logger.info(f"Milvus search formatting complete. Returning results for {len(all_formatted_results)} queries.")
+        return all_formatted_results # Return list of lists
+
+    except HTTPException as http_exc:
+        raise http_exc # Re-raise FastAPI exceptions
+    except Exception as e:
+        logger.error(f"Error during Milvus search in '{collection_name}': {e}", exc_info=True)
+        # Return list of empty lists on general error
+        return [[] for _ in query_texts]
 
 # --- Reranking Function ---
 async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

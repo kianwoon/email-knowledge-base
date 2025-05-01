@@ -187,7 +187,7 @@ class TokenValidationRequest(BaseModel):
 class TokenValidationResponse(BaseModel):
     is_valid: bool
     # token_data would use TokenExport, which now excludes embeddings
-    token_data: Optional[TokenExport] = None # Return exported data if valid
+    token_data: Optional[TokenExport] = None # Return exported data if valid 
     
 # +++ ADDED: Response model for shared search results +++
 class SharedMilvusResult(BaseModel):
