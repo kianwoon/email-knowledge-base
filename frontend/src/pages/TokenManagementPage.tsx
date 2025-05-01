@@ -484,7 +484,7 @@ const TokenManagementPage: React.FC = () => {
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.curlExampleTitle', 'Example cURL Request')}</Heading>
                              <Text mb={1}>{t('tokenManagementPage.guide.curlExampleNote', 'Use -G to send parameters in the URL for a GET request:')}</Text>
-                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre-wrap">
                               {t('tokenManagementPage.guide.curlExampleValue', `curl -G YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
   -H "Authorization: Bearer YOUR_PREFIX.YOUR_SECRET" \ 
   -H "Accept: application/json" \ 
@@ -497,7 +497,7 @@ const TokenManagementPage: React.FC = () => {
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.responseFormatTitle', 'Response Format')}</Heading>
                             <Text mb={1}>{t('tokenManagementPage.guide.responseFormatInstructions', 'A successful response will be a JSON array of search results, similar to this structure (fields may vary based on token permissions):')}</Text>
-                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre-wrap">
                               {t('tokenManagementPage.guide.responseFormatValue', `[
   {
     "id": "some_unique_document_id",
