@@ -133,16 +133,16 @@ async def get_token_usage_report(
             usage_count = stats["usage_count"] if stats else 0
             last_used_at = stats["last_used_at"] if stats else None
 
-            # >>> Generate token_preview from hashed_token <<< 
-            hashed = token.hashed_token
-            token_preview_value = f"{hashed[:4]}...{hashed[-4:]}" if hashed and len(hashed) > 8 else "[Invalid Hash]"
+            # >>> Generate token_preview from token_prefix <<<
+            prefix = token.token_prefix
+            token_preview_value = prefix if prefix else "[No Prefix]"
 
             usage_stats_list.append(
                 TokenUsageStat(
                     token_id=token.id,
                     token_name=token.name,
                     token_description=token.description,
-                    token_preview=token_preview_value, # <<< Use the generated value
+                    token_preview=token_preview_value,
                     usage_count=usage_count,
                     last_used_at=last_used_at
                 )
