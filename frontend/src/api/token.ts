@@ -299,3 +299,41 @@ export const getTokenUsageTimeSeries = async (
   }
 };
 // --- END ADDED ---
+
+// GET /token/{token_id} - Fetch details for a specific token
+export const getTokenDetails = async (tokenId: number): Promise<any> => {
+  try {
+    // Remove /api/v1 prefix, assuming axiosInstance handles it
+    const response = await axiosInstance.get<any>(`/token/${tokenId}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching details for token ${tokenId}:`, error);
+    throw error; // Re-throw to allow caller handling
+  }
+};
+
+// --- NEW: Regenerate Token Secret ---
+
+// Interface for the response from the regeneration endpoint
+interface RegenerateResponse {
+  new_token_value: string;
+}
+
+/**
+ * Regenerates the secret for a given token ID.
+ * Returns the new full token value (prefix.secret).
+ */
+export const regenerateTokenSecret = async (tokenId: number): Promise<RegenerateResponse> => {
+  console.log(`API: Regenerating secret for token ID ${tokenId}`);
+  try {
+    const response = await axiosInstance.post<RegenerateResponse>(`/token/${tokenId}/regenerate`);
+    console.log(`API: Secret regenerated successfully for token ${tokenId}.`);
+    return response.data; // Should contain { new_token_value: "..." }
+  } catch (error: any) {
+    console.error(`API Error regenerating secret for token ${tokenId}:`, error);
+    // Extract backend error detail if available
+    const detail = error?.response?.data?.detail || error.message || 'Failed to regenerate token secret.';
+    throw new Error(detail);
+  }
+};
+// --- END NEW ---

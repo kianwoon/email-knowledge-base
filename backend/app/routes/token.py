@@ -29,7 +29,8 @@ from ..crud.token_crud import (
     get_active_tokens,
     prepare_bundled_token_data,
     create_bundled_token,
-    create_milvus_filter_from_token
+    create_milvus_filter_from_token,
+    regenerate_token_secret
 )
 
 # Import datetime for expiry check
@@ -488,8 +489,10 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
         raise ValueError("Cannot convert None TokenDB object to response.")
 
     try:
-        hashed = token_db.hashed_token
-        token_preview_value = f"{hashed[:4]}...{hashed[-4:]}" if hashed and len(hashed) > 8 else "[Invalid Hash]"
+        # Use token_prefix for the preview
+        prefix = token_db.token_prefix
+        # If prefix exists, use it directly. Otherwise, show an indicator.
+        token_preview_value = prefix if prefix else "[No Prefix]"
 
         # Construct the input dictionary for validation, using getattr for new/optional fields
         response_data = {
@@ -497,7 +500,7 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
             "name": token_db.name,
             "description": token_db.description,
             "sensitivity": token_db.sensitivity,
-            "token_preview": token_preview_value,
+            "token_preview": token_preview_value, # Use the prefix
             "owner_email": token_db.owner_email,
             "created_at": token_db.created_at,
             "expiry": token_db.expiry,
@@ -520,12 +523,6 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
 
         # Validate the dictionary to create the TokenResponse object
         response = TokenResponse.model_validate(response_data)
-
-        # Ensure list fields that exist on TokenResponse are never None (already handled by getattr defaults)
-        # response.allow_rules = response.allow_rules or []
-        # response.deny_rules = response.deny_rules or []
-        # response.allow_columns = response.allow_columns or [] # Not needed if default is None
-        # response.allow_attachments = response.allow_attachments or [] # Not needed if default is None
 
         return response
     except Exception as e:
@@ -775,4 +772,61 @@ async def test_token_search(
         )
 
 # --- End NEW Endpoint --- 
-# --- End NEW Endpoint --- 
+
+# --- NEW RESPONSE MODEL for REGENERATION ---
+class RegenerateTokenResponse(BaseModel):
+    new_token_value: str = Field(..., description="The new full token value (prefix.secret) generated.")
+
+# --- NEW ENDPOINT: Regenerate Token Secret ---
+@router.post(
+    "/{token_id}/regenerate",
+    response_model=RegenerateTokenResponse,
+    summary="Regenerate Secret for an API Token",
+    description="""Generates a new secret for the specified token, invalidating the old one. \
+Returns the new full token value (prefix.new_secret). \
+This is the ONLY time the new secret will be shown. \
+Requires ownership of the token. \
+Cannot be used on non-editable or bundled tokens.""",
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"description": "Token not found"},
+        403: {"description": "User does not own this token or token type cannot be regenerated"},
+        400: {"description": "Validation error (e.g., token has no prefix)"},
+        500: {"description": "Internal server error during regeneration"}
+    }
+)
+async def regenerate_token_secret_route(
+    token_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    try:
+        # Call the CRUD function to handle regeneration logic
+        regeneration_result = await regenerate_token_secret(
+            db=db, 
+            token_id=token_id, 
+            owner_email=current_user.email
+        )
+        
+        # Construct the full new token string
+        new_full_token = f"{regeneration_result['token_prefix']}.{regeneration_result['new_secret']}"
+        
+        logger.info(f"Secret regenerated for token {token_id}. Returning new token value to user {current_user.email}.")
+        return RegenerateTokenResponse(new_token_value=new_full_token)
+
+    except ValueError as ve:
+        # Handle specific errors from CRUD function (Not Found, Forbidden, Bad Request)
+        if "not found" in str(ve).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+        elif "does not own" in str(ve).lower() or "cannot be regenerated" in str(ve).lower() or "not editable" in str(ve).lower():
+             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(ve))
+        else: # Other ValueErrors (like missing prefix)
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        # Catch potential DB errors from CRUD or other unexpected issues
+        logger.error(f"Failed to regenerate secret for token {token_id} via API: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate token secret."
+        )
+# --- END NEW ENDPOINT --- 

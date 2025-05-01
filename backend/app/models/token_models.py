@@ -146,7 +146,14 @@ class TokenDB(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(100), index=True) 
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True) 
-    hashed_token: Mapped[str] = mapped_column(String(255), unique=True, index=True) 
+    # REMOVED old hashed_token column
+    # hashed_token: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    
+    # --- ADDED prefix and secret columns --- 
+    token_prefix: Mapped[Optional[str]] = mapped_column(String(11), unique=True, index=True, nullable=True) # e.g., kb_ + 8 hex chars = 11 len. Unique & Indexed. Nullable for migration.
+    hashed_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True) # Hash of secret part. Nullable for migration.
+    # --- END ADDITION --- 
+    
     owner_email: Mapped[str] = mapped_column(String(255), index=True) 
     sensitivity: Mapped[str] = mapped_column(String(50), nullable=False, default="public", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

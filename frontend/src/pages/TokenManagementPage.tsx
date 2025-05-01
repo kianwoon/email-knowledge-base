@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -38,6 +38,15 @@ import {
   Input,
   InputGroup,
   InputLeftElement,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalFooter,
+  ModalBody,
+  ModalCloseButton,
+  InputRightElement,
+  useColorModeValue,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
@@ -45,11 +54,78 @@ import { FaPlus, FaEdit, FaTrash, FaSearch, FaPlay } from 'react-icons/fa';
 import {
   getUserTokens,
   Token,
-  deleteTokenApi
+  deleteTokenApi,
+  regenerateTokenSecret
 } from '../api/token';
 import CreateTokenModal from '../components/modals/CreateTokenModal';
 import EditTokenModal from '../components/modals/EditTokenModal';
 import TestTokenModal from '../components/modals/TestTokenModal';
+import { EditIcon, DeleteIcon, CheckIcon, CopyIcon, RepeatIcon } from '@chakra-ui/icons';
+import {
+  ColumnDef,
+  Row,
+  CellContext,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  RowData,
+} from '@tanstack/react-table';
+
+// Define an inline DataTable component
+function DataTable<TData extends RowData>({ data, columns }: { data: TData[]; columns: ColumnDef<TData, any>[] }) {
+  const table = useReactTable({
+    data,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const headerBg = useColorModeValue('gray.50', 'gray.700');
+  const hoverBg = useColorModeValue('gray.100', 'gray.600');
+  const borderColor = useColorModeValue('gray.200', 'gray.600');
+
+  return (
+    <Box borderWidth="1px" borderRadius="md" borderColor={borderColor} overflowX="auto">
+      <TableContainer>
+        <Table variant="simple">
+          <Thead bg={headerBg}>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <Tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <Th key={header.id} colSpan={header.colSpan}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </Th>
+                ))}
+              </Tr>
+            ))}
+          </Thead>
+          <Tbody>
+            {table.getRowModel().rows.map((row) => (
+              <Tr key={row.id} _hover={{ bg: hoverBg }}>
+                {row.getVisibleCells().map((cell) => (
+                  <Td key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </Td>
+                ))}
+              </Tr>
+            ))}
+            {table.getRowModel().rows.length === 0 && (
+              <Tr>
+                <Td colSpan={columns.length} textAlign="center">
+                  No data available.
+                </Td>
+              </Tr>
+            )}
+          </Tbody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+}
 
 const TokenManagementPage: React.FC = () => {
   const { colorMode } = useColorMode();
@@ -72,6 +148,21 @@ const TokenManagementPage: React.FC = () => {
   const { isOpen: isTestModalOpen, onOpen: onTestModalOpen, onClose: onTestModalClose } = useDisclosure();
   const [testingTokenId, setTestingTokenId] = useState<number | null>(null);
   const [testingTokenName, setTestingTokenName] = useState<string>('');
+
+  const { 
+      isOpen: isRegenerateConfirmOpen, 
+      onOpen: onRegenerateConfirmOpen, 
+      onClose: onRegenerateConfirmClose 
+  } = useDisclosure();
+  const [tokenToRegenerate, setTokenToRegenerate] = useState<Token | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
+  
+  const { 
+      isOpen: isNewTokenModalOpen, 
+      onOpen: onNewTokenModalOpen, 
+      onClose: onNewTokenModalClose 
+  } = useDisclosure();
+  const [regeneratedTokenValue, setRegeneratedTokenValue] = useState<string>('');
 
   const fetchUserTokens = useCallback(async () => {
     setIsLoading(true);
@@ -155,72 +246,126 @@ const TokenManagementPage: React.FC = () => {
   const activeTokens = filteredTokens.filter(token => token.is_active);
   const inactiveTokens = filteredTokens.filter(token => !token.is_active);
 
-  const renderTokenTable = (tokenList: Token[], isActiveTab: boolean) => {
-    return (
-      <TableContainer>
-        <Table variant="simple">
-          <Thead>
-            <Tr>
-              <Th>{t('tokenManagementPage.table.name', 'Name')}</Th>
-              <Th>{t('tokenManagementPage.table.description', 'Description')}</Th>
-              <Th>{t('tokenManagementPage.table.sensitivity', 'Sensitivity')}</Th>
-              <Th>{t('tokenManagementPage.table.status', 'Status')}</Th>
-              <Th>{t('tokenManagementPage.table.expiry', 'Expiry')}</Th>
-              <Th>{t('tokenManagementPage.table.actions', 'Actions')}</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {tokenList.map((token) => (
-              <Tr key={token.id}>
-                <Td>{token.name}</Td>
-                <Td>{token.description || '-'}</Td>
-                <Td><Tag colorScheme="purple">{token.sensitivity}</Tag></Td>
-                <Td>
-                  <Badge colorScheme={isActiveTab ? 'green' : 'red'}>
-                    {isActiveTab ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
-                  </Badge>
-                </Td>
-                <Td>{formatDate(token.expiry)}</Td>
-                <Td>
-                  <HStack spacing={2}>
-                    <IconButton
-                      aria-label={t('tokenManagementPage.actions.test', 'Test Token')}
-                      icon={<FaPlay />}
-                      size="sm"
-                      onClick={() => handleTestToken(token.id, token.name)}
-                      isDisabled={isLoading}
-                      colorScheme="blue"
-                      variant="ghost"
-                      title={t('tokenManagementPage.actions.test', 'Test Token')}
-                    />
-                    <IconButton
-                      aria-label={t('tokenManagementPage.actions.edit', 'Edit Token')}
-                      icon={<FaEdit />}
-                      size="sm"
-                      onClick={() => handleEditToken(token.id)}
-                      isDisabled={isLoading}
-                      variant="ghost"
-                      title={t('tokenManagementPage.actions.edit', 'Edit Token')}
-                    />
-                    <IconButton
-                      aria-label={t('tokenManagementPage.actions.delete', 'Delete Token')}
-                      icon={<FaTrash />}
-                      size="sm"
-                      colorScheme="red"
-                      onClick={() => handleDeleteToken(token.id)}
-                      isDisabled={isLoading}
-                      variant="ghost"
-                      title={t('tokenManagementPage.actions.delete', 'Delete Token')}
-                    />
-                  </HStack>
-                </Td>
-              </Tr>
-            ))}
-          </Tbody>
-        </Table>
-      </TableContainer>
-    );
+  const handleRegenerateClick = (token: Token) => {
+    setTokenToRegenerate(token);
+    onRegenerateConfirmOpen();
   };
+
+  const confirmRegenerate = async () => {
+    if (!tokenToRegenerate) return;
+    setIsRegenerating(true);
+    try {
+      const response = await regenerateTokenSecret(tokenToRegenerate.id);
+      setRegeneratedTokenValue(response.new_token_value);
+      onNewTokenModalOpen();
+      const tokenName = tokenToRegenerate.name || '';
+      toast({
+        title: t('tokenManagementPage.regenerateSuccess.title', 'Secret Regenerated'), 
+        description: t('tokenManagementPage.regenerateSuccess.description', 'New secret generated for token "{{name}}". Copy the new value now.', { name: tokenName }), 
+        status: 'success', 
+        duration: 5000, 
+        isClosable: true
+      });
+    } catch (error: any) {
+      toast({
+        title: t('common.error', 'Regeneration Failed'), 
+        description: error.message || t('tokenManagementPage.regenerateError', 'Could not regenerate token secret.'), 
+        status: 'error', 
+        duration: 5000, 
+        isClosable: true
+      });
+    } finally {
+      setIsRegenerating(false);
+      setTokenToRegenerate(null);
+      onRegenerateConfirmClose();
+    }
+  };
+
+  const columns = useMemo<ColumnDef<Token>[]>(() => [
+    {
+      header: t('tokenManagementPage.table.name', 'Name'),
+      accessorKey: 'name',
+    },
+    {
+      header: t('tokenManagementPage.table.description', 'Description'),
+      accessorKey: 'description',
+      cell: (info: CellContext<Token, unknown>) => (info.getValue() as string || '-'),
+    },
+    {
+      header: t('tokenManagementPage.table.sensitivity', 'Sensitivity'),
+      accessorKey: 'sensitivity',
+      cell: (info: CellContext<Token, unknown>) => {
+        const value = info.getValue() as string | null;
+        return value ? (<Tag colorScheme="purple">{value}</Tag>) : '-';
+      }
+    },
+    {
+        header: t('tokenManagementPage.table.status', 'Status'),
+        accessorKey: 'is_active',
+        cell: (info: CellContext<Token, unknown>) => {
+          const isActive = info.getValue() as boolean;
+          return (
+            <Badge colorScheme={isActive ? 'green' : 'red'}>
+                {isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
+            </Badge>
+          )
+        }
+    },
+    {
+        header: t('tokenManagementPage.table.expiry', 'Expiry'),
+        accessorKey: 'expiry',
+        cell: (info: CellContext<Token, unknown>) => formatDate(info.getValue() as string | null | undefined),
+    },
+    {
+      header: t('tokenManagement.table.actions', 'Actions'),
+      id: 'actions',
+      cell: ({ row }: { row: Row<Token> }) => (
+        <HStack spacing={2}>
+          <IconButton
+            aria-label={t('tokenManagementPage.actions.test', 'Test Token')}
+            icon={<FaPlay />}
+            size="sm"
+            onClick={() => handleTestToken(row.original.id, row.original.name)}
+            isDisabled={isLoading}
+            colorScheme="blue"
+            variant="ghost"
+            title={t('tokenManagementPage.actions.test', 'Test Token')}
+          />
+          <IconButton
+            aria-label={t('tokenManagementPage.actions.edit', 'Edit Token')}
+            icon={<FaEdit />}
+            size="sm"
+            onClick={() => handleEditToken(row.original.id)}
+            isDisabled={isLoading}
+            variant="ghost"
+            title={t('tokenManagementPage.actions.edit', 'Edit Token')}
+          />
+          {row.original.is_editable && (
+            <IconButton
+              aria-label={t('tokenManagementPage.actions.regenerate', 'Regenerate Secret')}
+              icon={<RepeatIcon />}
+              size="sm"
+              variant="ghost"
+              colorScheme="orange"
+              onClick={() => handleRegenerateClick(row.original)}
+              isLoading={isRegenerating && tokenToRegenerate?.id === row.original.id}
+              title={t('tokenManagementPage.actions.regenerate', 'Regenerate Secret')}
+            />
+          )}
+          <IconButton
+            aria-label={t('tokenManagementPage.actions.delete', 'Delete Token')}
+            icon={<FaTrash />}
+            size="sm"
+            colorScheme="red"
+            onClick={() => handleDeleteToken(row.original.id)}
+            isDisabled={isLoading}
+            variant="ghost"
+            title={t('tokenManagementPage.actions.delete', 'Delete Token')}
+          />
+        </HStack>
+      ),
+    },
+  ], [t, handleDeleteToken, handleEditToken, handleTestToken, handleRegenerateClick, isRegenerating, tokenToRegenerate]);
 
   return (
     <Box bg={colorMode === 'dark' ? "gray.900" : "gray.50"} minH="100vh">
@@ -291,7 +436,7 @@ const TokenManagementPage: React.FC = () => {
                         : t('tokenManagementPage.noActiveTokens', 'No active tokens found.')}
                       </Text>
                     ) : (
-                      renderTokenTable(activeTokens, true)
+                      <DataTable columns={columns} data={activeTokens} />
                     )}
                   </TabPanel>
 
@@ -302,7 +447,7 @@ const TokenManagementPage: React.FC = () => {
                         : t('tokenManagementPage.noInactiveTokens', 'No inactive tokens found.')}
                       </Text>
                     ) : (
-                      renderTokenTable(inactiveTokens, false)
+                      <DataTable columns={columns} data={inactiveTokens} />
                     )}
                   </TabPanel>
                 </TabPanels>
@@ -375,6 +520,69 @@ const TokenManagementPage: React.FC = () => {
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      <AlertDialog
+        isOpen={isRegenerateConfirmOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onRegenerateConfirmClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              {t('tokenManagementPage.regenerateDialog.title', 'Regenerate Secret')} {tokenToRegenerate?.name ? `"${tokenToRegenerate.name}"` : ''}
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              {t('tokenManagementPage.regenerateDialog.message', 'Are you sure? The current secret will stop working immediately. You will be shown the new secret only once.')}
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onRegenerateConfirmClose} isDisabled={isRegenerating}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button colorScheme="orange" onClick={confirmRegenerate} ml={3} isLoading={isRegenerating}>
+                {t('tokenManagementPage.regenerateDialog.confirm', 'Confirm Regenerate')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      <Modal isOpen={isNewTokenModalOpen} onClose={onNewTokenModalClose}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{t('tokenManagementPage.regenerateModal.title', 'New Token Secret Generated')}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <Text mb={2}>{t('tokenManagementPage.regenerateModal.message', 'Please copy the new token value below. This is the only time it will be shown:')}</Text>
+            <InputGroup size="md">
+              <Input
+                pr="4.5rem"
+                value={regeneratedTokenValue}
+                isReadOnly
+                fontFamily="monospace"
+              />
+              <InputRightElement width="4.5rem">
+                <IconButton 
+                    h="1.75rem" 
+                    size="sm" 
+                    aria-label={t('common.copy', 'Copy token')}
+                    icon={<CopyIcon />} 
+                    onClick={() => {
+                        navigator.clipboard.writeText(regeneratedTokenValue);
+                        toast({ title: t('common.copied', 'Copied!'), status: "success", duration: 1500 });
+                    }}
+                 />
+              </InputRightElement>
+            </InputGroup>
+          </ModalBody>
+          <ModalFooter>
+            <Button colorScheme="blue" onClick={onNewTokenModalClose}>
+              {t('common.close', 'Close')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

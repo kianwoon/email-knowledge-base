@@ -104,7 +104,7 @@ async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_e
         sensitivity=token_data.sensitivity,
         # --- Store prefix and hashed secret ---
         token_prefix=prefix,          # Store the generated prefix
-        hashed_token=hashed_secret,   # Store the hash of the secret part
+        hashed_secret=hashed_secret,   # Store the hash of the secret part
         # --- End storage change ---
         owner_email=owner_email,
         expiry=expiry_datetime,
@@ -318,7 +318,7 @@ async def create_bundled_token(db: Session, name: str, description: Optional[str
     db_token = TokenDB(
         name=name,
         description=description,
-        hashed_token=hashed_value,
+        hashed_secret=hashed_value,
         sensitivity=bundle_data['sensitivity'],
         owner_email=owner_email,
         expiry=None,
@@ -379,3 +379,80 @@ def create_milvus_filter_from_token(token: TokenDB) -> Optional[str]:
     return final_filter
 
 # --- End Helper --- 
+
+# --- NEW FUNCTION: Regenerate Token Secret ---
+async def regenerate_token_secret(db: Session, token_id: int, owner_email: str) -> Dict[str, str]:
+    """Regenerates the secret part of a token, hashes it, and updates the DB.
+    If the token is missing a prefix (older token), generates one during this process.
+
+    Args:
+        db: Database session.
+        token_id: The ID of the token to regenerate.
+        owner_email: The email of the user requesting regeneration (for verification).
+
+    Returns:
+        A dictionary containing the 'token_prefix' and the 'new_secret' (unhashed).
+
+    Raises:
+        ValueError: If the token is not found, not owned by the user,
+                    or is not marked as editable.
+        Exception: For database errors.
+    """
+    try:
+        # Fetch the existing token
+        db_token = get_token_by_id(db, token_id=token_id)
+        if not db_token:
+            raise ValueError("Token not found.")
+        if db_token.owner_email != owner_email:
+            raise ValueError("User does not own this token.")
+        # Assuming PUBLIC and SHARE types *can* be regenerated
+        if not getattr(db_token, 'is_editable', True):
+             raise ValueError("Token is not marked as editable.")
+        
+        prefix_to_use = db_token.token_prefix
+        prefix_was_generated = False
+
+        # If prefix is missing (old token), generate one now
+        if not prefix_to_use:
+             logger.warning(f"Token {token_id} is missing prefix. Generating one during regeneration.")
+             prefix_to_use = f"kb_{secrets.token_hex(4)}" 
+             db_token.token_prefix = prefix_to_use # Update the model instance directly
+             prefix_was_generated = True
+             # Add a DB check/retry loop here if prefix collisions become a problem
+
+        # Generate a new secret
+        new_secret = secrets.token_urlsafe(32) # Generate a new 32-byte URL-safe secret
+        hashed_new_secret = bcrypt.hashpw(new_secret.encode('utf-8'), bcrypt.gensalt())
+
+        # Update the database
+        db_token.hashed_secret = hashed_new_secret.decode('utf-8') # Store as string
+        # token_prefix is already updated on the instance if it was generated
+        
+        db.add(db_token) # Add the updated instance to the session
+        db.commit()    # Commit the changes (saves new prefix and secret)
+        db.refresh(db_token) # Refresh to get any DB-side changes
+
+        if prefix_was_generated:
+             logger.info(f"Successfully regenerated secret and generated new prefix '{prefix_to_use}' for token ID {token_id}.")
+        else:
+             logger.info(f"Successfully regenerated secret for token ID {token_id} (prefix '{prefix_to_use}').")
+
+        # Return the prefix (existing or newly generated) and the NEW UNHASHED secret
+        return {
+            "token_prefix": prefix_to_use,
+            "new_secret": new_secret
+        }
+
+    except ValueError as ve: # Re-raise specific validation errors
+        logger.warning(f"Token regeneration validation failed for token {token_id}, user {owner_email}: {ve}")
+        raise ve
+    except Exception as e:
+        db.rollback() # Rollback on error
+        logger.error(f"Database error during token secret regeneration for token {token_id}: {e}", exc_info=True)
+        # Check for unique constraint violation on prefix if it was generated
+        if prefix_was_generated and ("UniqueViolationError" in str(e) or "duplicate key value violates unique constraint" in str(e).lower()):
+             logger.error(f"Token prefix collision for newly generated prefix '{prefix_to_use}'. This should be rare. Consider retry logic.")
+             # Reraise a more specific error or a generic one
+             raise Exception("Failed to generate unique token prefix during regeneration. Please try again.") from e
+        raise Exception("Failed to regenerate token secret due to database error.") from e
+# --- END NEW FUNCTION --- 

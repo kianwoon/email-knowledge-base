@@ -929,7 +929,6 @@
     "no": "No",
     "loading": "Loading...",
     "error": "Error",
-    "errorOccurred": "An error occurred",
     "success": "Success",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -1053,7 +1052,8 @@
     "next": "Next",
     "submit": "Submit",
     "clear": "Clear",
-    "apply": "Apply"
+    "apply": "Apply",
+    "copy": "Copy"
   },
   "analysis": {
     "classification": {
@@ -1414,32 +1414,8 @@
     "settings": "Settings"
   },
   "tokenManagement": {
-    "title": "Token Management",
-    "description": "Manage your API tokens for accessing the application programmatically.",
-    "createToken": "Create New Token",
-    "tokenName": "Token Name",
-    "descriptionLabel": "Description (Optional)",
-    "tokenCreated": "Token Created",
-    "tokenCreatedSuccess": "Your new API token has been created successfully.",
-    "yourToken": "Your Token",
-    "copyToken": "Copy Token",
-    "close": "Close",
-    "copied": "Copied!",
-    "confirmDelete": "Confirm Deletion",
-    "confirmDeleteMsg": "Are you sure you want to delete the token",
-    "delete": "Delete",
-    "cancel": "Cancel",
-    "tokenDeleted": "Token Deleted",
-    "tokenDeletedSuccess": "The token has been successfully deleted.",
-    "errorCreating": "Error Creating Token",
-    "errorDeleting": "Error Deleting Token",
-    "table": {
-      "name": "Name",
-      "description": "Description",
-      "preview": "Preview",
-      "createdAt": "Created At",
-      "actions": "Actions"
-    }
+    "title": "Manage API Tokens",
+    "description": "Create and manage tokens for API access"
   },
   "tokenUsage": {
     "title": "Token Usage Report",
@@ -1810,7 +1786,8 @@
     "actions": {
       "edit": "Edit Token",
       "delete": "Delete Token",
-      "test": "Test Token"
+      "test": "Test Token",
+      "regenerate": "Regenerate Secret"
     },
     "tabs": {
       "active": "Active",
@@ -1824,6 +1801,21 @@
       "deleteSuccessTitle": "Token Deleted",
       "deleteErrorTitle": "Deletion Failed",
       "deleteErrorDescription": "Could not delete token."
+    },
+    "regenerateDialog": {
+      "title": "Regenerate Secret",
+      "message": "Are you sure? The current secret will stop working immediately. You will be shown the new secret only once.",
+      "confirm": "Confirm Regenerate",
+      "cancel": "Cancel"
+    },
+    "regenerateSuccess": {
+      "title": "Secret Regenerated",
+      "description": "New secret generated for token \"{{name}}\". Copy the new value now."
+    },
+    "regenerateError": "Could not regenerate token secret.",
+    "regenerateModal": {
+      "title": "New Token Secret Generated",
+      "message": "Please copy the new token value below. This is the only time it will be shown:"
     }
   },
   "createTokenModal": {
@@ -1912,7 +1904,7 @@
     }
   },
   "testTokenModal": {
-    "title": "Test Token Search",
+    "title": "Test Token",
     "queryLabel": "Test Query",
     "queryPlaceholder": "Enter search query...",
     "runButton": "Run Test Search",

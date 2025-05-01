@@ -7,8 +7,6 @@
     "loading": "加载中",
     "error": "错误",
     "success": "成功",
-    "warning": "警告",
-    "info": "信息",
     "cancel": "取消",
     "confirm": "确认",
     "save": "保存",
@@ -85,7 +83,7 @@
     "no": "否",
     "saveChanges": "保存更改",
     "copy": "复制",
-    "copied": "已复制",
+    "copied": "已复制！",
     "send": "发送",
     "actions": "操作",
     "never": "从未",
@@ -1285,7 +1283,8 @@
     "actions": {
         "edit": "编辑令牌",
         "delete": "删除令牌",
-        "test": "测试令牌"
+        "test": "测试令牌",
+        "regenerate": "重新生成密钥"
     },
     "noActiveTokens": "没有找到活跃令牌。",
     "noActiveTokensSearch": "没有找到匹配搜索的活跃令牌。",
@@ -1299,6 +1298,21 @@
     "deleteDialog": {
         "title": "删除令牌",
         "message": "您确定要删除此令牌吗？此操作无法撤消。"
+    },
+    "regenerateDialog": {
+      "title": "重新生成密钥",
+      "message": "您确定吗？当前密钥将立即停止工作。新密钥仅显示一次。",
+      "confirm": "确认重新生成",
+      "cancel": "取消"
+    },
+    "regenerateSuccess": {
+      "title": "密钥已重新生成",
+      "description": "已为令牌\"{{name}}\"生成新密钥。立即复制新值。"
+    },
+    "regenerateError": "无法重新生成令牌密钥。",
+    "regenerateModal": {
+      "title": "已生成新的令牌密钥",
+      "message": "请复制下面的新令牌值。这是唯一显示它的时间："
     }
   },
   "createTokenModal": {
@@ -1729,7 +1743,7 @@
     }
   },
   "testTokenModal": {
-    "title": "测试令牌搜索",
+    "title": "测试令牌",
     "queryLabel": "测试查询",
     "queryPlaceholder": "输入搜索查询...",
     "runButton": "运行测试搜索",
@@ -1737,12 +1751,12 @@
     "resultsTitle": "结果",
     "noResultsFound": "未找到符合查询和令牌权限的结果。",
     "errors": {
-      "missingInput": "请输入查询内容。",
+      "missingInput": "请输入查询。",
       "searchFailed": "测试搜索失败。"
     },
     "toast": {
       "noResultsTitle": "无结果",
-      "noResultsDesc": "根据令牌权限，您的测试查询未返回任何结果。"
+      "noResultsDesc": "您的测试查询根据令牌权限未返回任何结果。"
     }
   }
 }
