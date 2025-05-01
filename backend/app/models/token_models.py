@@ -187,4 +187,19 @@ class TokenValidationRequest(BaseModel):
 class TokenValidationResponse(BaseModel):
     is_valid: bool
     # token_data would use TokenExport, which now excludes embeddings
-    token_data: Optional[TokenExport] = None # Return exported data if valid 
+    token_data: Optional[TokenExport] = None # Return exported data if valid
+    
+# +++ ADDED: Response model for shared search results +++
+class SharedMilvusResult(BaseModel):
+    """
+    Represents a single search result item returned by the shared knowledge search endpoint.
+    Metadata is filtered based on the requesting token's permissions.
+    """
+    id: str = Field(..., description="The unique identifier (PK) of the retrieved document chunk from Milvus.")
+    score: float = Field(..., description="The relevance score of the result (higher is generally better after reranking).")
+    metadata: Dict[str, Any] = Field(..., description="Associated metadata for the document chunk, filtered according to the token's 'allow_columns' and 'allow_attachments' permissions.")
+
+    model_config = ConfigDict(
+        from_attributes=True, # Allow creation from ORM/DB objects if needed elsewhere
+    )
+# --- END ADDITION --- 

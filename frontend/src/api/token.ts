@@ -85,6 +85,14 @@ export interface TokenBundlePayload {
   description?: string;
 }
 
+// +++ ADDED: Interface matching the backend SharedMilvusResult +++
+export interface SharedMilvusResult {
+  id: string;
+  score: number;
+  metadata: Record<string, any>;
+}
+// --- END ADDITION ---
+
 // --- API Functions --- 
 
 /**
@@ -169,6 +177,34 @@ export const bundleTokens = async (payload: TokenBundlePayload): Promise<Token> 
   const response = await axiosInstance.post<Token>('/token/bundle', payload);
   return response.data;
 };
+
+// +++ ADDED: Function to test token search permissions +++
+/**
+ * Allows the token owner to test the search results for a specific token.
+ * Calls the backend endpoint that applies the token's permissions against the owner's data.
+ */
+export const testTokenSearch = async (
+  tokenId: number,
+  query: string
+): Promise<SharedMilvusResult[]> => {
+  console.log(`API: Testing search for token ID ${tokenId} with query: "${query}"`);
+  try {
+    const payload = { query };
+    const response = await axiosInstance.post<SharedMilvusResult[]>(
+      `/token/${tokenId}/test-search`, 
+      payload
+    );
+    console.log(`API: Test search for token ${tokenId} returned ${response.data.length} results.`);
+    return response.data;
+  } catch (error: any) {
+    // Log the error and re-throw for component handling
+    console.error(`API Error testing search for token ${tokenId}:`, error);
+    // Extract backend error detail if available
+    const detail = error?.response?.data?.detail || error.message || 'Failed to perform test search.';
+    throw new Error(detail);
+  }
+};
+// --- END ADDITION ---
 
 // --- ADDED for Token Usage Report --- 
 

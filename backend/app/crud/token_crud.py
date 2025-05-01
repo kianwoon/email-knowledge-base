@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func as sql_func
 from typing import List, Optional, Dict, Any, Set
 import uuid
 import bcrypt
@@ -52,14 +52,19 @@ def get_token_by_id(db: Session, token_id: int) -> Optional[TokenDB]: # Changed 
     """
     return db.get(TokenDB, token_id)
 
-def get_token_by_value(db: Session, token_value: str) -> Optional[TokenDB]:
-    """Fetches a single token by its raw value by checking the stored hash."""
-    all_tokens = db.execute(select(TokenDB)).scalars().all()
-    for token in all_tokens:
-        hashed_token_bytes = token.hashed_token.encode('utf-8') if isinstance(token.hashed_token, str) else token.hashed_token
-        if bcrypt.checkpw(token_value.encode('utf-8'), hashed_token_bytes):
-            return token
-    return None
+# REMOVED the old inefficient get_token_by_value function
+# def get_token_by_value(db: Session, token_value: str) -> Optional[TokenDB]: ...
+
+# +++ ADDED efficient lookup by prefix +++
+def get_token_by_prefix(db: Session, token_prefix: str) -> Optional[TokenDB]:
+    """
+    Fetches a single token efficiently by its unique prefix.
+    Assumes the 'token_prefix' column is indexed and unique.
+    """
+    statement = select(TokenDB).where(TokenDB.token_prefix == token_prefix)
+    result = db.execute(statement).scalar_one_or_none()
+    return result
+# --- END ADDITION ---
 
 def get_user_tokens(db: Session, owner_email: str) -> List[TokenDB]:
     """Fetches all tokens owned by a specific user."""
@@ -68,9 +73,16 @@ def get_user_tokens(db: Session, owner_email: str) -> List[TokenDB]:
     return results
 
 async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_email: str) -> TokenDB:
-    """Creates a new token for a user, handling v3 fields.""" # Updated docstring
-    raw_token_value = secrets.token_urlsafe(32)
-    hashed_value = bcrypt.hashpw(raw_token_value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    """Creates a new token for a user, handling v3 fields and using prefix/secret strategy.""" # Updated docstring
+    
+    # 1. Generate Prefix (ensure uniqueness might require a loop/check in rare cases, relying on DB constraint for now)
+    prefix = f"kb_{secrets.token_hex(4)}" # e.g., kb_a1b2c3d4
+    
+    # 2. Generate Secret Part
+    secret_part = secrets.token_urlsafe(32) # Keep secret length reasonable
+    
+    # 3. Hash ONLY the secret part
+    hashed_secret = bcrypt.hashpw(secret_part.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
     expiry_datetime = None
     if token_data.expiry_days is not None and token_data.expiry_days > 0:
@@ -90,18 +102,21 @@ async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_e
         name=token_data.name,
         description=token_data.description,
         sensitivity=token_data.sensitivity,
-        hashed_token=hashed_value,
+        # --- Store prefix and hashed secret ---
+        token_prefix=prefix,          # Store the generated prefix
+        hashed_token=hashed_secret,   # Store the hash of the secret part
+        # --- End storage change ---
         owner_email=owner_email,
         expiry=expiry_datetime,
         is_active=True,
         is_editable=token_data.is_editable,
-        allow_rules=token_data.allow_rules or [], 
+        allow_rules=token_data.allow_rules or [],
         deny_rules=token_data.deny_rules or [],
         # Do not store embeddings upon creation
         allow_embeddings=None,
         deny_embeddings=None,
         # --- NEW v3 Fields ---
-        token_type=token_data.token_type, 
+        token_type=token_data.token_type,
         provider_base_url=token_data.provider_base_url if token_data.token_type == TokenType.SHARE else None,
         audience=token_data.audience,
         # accepted_by/at are set when a receiver accepts a share token, not on creation
@@ -111,11 +126,26 @@ async def create_user_token(db: Session, token_data: TokenCreateRequest, owner_e
         row_limit=token_data.row_limit,
         # --- End NEW v3 Fields ---
     )
-    db.add(db_token)
-    db.commit()
-    db.refresh(db_token)
+    try:
+        db.add(db_token)
+        db.commit()
+        db.refresh(db_token)
+    except Exception as e:
+        db.rollback()
+        # Handle potential unique constraint violation on prefix (rare)
+        if "UniqueViolationError" in str(e) or "duplicate key value violates unique constraint" in str(e).lower():
+             logger.error(f"Token prefix collision for prefix '{prefix}'. This should be rare. Consider retry logic if frequent.")
+             # Reraise or handle as appropriate, maybe raise HTTPException 500?
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate unique token prefix. Please try again.") from e
+        else:
+             logger.error(f"Database error creating token: {e}", exc_info=True)
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database error during token creation.") from e
 
-    setattr(db_token, 'token_value', raw_token_value) # Return raw token only on creation
+
+    # 4. Construct the full token to return ONLY ONCE
+    full_token_value = f"{prefix}_{secret_part}"
+    setattr(db_token, 'token_value', full_token_value) # Attach raw token for the response model
+
     return db_token
 
 async def update_user_token(db: Session, token_id: int, token_update_data: TokenUpdateRequest) -> Optional[TokenDB]:

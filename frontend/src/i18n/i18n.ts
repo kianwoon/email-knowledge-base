@@ -23,13 +23,19 @@ const i18nOptions: InitOptions = {
   },
   // Debug mode in development
   debug: process.env.NODE_ENV === 'development',
-  // Resources containing translations - only 'en' and 'cn'
+  // Resources containing translations - add 'zh' and 'zh-CN' as aliases to 'cn'
   resources: {
     en: {
       translation: enTranslation
     },
     cn: {
       translation: cnTranslation
+    },
+    zh: {
+      translation: cnTranslation  // Same translations as 'cn'
+    },
+    'zh-CN': {
+      translation: cnTranslation  // Same translations as 'cn'
     }
   },
   // Detect and cache language on

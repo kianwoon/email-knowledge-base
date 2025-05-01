@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body, Request, Re
 from sqlalchemy.orm import Session
 import uuid
 
+from pymilvus import MilvusClient
+
 from ..services import token_service
 from ..models.user import User
 from ..db.session import get_db
@@ -16,7 +18,7 @@ from app.dependencies.auth import get_current_active_user
 from ..models.token_models import (
     TokenResponse, TokenCreateRequest, TokenUpdateRequest, 
     TokenExport, TokenDB, TokenBundleRequest, 
-    TokenCreateResponse, TokenType
+    TokenCreateResponse, TokenType, SharedMilvusResult
 )
 from ..crud.token_crud import (
     create_user_token, 
@@ -37,10 +39,10 @@ from ..models.external_audit_log import ExternalAuditLog
 
 # Import necessary types and functions
 from sqlalchemy import func, select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.db.milvus_client import get_milvus_client # Import Milvus client getter
-from app.services.embedder import create_embedding # Import embedding function
+from app.services.embedder import create_embedding, search_milvus_knowledge, rerank_results
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -532,3 +534,164 @@ def token_db_to_response(token_db: TokenDB) -> TokenResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal error processing token data for token ID {token_id}."
         ) 
+
+# --- NEW Endpoint for Testing Token Search --- 
+
+class TestSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="The search query string to test.")
+
+# Define potential error responses for documentation
+TEST_SEARCH_RESPONSES = {
+    401: {"description": "Unauthorized: User not authenticated."},
+    403: {"description": "Forbidden: User does not own the specified token, or token is inactive/expired."},
+    404: {"description": "Not Found: Token ID not found, or Milvus collection for owner not found."},
+    422: {"description": "Validation Error: Invalid input query."},
+    500: {"description": "Internal Server Error."},
+}
+
+@router.post(
+    "/{token_id}/test-search", 
+    response_model=List[SharedMilvusResult], 
+    summary="Test Token Search Permissions (Milvus Only)",
+    description="""
+Allows the token owner to test the search results returned for a specific token 
+against their own Milvus knowledge base, applying the token's permissions.
+
+Authentication requires a valid user session (cookie/JWT).
+
+**Note:** This simulates the filtering applied by the public `/shared-knowledge/search` endpoint 
+but operates on the owner's data and uses the owner's authentication.
+    """,
+    responses=TEST_SEARCH_RESPONSES
+)
+async def test_token_search(
+    token_id: int,
+    request_body: TestSearchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user), # Authenticate the user making the request
+    milvus_client: MilvusClient = Depends(get_milvus_client)
+):
+    logger.info(f"User {current_user.email} initiating test search for token ID {token_id} with query: '{request_body.query}'")
+
+    # 1. Fetch the token
+    token = token_crud.get_token_by_id(db, token_id=token_id)
+    if not token:
+        logger.warning(f"Test search failed: Token ID {token_id} not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
+
+    # 2. Verify ownership
+    if token.owner_email != current_user.email:
+        logger.warning(f"Test search forbidden: User {current_user.email} does not own token ID {token_id} (Owner: {token.owner_email}).")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not own this token.")
+        
+    # 3. Verify token is active/valid (optional but recommended for meaningful test)
+    now = datetime.now(timezone.utc)
+    is_expired = token.expiry is not None and token.expiry <= now
+    if not token.is_active or is_expired:
+        status_detail = "expired" if is_expired else "inactive"
+        logger.warning(f"Test search blocked: Token ID {token_id} is {status_detail}.")
+        # Use 403 to indicate the token itself is unusable, even for testing
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Token is {status_detail} and cannot be tested.")
+
+    # 4. Perform the search logic (adapted from /shared-knowledge/search)
+    try:
+        # Determine target collection based on token owner (which is the current_user)
+        sanitized_email = token.owner_email.replace('@', '_').replace('.', '_')
+        target_collection_name = f"{sanitized_email}_knowledge_base_bm"
+        logger.info(f"Test search targeting collection: {target_collection_name}")
+
+        # Generate embedding for the query
+        query_embedding = await create_embedding(request_body.query)
+        if not query_embedding:
+             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Test search failed: Could not generate query embedding.")
+
+        # Generate Milvus filter based on the specific token being tested
+        milvus_filter_expression = token_crud.create_milvus_filter_from_token(token)
+        logger.debug(f"Test search using Milvus filter for token {token.id}: {milvus_filter_expression}")
+
+        # Perform the search - Use a reasonable limit for testing, but respect token limit
+        # Maybe use a fixed test limit or make it configurable?
+        # Let's use the token's row_limit, capped at a reasonable max (e.g., 100)
+        test_limit = min(token.row_limit, 100) 
+        logger.debug(f"Test search performing Milvus search with effective limit: {test_limit}")
+        
+        results = await search_milvus_knowledge(
+            collection_name=target_collection_name,
+            query_texts=[request_body.query],
+            limit=test_limit, # Use the calculated test limit
+            filter_expr=milvus_filter_expression
+        )
+
+        dense_search_results = results[0] if results and isinstance(results, list) and len(results) > 0 else []
+        logger.info(f"Test search initial dense search found {len(dense_search_results)} results. Reranking...")
+
+        # Rerank the results
+        reranked_results = await rerank_results(query=request_body.query, results=dense_search_results)
+        logger.info(f"Test search reranking complete. Found {len(reranked_results)} results before applying token projections.")
+
+        # Apply Token Scope: Column Projection and Attachment Filtering
+        processed_results = []
+        essential_keys = ['id', 'score']
+        attachment_keys = ['attachments', 'attachment_info', 'files', 'file_data']
+        # Counters not strictly needed for test response, but logic is reused
+        column_block_count = 0
+        attachment_redaction_count = 0 
+
+        for result in reranked_results:
+            processed_result = {}
+            metadata = result.get('metadata', {}) # Safely get metadata
+            original_metadata_keys = set(metadata.keys())
+
+            for key in essential_keys:
+                if key in result:
+                    processed_result[key] = result[key]
+
+            filtered_metadata = {}
+            if token.allow_columns:
+                allowed_col_set = set(token.allow_columns)
+                blocked_cols = []
+                for col_key, col_value in metadata.items():
+                    if col_key in allowed_col_set:
+                        filtered_metadata[col_key] = col_value
+                    else:
+                        if col_key not in essential_keys and col_key not in attachment_keys:
+                            blocked_cols.append(col_key)
+                if blocked_cols:
+                     column_block_count += len(blocked_cols)
+            else:
+                filtered_metadata = metadata.copy()
+
+            if not token.allow_attachments:
+                keys_before_filter = set(filtered_metadata.keys())
+                for attach_key in attachment_keys:
+                    if attach_key in filtered_metadata:
+                        del filtered_metadata[attach_key]
+                if len(keys_before_filter.intersection(attachment_keys)) > 0:
+                    attachment_redaction_count += 1
+
+            processed_result['metadata'] = filtered_metadata
+            # Validate against the response model field before adding
+            # Although FastAPI handles response model validation, adding check here for clarity
+            if SharedMilvusResult.model_validate(processed_result, strict=False): # Use strict=False if needed
+                processed_results.append(processed_result)
+            else:
+                 logger.warning(f"Test search skipped result due to validation failure against SharedMilvusResult: {processed_result}")
+
+        final_limited_results = processed_results # Already limited by test_limit
+
+        logger.info(f"Test search for token {token.id} returning {len(final_limited_results)} processed results.")
+        return final_limited_results
+
+    except HTTPException as http_exc:
+        # Re-raise specific exceptions (like 404 from search_milvus_knowledge if collection missing)
+        raise http_exc 
+    except Exception as e:
+        logger.error(f"Error during test search for token {token_id} (Owner: {current_user.email}): {e}", exc_info=True)
+        # Check for specific Milvus collection not found error like in the other endpoint
+        target_collection_name_on_error = f"{token.owner_email.replace('@','_').replace('.','_')}_knowledge_base_bm"
+        if "collection not found" in str(e).lower() and target_collection_name_on_error in str(e):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Knowledge base collection for token owner not found.")
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred during the test search.")
+
+# --- End NEW Endpoint --- 

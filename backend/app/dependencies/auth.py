@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import requests
 import asyncio
 from starlette.concurrency import run_in_threadpool
+import bcrypt
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -510,49 +511,115 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 # --- Copied Token Validation Dependency --- 
 
 async def get_validated_token(
-    authorization: Optional[str] = Security(api_key_header),
+    authorization: Optional[str] = Security(api_key_header_scheme),
     db: Session = Depends(get_db)
 ) -> TokenDB:
     """
-    Validates the Bearer token from the Authorization header.
-    Checks hash, active status, and expiry.
+    Dependency to validate an API token (prefix_secret format) provided in the
+    Authorization header (as a Bearer token) and return the corresponding TokenDB object.
+
+    Raises HTTPException 401/403 if validation fails.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Could not validate API token credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
-    if authorization is None or not authorization.lower().startswith("bearer "):
-        logger.debug("Authorization header missing or not Bearer")
+    forbidden_exception = HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="API token is inactive, expired, or invalid format", # Updated detail
+    )
+
+    logger.debug(f"get_validated_token: Raw Authorization header: {authorization}")
+
+    if authorization is None or not authorization.startswith("Bearer "):
+        logger.warning("Missing or invalid Authorization Bearer header for token validation.")
         raise credentials_exception
 
-    token_value = authorization.split(" ", 1)[1]
-    if not token_value:
-        logger.debug("Bearer token value missing")
+    full_token_value = authorization.split("Bearer ")[1].strip()
+    if not full_token_value:
+        logger.warning("Bearer token value is empty after stripping.")
         raise credentials_exception
 
-    # Fetch token by comparing hashes (logic from existing crud.get_token_by_value)
-    # Ensure token_crud is imported
-    db_token = token_crud.get_token_by_value(db, token_value)
+    # --- NEW: Split token into prefix and secret part --- 
+    try:
+        prefix, secret_part = full_token_value.split('_', 1) # Split only on the first underscore
+        if not prefix or not secret_part:
+            raise ValueError("Token format incorrect, missing prefix or secret part after split.")
+        # Optional: Add more prefix format validation if needed (e.g., length, starting chars)
+        if not prefix.startswith("kb_") or len(prefix) != 11: # Example validation: kb_ + 8 hex chars
+             logger.warning(f"Invalid token prefix format: '{prefix}'")
+             raise ValueError("Invalid token prefix format.")
+             
+    except ValueError as e:
+        logger.error(f"Failed to parse token format: {e}. Input: {full_token_value}")
+        raise forbidden_exception # Use 403 for invalid format
+    # --- END Split --- 
 
-    if db_token is None:
-        # Avoid logging token value directly
-        logger.debug(f"Token not found for provided Bearer token.") 
-        raise credentials_exception
+    token_preview = f"{prefix}_...{secret_part[-5:]}" if len(secret_part) > 5 else f"{prefix}_..."
+    logger.info(f"Attempting to validate token with prefix: {prefix}, preview: {token_preview}")
 
-    # Check if token is active and not expired
-    now = datetime.now(timezone.utc)
-    is_expired = db_token.expiry is not None and db_token.expiry <= now
-    if not db_token.is_active or is_expired:
-        logger.warning(f"Token {db_token.id} is inactive or expired.")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Token is inactive or expired"
-        )
+    # --- NEW: Lookup token by prefix --- 
+    # TODO: Implement get_token_by_prefix in token_crud.py
+    token_db = token_crud.get_token_by_prefix(db, token_prefix=prefix)
+    # --- END Lookup ---
 
-    # Log success with token ID and owner for traceability
-    logger.info(f"Successfully validated token {db_token.id} for owner {db_token.owner_email}")
-    return db_token
+    if not token_db:
+        logger.warning(f"No token found matching prefix: {prefix}.")
+        raise credentials_exception # Use 401 if prefix doesn't exist
+
+    # --- REVISED: Validate hash using secret_part --- 
+    if not hasattr(token_db, 'hashed_token') or not token_db.hashed_token:
+         logger.error(f"Token {token_db.id} (Prefix: {prefix}) found but missing hashed_token field. Configuration error.")
+         raise forbidden_exception
+
+    try:
+        secret_part_bytes = secret_part.encode('utf-8')
+        # Ensure stored hash is bytes (handle potential DB storage inconsistencies)
+        stored_hash_str = token_db.hashed_token
+        if isinstance(stored_hash_str, str):
+             hashed_token_bytes = stored_hash_str.encode('utf-8')
+        elif isinstance(stored_hash_str, bytes):
+             hashed_token_bytes = stored_hash_str
+        else:
+             logger.error(f"Token {token_db.id} (Prefix: {prefix}) has unexpected type for hashed_token: {type(stored_hash_str)}.")
+             raise forbidden_exception
+
+        is_valid_hash = bcrypt.checkpw(secret_part_bytes, hashed_token_bytes)
+
+        if not is_valid_hash:
+            logger.warning(f"Token {token_db.id} (Prefix: {prefix}) hash verification failed.")
+            raise credentials_exception # Use 401 for invalid credentials (wrong secret part)
+
+        logger.debug(f"Token {token_db.id} (Prefix: {prefix}) hash verification successful.")
+
+    except Exception as e:
+        logger.error(f"Error during bcrypt hash check for token {token_db.id} (Prefix: {prefix}): {e}", exc_info=True)
+        # Consider 500 Internal Server Error for unexpected bcrypt issues?
+        raise forbidden_exception # Or 500?
+
+    # --- END HASH VALIDATION --- 
+
+    # Check if token is active
+    if not token_db.is_active:
+        logger.warning(f"Token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email}) is inactive.")
+        raise forbidden_exception # Use 403 Forbidden for inactive/expired/format issues
+
+    # Check expiry
+    if token_db.expiry and token_db.expiry < datetime.now(timezone.utc):
+        logger.warning(f"Token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email}) expired at {token_db.expiry}.")
+        raise forbidden_exception # Use 403 Forbidden
+
+    # TODO: Implement Audience Check (IP/Org Restrictions) if token_db.audience is set
+    # Requires access to the request object to get client IP
+    # Example: 
+    # request: Request = Depends() # Add request dependency if needed here
+    # request_ip = request.client.host
+    # if token_db.audience and not check_audience(request_ip, token_db.audience):
+    #    logger.warning(f"Token {token_db.id} used from disallowed source IP: {request_ip}. Audience: {token_db.audience}")
+    #    raise forbidden_exception
+
+    logger.info(f"Successfully validated token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email})")
+    return token_db
 
 # --- End Copied Dependency --- 

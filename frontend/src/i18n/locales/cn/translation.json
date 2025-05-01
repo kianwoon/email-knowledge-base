@@ -1284,7 +1284,8 @@
     },
     "actions": {
         "edit": "编辑令牌",
-        "delete": "删除令牌"
+        "delete": "删除令牌",
+        "test": "测试令牌"
     },
     "noActiveTokens": "没有找到活跃令牌。",
     "noActiveTokensSearch": "没有找到匹配搜索的活跃令牌。",
@@ -1298,9 +1299,6 @@
     "deleteDialog": {
         "title": "删除令牌",
         "message": "您确定要删除此令牌吗？此操作无法撤消。"
-    },
-    "errors": {
-      "loadFailed": "加载令牌失败。请尝试刷新页面。"
     }
   },
   "createTokenModal": {
@@ -1728,6 +1726,23 @@
       "downloadFailedTitle": "下载失败",
       "processSyncListError": "处理同步列表时出错",
       "noDriveSelected": "未选择文档库"
+    }
+  },
+  "testTokenModal": {
+    "title": "测试令牌搜索",
+    "queryLabel": "测试查询",
+    "queryPlaceholder": "输入搜索查询...",
+    "runButton": "运行测试搜索",
+    "loading": "搜索中...",
+    "resultsTitle": "结果",
+    "noResultsFound": "未找到符合查询和令牌权限的结果。",
+    "errors": {
+      "missingInput": "请输入查询内容。",
+      "searchFailed": "测试搜索失败。"
+    },
+    "toast": {
+      "noResultsTitle": "无结果",
+      "noResultsDesc": "根据令牌权限，您的测试查询未返回任何结果。"
     }
   }
 }

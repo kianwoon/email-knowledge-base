@@ -41,7 +41,7 @@ import {
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
-import { FaPlus, FaEdit, FaTrash, FaSearch } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaSearch, FaPlay } from 'react-icons/fa';
 import {
   getUserTokens,
   Token,
@@ -49,6 +49,7 @@ import {
 } from '../api/token';
 import CreateTokenModal from '../components/modals/CreateTokenModal';
 import EditTokenModal from '../components/modals/EditTokenModal';
+import TestTokenModal from '../components/modals/TestTokenModal';
 
 const TokenManagementPage: React.FC = () => {
   const { colorMode } = useColorMode();
@@ -67,6 +68,10 @@ const TokenManagementPage: React.FC = () => {
   const [tokenToDelete, setTokenToDelete] = useState<number | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const { isOpen: isTestModalOpen, onOpen: onTestModalOpen, onClose: onTestModalClose } = useDisclosure();
+  const [testingTokenId, setTestingTokenId] = useState<number | null>(null);
+  const [testingTokenName, setTestingTokenName] = useState<string>('');
 
   const fetchUserTokens = useCallback(async () => {
     setIsLoading(true);
@@ -94,6 +99,12 @@ const TokenManagementPage: React.FC = () => {
   const handleDeleteToken = (tokenId: number) => {
     setTokenToDelete(tokenId);
     onDeleteDialogOpen();
+  };
+
+  const handleTestToken = (tokenId: number, tokenName: string) => {
+    setTestingTokenId(tokenId);
+    setTestingTokenName(tokenName || '');
+    onTestModalOpen();
   };
 
   const confirmDeleteToken = async () => {
@@ -173,11 +184,23 @@ const TokenManagementPage: React.FC = () => {
                 <Td>
                   <HStack spacing={2}>
                     <IconButton
+                      aria-label={t('tokenManagementPage.actions.test', 'Test Token')}
+                      icon={<FaPlay />}
+                      size="sm"
+                      onClick={() => handleTestToken(token.id, token.name)}
+                      isDisabled={isLoading}
+                      colorScheme="blue"
+                      variant="ghost"
+                      title={t('tokenManagementPage.actions.test', 'Test Token')}
+                    />
+                    <IconButton
                       aria-label={t('tokenManagementPage.actions.edit', 'Edit Token')}
                       icon={<FaEdit />}
                       size="sm"
                       onClick={() => handleEditToken(token.id)}
                       isDisabled={isLoading}
+                      variant="ghost"
+                      title={t('tokenManagementPage.actions.edit', 'Edit Token')}
                     />
                     <IconButton
                       aria-label={t('tokenManagementPage.actions.delete', 'Delete Token')}
@@ -186,6 +209,8 @@ const TokenManagementPage: React.FC = () => {
                       colorScheme="red"
                       onClick={() => handleDeleteToken(token.id)}
                       isDisabled={isLoading}
+                      variant="ghost"
+                      title={t('tokenManagementPage.actions.delete', 'Delete Token')}
                     />
                   </HStack>
                 </Td>
@@ -306,6 +331,17 @@ const TokenManagementPage: React.FC = () => {
             fetchUserTokens();
         }}
         tokenId={editingTokenId}
+      />
+
+      <TestTokenModal
+        isOpen={isTestModalOpen}
+        onClose={() => {
+            onTestModalClose();
+            setTestingTokenId(null);
+            setTestingTokenName('');
+        }}
+        tokenId={testingTokenId}
+        tokenName={testingTokenName}
       />
 
       <AlertDialog
