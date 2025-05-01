@@ -28,7 +28,8 @@ from ..crud.token_crud import (
     delete_user_token,
     get_active_tokens,
     prepare_bundled_token_data,
-    create_bundled_token
+    create_bundled_token,
+    create_milvus_filter_from_token
 )
 
 # Import datetime for expiry check
@@ -574,7 +575,7 @@ async def test_token_search(
     logger.info(f"User {current_user.email} initiating test search for token ID {token_id} with query: '{request_body.query}'")
 
     # 1. Fetch the token
-    token = token_crud.get_token_by_id(db, token_id=token_id)
+    token = get_token_by_id(db, token_id=token_id)
     if not token:
         logger.warning(f"Test search failed: Token ID {token_id} not found.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
@@ -606,7 +607,7 @@ async def test_token_search(
              raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Test search failed: Could not generate query embedding.")
 
         # Generate Milvus filter based on the specific token being tested
-        milvus_filter_expression = token_crud.create_milvus_filter_from_token(token)
+        milvus_filter_expression = create_milvus_filter_from_token(token)
         logger.debug(f"Test search using Milvus filter for token {token.id}: {milvus_filter_expression}")
 
         # Perform the search - Use a reasonable limit for testing, but respect token limit
