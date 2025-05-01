@@ -463,7 +463,7 @@ const TokenManagementPage: React.FC = () => {
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.endpointTitle', 'API Endpoint')}</Heading>
                             <Text mb={1}>{t('tokenManagementPage.guide.endpointPath', 'The endpoint for querying shared knowledge is:')}</Text>
-                            <Code p={2} borderRadius="md" width="100%">{t('tokenManagementPage.guide.endpointValue', 'GET /api/v1/shared-knowledge/search')}</Code>
+                            <Code p={2} borderRadius="md" width="100%">{t('tokenManagementPage.guide.endpointValue', 'POST /api/v1/shared-knowledge/search')}</Code>
                         </Box>
 
                         <Box>
@@ -473,23 +473,27 @@ const TokenManagementPage: React.FC = () => {
                         </Box>
 
                         <Box>
-                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.queryParametersTitle', 'Query Parameters')}</Heading>
-                            <Text mb={1}>{t('tokenManagementPage.guide.queryParametersInstructions', 'Append your search query and optional limit as URL query parameters:')}</Text>
-                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
-                                {t('tokenManagementPage.guide.queryParametersValue', '?query=your%20search%20query%20here&limit=10')}
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.requestBodyTitle', 'Request Body')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.requestBodyInstructions', 'Send a JSON object in the request body with the following fields:')}</Text>
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre-wrap">
+                                {t('tokenManagementPage.guide.requestBodyValue', 
+`{
+  "query": "your search query here",
+  "limit": 10
+}`)}
                             </Code>
-                            <Text fontSize="sm" mt={1}>{t('tokenManagementPage.guide.queryParametersNote', 'Ensure the query parameter is URL-encoded. The limit parameter is optional (default: 10).')}</Text>
+                            <Text fontSize="sm" mt={1}>{t('tokenManagementPage.guide.requestBodyNote', 'The `query` field is required. The `limit` field is optional (default: 10).')}</Text>
                         </Box>
                         
                         <Box>
                             <Heading size="md" mb={2}>{t('tokenManagementPage.guide.curlExampleTitle', 'Example cURL Request')}</Heading>
-                             <Text mb={1}>{t('tokenManagementPage.guide.curlExampleNote', 'Use -G to send parameters in the URL for a GET request:')}</Text>
+                             <Text mb={1}>{t('tokenManagementPage.guide.curlExampleNote', 'Use -X POST and -d for the JSON body:')}</Text>
                             <Code p={2} borderRadius="md" display="block" whiteSpace="pre-wrap">
-                              {t('tokenManagementPage.guide.curlExampleValue', `curl -G YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
+                              {t('tokenManagementPage.guide.curlExampleValue', 
+`curl -X POST YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
   -H "Authorization: Bearer YOUR_PREFIX.YOUR_SECRET" \ 
-  -H "Accept: application/json" \ 
-  --data-urlencode "query=What were the key decisions made last quarter?" \ 
-  --data-urlencode "limit=10"`)}
+  -H "Content-Type: application/json" \ 
+  -d '{ "query": "What were the key decisions made last quarter?", "limit": 10 }'`)}
                             </Code>
                              <Text fontSize="sm" mt={1}>{t('tokenManagementPage.guide.curlReplaceNote', 'Replace `YOUR_API_BASE_URL` with the actual base URL of the application and `YOUR_PREFIX.YOUR_SECRET` with your token.')}</Text>
                         </Box>

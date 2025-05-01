@@ -26,7 +26,8 @@ import {
   Text,
   Spinner,
   useColorModeValue,
-  useBreakpointValue
+  useBreakpointValue,
+  Spacer
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
@@ -95,6 +96,10 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
 
   // Check if language is Chinese (use 'cn')
   const isChinese = i18n.language === 'cn' || i18n.language.startsWith('zh');
+
+  // Reduce menu button padding for Chinese mode
+  const menuButtonPadding = isChinese ? 2 : 4;
+  const navButtonPadding = isChinese ? 2 : 4;
 
   // User menu component
   const UserMenu = () => {
@@ -175,8 +180,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
       zIndex="sticky"
     >
       <Container maxW="1400px" py={2}>
-        <Flex justify="space-between" align="center">
-          {/* Logo and Brand */}
+        <Flex align="center" justify="space-between">
           <Flex align="center">
             <Box
               as={RouterLink}
@@ -190,7 +194,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
             </Box>
 
             {/* Desktop Navigation */}
-            <HStack spacing={1} display={{ base: 'none', md: 'flex' }}>
+            <HStack spacing={isChinese ? 12 : 1} display={{ base: 'none', md: 'flex' }}>
               {navItems.map((item) => (
                 item.children ? (
                   // Render Menu for items with children
@@ -210,13 +214,12 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                     </MenuButton>
                     <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
                       {item.children.map((child) => {
-                        // Create props object, adding 'to' only if not disabled
                         const linkProps = !child.disabled ? { to: child.path } : {};
                         return (
                           <MenuItem
                             key={child.path}
                             as={child.disabled ? 'button' : RouterLink}
-                            {...linkProps} // Spread the conditional props
+                            {...linkProps}
                             icon={<Icon as={child.icon} />}
                             isDisabled={child.disabled}
                             onClick={child.disabled ? (e) => e.preventDefault() : undefined}
@@ -229,7 +232,6 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                     </MenuList>
                   </Menu>
                 ) : (
-                  // Render Button for items without children
                   <Button
                     key={item.path}
                     as={RouterLink}
@@ -251,7 +253,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
             </HStack>
           </Flex>
 
-          {/* Right side controls */}
+          {/* Right side controls - remove ml="auto" */}
           <HStack spacing={2}>
             {/* Language Switcher */}
             <Menu>

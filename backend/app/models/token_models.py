@@ -209,4 +209,13 @@ class SharedMilvusResult(BaseModel):
     model_config = ConfigDict(
         from_attributes=True, # Allow creation from ORM/DB objects if needed elsewhere
     )
+
+# NEW: Request body model for POST /search
+class SharedSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="The search query string.")
+    limit: int = Field(10, ge=1, le=100, description="Maximum number of search results to return (subject to token row limit). Default is 10.")
+
+# Pydantic model for creating a token
+class TokenCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
 # --- END ADDITION --- 

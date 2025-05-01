@@ -14,7 +14,7 @@ import bcrypt
 from ..db.session import get_db
 # Use Milvus client dependency
 from ..db.milvus_client import get_milvus_client
-from ..models.token_models import TokenDB, SharedMilvusResult # Import new response model
+from ..models.token_models import TokenDB, SharedMilvusResult, SharedSearchRequest # Import new response model and request body model
 from ..crud import token_crud
 # Import the specific search function we need
 from ..services.embedder import create_embedding, search_milvus_knowledge, rerank_results
@@ -51,7 +51,7 @@ router = APIRouter(
 from app.dependencies.auth import get_validated_token
 
 # Updated response_model and expanded docstring
-@router.get(
+@router.post(
     "/search", 
     response_model=List[SharedMilvusResult], # Use the specific model
     summary="Search Shared Knowledge Base (Milvus Only)",
@@ -59,23 +59,30 @@ from app.dependencies.auth import get_validated_token
 Performs a semantic search *only* on the Milvus vector store portion of a shared knowledge base,
 using a valid API token (`Authorization: Bearer <prefix_secret>`).
 
+**Request Body:**
+*   `query` (string, required): The search query string.
+*   `limit` (integer, optional): Maximum number of search results (default 10, max 100, subject to token row limit).
+
 **Access Control:**
 The search results are filtered based on the provided token's permissions:
 *   **Row-Level Filtering:** Applies sensitivity level checks and `allow_rules` (interpreted as `department` filters) defined in the token.
 *   **Column Filtering:** The `metadata` returned for each result includes only the columns specified in the token's `allow_columns` list. If `allow_columns` is null or empty, all available metadata columns are returned (subject to attachment filtering).
 *   **Attachment Filtering:** If the token's `allow_attachments` is `false`, known attachment-related keys (e.g., 'attachments', 'file_data') are removed from the `metadata`.
-*   **Result Limit:** The number of results is capped by the minimum of the `limit` query parameter and the token's `row_limit`.
+*   **Result Limit:** The number of results is capped by the minimum of the `limit` from the request body and the token's `row_limit`.
 
 **Note:** This endpoint currently **does not** search the structured data stored in Iceberg.
 Deny rules (`deny_rules`) in the token are **not** currently applied.
     """
 )
 async def search_shared_knowledge(
-    query: str = Query(..., min_length=1, description="The search query string."),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of search results to return (subject to token row limit). Default is 10."),
+    request_body: SharedSearchRequest, # Accept request body
     token: TokenDB = Depends(get_validated_token), # Use the dependency
     milvus_client: MilvusClient = Depends(get_milvus_client) # Milvus client dependency
 ):
+    # Get query and limit from request body
+    query = request_body.query
+    limit = request_body.limit
+    
     logger.info(f"Shared search request received using token {token.id} (Owner: {token.owner_email}), Query: '{query}'")
 
     try:
