@@ -14,6 +14,7 @@ import re
 from collections import Counter
 import json
 import asyncio
+import copy # <-- ADD IMPORT FOR DEEPCOPY
 
 def text_to_term_freq(text: str) -> Dict[str, int]:
     tokens = re.findall(r"\w+", text.lower())
@@ -409,9 +410,17 @@ def safe_get_metadata(hit) -> Dict:
                       if isinstance(parsed_meta, dict):
                            return parsed_meta
                  except json.JSONDecodeError:
+                      # --- Modified Warning Log ---
+                      # Avoid logging the full hit which might contain the vector
+                      hit_id = getattr(hit, 'id', None) or hit.get('id', '?') # Try to get ID safely
                       logger.warning(f"Metadata field was a string but failed JSON parsing: {raw_meta}")
                       return {}
-            logger.warning(f"Could not extract dictionary metadata from hit: {hit}. Structure: {dir(hit)}")
+            # --- Modified Warning Log ---
+            # Avoid logging the full hit which might contain the vector
+            hit_id = getattr(hit, 'id', None) or hit.get('id', '?') # Try to get ID safely
+            logger.warning(f"Could not extract dictionary metadata from hit ID '{hit_id}'. Hit type: {type(hit)}.")
+            # logger.warning(f"Could not extract dictionary metadata from hit: {hit}. Structure: {dir(hit)}") # Old log
+            # --- End Modified Log ---
             return {} # Return empty dict if extraction fails
     except Exception as e:
          logger.error(f"Unexpected error extracting metadata from hit {getattr(hit, 'id', '?')}: {e}", exc_info=True)
@@ -479,7 +488,35 @@ async def search_milvus_knowledge(
         for i, hits in enumerate(search_results):
             query_formatted_results = []
             logger.debug(f"Processing {len(hits)} hits for query {i+1}: '{query_texts[i]}'")
-            logger.debug(f"Raw hits for query {i+1}: {hits}") # <-- LOG RAW HITS
+            
+            # --- START: Modify Log for Raw Hits (Exclude Vector) ---
+            if logger.isEnabledFor(logging.DEBUG): # Only process if DEBUG is enabled
+                try:
+                    hits_for_log = []
+                    for hit_original in hits:
+                        # Create a deep copy to avoid modifying original results
+                        hit_copy = copy.deepcopy(hit_original)
+                        
+                        if isinstance(hit_copy, dict):
+                            # Remove vector field from top level if present
+                            if vector_field in hit_copy:
+                                del hit_copy[vector_field]
+                            # Remove vector field from entity sub-dict if present
+                            if 'entity' in hit_copy and isinstance(hit_copy['entity'], dict) and vector_field in hit_copy['entity']:
+                                del hit_copy['entity'][vector_field]
+                                # If entity becomes empty after removing vector, optionally remove entity itself
+                                # if not hit_copy['entity']:
+                                #     del hit_copy['entity']
+                            hits_for_log.append(hit_copy)
+                        else: 
+                           # Keep non-dict items as is (though unexpected)
+                           hits_for_log.append(hit_copy) 
+                    logger.debug(f"Raw hits (vector excluded) for query {i+1}: {hits_for_log}")
+                except Exception as log_e:
+                    logger.warning(f"Could not exclude vector field from raw hits log: {log_e}")
+                    # Log the original hits as a fallback ONLY if the processing failed
+                    logger.debug(f"Original raw hits for query {i+1}: {hits}") 
+            # --- END: Modify Log --- 
             
             for hit in hits:
                 try:
@@ -495,12 +532,19 @@ async def search_milvus_knowledge(
                         
                     # Use the safe helper to get metadata
                     metadata = safe_get_metadata(hit)
-                    # No need to log failure here, safe_get_metadata does it
                     
+                    # Get content safely
+                    content = hit.get('content', hit.get('entity', {}).get('content', ''))
+                    if not isinstance(content, str):
+                        logger.warning(f"Content field for hit ID {doc_id} is not a string, setting to empty.")
+                        content = '' # Ensure content is always a string
+                        
+                    # Include content in the formatted results for the reranker
                     query_formatted_results.append({
                         "id": doc_id,
                         "score": score,
-                        "metadata": metadata
+                        "metadata": metadata,
+                        "content": content
                     })
                 except Exception as e:
                     hit_id_str = str(hit.get('id', '[unknown ID]')) # Get ID safely for logging

@@ -574,129 +574,205 @@ async def test_token_search(
 ):
     logger.info(f"User {current_user.email} initiating test search for token ID {token_id} with query: '{request_body.query}'")
 
-    # 1. Fetch the token
+    # 1. Fetch the token and verify ownership
     token = get_token_by_id(db, token_id=token_id)
     if not token:
         logger.warning(f"Test search failed: Token ID {token_id} not found.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
-
-    # 2. Verify ownership
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
     if token.owner_email != current_user.email:
-        logger.warning(f"Test search forbidden: User {current_user.email} does not own token ID {token_id} (Owner: {token.owner_email}).")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not own this token.")
-        
-    # 3. Verify token is active/valid (optional but recommended for meaningful test)
-    now = datetime.now(timezone.utc)
-    is_expired = token.expiry is not None and token.expiry <= now
-    if not token.is_active or is_expired:
-        status_detail = "expired" if is_expired else "inactive"
-        logger.warning(f"Test search blocked: Token ID {token_id} is {status_detail}.")
-        # Use 403 to indicate the token itself is unusable, even for testing
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Token is {status_detail} and cannot be tested.")
+        logger.warning(f"Test search denied: User {current_user.email} does not own token {token_id}.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You do not own this token.")
+    if not token.is_active:
+        logger.warning(f"Test search failed: Token ID {token_id} is inactive.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token is inactive.")
 
-    # 4. Perform the search logic (adapted from /shared-knowledge/search)
+    # 2. Determine the target Milvus collection for the owner
+    # Directly generate the collection name from the user's email
+    sanitized_email = current_user.email.replace('@', '_').replace('.', '_')
+    collection_name = f"{sanitized_email}_knowledge_base_bm"
+    logger.info(f"Test search targeting collection: {collection_name}")
+
+    # 3. Create Milvus filter expression based on token rules
+    milvus_filter_expression = create_milvus_filter_from_token(token)
+    logger.debug(f"Test search using Milvus filter: {milvus_filter_expression}")
+
+    # 4. Search Milvus using the user's collection and token's filter
     try:
-        # Determine target collection based on token owner (which is the current_user)
-        sanitized_email = token.owner_email.replace('@', '_').replace('.', '_')
-        target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-        logger.info(f"Test search targeting collection: {target_collection_name}")
-
-        # Generate embedding for the query
-        query_embedding = await create_embedding(request_body.query)
-        if not query_embedding:
-             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Test search failed: Could not generate query embedding.")
-
-        # Generate Milvus filter based on the specific token being tested
-        milvus_filter_expression = create_milvus_filter_from_token(token)
-        logger.debug(f"Test search using Milvus filter for token {token.id}: {milvus_filter_expression}")
-
-        # Perform the search - Use a reasonable limit for testing, but respect token limit
-        # Maybe use a fixed test limit or make it configurable?
-        # Let's use the token's row_limit, capped at a reasonable max (e.g., 100)
-        test_limit = min(token.row_limit, 100) 
-        logger.debug(f"Test search performing Milvus search with effective limit: {test_limit}")
-        
+        # Search Milvus (uses BAAI/bge-m3 for embedding by default)
         results = await search_milvus_knowledge(
-            collection_name=target_collection_name,
             query_texts=[request_body.query],
-            limit=test_limit, # Use the calculated test limit
+            collection_name=collection_name,
+            limit=100, # Increase limit for initial retrieval before reranking/filtering
             filter_expr=milvus_filter_expression
         )
 
-        # Log the raw results from Milvus search before processing
-        # Use INFO level to ensure visibility
-        logger.info(f"Raw results received from search_milvus_knowledge: {results}") 
+        # Log the raw results received, EXCLUDING content for brevity
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                results_for_log = []
+                for result_list in results: # Results is List[List[Dict]]
+                    log_list = []
+                    for hit_dict in result_list:
+                        if isinstance(hit_dict, dict):
+                            log_hit = {k: v for k, v in hit_dict.items() if k != 'content'}
+                            log_list.append(log_hit)
+                        else:
+                            log_list.append(hit_dict)
+                    results_for_log.append(log_list)
+                logger.debug(f"Results received from search_milvus_knowledge (content excluded): {results_for_log}")
+            except Exception as log_e:
+                logger.warning(f"Could not exclude content field from results log: {log_e}")
+                logger.debug(f"Original results received from search_milvus_knowledge: {results}") # Fallback
+        # logger.debug(f"Raw results received from search_milvus_knowledge: {results}") # Old log
 
         dense_search_results = results[0] if results and isinstance(results, list) and len(results) > 0 else []
         logger.info(f"Test search initial dense search found {len(dense_search_results)} results. Reranking...")
 
-        # Rerank the results
+        # 5. Rerank the results
         reranked_results = await rerank_results(query=request_body.query, results=dense_search_results)
-        logger.info(f"Test search reranking complete. Found {len(reranked_results)} results before applying token projections.")
+        logger.info(f"Test search reranking complete. Found {len(reranked_results)} results before applying token allow/deny rules.")
 
-        # Apply Token Scope: Column Projection and Attachment Filtering
-        processed_results = []
-        essential_keys = ['id', 'score']
-        attachment_keys = ['attachments', 'attachment_info', 'files', 'file_data']
-        # Counters not strictly needed for test response, but logic is reused
-        column_block_count = 0
-        attachment_redaction_count = 0 
+        # --- START: Apply Allow Rule Filtering ---
+        allowed_results = []
+        allow_keywords = []
+        apply_allow_filter = False # Flag to check if allow rules are active
 
-        for result in reranked_results:
-            processed_result = {}
-            metadata = result.get('metadata', {}) # Safely get metadata
-            original_metadata_keys = set(metadata.keys())
+        if token.allow_rules:
+            raw_rules = token.allow_rules
+            try:
+                if isinstance(raw_rules, str):
+                    # Attempt to parse if it's a string
+                    allow_keywords = json.loads(raw_rules)
+                elif isinstance(raw_rules, list):
+                    # Use directly if it's already a list
+                    allow_keywords = raw_rules
+                else:
+                    logger.warning(f"Token {token.id} allow_rules has unexpected type: {type(raw_rules)}. Ignoring.")
+                    allow_keywords = []
 
-            for key in essential_keys:
-                if key in result:
-                    processed_result[key] = result[key]
+                # Now validate if we have a non-empty list
+                if isinstance(allow_keywords, list) and allow_keywords:
+                    apply_allow_filter = True
+                    allow_keywords = [str(keyword).lower() for keyword in allow_keywords]
+                    logger.info(f"Applying allow keywords: {allow_keywords}")
+                elif isinstance(allow_keywords, list): # It was an empty list
+                     logger.info(f"Token {token.id} allow_rules is an empty list. No allow filtering applied.")
+                     allow_keywords = []
+                else: # Parsing failed or resulted in non-list
+                    logger.warning(f"Token {token.id} allow_rules parsed, but is not a list: {allow_keywords}. Ignoring.")
+                    allow_keywords = []
+                    apply_allow_filter = False
 
-            filtered_metadata = {}
-            if token.allow_columns:
-                allowed_col_set = set(token.allow_columns)
-                blocked_cols = []
-                for col_key, col_value in metadata.items():
-                    if col_key in allowed_col_set:
-                        filtered_metadata[col_key] = col_value
-                    else:
-                        if col_key not in essential_keys and col_key not in attachment_keys:
-                            blocked_cols.append(col_key)
-                if blocked_cols:
-                     column_block_count += len(blocked_cols)
-            else:
-                filtered_metadata = metadata.copy()
+            except json.JSONDecodeError:
+                logger.warning(f"Token {token.id} allow_rules string could not be parsed as JSON: {raw_rules}. Ignoring allow rules.")
+                allow_keywords = []
+                apply_allow_filter = False
 
-            if not token.allow_attachments:
-                keys_before_filter = set(filtered_metadata.keys())
-                for attach_key in attachment_keys:
-                    if attach_key in filtered_metadata:
-                        del filtered_metadata[attach_key]
-                if len(keys_before_filter.intersection(attachment_keys)) > 0:
-                    attachment_redaction_count += 1
+        if apply_allow_filter:
+            for result in reranked_results:
+                content_lower = result.get('content', '').lower()
+                is_allowed = False
+                for keyword in allow_keywords:
+                    if keyword in content_lower:
+                        is_allowed = True
+                        break # Found an allowed keyword, keep this result
+                if is_allowed:
+                    allowed_results.append(result)
+                # else: logger.debug(f"Filtering out result ID {result.get('id')} because it doesn't match allow keywords: {allow_keywords}") # Optional debug log
+            logger.info(f"Applied allow rules. Kept {len(allowed_results)} out of {len(reranked_results)} results.")
+        else:
+            # No allow rules to apply, pass all reranked results through
+            allowed_results = reranked_results
+            logger.info("No active allow rules to apply.")
+        # --- END: Apply Allow Rule Filtering ---
 
-            processed_result['metadata'] = filtered_metadata
-            # Validate against the response model field before adding
-            # Although FastAPI handles response model validation, adding check here for clarity
-            if SharedMilvusResult.model_validate(processed_result, strict=False): # Use strict=False if needed
-                processed_results.append(processed_result)
-            else:
-                 logger.warning(f"Test search skipped result due to validation failure against SharedMilvusResult: {processed_result}")
 
-        final_limited_results = processed_results # Already limited by test_limit
+        # --- START: Apply Deny Rule Filtering (operates on allowed_results) ---
+        filtered_results = []
+        deny_keywords = []
+        if token.deny_rules:
+            raw_rules = token.deny_rules # Use a temporary variable
+            try:
+                if isinstance(raw_rules, str):
+                     # Attempt to parse if it's a string
+                    deny_keywords = json.loads(raw_rules)
+                elif isinstance(raw_rules, list):
+                     # Use directly if it's already a list
+                    deny_keywords = raw_rules
+                else:
+                    logger.warning(f"Token {token.id} deny_rules has unexpected type: {type(raw_rules)}. Ignoring.")
+                    deny_keywords = []
 
-        logger.info(f"Test search for token {token.id} returning {len(final_limited_results)} processed results.")
-        return final_limited_results
+                # Now validate if we have a list (could be empty)
+                if isinstance(deny_keywords, list):
+                    # Convert all keywords to lowercase for case-insensitive matching
+                    deny_keywords = [str(keyword).lower() for keyword in deny_keywords]
+                    if deny_keywords: # Log only if there are keywords to apply
+                        logger.info(f"Applying deny keywords: {deny_keywords}")
+                else:
+                    logger.warning(f"Token {token.id} deny_rules parsed, but is not a list: {deny_keywords}. Ignoring.")
+                    deny_keywords = []
+
+            except json.JSONDecodeError:
+                logger.warning(f"Token {token.id} deny_rules string could not be parsed as JSON: {raw_rules}. Ignoring deny rules.")
+                deny_keywords = []
+
+        if deny_keywords:
+            results_before_deny = len(allowed_results) # Log based on input to this stage
+            for result in allowed_results: # Iterate through results that passed the allow filter
+                content_lower = result.get('content', '').lower()
+                is_denied = False
+                for keyword in deny_keywords:
+                    if keyword in content_lower:
+                        is_denied = True
+                        logger.debug(f"Filtering out result ID {result.get('id')} due to deny keyword '{keyword}'.")
+                        break # No need to check other keywords for this result
+                if not is_denied:
+                    filtered_results.append(result)
+            logger.info(f"Applied deny rules. Kept {len(filtered_results)} out of {results_before_deny} results (after allow filter).")
+        else:
+            # No deny rules or invalid format, use all results that passed the allow filter
+            filtered_results = allowed_results
+            logger.info("No active deny rules to apply.")
+        # --- END: Apply Deny Rule Filtering ---
+
+
+        # 6. Apply token projection (select specific fields) - NOW ON FINAL filtered_results
+        projected_results = []
+        allowed_fields = set(getattr(token, 'allowed_fields', None) or SharedMilvusResult.model_fields.keys())
+        # Always include 'id' and 'score' if available, regardless of allowed_fields, for basic identification
+        base_fields = {'id', 'score'}
+        fields_to_include = base_fields.union(allowed_fields)
+
+        for result in filtered_results: # Use filtered_results here
+            projected_data = {
+                field: result.get(field)
+                for field in fields_to_include
+                if field in result # Only include if the field actually exists in the result
+            }
+            # Ensure score is present if possible
+            if 'score' not in projected_data and 'distance' in result:
+                projected_data['score'] = result['distance']
+
+            # Validate against the response model before appending
+            try:
+                projected_results.append(SharedMilvusResult(**projected_data))
+            except Exception as pydantic_error:
+                 logger.warning(f"Skipping result due to validation error after projection: {pydantic_error}. Original data: {result}, Projected: {projected_data}", exc_info=True)
+
+
+        logger.info(f"Test search for token {token_id} returning {len(projected_results)} processed results.")
+        return projected_results
 
     except HTTPException as http_exc:
-        # Re-raise specific exceptions (like 404 from search_milvus_knowledge if collection missing)
-        raise http_exc 
+        logger.error(f"HTTP exception during test search for token {token_id}: {http_exc.detail}")
+        raise http_exc
     except Exception as e:
-        logger.error(f"Error during test search for token {token_id} (Owner: {current_user.email}): {e}", exc_info=True)
-        # Check for specific Milvus collection not found error like in the other endpoint
-        target_collection_name_on_error = f"{token.owner_email.replace('@','_').replace('.','_')}_knowledge_base_bm"
-        if "collection not found" in str(e).lower() and target_collection_name_on_error in str(e):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Knowledge base collection for token owner not found.")
-        else:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An error occurred during the test search.")
+        logger.error(f"Unexpected error during test search for token {token_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during the test search."
+        )
 
+# --- End NEW Endpoint --- 
 # --- End NEW Endpoint --- 
