@@ -21,6 +21,7 @@
     "@fontsource/poppins": "^5.2.5",
     "@mui/icons-material": "^7.0.2",
     "@mui/material": "^7.0.2",
+    "@tanstack/react-table": "^8.19.3",
     "@types/react-datepicker": "^6.2.0",
     "@types/react-slick": "^0.23.13",
     "@types/uuid": "^10.0.0",
