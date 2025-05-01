@@ -610,6 +610,12 @@ async def get_validated_token(
         logger.warning(f"Token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email}) expired at {token_db.expiry}.")
         raise forbidden_exception # Use 403 Forbidden
 
+    # Verify the secret using bcrypt
+    # Ensure both the provided secret AND the stored hash are bytes
+    if not token_db.hashed_secret or not bcrypt.checkpw(secret_part_bytes, token_db.hashed_secret.encode('utf-8')):
+        logger.warning(f"Token validation failed: Invalid secret provided for prefix '{prefix}' (Token ID: {token_db.id}).")
+        raise credentials_exception # Raises 401
+
     # TODO: Implement Audience Check (IP/Org Restrictions) if token_db.audience is set
     # Requires access to the request object to get client IP
     # Example: 
