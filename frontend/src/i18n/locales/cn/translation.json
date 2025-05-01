@@ -92,7 +92,14 @@
     "sync": "同步",
     "noResultsFound": "未找到结果",
     "unnamedDrive": "未命名文档库",
-    "notApplicable": "不适用"
+    "notApplicable": "不适用",
+    "id": "ID",
+    "score": "分数",
+    "diagnosticInfo": "诊断信息：",
+    "currentLanguage": "当前语言：",
+    "error": {
+      "failedToLoad": "无法加载令牌配置。"
+    }
   },
   "home": {
     "hero": {
@@ -1750,6 +1757,12 @@
     "loading": "搜索中...",
     "resultsTitle": "结果",
     "noResultsFound": "未找到符合查询和令牌权限的结果。",
+    "configuration": "令牌配置",
+    "sensitivity": "敏感度：",
+    "allowRules": "允许规则：",
+    "denyRules": "拒绝规则：",
+    "noneDefined": "未定义",
+    "failedToLoadConfig": "无法加载配置。",
     "errors": {
       "missingInput": "请输入查询。",
       "searchFailed": "测试搜索失败。"

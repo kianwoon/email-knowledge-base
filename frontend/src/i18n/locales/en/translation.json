@@ -1053,7 +1053,14 @@
     "submit": "Submit",
     "clear": "Clear",
     "apply": "Apply",
-    "copy": "Copy"
+    "copy": "Copy",
+    "id": "ID",
+    "score": "Score",
+    "diagnosticInfo": "Diagnostic Info:",
+    "currentLanguage": "Current Language:",
+    "error": {
+      "failedToLoad": "Failed to load token configuration."
+    }
   },
   "analysis": {
     "classification": {
@@ -1911,6 +1918,12 @@
     "loading": "Searching...",
     "resultsTitle": "Results",
     "noResultsFound": "No results found matching the query and token permissions.",
+    "configuration": "Token Configuration",
+    "sensitivity": "Sensitivity:",
+    "allowRules": "Allow Rules:",
+    "denyRules": "Deny Rules:",
+    "noneDefined": "None defined",
+    "failedToLoadConfig": "Could not load configuration.",
     "errors": {
       "missingInput": "Please enter a query.",
       "searchFailed": "Test search failed."

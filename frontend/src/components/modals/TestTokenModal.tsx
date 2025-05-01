@@ -101,7 +101,7 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
           const config = await getTokenDetails(tokenId);
           setTokenConfig(config);
         } catch (err: any) {
-          setConfigError(err.message || 'Failed to load token configuration.');
+          setConfigError(err.message || t('common.error.failedToLoad', 'Failed to load token configuration.'));
         } finally {
           setIsLoadingConfig(false);
         }
@@ -114,7 +114,7 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
       setIsLoadingConfig(false);
       setConfigError(null);
     }
-  }, [isOpen, tokenId]);
+  }, [isOpen, tokenId, t]);
   // --- End Effect ---
 
   const handleSearch = async () => {
@@ -170,8 +170,8 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
               fontSize="xs" 
               borderRadius="md"
             >
-              <Text fontWeight="bold">Diagnostic Info:</Text>
-              <Text>Current Language: {i18n.language}</Text>
+              <Text fontWeight="bold">{t('common.diagnosticInfo', 'Diagnostic Info:')}</Text>
+              <Text>{t('common.currentLanguage', 'Current Language:')} {i18n.language}</Text>
               <Text>Title Key: {`${KEY_PREFIX}.title`}</Text>
               <Text>Title Value: {t(`${KEY_PREFIX}.title`)}</Text>
               <Text>Close Key: common.close</Text>
@@ -182,7 +182,7 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
           <VStack spacing={4} align="stretch">
             {/* --- Token Configuration Display --- */}
             <Box borderWidth="1px" borderRadius="md" p={4} bg={useColorModeValue('gray.50', 'gray.700')}>
-              <Text fontSize="lg" fontWeight="semibold" mb={2}>Token Configuration</Text>
+              <Text fontSize="lg" fontWeight="semibold" mb={2}>{t(`${KEY_PREFIX}.configuration`, 'Token Configuration')}</Text>
               {isLoadingConfig ? (
                 <Spinner size="md" />
               ) : configError ? (
@@ -193,37 +193,37 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
               ) : tokenConfig ? (
                 <VStack align="stretch" spacing={2}>
                   <HStack>
-                    <Text fontWeight="medium" minW="120px">Sensitivity:</Text>
-                    <Badge colorScheme={getSensitivityColorScheme(tokenConfig?.sensitivity)}>{tokenConfig?.sensitivity ?? 'N/A'}</Badge>
+                    <Text fontWeight="medium" minW="120px">{t(`${KEY_PREFIX}.sensitivity`, 'Sensitivity:')}</Text>
+                    <Badge colorScheme={getSensitivityColorScheme(tokenConfig?.sensitivity)}>{tokenConfig?.sensitivity ?? t('common.notAvailable', 'N/A')}</Badge>
                   </HStack>
                   <HStack align="start">
-                    <Text fontWeight="medium" minW="120px" mt={1}>Allow Rules:</Text>
+                    <Text fontWeight="medium" minW="120px" mt={1}>{t(`${KEY_PREFIX}.allowRules`, 'Allow Rules:')}</Text>
                     <Box>
                       {tokenConfig?.allow_rules && tokenConfig.allow_rules.length > 0 ? (
                         tokenConfig.allow_rules.map((rule: string, index: number) => (
                           <Tag key={`allow-${index}`} size="sm" mr={1} mb={1} variant="outline" colorScheme="green">{rule}</Tag>
                         ))
                       ) : (
-                        <Text fontStyle="italic" color={useColorModeValue('gray.500', 'gray.400')}>None defined</Text>
+                        <Text fontStyle="italic" color={useColorModeValue('gray.500', 'gray.400')}>{t(`${KEY_PREFIX}.noneDefined`, 'None defined')}</Text>
                       )}
                     </Box>
                   </HStack>
                   <HStack align="start">
-                    <Text fontWeight="medium" minW="120px" mt={1}>Deny Rules:</Text>
+                    <Text fontWeight="medium" minW="120px" mt={1}>{t(`${KEY_PREFIX}.denyRules`, 'Deny Rules:')}</Text>
                     <Box>
                       {tokenConfig?.deny_rules && tokenConfig.deny_rules.length > 0 ? (
                         tokenConfig.deny_rules.map((rule: string, index: number) => (
                           <Tag key={`deny-${index}`} size="sm" mr={1} mb={1} variant="outline" colorScheme="red">{rule}</Tag>
                         ))
                       ) : (
-                        <Text fontStyle="italic" color={useColorModeValue('gray.500', 'gray.400')}>None defined</Text>
+                        <Text fontStyle="italic" color={useColorModeValue('gray.500', 'gray.400')}>{t(`${KEY_PREFIX}.noneDefined`, 'None defined')}</Text>
                       )}
                     </Box>
                   </HStack>
                   {/* Optional: Add other fields like row limit, etc. here */}
                 </VStack>
               ) : (
-                <Text>Could not load configuration.</Text>
+                <Text>{t(`${KEY_PREFIX}.failedToLoadConfig`, 'Could not load configuration.')}</Text>
               )}
             </Box>
             {/* --- End Token Configuration Display --- */}
@@ -259,8 +259,8 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
                 <VStack spacing={3} align="stretch" maxHeight="300px" overflowY="auto" pr={2}>
                   {results.map((result) => (
                     <Box key={result.id} borderWidth="1px" borderRadius="md" p={3} bg={useColorModeValue('white', 'gray.800')}>
-                      <Text fontSize="sm" color="gray.500">ID: {result.id}</Text>
-                      <Text fontSize="sm" color="gray.500">Score: {result.score?.toFixed(4)}</Text>
+                      <Text fontSize="sm" color="gray.500">{t('common.id', 'ID')}: {result.id}</Text>
+                      <Text fontSize="sm" color="gray.500">{t('common.score', 'Score')}: {result.score?.toFixed(4)}</Text>
                       <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontSize: '0.8em', marginTop: '4px' }}>
                         {JSON.stringify(result.metadata || {}, null, 2)}
                       </pre>
