@@ -50,6 +50,10 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Use theme colors for diagnostic box
+  const diagnosticBg = useColorModeValue('gray.100', 'gray.700');
+  const diagnosticColor = useColorModeValue('gray.700', 'gray.200');
+
   // Reset state when modal is closed or tokenId changes
   useEffect(() => {
     if (!isOpen) {
@@ -125,7 +129,14 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
         <ModalBody pb={6}>
           {/* Debug info - only visible in development */}
           {process.env.NODE_ENV === 'development' && (
-            <Box bg="gray.100" p={2} mb={4} fontSize="xs" color="gray.700" borderRadius="md">
+            <Box 
+              bg={diagnosticBg} // Use theme-aware background
+              color={diagnosticColor} // Use theme-aware text color
+              p={2} 
+              mb={4} 
+              fontSize="xs" 
+              borderRadius="md"
+            >
               <Text fontWeight="bold">Diagnostic Info:</Text>
               <Text>Current Language: {i18n.language}</Text>
               <Text>Title Key: {`${KEY_PREFIX}.title`}</Text>
