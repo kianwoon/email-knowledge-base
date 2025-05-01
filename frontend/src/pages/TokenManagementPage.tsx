@@ -47,6 +47,7 @@ import {
   ModalCloseButton,
   InputRightElement,
   useColorModeValue,
+  Code,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
@@ -427,6 +428,9 @@ const TokenManagementPage: React.FC = () => {
                     {t('tokenManagementPage.tabs.inactive', 'Inactive')} 
                     ({inactiveTokens.length}{searchTerm ? ` / ${tokens.filter(t => !t.is_active).length}` : ''})
                   </Tab>
+                  <Tab>
+                    {t('tokenManagementPage.tabs.guide', 'Guide')}
+                  </Tab>
                 </TabList>
                 <TabPanels>
                   <TabPanel p={0}>
@@ -449,6 +453,77 @@ const TokenManagementPage: React.FC = () => {
                     ) : (
                       <DataTable columns={columns} data={inactiveTokens} />
                     )}
+                  </TabPanel>
+                  
+                  <TabPanel>
+                    <Heading size="lg" mb={4}>{t('tokenManagementPage.guide.title', 'How to Use API Tokens')}</Heading>
+                    <VStack spacing={5} align="stretch">
+                        <Text fontSize="md">{t('tokenManagementPage.guide.introduction', 'Tokens allow external applications to securely query your knowledge base via a dedicated API endpoint.')}</Text>
+                        
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.endpointTitle', 'API Endpoint')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.endpointPath', 'The endpoint for querying shared knowledge is:')}</Text>
+                            <Code p={2} borderRadius="md" width="100%">POST /api/v1/shared-knowledge/search</Code>
+                        </Box>
+
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.usageTitle', 'Authentication')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.usageInstructions', 'To authenticate your request, include the generated token (prefix + secret, separated by a dot) as a Bearer token in the Authorization header:')}</Text>
+                            <Code p={2} borderRadius="md" width="100%">Authorization: Bearer YOUR_PREFIX.YOUR_SECRET</Code>
+                        </Box>
+
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.requestBodyTitle', 'Request Body')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.requestBodyInstructions', 'Send a POST request with a JSON body containing your search query:')}</Text>
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
+                                {`{
+    "query": "your search query here"
+}`}
+                            </Code>
+                        </Box>
+                        
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.curlExampleTitle', 'Example cURL Request')}</Heading>
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
+{`curl -X POST YOUR_API_BASE_URL/api/v1/shared-knowledge/search \ 
+  -H "Authorization: Bearer YOUR_PREFIX.YOUR_SECRET" \ 
+  -H "Content-Type: application/json" \ 
+  -d '{
+        "query": "What were the key decisions made last quarter?"
+      }'`}
+                            </Code>
+                             <Text fontSize="sm" mt={1}>Replace `YOUR_API_BASE_URL` with the actual base URL of the application and `YOUR_PREFIX.YOUR_SECRET` with your token.</Text>
+                        </Box>
+
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.responseFormatTitle', 'Response Format')}</Heading>
+                            <Text mb={1}>{t('tokenManagementPage.guide.responseFormatInstructions', 'A successful response will be a JSON array of search results, similar to this structure (fields may vary based on token permissions):')}</Text>
+                            <Code p={2} borderRadius="md" display="block" whiteSpace="pre">
+{`[
+  {
+    "id": "some_unique_document_id",
+    "score": 0.85,
+    "metadata": {
+      "subject": "Project Phoenix Meeting Notes",
+      "sender_name": "Alice",
+      "created_at": "2024-01-15T10:30:00Z",
+      // ... other metadata fields allowed by token ...
+    },
+    "content": "... relevant text chunk from the document ..."
+  },
+  // ... more results ...
+]`}
+                            </Code>
+                        </Box>
+                        
+                        <Box>
+                            <Heading size="md" mb={2}>{t('tokenManagementPage.guide.limitationsTitle', 'Current Limitations')}</Heading>
+                            <Alert status="info" borderRadius="md">
+                                <AlertIcon />
+                                {t('tokenManagementPage.guide.milvusOnly', 'Currently, this endpoint only searches the Milvus vector database. Iceberg table data is not included.')}
+                            </Alert>
+                        </Box>
+                    </VStack>
                   </TabPanel>
                 </TabPanels>
               </Tabs>

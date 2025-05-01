@@ -1798,7 +1798,8 @@
     },
     "tabs": {
       "active": "Active",
-      "inactive": "Inactive"
+      "inactive": "Inactive",
+      "guide": "Guide"
     },
     "deleteDialog": {
       "title": "Delete Token",
@@ -1823,6 +1824,21 @@
     "regenerateModal": {
       "title": "New Token Secret Generated",
       "message": "Please copy the new token value below. This is the only time it will be shown:"
+    },
+    "guide": {
+      "title": "How to Use API Tokens",
+      "introduction": "Tokens allow external applications to securely query your knowledge base via a dedicated API endpoint.",
+      "endpointTitle": "API Endpoint",
+      "endpointPath": "The endpoint for querying shared knowledge is:",
+      "usageTitle": "Authentication",
+      "usageInstructions": "To authenticate your request, include the generated token (prefix + secret, separated by a dot) as a Bearer token in the Authorization header:",
+      "requestBodyTitle": "Request Body",
+      "requestBodyInstructions": "Send a POST request with a JSON body containing your search query:",
+      "responseFormatTitle": "Response Format",
+      "responseFormatInstructions": "A successful response will be a JSON array of search results, similar to this structure (fields may vary based on token permissions):",
+      "curlExampleTitle": "Example cURL Request",
+      "limitationsTitle": "Current Limitations",
+      "milvusOnly": "Currently, this endpoint only searches the Milvus vector database. Iceberg table data is not included."
     }
   },
   "createTokenModal": {

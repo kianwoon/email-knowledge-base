@@ -1277,7 +1277,8 @@
     "searchPlaceholder": "按名称或描述搜索...",
     "tabs": {
       "active": "活跃",
-      "inactive": "非活跃"
+      "inactive": "非活跃",
+      "guide": "使用指南"
     },
     "table": {
       "name": "名称",
@@ -1320,6 +1321,21 @@
     "regenerateModal": {
       "title": "已生成新的令牌密钥",
       "message": "请复制下面的新令牌值。这是唯一显示它的时间："
+    },
+    "guide": {
+      "title": "如何使用API令牌",
+      "introduction": "令牌允许外部应用程序通过专用的 API 端点安全地查询您的知识库。",
+      "endpointTitle": "API 端点",
+      "endpointPath": "用于查询共享知识的端点是：",
+      "usageTitle": "身份验证",
+      "usageInstructions": "要验证您的请求，请将生成的令牌（前缀 + 密钥，用点分隔）作为 Bearer 令牌包含在 Authorization 标头中：",
+      "requestBodyTitle": "请求体",
+      "requestBodyInstructions": "发送包含您的搜索查询的 JSON 主体的 POST 请求：",
+      "responseFormatTitle": "响应格式",
+      "responseFormatInstructions": "成功的响应将是一个 JSON 数组，其中包含搜索结果，结构类似于（字段可能因令牌权限而异）：",
+      "curlExampleTitle": "cURL 请求示例",
+      "limitationsTitle": "当前限制",
+      "milvusOnly": "目前，此端点仅搜索 Milvus 向量数据库。不包括 Iceberg 表数据。"
     }
   },
   "createTokenModal": {
