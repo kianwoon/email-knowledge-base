@@ -1804,15 +1804,42 @@
     "sensitivity": "敏感度：",
     "allowRules": "允许规则：",
     "denyRules": "拒绝规则：",
+    "allowColumns": "允许列：",
+    "allColumns": "允许所有列",
+    "rowLimit": "行数限制：",
     "noneDefined": "未定义",
     "failedToLoadConfig": "无法加载配置。",
+    "kbTokenStatus": "认证状态：",
+    "tabMilvus": "非结构化搜索 (Milvus)",
+    "tabCatalog": "结构化搜索 (目录)",
+    "milvusQueryPlaceholder": "输入 Milvus 搜索查询...",
+    "catalogQueryPlaceholder": "输入目录搜索查询...",
+    "runMilvusButton": "运行 Milvus 搜索",
+    "runCatalogButton": "运行目录搜索",
+    "milvusLoading": "Milvus 搜索中...",
+    "catalogLoading": "目录搜索中...",
+    "milvusResultsTitle": "Milvus 结果",
+    "catalogResultsTitle": "目录结果",
+    "noMilvusResultsFound": "未找到符合查询和令牌权限的 Milvus 结果。",
+    "noCatalogResultsFound": "未找到符合查询、筛选条件和令牌权限的目录结果。",
+    "senderLabel": "发件人",
+    "senderPlaceholder": "可选：电子邮件或姓名",
+    "dateFromLabel": "开始日期",
+    "dateToLabel": "结束日期",
+    "limit": "结果限制",
+    "regenerateToken": "编辑/重新生成令牌",
+    "debugTokenButton": "调试令牌",
     "errors": {
-      "missingInput": "请输入查询。",
-      "searchFailed": "测试搜索失败。"
+      "missingQuery": "请输入查询。",
+      "milvusSearchFailed": "Milvus 搜索失败。",
+      "searchError": "执行搜索时出错",
+      "noResults": "未找到结果",
+      "missingTokenValue": "无法获取用于测试的令牌。",
+      "missingTokenValueOwner": "无法获取令牌。请确保您是所有者。"
     },
     "toast": {
-      "noResultsTitle": "无结果",
-      "noResultsDesc": "您的测试查询根据令牌权限未返回任何结果。"
+      "noMilvusResultsTitle": "无 Milvus 结果",
+      "noMilvusResultsDesc": "根据令牌权限，您的测试查询未返回任何 Milvus 结果。"
     }
   }
 }

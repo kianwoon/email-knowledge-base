@@ -536,7 +536,7 @@ const TestTokenModal: React.FC<TestTokenModalProps> = ({
 
         <ModalFooter>
           <Button size="sm" colorScheme="blue" mr={3} onClick={handleDebugToken}>
-            Debug Token
+            {t(`${KEY_PREFIX}.debugTokenButton`, 'Debug Token')}
           </Button>
           <Button onClick={onClose}>
             {t('common.close', 'Close')}

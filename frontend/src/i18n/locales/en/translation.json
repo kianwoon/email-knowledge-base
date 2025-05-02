@@ -1954,15 +1954,42 @@
     "sensitivity": "Sensitivity:",
     "allowRules": "Allow Rules:",
     "denyRules": "Deny Rules:",
+    "allowColumns": "Allow Columns:",
+    "allColumns": "All columns allowed",
+    "rowLimit": "Row Limit:",
     "noneDefined": "None defined",
     "failedToLoadConfig": "Could not load configuration.",
+    "kbTokenStatus": "Auth Status:",
+    "tabMilvus": "Unstructured Search (Milvus)",
+    "tabCatalog": "Structured Search (Catalog)",
+    "milvusQueryPlaceholder": "Enter search query for Milvus...",
+    "catalogQueryPlaceholder": "Enter search query for Catalog...",
+    "runMilvusButton": "Run Milvus Search",
+    "runCatalogButton": "Run Catalog Search",
+    "milvusLoading": "Searching Milvus...",
+    "catalogLoading": "Searching Catalog...",
+    "milvusResultsTitle": "Milvus Results",
+    "catalogResultsTitle": "Catalog Results",
+    "noMilvusResultsFound": "No Milvus results found matching the query and token permissions.",
+    "noCatalogResultsFound": "No Catalog results found matching the query, filters, and token permissions.",
+    "senderLabel": "Sender",
+    "senderPlaceholder": "Optional: email or name",
+    "dateFromLabel": "Date From",
+    "dateToLabel": "Date To",
+    "limit": "Result Limit",
+    "regenerateToken": "Edit/Regenerate Token",
+    "debugTokenButton": "Debug Token",
     "errors": {
-      "missingInput": "Please enter a query.",
-      "searchFailed": "Test search failed."
+      "missingQuery": "Please enter a query.",
+      "milvusSearchFailed": "Milvus search failed.",
+      "searchError": "Error performing search",
+      "noResults": "No results found",
+      "missingTokenValue": "Could not retrieve token for testing.",
+      "missingTokenValueOwner": "Could not retrieve token. Ensure you are the owner."
     },
     "toast": {
-      "noResultsTitle": "No Results",
-      "noResultsDesc": "Your test query returned no results based on the token permissions."
+      "noMilvusResultsTitle": "No Milvus Results",
+      "noMilvusResultsDesc": "Milvus query returned no results based on token permissions."
     }
   }
 }
