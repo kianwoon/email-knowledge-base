@@ -6,7 +6,7 @@ import { EmailFilter, EmailPreview, EmailContent, PaginatedEmailPreviewResponse 
  */
 export const getEmailFolders = async () => {
   try {
-    const response = await apiClient.get('/email/folders'); // Corrected path
+    const response = await apiClient.get('/v1/email/folders');
     return response.data;
   } catch (error) {
     console.error('Error fetching email folders:', error);
@@ -31,7 +31,7 @@ export const getEmailPreviews = async (
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { page: _page, per_page: _per_page, ...bodyFilter } = params;
 
-  console.log(`[getEmailPreviews] Calling POST /preview`);
+  console.log(`[getEmailPreviews] Calling POST /v1/email/preview`);
   console.log(`[getEmailPreviews] Query Params: ${JSON.stringify(queryParams)}`);
   // Log the body filter, which might include next_link or other criteria
   console.log(`[getEmailPreviews] Body Filter: ${JSON.stringify(bodyFilter)}`); 
@@ -39,7 +39,7 @@ export const getEmailPreviews = async (
   try {
     // Use POST to /preview, send filter criteria (including next_link if present) in body, pagination in query
     const response = await apiClient.post<PaginatedEmailPreviewResponse>(
-      '/email/preview', 
+      '/v1/email/preview', 
       bodyFilter,          // Body contains filters and potentially next_link
       { params: queryParams } // Query string contains page and per_page
     );
@@ -61,7 +61,7 @@ export const getEmailContent = async (emailId: string): Promise<EmailContent> =>
   
   try {
     // Ensure the API endpoint matches backend routes
-    const response = await apiClient.get(`/emails/${emailId}/content`); 
+    const response = await apiClient.get(`/v1/emails/${emailId}/content`); 
     console.log('[getEmailContent] Response received:', response.data);
     // The backend should return data matching the EmailContent interface
     return response.data;
@@ -82,7 +82,7 @@ export const getEmailContent = async (emailId: string): Promise<EmailContent> =>
 export const submitFilterForAnalysis = async (filter: EmailFilter): Promise<{ job_id: string }> => {
   try {
     // Ensure the endpoint path is correct (singular 'email')
-    const response = await apiClient.post<{ job_id: string }>('/email/analyze', filter);
+    const response = await apiClient.post<{ job_id: string }>('/v1/email/analyze', filter);
     return response.data;
   } catch (error) {
     console.error('Error submitting filter for analysis:', error);

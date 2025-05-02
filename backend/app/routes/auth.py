@@ -292,11 +292,31 @@ async def auth_callback(
                  print(f"DEBUG - Error processing state: {e}, using default redirect.")
         if not next_url or not next_url.startswith(('http://', 'https://')):
             next_url = settings.FRONTEND_URL
+            
+        # Add token as URL parameter as a fallback for browsers that don't handle cookies properly
+        # Frontend will extract this and set as a cookie
+        if '?' in next_url:
+            next_url = f"{next_url}&access_token={jwt_access_token}"
+        else:
+            next_url = f"{next_url}?access_token={jwt_access_token}"
         
         print(f"DEBUG - Redirecting to frontend URL: {next_url}")
         
         # Create RedirectResponse and set the HttpOnly cookie
         response = RedirectResponse(url=next_url)
+        
+        # Debug cookie settings
+        print("=========== DEBUG COOKIE SETTINGS ==========")
+        print(f"Setting cookie with key: access_token")
+        print(f"Cookie value length: {len(jwt_access_token)}")
+        print(f"HttpOnly: True")
+        print(f"Secure: {secure_cookie}")
+        print(f"SameSite: lax")
+        print(f"Max-Age: {max_age_seconds}")
+        print(f"Path: /")
+        print(f"Domain: None (using current domain)")
+        print("===========================================")
+        
         response.set_cookie(
             key="access_token",
             value=jwt_access_token,
@@ -304,7 +324,8 @@ async def auth_callback(
             secure=secure_cookie,
             samesite="lax",
             max_age=max_age_seconds, # Use calculated max_age
-            path="/" 
+            path="/",
+            domain=None # Explicitly set to None to use the current domain
         )
         print(f"DEBUG - Set access_token cookie (HttpOnly) with Max-Age: {max_age_seconds}.")
         return response
@@ -336,6 +357,43 @@ async def logout(response: Response):
         path="/", 
         httponly=True, 
         secure=secure_cookie, 
-        samesite="lax"
+        samesite="lax",
+        domain=None
     )
     return {"message": "Logout successful"}
+
+
+@router.get("/debug-cookies")
+async def debug_cookies(request: Request):
+    """Debug endpoint to check what cookies are being received by the backend."""
+    cookies = request.cookies
+    headers = dict(request.headers)
+    
+    # Log for server-side debugging
+    print("====== DEBUG COOKIES RECEIVED ======")
+    print(f"Cookies received: {cookies}")
+    print(f"Headers: {headers}")
+    print("====================================")
+    
+    # Return for client-side debugging
+    return {
+        "cookies": cookies,
+        "headers": headers,
+        "note": "Check if access_token is present in cookies"
+    }
+
+
+@router.get("/token")
+async def get_token(request: Request):
+    """Get the token directly as JSON (for clients that have issues with cookies)"""
+    # Get token from cookie
+    token = request.cookies.get("access_token")
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+    
+    # Return token directly to client
+    return {"access_token": token}

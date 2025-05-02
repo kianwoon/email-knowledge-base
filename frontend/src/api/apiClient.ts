@@ -9,60 +9,89 @@ console.log('[ApiClient] Environment Mode:', import.meta.env.MODE);
 console.log('[ApiClient] VITE_API_BASE_URL:', import.meta.env.VITE_API_BASE_URL);
 console.log('[ApiClient] Final API_BASE_URL:', BACKEND_URL);
 
+// Create an interceptor to log all requests and responses
 const apiClient = axios.create({
-  baseURL: `${BACKEND_URL}`, 
-  withCredentials: true, 
+  baseURL: '/api', // This will use the Vite proxy at /api
+  withCredentials: true, // Ensure credentials (cookies) are included in all requests
   headers: {
     'Content-Type': 'application/json',
   },
   timeout: 120000, // Increased timeout to 120 seconds
 });
 
-// Function to set up interceptors (can be called from main app setup)
-export const setupInterceptors = () => {
-  // --- ADDED Log --- 
-  console.log('[setupInterceptors] Function CALLED - Setting up Axios interceptors...');
-  // --- END Log ---
-  
-  // Request interceptor (kept minimal as before)
-  apiClient.interceptors.request.use(
-    (config) => {
-      // Minimal request interceptor logic if needed
-      return config;
-    },
-    (error) => {
-      return Promise.reject(error);
+// Add a request interceptor for debugging
+apiClient.interceptors.request.use(
+  (config) => {
+    // Manually add cookies to headers as a fallback
+    const cookies = document.cookie.split(';').map(cookie => cookie.trim());
+    const accessTokenCookie = cookies.find(cookie => cookie.startsWith('access_token='));
+    
+    console.log(`[ApiClient] Request to ${config.url}`, { 
+      headers: config.headers,
+      withCredentials: config.withCredentials,
+      cookies: document.cookie || 'none'
+    });
+    
+    // Try to get token from cookie first
+    let token = null;
+    let tokenSource = ''; // Track where the token came from
+    
+    if (accessTokenCookie) {
+      token = accessTokenCookie.split('=')[1];
+      tokenSource = 'cookie';
     }
-  );
-
-  // Response interceptor (logic from previous steps)
-  apiClient.interceptors.response.use(
-    (response) => response, 
-    async (error: AxiosError<any>) => { 
-      // const originalRequest = error.config as InternalAxiosRequestConfig<any> & { _retry?: boolean }; // No longer needed
-      
-      // --- RE-ADD DEBUG LOGGING --- 
-      console.log('[Interceptor] Error Handler Triggered.');
-      console.log('[Interceptor] error.response?.status:', error.response?.status);
-      console.log('[Interceptor] error.config?.url:', error.config?.url); // Log the URL that failed
-      console.log('[Interceptor] error.response?.data:', error.response?.data); // Existing log line
-      console.log('[Interceptor] error.response?.data?.detail:', error.response?.data?.detail);
-      // --- END DEBUG LOGGING --- 
-
-      // --- ADD BACK 401 Check and Event Dispatch --- 
-      if (error.response?.status === 401) {
-        console.warn('[Interceptor] Detected 401 Unauthorized. Dispatching session-expired event.');
-        // Dispatch the event globally so App.tsx can catch it
-        window.dispatchEvent(new CustomEvent('session-expired'));
+    
+    // If no token from cookie, try localStorage as fallback
+    if (!token) {
+      const storageToken = localStorage.getItem('access_token');
+      if (storageToken) {
+        token = storageToken;
+        tokenSource = 'localStorage';
       }
-      // --- END ADD BACK --- 
-
-      // For ALL errors, just reject the promise
-      // The App.tsx event listener will handle the session-expired event if triggered by a 401
-      return Promise.reject(error);
     }
-  );
-};
+    
+    // If we found a token from either source, add it to the header if not already present
+    if (token && !config.headers['Authorization']) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+      console.log(`[ApiClient] Manually added token from ${tokenSource} to Authorization header.`);
+    }
+    
+    // +++ Added Log +++
+    console.log(`[ApiClient] Final Authorization header before sending request to ${config.url}:`, config.headers['Authorization'] || 'Not Set');
+    // --- End Added Log ---
+    
+    return config;
+  },
+  (error) => {
+    console.error('[ApiClient] Request error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Add a response interceptor for debugging
+apiClient.interceptors.response.use(
+  (response) => {
+    console.log(`[ApiClient] Response from ${response.config.url}:`, {
+      status: response.status,
+      headers: response.headers
+    });
+    return response;
+  },
+  (error) => {
+    console.error(`[ApiClient] Response error from ${error.config?.url}:`, {
+      status: error.response?.status,
+      message: error.message,
+      response: error.response?.data
+    });
+    
+    // Check if the error is due to 401 Unauthorized (session expired/invalid)
+    if (error.response && error.response.status === 401) {
+      console.log('Session expired or unauthorized. Dispatching event...');
+      window.dispatchEvent(new CustomEvent('session-expired'));
+    }
+    return Promise.reject(error);
+  }
+);
 
 // --- SharePoint Specific API Calls (Consider moving to a sharepoint.ts file later) ---
 

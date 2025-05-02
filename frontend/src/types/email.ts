@@ -38,52 +38,57 @@ export enum ReviewStatus {
   REJECTED = "rejected"
 }
 
+export interface EmailSender {
+  emailAddress: {
+    name: string;
+    address: string;
+  };
+}
+
 export interface EmailPreview {
   id: string;
-  subject: string;
-  sender: string;
-  received_date: string;
-  snippet: string;
-  has_attachments?: boolean;
-  importance?: string;
+  subject: string | null;
+  sender: EmailSender | null;
+  receivedDateTime: string | null;
+  hasAttachments: boolean;
+  importance: 'high' | 'normal' | 'low' | string;
 }
 
 export interface EmailFilter {
-  folder_id?: string;
-  start_date?: string;
-  end_date?: string;
+  folder_id?: string | null;
   keywords?: string[];
   sender?: string;
-  importance?: string;
+  recipient?: string;
+  start_date?: string;
+  end_date?: string;
   has_attachments?: boolean;
   attachment_type?: string;
+  importance?: 'high' | 'normal' | 'low';
   advanced_query?: string;
-  next_link?: string | undefined;
+  next_link?: string;
 }
 
 export interface EmailAttachment {
   id: string;
   name: string;
-  content_type: string;
+  contentType: string;
   size: number;
-  content?: string;
+  isInline: boolean;
 }
 
 export interface EmailContent {
   id: string;
-  internet_message_id: string;
-  subject: string;
-  sender: string;
-  sender_email: string;
-  recipients: string[];
-  cc_recipients?: string[];
-  received_date: string;
-  body: string;
-  is_html: boolean;
-  folder_id: string;
-  folder_name: string;
-  attachments?: EmailAttachment[];
-  importance: string;
+  subject: string | null;
+  sender: EmailSender | null;
+  toRecipients: EmailSender[];
+  ccRecipients: EmailSender[];
+  bccRecipients: EmailSender[];
+  receivedDateTime: string | null;
+  sentDateTime: string | null;
+  body: EmailBody;
+  attachments: EmailAttachment[];
+  webLink: string | null;
+  importance: 'high' | 'normal' | 'low' | string;
 }
 
 export interface EmailAnalysis {
@@ -112,12 +117,16 @@ export interface EmailApproval {
   notes?: string;
 }
 
-// --- Add Missing Paginated Response Type ---
+export interface EmailBody {
+  contentType: 'html' | 'text';
+  content: string;
+}
+
 export interface PaginatedEmailPreviewResponse {
   items: EmailPreview[];
   total: number;
-  next_link?: string | null; // Allow null as well as undefined
   current_page: number;
+  per_page: number;
   total_pages: number;
-  per_page: number; // Include per_page as returned by backend
+  next_link?: string | null;
 }

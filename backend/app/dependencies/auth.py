@@ -70,9 +70,15 @@ async def get_current_user(
 
     # 1. Check Authorization header (Bearer JWT/API Key)
     auth_header = request.headers.get("Authorization")
+    # +++ Added Log +++
+    logger.debug(f"get_current_user: Checking Authorization header. Value: '{auth_header}'")
+    # --- End Added Log ---
+    
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split("Bearer ")[1]
         token_source = "Header"
+        logger.debug(f"Token extracted from Authorization header: {token[:10]}...{token[-10:] if len(token) > 20 else ''}")
+        
         # Check if it looks like our internal JWT or a potential API key
         try:
             # Attempt to decode as JWT first
@@ -93,11 +99,13 @@ async def get_current_user(
     # 2. Check cookie if header wasn't a user JWT
     if not token:
         # Log the specific cookie value we attempt to get
-        cookie_token_value = request.cookies.get("access_token")
-        logger.debug(f"get_current_user: Attempting to get 'access_token' cookie. Value: {cookie_token_value}")
-        if cookie_token_value:
-            token = cookie_token_value
+        cookie_value = request.cookies.get(settings.JWT_COOKIE_NAME)
+        logger.debug(f"Cookie value for {settings.JWT_COOKIE_NAME}: {cookie_value[:10] + '...' if cookie_value else 'None'}")
+        
+        if cookie_value:
+            token = cookie_value
             token_source = "Cookie"
+            logger.debug(f"Using token from cookie: {token[:10]}...{token[-10:] if len(token) > 20 else ''}")
 
     # 3. Check X-API-Key Header if still no token (explicit API key header)
     if not token:
@@ -108,6 +116,8 @@ async def get_current_user(
             return None 
         else:
             logger.warning("No token found in Bearer Header (JWT), Cookie, or X-API-Key header.")
+            logger.debug(f"All cookies: {request.cookies}")
+            logger.debug(f"All headers: {dict(request.headers)}")
             return None # No authentication provided at all
 
     # --- If we have a token (JWT from header or cookie), validate it --- 
@@ -375,7 +385,7 @@ async def get_current_user_from_cookie(
     logger.info("Attempting to get current user from cookie...")
     
     # --- Read token from HttpOnly cookie --- 
-    token = request.cookies.get("access_token")
+    token = request.cookies.get(settings.JWT_COOKIE_NAME)
     
     if not token:
         logger.warning("Access token cookie missing")

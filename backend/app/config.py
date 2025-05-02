@@ -2,7 +2,7 @@ import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from typing import List, Optional
-from pydantic import field_validator, computed_field
+from pydantic import field_validator, computed_field, AnyHttpUrl
 import logging
 
 # Get logger instance
@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET") # validated by check_required_env_vars
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM") # validated by check_required_env_vars
     JWT_EXPIRATION: int = int(os.getenv("JWT_EXPIRATION")) # validated by pydantic & check_required
+    JWT_COOKIE_NAME: str = "access_token" # Cookie name for JWT
+    COOKIE_DOMAIN: str | None = None  # Use None to make cookie work with localhost
 
     # OpenAI settings (used as default if provider not specified or no specific key)
     OPENAI_API_KEY: Optional[str] = None

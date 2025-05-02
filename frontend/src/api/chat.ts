@@ -33,7 +33,7 @@ export const sendChatMessage = async (
     }
     
     // Update the path to match the corrected backend route: /api/v1/chat/
-    const response = await apiClient.post<ChatResponsePayload>('/chat/', payload);
+    const response = await apiClient.post<ChatResponsePayload>('/v1/chat/', payload);
     
     return response.data.reply;
   } catch (error) {

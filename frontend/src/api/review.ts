@@ -7,7 +7,7 @@ import { EmailPreview, EmailApproval } from '../types/email';
 export const getPendingReviews = async (params: { page?: number; per_page?: number } & Record<string, any> = {}) => {
   try {
     // Use apiClient directly
-    const response = await apiClient.get('/review/pending', { params });
+    const response = await apiClient.get('/v1/review/pending', { params });
     return response.data;
   } catch (error) {
     console.error('Error getting pending reviews:', error);
@@ -21,7 +21,7 @@ export const getPendingReviews = async (params: { page?: number; per_page?: numb
 export const submitReviewDecision = async (emailId: string, approval: EmailApproval) => {
   try {
     // Use apiClient directly
-    const response = await apiClient.post(`/review/decision/${emailId}`, approval);
+    const response = await apiClient.post(`/v1/review/decision/${emailId}`, approval);
     return response.data;
   } catch (error) {
     console.error('Error submitting review decision:', error);
@@ -35,7 +35,7 @@ export const submitReviewDecision = async (emailId: string, approval: EmailAppro
 export const submitBulkReviewDecision = async (emailIds: string[], approval: EmailApproval) => {
   try {
     // Use apiClient directly
-    const response = await apiClient.post('/review/bulk-decision', {
+    const response = await apiClient.post('/v1/review/bulk-decision', {
       email_ids: emailIds,
       ...approval
     });
@@ -52,7 +52,7 @@ export const submitBulkReviewDecision = async (emailIds: string[], approval: Ema
 export const getReviewHistory = async (filters: any = {}) => {
   try {
     // Use apiClient directly
-    const response = await apiClient.get('/review/history', { params: filters });
+    const response = await apiClient.get('/v1/review/history', { params: filters });
     return response.data;
   } catch (error) {
     console.error('Error getting review history:', error);

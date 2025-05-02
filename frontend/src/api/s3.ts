@@ -55,19 +55,19 @@ export interface S3SyncItemCreate {
 
 // Fetch S3 configuration for the user
 export const getS3Config = async (): Promise<S3Config> => {
-  const response = await apiClient.get<S3Config>('/s3/configure');
+  const response = await apiClient.get<S3Config>('/v1/s3/configure');
   return response.data;
 };
 
 // Fetch the list of accessible S3 buckets
 export const listS3Buckets = async (): Promise<S3Bucket[]> => {
-  const response = await apiClient.get<S3Bucket[]>('/s3/buckets');
+  const response = await apiClient.get<S3Bucket[]>('/v1/s3/buckets');
   return response.data;
 };
 
 // Fetch objects (files/folders) within a bucket/prefix
 export const listS3Objects = async (bucket: string, prefix: string = ''): Promise<S3Object[]> => {
-  const response = await apiClient.get<S3Object[]>('/s3/objects', {
+  const response = await apiClient.get<S3Object[]>('/v1/s3/objects', {
     params: {
       bucket_name: bucket,
       prefix: prefix
@@ -78,7 +78,7 @@ export const listS3Objects = async (bucket: string, prefix: string = ''): Promis
 
 // Start the ingestion process for selected S3 objects
 export const ingestS3Objects = async (bucket: string, keys: string[]): Promise<IngestResponse> => {
-  const response = await apiClient.post<IngestResponse>('/s3/ingest', {
+  const response = await apiClient.post<IngestResponse>('/v1/s3/ingest', {
     bucket: bucket,
     keys: keys
   });
@@ -88,13 +88,13 @@ export const ingestS3Objects = async (bucket: string, keys: string[]): Promise<I
 // Trigger the ingestion process for pending S3 sync items
 export const triggerS3Ingestion = async (): Promise<TriggerIngestResponse> => {
   // No body needed for this POST request anymore
-  const response = await apiClient.post<TriggerIngestResponse>('/s3/ingest');
+  const response = await apiClient.post<TriggerIngestResponse>('/v1/s3/ingest');
   return response.data;
 };
 
 // Set or update the S3 configuration (Role ARN) for the user
 export const configureS3 = async (roleArn: string): Promise<S3Config> => {
-  const response = await apiClient.post<S3Config>('/s3/configure', {
+  const response = await apiClient.post<S3Config>('/v1/s3/configure', {
     role_arn: roleArn
   });
   return response.data;
@@ -102,7 +102,7 @@ export const configureS3 = async (roleArn: string): Promise<S3Config> => {
 
 // Clear the S3 configuration (Role ARN) for the user
 export const clearS3Config = async (): Promise<void> => {
-  await apiClient.delete('/s3/configure');
+  await apiClient.delete('/v1/s3/configure');
   // DELETE requests often don't return content, especially on success (204 No Content)
 };
 
@@ -112,12 +112,12 @@ export const clearS3Config = async (): Promise<void> => {
  * Fetches the current list of S3 items in the sync list for the user.
  */
 export const getS3SyncList = async (): Promise<S3SyncItem[]> => {
-  const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list');
+  const response = await apiClient.get<S3SyncItem[]>('/v1/s3/sync-list');
   return response.data;
 };
 
 export const getS3SyncHistory = async (limit: number = 100): Promise<S3SyncItem[]> => {
-  const response = await apiClient.get<S3SyncItem[]>('/s3/sync-list/history', {
+  const response = await apiClient.get<S3SyncItem[]>('/v1/s3/sync-list/history', {
     params: { limit },
   });
   return response.data;
@@ -128,7 +128,7 @@ export const getS3SyncHistory = async (limit: number = 100): Promise<S3SyncItem[
  * @param itemData The details of the item to add.
  */
 export const addS3SyncItem = async (itemData: S3SyncItemCreate): Promise<S3SyncItem> => {
-  const response = await apiClient.post<S3SyncItem>('/s3/sync-list/add', itemData);
+  const response = await apiClient.post<S3SyncItem>('/v1/s3/sync-list/add', itemData);
   return response.data;
 };
 
@@ -138,7 +138,7 @@ export const addS3SyncItem = async (itemData: S3SyncItemCreate): Promise<S3SyncI
  */
 export const removeS3SyncItem = async (itemId: number): Promise<S3SyncItem> => {
   try {
-    const response = await apiClient.delete<S3SyncItem>(`/s3/sync-list/remove/${itemId}`);
+    const response = await apiClient.delete<S3SyncItem>(`/v1/s3/sync-list/remove/${itemId}`);
     return response.data; // Returns the removed item data
   } catch (error) {
     console.error("Error removing item from S3 sync list:", error);

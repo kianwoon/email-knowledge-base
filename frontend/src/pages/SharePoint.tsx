@@ -370,7 +370,7 @@ const SharePointPage: React.FC = () => {
     setTaskProgress(null);
     setTaskDetails(null);
     try {
-      const response = await apiClient.get('/sharepoint/sites');
+      const response = await apiClient.get('/v1/sharepoint/sites');
       setSites(response.data || []);
       console.log(`[SP Page] Fetched ${response.data?.length || 0} sites.`);
     } catch (error: any) {
@@ -393,7 +393,7 @@ const SharePointPage: React.FC = () => {
     setSearchQuery('');
     setSearchPerformed(false);
     try {
-      const response = await apiClient.get(`/sharepoint/sites/${siteId}/drives`);
+      const response = await apiClient.get(`/v1/sharepoint/sites/${siteId}/drives`);
       const fetchedDrives: SharePointDrive[] = response.data || []; // Store fetched data
       setDrives(fetchedDrives);
       console.log(`[SP Page] Fetched ${fetchedDrives.length} drives.`);
@@ -416,7 +416,7 @@ const SharePointPage: React.FC = () => {
     setSearchPerformed(false); // Entering browse mode
     setSearchQuery(''); // Clear search query when browsing
     try {
-      const response = await apiClient.get(`/sharepoint/drives/${driveId}/items`, {
+      const response = await apiClient.get(`/v1/sharepoint/drives/${driveId}/items`, {
         // Pass item_id query parameter if provided
         params: itemId ? { item_id: itemId } : {},
       });
@@ -451,7 +451,7 @@ const SharePointPage: React.FC = () => {
     setCurrentBreadcrumbs([]); // Reset breadcrumbs when drive changes
     setSearchPerformed(false); // Reset search performed flag
     try {
-      const response = await apiClient.get(`/sharepoint/drives/${driveId}/search`, {
+      const response = await apiClient.get(`/v1/sharepoint/drives/${driveId}/search`, {
         params: { query: trimmedQuery },
       });
       setItems(response.data || []);
@@ -561,7 +561,7 @@ const SharePointPage: React.FC = () => {
     setTaskDetails('Submitting download request...');
 
     try {
-        const response = await apiClient.post('/sharepoint/drives/download', {
+        const response = await apiClient.post('/v1/sharepoint/drives/download', {
             drive_id: selectedDrive,
             item_id: item.id,
         });
@@ -773,7 +773,7 @@ const renderBreadcrumbs = ({
     setSyncListError(null);
     try {
       // Assume endpoint returns SharePointSyncItem[]
-      const response = await apiClient.get<SharePointSyncItem[]>('/sharepoint/sync-list');
+      const response = await apiClient.get<SharePointSyncItem[]>('/v1/sharepoint/sync-list');
       setSyncList(response.data || []);
       console.log(`[SP Page] Fetched ${response.data?.length || 0} items for sync list.`);
     } catch (error: any) {
@@ -807,7 +807,7 @@ const renderBreadcrumbs = ({
     try {
       console.log(`[SP Page] Adding item ${item.id} to sync list...`);
       // Make the API call and expect the newly created item back
-      const response = await apiClient.post<SharePointSyncItem>('/sharepoint/sync-list/add', itemData);
+      const response = await apiClient.post<SharePointSyncItem>('/v1/sharepoint/sync-list/add', itemData);
       const addedItem = response.data; // Get the full item from the response
       
       // Update local state immediately with the item returned from the backend
@@ -830,7 +830,7 @@ const renderBreadcrumbs = ({
     if (!itemToRemove) return;
     try {
       console.log(`[SP Page] Removing item ${sharepointItemId} from sync list...`);
-      await apiClient.delete(`/sharepoint/sync-list/remove/${sharepointItemId}`);
+      await apiClient.delete(`/v1/sharepoint/sync-list/remove/${sharepointItemId}`);
       setSyncList(prev => prev.filter(i => i.sharepoint_item_id !== sharepointItemId));
       toast({ title: t('sharepoint.itemRemovedFromSync', { name: itemToRemove.item_name }), status: 'info', duration: 2000 });
     } catch (error: any) {
@@ -854,7 +854,7 @@ const renderBreadcrumbs = ({
     setProcessingTaskStatus(null);
     setProcessingTaskId(null); 
     try {
-      const result = await apiClient.post('/sharepoint/sync-list/process').then(res => res.data);
+      const result = await apiClient.post('/v1/sharepoint/sync-list/process').then(res => res.data);
       const newTaskId = result.task_id;
       setProcessingTaskId(newTaskId);
       setSyncList([]); 
@@ -950,7 +950,7 @@ const isAlreadyInSyncList = syncedItemIdsSet.has(item.id);
       setHistoryError(null);
       try {
           // Ensure apiClient is correctly imported and configured
-          const response = await apiClient.get<SharePointSyncItem[]>('/sharepoint/sync-history');
+          const response = await apiClient.get<SharePointSyncItem[]>('/v1/sharepoint/sync-history');
           setHistoryItems(response.data || []); // Default to empty array if data is null/undefined
           console.log(`[SP History] Fetched ${response.data?.length || 0} items.`);
       } catch (error: any) {

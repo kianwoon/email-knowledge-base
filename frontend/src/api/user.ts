@@ -4,10 +4,16 @@ import { handleApiError } from './errorHandlers';
 // Define the provider type
 export type ApiProvider = 'openai' | 'anthropic' | 'google' | 'deepseek';
 
+// Interface for API Key payload (when saving)
+export interface ApiKeyPayload {
+  api_key: string;
+  model_base_url?: string; // Optional base URL
+}
+
 // Legacy function for backward compatibility
 export const saveOpenAIApiKey = async (apiKey: string): Promise<void> => {
   try {
-    await apiClient.post('/user/api-key', { api_key_data: { api_key: apiKey } });
+    await apiClient.post('/v1/user/api-key', { api_key_data: { api_key: apiKey } });
     console.log('OpenAI API key saved successfully');
   } catch (error) {
     console.error('Error saving OpenAI API key:', error);
@@ -24,7 +30,7 @@ export const saveProviderApiKey = async (provider: ApiProvider, apiKey: string, 
       payload.model_base_url = modelBaseUrl;
     }
     
-    await apiClient.post(`/user/provider-api-keys/${provider}`, { api_key_data: payload });
+    await apiClient.post(`/v1/user/provider-api-keys/${provider}`, { api_key_data: payload });
     console.log(`${provider} API key (and base URL if provided) saved successfully`);
   } catch (error) {
     console.error(`Error saving ${provider} API key:`, error);
@@ -35,7 +41,7 @@ export const saveProviderApiKey = async (provider: ApiProvider, apiKey: string, 
 // Legacy function for backward compatibility
 export const getOpenAIApiKey = async (): Promise<string | null> => {
   try {
-    const response = await apiClient.get('/user/api-key');
+    const response = await apiClient.get('/v1/user/api-key');
     return response.data.api_key;
   } catch (error) {
     console.error('Error getting OpenAI API key:', error);
@@ -43,12 +49,16 @@ export const getOpenAIApiKey = async (): Promise<string | null> => {
   }
 };
 
-// New function to get API key for any provider
+// New function to get specific provider API key
 export const getProviderApiKey = async (provider: ApiProvider): Promise<string | null> => {
   try {
-    const response = await apiClient.get(`/user/provider-api-keys/${provider}`);
-    return response.data.api_key;
-  } catch (error) {
+    const response = await apiClient.get(`/v1/user/provider-api-keys/${provider}`);
+    // Assuming backend sends { api_key: "..." } or 404 if not found
+    return response.data.api_key; 
+  } catch (error: any) {
+    if (error.response && error.response.status === 404) {
+      return null; // Key not found is not an error in this context
+    }
     console.error(`Error getting ${provider} API key:`, error);
     throw handleApiError(error, `Failed to get ${provider} API key`);
   }
@@ -57,7 +67,7 @@ export const getProviderApiKey = async (provider: ApiProvider): Promise<string |
 // Legacy function for backward compatibility
 export const deleteOpenAIApiKey = async (): Promise<void> => {
   try {
-    await apiClient.delete('/user/api-key');
+    await apiClient.delete('/v1/user/api-key');
     console.log('OpenAI API key deleted successfully');
   } catch (error) {
     console.error('Error deleting OpenAI API key:', error);
@@ -65,10 +75,10 @@ export const deleteOpenAIApiKey = async (): Promise<void> => {
   }
 };
 
-// New function to delete API key for any provider
+// New function to delete specific provider API key
 export const deleteProviderApiKey = async (provider: ApiProvider): Promise<void> => {
   try {
-    await apiClient.delete(`/user/provider-api-keys/${provider}`);
+    await apiClient.delete(`/v1/user/provider-api-keys/${provider}`);
     console.log(`${provider} API key deleted successfully`);
   } catch (error) {
     console.error(`Error deleting ${provider} API key:`, error);
@@ -90,7 +100,7 @@ export interface ApiKeyInfo {
 
 export const getAllApiKeys = async (): Promise<ApiKeyInfo[]> => {
   try {
-    const response = await apiClient.get('/user/provider-api-keys');
+    const response = await apiClient.get('/v1/user/provider-api-keys');
     // Assuming response.data is an array matching the APIKey model structure
     return response.data as ApiKeyInfo[]; 
   } catch (error) {
@@ -101,7 +111,7 @@ export const getAllApiKeys = async (): Promise<ApiKeyInfo[]> => {
 
 export async function saveDefaultModel(modelId: string): Promise<void> {
   try {
-    await apiClient.post('/user/default-model', { model_id: modelId });
+    await apiClient.post('/v1/user/default-model', { model_id: modelId });
   } catch (error) {
     handleApiError(error, 'Failed to save default model');
   }
@@ -109,7 +119,7 @@ export async function saveDefaultModel(modelId: string): Promise<void> {
 
 export async function getDefaultModel(): Promise<string> {
   try {
-    const response = await apiClient.get('/user/default-model');
+    const response = await apiClient.get('/v1/user/default-model');
     return response.data.model_id;
   } catch (error) {
     handleApiError(error, 'Failed to get default model');

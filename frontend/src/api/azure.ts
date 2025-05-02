@@ -62,14 +62,14 @@ export interface AzureSyncItemCreate {
 // --- Connection & Browsing --- 
 
 export const getAzureConnections = async (): Promise<AzureConnection[]> => {
-    const response = await apiClient.get<AzureConnection[]>('/azure_blob/connections');
+    const response = await apiClient.get<AzureConnection[]>('/v1/azure_blob/connections');
     // Ensure ID compatibility if backend sends UUID as string
     return response.data.map(conn => ({ ...conn, id: String(conn.id) }));
 };
 
 export const listAzureContainers = async (connectionId: string): Promise<AzureContainer[]> => {
     if (!connectionId) throw new Error("Connection ID is required to list containers");
-    const response = await apiClient.get<string[]>(`/azure_blob/connections/${connectionId}/containers`);
+    const response = await apiClient.get<string[]>(`/v1/azure_blob/connections/${connectionId}/containers`);
     return response.data.map(name => ({ name })); // Map string array to AzureContainer objects
 };
 
@@ -78,7 +78,7 @@ export const listAzureBlobs = async (connectionId: string, containerName: string
       throw new Error("Connection ID and Container Name are required to list blobs");
   }
   const encodedContainerName = encodeURIComponent(containerName);
-  const url = `/azure_blob/connections/${connectionId}/containers/${encodedContainerName}/objects`;
+  const url = `/v1/azure_blob/connections/${connectionId}/containers/${encodedContainerName}/objects`;
   const response = await apiClient.get<AzureBlob[]>(url, { params: { prefix } });
   return response.data;
 };
@@ -88,14 +88,14 @@ export const createAzureConnection = async (
     connectionData: AzureConnectionCreatePayload // Use updated type
 ): Promise<AzureConnection> => {
     // Backend endpoint remains the same for now
-    const response = await apiClient.post<AzureConnection>('/azure_blob/connections', connectionData);
+    const response = await apiClient.post<AzureConnection>('/v1/azure_blob/connections', connectionData);
     return response.data;
 };
 
 // Add function to delete a connection
 export const deleteAzureConnection = async (connectionId: string): Promise<void> => {
     try {
-        await apiClient.delete(`/azure_blob/connections/${connectionId}`);
+        await apiClient.delete(`/v1/azure_blob/connections/${connectionId}`);
     } catch (error: any) {
         console.error("Failed to delete Azure connection:", error);
         throw new Error(`Failed to delete connection: ${error.response?.data?.detail || error.message || 'Unknown error'}`);
@@ -113,14 +113,14 @@ export const getAzureSyncList = async (connectionId?: string, status?: string): 
     if (status) {
         params.status = status;
     }
-    const response = await apiClient.get<AzureSyncItem[]>('/azure_blob/sync_items', { params });
+    const response = await apiClient.get<AzureSyncItem[]>('/v1/azure_blob/sync_items', { params });
     return response.data;
 };
 
 export const addAzureSyncItem = async (itemData: AzureSyncItemCreate): Promise<AzureSyncItem> => {
     console.log("API CALL: addAzureSyncItem", itemData);
     try {
-        const response = await apiClient.post<AzureSyncItem>('/azure_blob/sync_items', itemData);
+        const response = await apiClient.post<AzureSyncItem>('/v1/azure_blob/sync_items', itemData);
         return response.data;
     } catch (error: any) {
         console.error("Failed to add Azure sync item:", error);
@@ -131,7 +131,7 @@ export const addAzureSyncItem = async (itemData: AzureSyncItemCreate): Promise<A
 export const removeAzureSyncItem = async (itemId: number): Promise<void> => {
     console.log("API CALL: removeAzureSyncItem", itemId);
     try {
-        await apiClient.delete(`/azure_blob/sync_items/${itemId}`);
+        await apiClient.delete(`/v1/azure_blob/sync_items/${itemId}`);
     } catch (error: any) {
         console.error("Failed to remove Azure sync item:", error);
         throw new Error(`Failed to remove sync item: ${error.message || 'Unknown error'}`);
@@ -159,7 +159,7 @@ export const triggerAzureIngestion = async (connectionId: string): Promise<Trigg
     console.log("API CALL: triggerAzureIngestion for connection", connectionId);
     try {
         // Send connection_id in the request body
-        const response = await apiClient.post<TriggerIngestResponse>('/azure_blob/ingest', { connection_id: connectionId });
+        const response = await apiClient.post<TriggerIngestResponse>('/v1/azure_blob/ingest', { connection_id: connectionId });
         return response.data;
     } catch (error: any) {
         console.error("Failed to trigger Azure ingestion:", error);

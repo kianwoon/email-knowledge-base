@@ -66,6 +66,7 @@ class TokenUsageStat(BaseModel):
     token_preview: str # Add preview
     usage_count: int
     last_used_at: Optional[datetime] = None
+    blocked_column_count: int = 0 # New field for P6
 
 class TokenUsageReportResponse(BaseModel):
     usage_stats: List[TokenUsageStat]
@@ -102,39 +103,61 @@ async def get_token_usage_report(
 
         token_ids = [token.id for token in owned_tokens]
 
-        # Base query for ExternalAuditLog
-        stmt = select(
+        # --- Query 1: Get Usage Count and Last Used --- 
+        usage_stmt = select(
             ExternalAuditLog.token_id,
             func.count(ExternalAuditLog.id).label('usage_count'),
             func.max(ExternalAuditLog.created_at).label('last_used_at')
         ).where(
             ExternalAuditLog.token_id.in_(token_ids)
+            # Optional: Add where clause for action_type != 'COLUMN_BLOCKED' if usage count shouldn't include block events
         )
 
-        # Apply date filters if provided
+        # Apply date filters to usage query
         if start_date:
-            stmt = stmt.where(ExternalAuditLog.created_at >= datetime.combine(start_date, datetime.min.time()))
+            start_dt_usage = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+            usage_stmt = usage_stmt.where(ExternalAuditLog.created_at >= start_dt_usage)
         if end_date:
-            stmt = stmt.where(ExternalAuditLog.created_at <= datetime.combine(end_date, datetime.max.time()))
+            end_dt_usage = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
+            usage_stmt = usage_stmt.where(ExternalAuditLog.created_at <= end_dt_usage)
 
-        # Group by token_id
-        stmt = stmt.group_by(ExternalAuditLog.token_id)
+        usage_stmt = usage_stmt.group_by(ExternalAuditLog.token_id)
+        usage_result = db.execute(usage_stmt).all()
+        usage_map = {row.token_id: {"usage_count": row.usage_count, "last_used_at": row.last_used_at} for row in usage_result}
+        # --- End Query 1 --- 
+        
+        # --- Query 2: Get Blocked Column Count --- 
+        blocked_stmt = select(
+            ExternalAuditLog.token_id,
+            func.count(ExternalAuditLog.id).label('blocked_count')
+        ).where(
+            ExternalAuditLog.token_id.in_(token_ids),
+            ExternalAuditLog.action_type == 'COLUMN_BLOCKED' # Filter by action type
+        )
 
-        # Execute the query
-        result = db.execute(stmt).all()
+        # Apply date filters to blocked count query
+        if start_date:
+            start_dt_blocked = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+            blocked_stmt = blocked_stmt.where(ExternalAuditLog.created_at >= start_dt_blocked)
+        if end_date:
+            end_dt_blocked = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
+            blocked_stmt = blocked_stmt.where(ExternalAuditLog.created_at <= end_dt_blocked)
+            
+        blocked_stmt = blocked_stmt.group_by(ExternalAuditLog.token_id)
+        blocked_result = db.execute(blocked_stmt).all()
+        blocked_map = {row.token_id: row.blocked_count for row in blocked_result}
+        # --- End Query 2 --- 
 
-        # Create a map of token_id to usage stats
-        usage_map = {row.token_id: {"usage_count": row.usage_count, "last_used_at": row.last_used_at} for row in result}
-
-        # Build the response list
+        # Build the response list, combining results from both queries
         usage_stats_list: List[TokenUsageStat] = []
         for token in owned_tokens:
             stats = usage_map.get(token.id)
             usage_count = stats["usage_count"] if stats else 0
             last_used_at = stats["last_used_at"] if stats else None
+            blocked_column_count = blocked_map.get(token.id, 0) # Get count from blocked_map, default 0
 
-            # >>> Generate token_preview from token_prefix <<<
-            prefix = token.token_prefix
+            # Generate token_preview from token_prefix
+            prefix = getattr(token, 'token_prefix', None) # Use getattr for safety
             token_preview_value = prefix if prefix else "[No Prefix]"
 
             usage_stats_list.append(
@@ -144,7 +167,8 @@ async def get_token_usage_report(
                     token_description=token.description,
                     token_preview=token_preview_value,
                     usage_count=usage_count,
-                    last_used_at=last_used_at
+                    last_used_at=last_used_at,
+                    blocked_column_count=blocked_column_count # Include the new count
                 )
             )
         

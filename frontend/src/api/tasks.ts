@@ -23,7 +23,7 @@ export const getTaskStatus = async (taskId: string): Promise<TaskStatus> => {
   console.debug(`[api/tasks] Fetching status for task_id: ${taskId}`);
 
   try {
-    const response = await apiClient.get<TaskStatus>(`/tasks/status/${taskId}`);
+    const response = await apiClient.get<TaskStatus>(`/v1/tasks/status/${taskId}`);
 
     console.debug(`[api/tasks] Status received for task ${taskId}:`, response.data);
     // Basic validation
@@ -46,7 +46,7 @@ export const getMyLatestKbTask = async (): Promise<TaskStatus | null> => {
   try {
     // Assuming the backend endpoint is /tasks/my_latest_kb_task
     // This endpoint should return the full TaskStatus if an active task exists, otherwise null or 404
-    const response = await apiClient.get<TaskStatus | null>('/tasks/my_latest_kb_task');
+    const response = await apiClient.get<TaskStatus | null>('/v1/tasks/my_latest_kb_task');
     
     // The backend might return 200 OK with null body if no active task, 
     // or 404 Not Found. Handle appropriately.

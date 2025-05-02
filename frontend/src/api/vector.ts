@@ -28,7 +28,7 @@ export const saveJobToKnowledgeBase = async (jobId: string): Promise<SaveJobResp
     // Make a POST request to the backend endpoint. 
     // The endpoint expects the job_id in the URL path.
     // No request body is needed for this specific endpoint as defined previously.
-    const response = await apiClient.post<SaveJobResponse>(`/vector/save_job/${jobId}`); 
+    const response = await apiClient.post<SaveJobResponse>(`/v1/vector/save_job/${jobId}`); 
     
     console.log(`[api/vector] Save job request successful for ${jobId}:`, response.data);
     return response.data; // Return the data part of the response
@@ -55,7 +55,7 @@ export const saveFilteredEmailsToKnowledgeBase = async (filter: EmailFilter): Pr
   try {
     // Use the existing apiClient
     const response = await apiClient.post<SubmitTaskResponse>( // Specify the expected response type
-      `/vector/save_filtered_emails`, // Use the endpoint that dispatches the task
+      `/v1/vector/save_filtered_emails`, // Added /v1
       filter // Send the filter object as the request body
     );
     console.log('[API Response] saveFilteredEmailsToKnowledgeBase (Task Submission):', response.data);
@@ -76,7 +76,7 @@ export const searchEmails = async (query: string, limit: number = 10): Promise<a
   console.log(`[searchEmails] Searching for: "${query}", limit: ${limit}`);
   
   try {
-    const response = await apiClient.post('/vector/search', 
+    const response = await apiClient.post('/v1/vector/search', 
       { query, limit },
     );
     console.log('[searchEmails] Response received:', response.data);

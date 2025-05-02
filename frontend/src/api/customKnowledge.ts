@@ -14,7 +14,7 @@ export const uploadCustomKnowledgeFiles = async (files: File[]): Promise<void> =
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
-    await apiClient.post('/custom-knowledge/upload-base64', {
+    await apiClient.post('/v1/custom-knowledge/upload-base64', {
       filename: file.name,
       content_type: file.type,
       file_size: file.size,
@@ -24,6 +24,6 @@ export const uploadCustomKnowledgeFiles = async (files: File[]): Promise<void> =
 };
 
 export const getCustomKnowledgeHistory = async (): Promise<ProcessedFile[]> => {
-  const response = await apiClient.get<ProcessedFile[]>('/custom-knowledge/history');
+  const response = await apiClient.get<ProcessedFile[]>('/v1/custom-knowledge/history');
   return response.data;
 };

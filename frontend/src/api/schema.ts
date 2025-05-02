@@ -8,7 +8,7 @@ import apiClient from './apiClient';
  */
 export const getEmailFactsColumns = async (): Promise<string[]> => {
   try {
-    const response = await apiClient.get<string[]>('/schema/email-facts/columns');
+    const response = await apiClient.get<string[]>('/v1/schema/email-facts/columns');
     return response.data;
   } catch (error: any) {
     console.error('API Error fetching email facts columns:', error);

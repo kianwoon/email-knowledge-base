@@ -10,8 +10,9 @@ import {
 // import { AuthProvider, AuthConsumer, useAuth } from './context/AuthContext';
 
 // API
-import { getCurrentUser, logout as logoutApi, getLoginUrl } from './api/auth';
-import { setupInterceptors } from './api/apiClient';
+import { getCurrentUser, logout as logoutApi, getLoginUrl, getTokenDirectly } from './api/auth'; // Remove checkAndExtractTokenFromUrl
+// Remove the setupInterceptors import
+import apiClient from './api/apiClient';
 
 // Components
 import TopNavbar from './components/TopNavbar';
@@ -52,6 +53,9 @@ import AzureBlobBrowser from './pages/DataSource/AzureBlob/AzureBlobBrowser';
 
 // i18n
 import { useTranslation } from 'react-i18next';
+
+// Direct imports
+import DebugPageDirect from './pages/Debug'; // Import directly for simple debugging
 
 // Lazy load new page components
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
@@ -111,7 +115,28 @@ const protectedPaths = [
 // Create a default MUI theme instance - NO LONGER NEEDED
 // const defaultMuiTheme = createMuiTheme();
 
+// Debug function to log cookies at startup
+function logCookies() {
+  console.log('=== Current Cookies ===');
+  const cookies = document.cookie.split(';');
+  if (cookies.length === 1 && cookies[0] === '') {
+    console.log('No cookies found');
+  } else {
+    cookies.forEach(cookie => {
+      console.log(cookie.trim());
+    });
+  }
+}
+
+// REMOVED TokenExtractor component
+// const TokenExtractor: React.FC<{children: React.ReactNode}> = ({ children }) => {
+//   ...
+// };
+
 function App() {
+  // Log cookies for debugging
+  logCookies();
+
   // State management (Restored from previous correct version)
   const [auth, setAuth] = useState<{ isAuthenticated: boolean; user: any | null }>({ isAuthenticated: false, user: null });
   const [isLoading, setIsLoading] = useState(true);
@@ -122,8 +147,8 @@ function App() {
 
   // Setup Interceptors (Restored)
   useEffect(() => {
-    setupInterceptors();
-    console.log('[App useEffect] Interceptors set up.');
+    // Interceptors are now set up directly in apiClient.ts
+    console.log('[App useEffect] API client with interceptors ready.');
   }, []);
 
   // --- Login Redirect Handler ---
@@ -170,7 +195,7 @@ function App() {
       console.error("[App] API logout failed:", error);
     }
     setAuth({ isAuthenticated: false, user: null });
-    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('access_token');
     navigate('/', { replace: true });
   }, [navigate]);
 
@@ -202,19 +227,61 @@ function App() {
   // Auth Initialization Check (Restored)
   useEffect(() => {
     const initializeAuth = async () => {
-      console.log("--- App useEffect running initializeAuth (Cookie Based) ---");
-      // Note: setIsLoading(true) is redundant here as initial state is true
-      // setIsLoading(true); 
+      console.log("--- App useEffect running initializeAuth --- MODIFIED: Includes Token Extraction ---");
+
+      // --- Start Token Extraction Logic (Moved from TokenExtractor) ---
+      let extractedTokenFromUrl = false;
+      console.log('Current URL:', window.location.href);
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenFromUrl = urlParams.get('access_token');
+      console.log('URL search params:', window.location.search);
+      console.log('access_token in URL:', tokenFromUrl ? `Found (${tokenFromUrl.substring(0, 10)}...)` : 'Not found');
+
+      if (tokenFromUrl) {
+        console.log('Found token in URL, setting cookie and localStorage...');
+        document.cookie = `access_token=${tokenFromUrl}; path=/; max-age=7200; SameSite=Lax`;
+        localStorage.setItem('access_token', tokenFromUrl);
+        extractedTokenFromUrl = true; // Mark that we got it from the URL
+        // Clean up URL
+        const cleanUrl = window.location.href.split('?')[0] + window.location.hash; // Keep hash if present
+        window.history.replaceState({}, document.title, cleanUrl);
+        console.log('Token extraction complete and URL cleaned');
+      } else {
+        // If no URL token, check if we have one in localStorage already (e.g., from previous session)
+        const storedToken = localStorage.getItem('access_token');
+        if (storedToken) {
+          console.log('No token in URL, but found token in localStorage. Setting as cookie...');
+          document.cookie = `access_token=${storedToken}; path=/; max-age=7200; SameSite=Lax`;
+        }
+      }
+      // --- End Token Extraction Logic ---
+
       let userDetails = null;
       let initialAuth = false;
+
       try {
          console.log("[initializeAuth] Attempting getCurrentUser...");
-         userDetails = await getCurrentUser();
-         console.log("[initializeAuth] getCurrentUser success. User:", userDetails);
+         userDetails = await getCurrentUser(); // This now uses the potentially set cookie/header
+         console.log("[initializeAuth] getCurrentUser result:", userDetails);
          initialAuth = !!userDetails;
+
+         if (!initialAuth && !extractedTokenFromUrl) {
+             // Only try direct token fetch if getCurrentUser failed AND we didn't just extract from URL
+             console.log("[initializeAuth] getCurrentUser failed & no URL token, trying direct token fetch...");
+             const directToken = await getTokenDirectly();
+             if (directToken) {
+               console.log("[initializeAuth] Direct token success, trying getCurrentUser again...");
+               userDetails = await getCurrentUser();
+               initialAuth = !!userDetails;
+               console.log("[initializeAuth] Second getCurrentUser attempt result:", userDetails);
+             } else {
+               console.log("[initializeAuth] Direct token fetch also failed.");
+             }
+         }
+
       } catch (error: any) {
-         // This includes 401 errors where getCurrentUser returns null
-         console.log("[initializeAuth] getCurrentUser failed or returned null (session likely invalid):", error?.response?.data || error?.message);
+         // Handle errors from getCurrentUser or getTokenDirectly
+         console.log("[initializeAuth] Error during auth checks:", error?.response?.data || error?.message);
          initialAuth = false;
          userDetails = null;
       } finally {
@@ -227,7 +294,7 @@ function App() {
       }
     };
     initializeAuth();
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
   // Close Session Modal Handler (Restored)
   const handleCloseSessionExpiredModal = () => {
@@ -264,6 +331,39 @@ function App() {
     }
   };
 
+  // Function to check/refresh authentication status
+  const checkAuth = useCallback(async () => {
+    console.log('=== Checking Authentication Status ===');
+    logCookies(); // Log cookies before the check
+
+    try {
+      console.log('Calling getCurrentUser API...');
+      const userResponse = await getCurrentUser();
+      if (userResponse) {
+        console.log('User authenticated:', userResponse.email);
+        setAuth({
+          isAuthenticated: true,
+          user: userResponse,
+        });
+        return true;
+      } else {
+        console.log('No user data returned, clearing auth state');
+        setAuth({
+          isAuthenticated: false,
+          user: null,
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error('Error checking authentication status:', error);
+      setAuth({
+        isAuthenticated: false,
+        user: null,
+      });
+      return false;
+    }
+  }, []);
+
   // <<< ADD Log before the loading check >>>
   console.log(`[App Render] isLoading state is currently: ${isLoading}`);
 
@@ -284,6 +384,7 @@ function App() {
         user={auth.user}
       />
       <Container maxW="1400px" py={4}>
+        {/* REMOVED TokenExtractor Wrapper */}
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<SignIn onLogin={handleSuccessfulLogin} isAuthenticated={auth.isAuthenticated} />} />
@@ -294,6 +395,7 @@ function App() {
           <Route path="/docs/knowledge-base" element={<KnowledgeBase />} />
           <Route path="/docs/secure-authentication" element={<SecureAuthentication />} />
           <Route path="/docs/smart-filtering" element={<SmartFiltering />} />
+          <Route path="/debug" element={<DebugPageDirect />} /> {/* New Debug Page */}
           {/* Add route for Email Processing doc if it exists */}
           {/* <Route path="/docs/email-processing" element={<EmailProcessing />} /> */} {/* <-- Comment out or remove this line */}
 
@@ -445,6 +547,7 @@ function App() {
           {/* Catch-all Route - Added back */}
           <Route path="*" element={<Navigate to={auth.isAuthenticated ? "/filter" : "/"} replace />} />
         </Routes>
+        {/* </TokenExtractor> */}
       </Container>
 
       {/* Session Expired Modal - Stays the same, triggered by onSessionExpiredModalOpen */}

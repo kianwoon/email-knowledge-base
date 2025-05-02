@@ -34,7 +34,7 @@ export const getCollectionSummary = async (
   try {
     // Endpoint path matches the backend route we will create (including prefix)
     const response = await apiClient.get<CollectionSummaryResponse>(
-      `/knowledge/summary/${collectionName}`
+      `/v1/knowledge/summary/${collectionName}`
     );
     console.log(`[api/knowledge] Received summary for ${collectionName}:`, response.data);
     return response.data;
@@ -57,7 +57,8 @@ export const getCollectionSummary = async (
 export const getKnowledgeBaseSummary = async (): Promise<KnowledgeSummaryResponse> => {
   console.log(`[api/knowledge] Fetching combined knowledge base summary...`);
   try {
-    const response = await axios.get<KnowledgeSummaryResponse>('/api/v1/knowledge/summary');
+    // Changed from axios.get to apiClient.get to ensure auth interceptor runs
+    const response = await apiClient.get<KnowledgeSummaryResponse>('/v1/knowledge/summary');
     return response.data;
   } catch (error: any) {
     console.error(`[api/knowledge] Error fetching combined summary:`, error.response?.data || error.message);

@@ -15,7 +15,7 @@ console.log("auth.ts - VITE_BACKEND_URL:", import.meta.env.VITE_BACKEND_URL);
 export const getLoginUrl = async (): Promise<string> => {
   console.log('=== Getting Login URL ===');
   try {
-    const response = await apiClient.get('/auth/login');
+    const response = await apiClient.get('/v1/auth/login');
     if (!response.data.auth_url) {
       throw new Error("Auth URL not found in response");
     }
@@ -31,7 +31,7 @@ export const getLoginUrl = async (): Promise<string> => {
  */
 export const getCurrentUser = async (): Promise<any | null> => {
   try {
-    const response = await apiClient.get<any>('/auth/me');
+    const response = await apiClient.get<any>('/v1/auth/me');
     return response.data;
   } catch (error: any) {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
@@ -74,10 +74,49 @@ export const getCurrentUser = async (): Promise<any | null> => {
 // Function to call the backend logout endpoint
 export const logout = async (): Promise<void> => {
   try {
-    console.log('Calling backend /auth/logout...');
-    await apiClient.post('/auth/logout');
+    console.log('Calling backend /v1/auth/logout...');
+    await apiClient.post('/v1/auth/logout');
+    
+    // Also manually clear the cookie on the client side for immediate effect
+    document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    console.log('Cleared access_token cookie');
   } catch (error) {
     console.error("Error during logout:", error);
     throw error;
+  }
+};
+
+/**
+ * Get token directly from the backend instead of relying on cookies
+ * This is a fallback when cookies don't work properly due to cross-domain issues
+ */
+export const getTokenDirectly = async (): Promise<string | null> => {
+  try {
+    console.log('Fetching token directly from backend...');
+    const response = await fetch('/api/v1/auth/token', {
+      method: 'GET',
+      credentials: 'include', // Still try to send cookies
+      headers: {
+        'Accept': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      console.log('Failed to get token:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    if (data.access_token) {
+      console.log('Received token directly, setting as local cookie');
+      // Set the token as a cookie that the frontend can read
+      document.cookie = `access_token=${data.access_token}; path=/; max-age=7200; SameSite=Lax`;
+      return data.access_token;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching token directly:', error);
+    return null;
   }
 };

@@ -101,7 +101,7 @@ export interface SharedMilvusResult {
 export const getUserTokens = async (): Promise<Token[]> => {
   console.log('API: Fetching user tokens...');
   try {
-    const response = await axiosInstance.get<Token[]>('/token/');
+    const response = await axiosInstance.get<Token[]>('/v1/token/');
     console.log('API: Tokens received:', response.data);
     return response.data;
   } catch (error) {
@@ -118,7 +118,7 @@ export const createToken = async (payload: TokenCreatePayload): Promise<TokenCre
   try {
     // The backend POST /token/ route returns TokenCreateResponse which includes token_value
     // The Token type includes optional token_value to handle this.
-    const response = await axiosInstance.post<TokenCreateResponse>('/token/', payload);
+    const response = await axiosInstance.post<TokenCreateResponse>('/v1/token/', payload);
     console.log('API: Token created:', response.data);
     return response.data;
   } catch (error) {
@@ -133,7 +133,7 @@ export const createToken = async (payload: TokenCreatePayload): Promise<TokenCre
 export const deleteTokenApi = async (tokenId: string): Promise<void> => {
   console.log(`API: Deleting token: ${tokenId}...`);
   try {
-    await axiosInstance.delete(`/token/${tokenId}`);
+    await axiosInstance.delete(`/v1/token/${tokenId}`);
     console.log(`API: Token ${tokenId} deleted successfully.`);
   } catch (error) {
     console.error(`API Error deleting token ${tokenId}:`, error);
@@ -147,7 +147,7 @@ export const deleteTokenApi = async (tokenId: string): Promise<void> => {
 export const getTokenById = async (tokenId: string): Promise<Token> => {
   console.log(`API: Fetching token by ID: ${tokenId}...`);
   try {
-    const response = await axiosInstance.get<Token>(`/token/${tokenId}`);
+    const response = await axiosInstance.get<Token>(`/v1/token/${tokenId}`);
     console.log(`API: Token ${tokenId} received:`, response.data);
     return response.data;
   } catch (error) {
@@ -163,7 +163,7 @@ export const updateToken = async (tokenId: string, payload: TokenUpdatePayload):
   console.log(`API: Updating token ${tokenId}:`, payload);
   try {
     // Backend returns standard TokenResponse (mapped to Token type)
-    const response = await axiosInstance.patch<Token>(`/token/${tokenId}`, payload);
+    const response = await axiosInstance.patch<Token>(`/v1/token/${tokenId}`, payload);
     console.log(`API: Token ${tokenId} updated:`, response.data);
     return response.data;
   } catch (error) {
@@ -174,7 +174,7 @@ export const updateToken = async (tokenId: string, payload: TokenUpdatePayload):
 
 // Bundle existing tokens
 export const bundleTokens = async (payload: TokenBundlePayload): Promise<Token> => {
-  const response = await axiosInstance.post<Token>('/token/bundle', payload);
+  const response = await axiosInstance.post<Token>('/v1/token/bundle', payload);
   return response.data;
 };
 
@@ -191,7 +191,7 @@ export const testTokenSearch = async (
   try {
     const payload = { query };
     const response = await axiosInstance.post<SharedMilvusResult[]>(
-      `/token/${tokenId}/test-search`, 
+      `/v1/token/${tokenId}/test-search`, 
       payload
     );
     console.log(`API: Test search for token ${tokenId} returned ${response.data.length} results.`);
@@ -241,7 +241,7 @@ export const getTokenUsageReport = async (
       params.append('end_date', endDate);
     }
 
-    const response = await axiosInstance.get<TokenUsageReportResponse>('/token/usage-report', {
+    const response = await axiosInstance.get<TokenUsageReportResponse>('/v1/token/usage-report', {
       params: params
     });
     console.log('API: Token usage report received:', response.data);
@@ -288,7 +288,7 @@ export const getTokenUsageTimeSeries = async (
       params.append('end_date', endDate);
     }
 
-    const response = await axiosInstance.get<TimeSeriesResponse>('/token/usage-timeseries', {
+    const response = await axiosInstance.get<TimeSeriesResponse>('/v1/token/usage-timeseries', {
       params: params
     });
     console.log('API: Token usage time series received:', response.data);
@@ -303,8 +303,8 @@ export const getTokenUsageTimeSeries = async (
 // GET /token/{token_id} - Fetch details for a specific token
 export const getTokenDetails = async (tokenId: number): Promise<any> => {
   try {
-    // Remove /api/v1 prefix, assuming axiosInstance handles it
-    const response = await axiosInstance.get<any>(`/token/${tokenId}`);
+    // Add /v1 prefix
+    const response = await axiosInstance.get<any>(`/v1/token/${tokenId}`);
     return response.data;
   } catch (error) {
     console.error(`Error fetching details for token ${tokenId}:`, error);
@@ -326,7 +326,7 @@ interface RegenerateResponse {
 export const regenerateTokenSecret = async (tokenId: number): Promise<RegenerateResponse> => {
   console.log(`API: Regenerating secret for token ID ${tokenId}`);
   try {
-    const response = await axiosInstance.post<RegenerateResponse>(`/token/${tokenId}/regenerate`);
+    const response = await axiosInstance.post<RegenerateResponse>(`/v1/token/${tokenId}/regenerate`);
     console.log(`API: Secret regenerated successfully for token ${tokenId}.`);
     return response.data; // Should contain { new_token_value: "..." }
   } catch (error: any) {

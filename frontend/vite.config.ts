@@ -39,6 +39,20 @@ export default defineConfig(({ command, mode }) => {
           target: 'http://localhost:8000',
           changeOrigin: true,
           secure: false,
+          configure: (proxy, options) => {
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              // Forward Authorization header if present on incoming request
+              if (req.headers['authorization']) {
+                console.log('[Vite Proxy] Forwarding Authorization header:', req.headers['authorization']);
+                proxyReq.setHeader('Authorization', req.headers['authorization']);
+              }
+              // Forward Cookies if present (Vite might do this with changeOrigin, but explicitly helps)
+              if (req.headers.cookie) {
+                 console.log('[Vite Proxy] Forwarding Cookie header:', req.headers.cookie);
+                 proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+          }
         }
       },
     },
@@ -49,8 +63,21 @@ export default defineConfig(({ command, mode }) => {
         '/api': {
           target: env.VITE_API_BASE_URL || 'http://localhost:8000',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api/, ''),
           secure: false,
+           configure: (proxy, options) => {
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              // Forward Authorization header if present on incoming request
+              if (req.headers['authorization']) {
+                 console.log('[Vite Proxy Preview] Forwarding Authorization header:', req.headers['authorization']);
+                 proxyReq.setHeader('Authorization', req.headers['authorization']);
+              }
+              // Forward Cookies if present
+              if (req.headers.cookie) {
+                 console.log('[Vite Proxy Preview] Forwarding Cookie header:', req.headers.cookie);
+                 proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+          }
         }
       },
     }
