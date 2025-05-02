@@ -322,14 +322,19 @@ async def create_token_route(
         response_data = token_db_to_response(db_token)
         
         # Check if token_value is already in the response_data
-        # If it is, use model_validate directly, otherwise add the raw token value
         if hasattr(response_data, 'token_value') and response_data.token_value:
             return TokenCreateResponse.model_validate(response_data)
         else:
             # Add the raw token value ONLY for the create response if it's missing
             raw_token_value = getattr(db_token, 'token_value', '[Error Retrieving Token]')
+            
+            # Get the model dump and remove token_value if it exists to avoid duplicate
+            response_dict = response_data.model_dump()
+            if 'token_value' in response_dict:
+                response_dict.pop('token_value')
+                
             return TokenCreateResponse(
-                **response_data.model_dump(),
+                **response_dict,
                 token_value=raw_token_value
             )
 
