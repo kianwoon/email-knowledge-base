@@ -9,12 +9,14 @@ export interface JarvisTokenDisplay {
     created_at: string; // Representing datetime as string
     last_used_at?: string | null;
     is_valid: boolean;
+    endpoint_url: string;
 }
 
 // Interface for creating a token (matches JarvisTokenCreate schema)
 export interface JarvisTokenCreate {
     token_nickname: string;
     raw_token_value: string;
+    endpoint_url: string;
 }
 
 // --- API Functions --- 

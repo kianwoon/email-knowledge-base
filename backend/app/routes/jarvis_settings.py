@@ -30,6 +30,7 @@ router = APIRouter(
 
 class JarvisTokenBase(BaseModel):
     token_nickname: str = Field(..., min_length=1, max_length=255, description="User-friendly name for the token")
+    endpoint_url: str = Field(..., min_length=1, max_length=512, description="The API endpoint URL where this token will be used")
 
 class JarvisTokenCreate(JarvisTokenBase):
     raw_token_value: str = Field(..., min_length=1, description="The actual secret token value")
@@ -84,6 +85,7 @@ def add_external_token(
         user_id=current_user.id,
         token_nickname=token_in.token_nickname,
         encrypted_token_value=encrypted_value,
+        endpoint_url=token_in.endpoint_url,
         is_valid=True # Assume valid initially
     )
     

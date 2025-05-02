@@ -11,6 +11,7 @@ class JarvisExternalToken(Base):
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True) # CHANGED: Use UUID type
     token_nickname = Column(String(255), nullable=False)
     encrypted_token_value = Column(LargeBinary, nullable=False) # For BYTEA
+    endpoint_url = Column(String(512), nullable=False) # URL where the token will be used
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     is_valid = Column(Boolean, default=True, nullable=False, index=True)

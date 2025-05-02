@@ -14,6 +14,7 @@ python -m migrations.add_openai_api_key
 ## Available Migrations
 
 - `add_openai_api_key.py`: Adds the `openai_api_key` column to the `users` table for storing user-specific OpenAI API keys.
+- `add_endpoint_url_to_jarvis_tokens.py`: Adds the `endpoint_url` column to the `jarvis_external_tokens` table for storing the API endpoint URL where the token will be used.
 
 ## Creating New Migrations
 

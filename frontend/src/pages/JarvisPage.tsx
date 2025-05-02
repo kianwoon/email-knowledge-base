@@ -252,9 +252,10 @@ const JarvisPage: React.FC = () => {
 
   // --- ADDED: State for External Knowledge Tokens ---
   const [externalTokens, setExternalTokens] = useState<JarvisTokenDisplay[]>([]);
-  const [isLoadingExternalTokens, setIsLoadingExternalTokens] = useState(false);
+  const [isLoadingExternalTokens, setIsLoadingExternalTokens] = useState(true);
   const [newTokenNickname, setNewTokenNickname] = useState('');
   const [newTokenValue, setNewTokenValue] = useState('');
+  const [newTokenEndpointUrl, setNewTokenEndpointUrl] = useState('');
   const [isAddingToken, setIsAddingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   // --- END ADDED STATE ---
@@ -781,8 +782,8 @@ const JarvisPage: React.FC = () => {
 
   // --- ADDED: Handlers for External Knowledge Tokens ---
   const handleAddExternalToken = async () => {
-    if (!newTokenNickname.trim() || !newTokenValue.trim()) {
-      setTokenError("Nickname and Token Value cannot be empty.");
+    if (!newTokenNickname.trim() || !newTokenValue.trim() || !newTokenEndpointUrl.trim()) {
+      setTokenError("Nickname, Token Value, and Endpoint URL cannot be empty.");
       return;
     }
     setIsAddingToken(true);
@@ -791,11 +792,13 @@ const JarvisPage: React.FC = () => {
       const tokenData: JarvisTokenCreate = {
         token_nickname: newTokenNickname,
         raw_token_value: newTokenValue,
+        endpoint_url: newTokenEndpointUrl
       };
       await addExternalToken(tokenData);
       toast({ title: "Token Added", description: `Token '${newTokenNickname}' added successfully.`, status: "success" });
       setNewTokenNickname('');
       setNewTokenValue('');
+      setNewTokenEndpointUrl('');
       fetchExternalTokens(); // Refresh the list
     } catch (error: any) {
       console.error("Error adding external token:", error);
@@ -1559,6 +1562,17 @@ const JarvisPage: React.FC = () => {
                         isDisabled={isAddingToken}
                       />
                     </FormControl>
+                    <FormControl isRequired isInvalid={!!tokenError && tokenError.includes("Endpoint URL")}>
+                      <FormLabel htmlFor="new-token-endpoint-url">{t('jarvis.tokenEndpointUrl', 'Token Endpoint URL')}</FormLabel>
+                      <Input 
+                        id="new-token-endpoint-url"
+                        type="text"
+                        value={newTokenEndpointUrl}
+                        onChange={(e) => setNewTokenEndpointUrl(e.target.value)}
+                        placeholder={t('jarvis.tokenEndpointUrlPlaceholder', 'Enter the token endpoint URL')}
+                        isDisabled={isAddingToken}
+                      />
+                    </FormControl>
                     {tokenError && (
                         <Alert status="error" borderRadius="md" fontSize="sm">
                           <AlertIcon boxSize="16px"/>
@@ -1570,7 +1584,7 @@ const JarvisPage: React.FC = () => {
                       colorScheme="blue"
                       onClick={handleAddExternalToken}
                       isLoading={isAddingToken}
-                      isDisabled={isAddingToken || !newTokenNickname || !newTokenValue}
+                      isDisabled={isAddingToken || !newTokenNickname || !newTokenValue || !newTokenEndpointUrl}
                     >
                       {t('jarvis.addTokenButton', 'Add Token')}
                     </Button>
@@ -1590,6 +1604,7 @@ const JarvisPage: React.FC = () => {
                         <Thead>
                           <Tr>
                             <Th>{t('jarvis.tokenNickname', 'Nickname')}</Th>
+                            <Th>{t('jarvis.tokenEndpointUrl', 'Endpoint URL')}</Th>
                             <Th>{t('jarvis.tokenAddedOn', 'Added On')}</Th>
                             <Th>{t('jarvis.tokenIsValid', 'Valid')}</Th>
                             <Th isNumeric>{t('common.actions', 'Actions')}</Th>
@@ -1599,6 +1614,7 @@ const JarvisPage: React.FC = () => {
                           {externalTokens.map(token => (
                             <Tr key={token.id} _hover={{ bg: tableHoverBg }}>
                               <Td fontWeight="medium">{token.token_nickname}</Td>
+                              <Td fontSize="sm">{token.endpoint_url || '-'}</Td>
                               <Td>{formatDateTime(token.created_at)}</Td>
                               <Td>
                                 <Tag size="sm" colorScheme={token.is_valid ? 'green' : 'red'}>
