@@ -101,6 +101,10 @@ class TokenResponse(BaseModel):
     allow_attachments: bool
     row_limit: int
     # --- End NEW FIELDS ---
+
+    # --- ADDED: Field to return full token value ONLY to owner ---
+    token_value: Optional[str] = Field(None, description="Full token value (prefix.secret), only returned to the token owner on specific requests.")
+    # --- END ADDED ---
     
     # Embeddings not included in standard response
     

@@ -522,7 +522,8 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def get_validated_token(
     authorization: Optional[str] = Security(api_key_header_scheme),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    request: Request = None
 ) -> TokenDB:
     """
     Dependency to validate an API token (prefix_secret format) provided in the
@@ -550,89 +551,139 @@ async def get_validated_token(
     if not full_token_value:
         logger.warning("Bearer token value is empty after stripping.")
         raise credentials_exception
+        
+    # Debug log the received token
+    logger.info(f"Received token value for validation. Length: {len(full_token_value)}, Raw value: '{full_token_value}'")
 
-    # --- NEW: Split token into prefix and secret part ---
+    # --- Extract prefix from token value ---
     try:
-        # Correctly split by '.' to separate prefix and secret
-        prefix, secret_part = full_token_value.split('.', 1)
-        if not prefix or not secret_part:
-            raise ValueError("Token format incorrect, missing prefix or secret part after split by '.'")
-
+        # Try to split by '.' to get prefix and secret part
+        if '.' in full_token_value:
+            prefix, secret_part = full_token_value.split('.', 1)
+            if not prefix or not secret_part:
+                raise ValueError("Token format incorrect, missing prefix or secret part after split by '.'")
+        else:
+            # No period - might be just the prefix
+            prefix = full_token_value
+            secret_part = None
+            logger.info(f"No period separator found in token. Treating as prefix only: {prefix}")
     except ValueError as e:
-        # Updated error log to reflect split by '.'
         logger.error(f"Failed to parse token format (expected 'prefix.secret'): {e}. Input: {full_token_value}")
-        raise forbidden_exception # Use 403 for invalid format
-    # --- END Split ---
-
-    # Keep token preview logic as is
-    token_preview = f"{prefix}.{secret_part[:3]}...{secret_part[-3:]}" if len(secret_part) > 6 else f"{prefix}.{secret_part[:3]}..."
+        raise forbidden_exception
+        
+    # Create the token preview for logging
+    if secret_part:
+        token_preview = f"{prefix}.{secret_part[:3]}...{secret_part[-3:]}" if len(secret_part) > 6 else f"{prefix}.{secret_part[:3]}..."
+    else:
+        token_preview = f"{prefix} (prefix only)"
     logger.info(f"Attempting to validate token with prefix: {prefix}, preview: {token_preview}")
 
-    # --- NEW: Lookup token by prefix ---
-    # Get the token from DB using the correctly extracted prefix
+    # Get the token from DB
     token_db = token_crud.get_token_by_prefix(db, token_prefix=prefix)
-    # --- END Lookup ---
-
     if not token_db:
         logger.warning(f"No token found matching prefix: {prefix}.")
-        raise credentials_exception # Use 401 if prefix doesn't exist
-
-    # --- REMOVED Outdated Hash Validation Block (using hashed_token) --- #
-    # if not hasattr(token_db, 'hashed_token') or not token_db.hashed_token:
-    #      logger.error(f"Token {token_db.id} (Prefix: {prefix}) found but missing hashed_token field. Configuration error.")
-    #      raise forbidden_exception
-    # 
-    # try:
-    #     secret_part_bytes = secret_part.encode('utf-8')
-    #     stored_hash_str = token_db.hashed_token # Outdated
-    #     if isinstance(stored_hash_str, str):
-    #          hashed_token_bytes = stored_hash_str.encode('utf-8')
-    #     elif isinstance(stored_hash_str, bytes):
-    #          hashed_token_bytes = stored_hash_str
-    #     else:
-    #          logger.error(f"Token {token_db.id} (Prefix: {prefix}) has unexpected type for hashed_token: {type(stored_hash_str)}.")
-    #          raise forbidden_exception
-    # 
-    #     is_valid_hash = bcrypt.checkpw(secret_part_bytes, hashed_token_bytes)
-    # 
-    #     if not is_valid_hash:
-    #         logger.warning(f"Token {token_db.id} (Prefix: {prefix}) hash verification failed.")
-    #         raise credentials_exception
-    # 
-    #     logger.debug(f"Token {token_db.id} (Prefix: {prefix}) hash verification successful.")
-    # 
-    # except Exception as e:
-    #     logger.error(f"Error during bcrypt hash check for token {token_db.id} (Prefix: {prefix}): {e}", exc_info=True)
-    #     raise forbidden_exception
-    # --- END REMOVED BLOCK --- 
+        raise credentials_exception
 
     # Check if token is active
     if not token_db.is_active:
         logger.warning(f"Token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email}) is inactive.")
-        raise forbidden_exception # Use 403 Forbidden for inactive/expired/format issues
-
+        raise forbidden_exception
+        
     # Check expiry
     if token_db.expiry and token_db.expiry < datetime.now(timezone.utc):
         logger.warning(f"Token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email}) expired at {token_db.expiry}.")
-        raise forbidden_exception # Use 403 Forbidden
+        raise forbidden_exception
 
-    # --- Correct Hash Validation using hashed_secret --- 
-    secret_part_bytes = secret_part.encode('utf-8')
-    if not token_db.hashed_secret or not bcrypt.checkpw(secret_part_bytes, token_db.hashed_secret.encode('utf-8')):
-        logger.warning(f"Token validation failed: Invalid secret provided for prefix '{prefix}' (Token ID: {token_db.id}).")
-        raise credentials_exception # Raises 401
-    # --- End Correct Hash Validation --- 
+    # If no secret part provided, check if the Authorization header contains a valid JWT token
+    # This would indicate the user is authenticated and might be the token owner
+    if not secret_part:
+        # Extract the JWT token directly from the Authorization header
+        jwt_token = None
+        owner_email = None
+        
+        # First, get the JWT token from the cookie if request is available
+        cookie_token = None
+        if request:
+            cookie_token = request.cookies.get("access_token")
+            
+            # Also check for the X-User-Session header that might contain the JWT token
+            user_session = request.headers.get("X-User-Session")
+            if user_session and not cookie_token:
+                cookie_token = user_session
+                logger.info("Found session token in X-User-Session header")
+        
+        if cookie_token:
+            try:
+                # Decode the JWT to get user info
+                payload = jwt.decode(
+                    cookie_token, 
+                    settings.JWT_SECRET, 
+                    algorithms=[settings.JWT_ALGORITHM]
+                )
+                owner_email = payload.get("email")
+                logger.info(f"Found authenticated user from cookie: {owner_email}")
+                
+                # If authenticated user matches token owner, allow access
+                if owner_email and owner_email == token_db.owner_email:
+                    logger.info(f"Allowing owner access to token {token_db.id} via prefix only. Owner: {owner_email}")
+                    return token_db
+            except Exception as jwt_err:
+                logger.error(f"Error decoding JWT from cookie: {jwt_err}")
+        
+        # If we reach here, we also need to check if there's a valid JWT token in the Authorization header itself
+        # The Authorization would be in the format "Bearer <JWT_TOKEN>"
+        # This is needed because in API requests, the cookie might not be sent
+        try:
+            # Simple check to see if it looks like a JWT (contains two periods)
+            if full_token_value.count('.') == 2:
+                # Try to decode it as a JWT
+                try:
+                    payload = jwt.decode(
+                        full_token_value,
+                        settings.JWT_SECRET,
+                        algorithms=[settings.JWT_ALGORITHM]
+                    )
+                    owner_email = payload.get("email")
+                    
+                    # If authenticated user matches token owner, allow access
+                    if owner_email and owner_email == token_db.owner_email:
+                        logger.info(f"Allowing owner access to token {token_db.id} via JWT in Authorization. Owner: {owner_email}")
+                        return token_db
+                except Exception as jwt_err:
+                    logger.debug(f"Authorization token is not a valid JWT: {jwt_err}")
+        except Exception as auth_err:
+            logger.error(f"Error checking JWT in Authorization header: {auth_err}")
+            
+        # If we got here, either no auth or auth user does not match token owner
+        logger.warning(f"Token prefix provided without secret part, and no matching owner authentication found")
+        raise credentials_exception
 
-    # TODO: Implement Audience Check (IP/Org Restrictions) if token_db.audience is set
-    # Requires access to the request object to get client IP
-    # Example: 
-    # request: Request = Depends() # Add request dependency if needed here
-    # request_ip = request.client.host
-    # if token_db.audience and not check_audience(request_ip, token_db.audience):
-    #    logger.warning(f"Token {token_db.id} used from disallowed source IP: {request_ip}. Audience: {token_db.audience}")
-    #    raise forbidden_exception
+    # Validate the secret part against the stored hash
+    try:
+        secret_part_bytes = secret_part.encode('utf-8')
+        if not token_db.hashed_secret or not bcrypt.checkpw(secret_part_bytes, token_db.hashed_secret.encode('utf-8')):
+            logger.warning(f"Token validation failed: Invalid secret provided for prefix '{prefix}' (Token ID: {token_db.id}).")
+            raise credentials_exception
+    except Exception as e:
+        logger.error(f"Error during token secret validation: {e}", exc_info=True)
+        raise credentials_exception
 
     logger.info(f"Successfully validated token {token_db.id} (Prefix: {prefix}, Owner: {token_db.owner_email})")
     return token_db
 
 # --- End Copied Dependency --- 
+
+# Function to create a dependency that passes the request to get_validated_token
+def get_token_with_request():
+    """
+    Creates a dependency that passes the request object to get_validated_token.
+    This ensures the token validation can access cookies for owner authentication.
+    """
+    async def _get_token_with_request(
+        request: Request,
+        authorization: Optional[str] = Security(api_key_header_scheme),
+        db: Session = Depends(get_db)
+    ) -> TokenDB:
+        return await get_validated_token(authorization=authorization, db=db, request=request)
+    
+    return _get_token_with_request

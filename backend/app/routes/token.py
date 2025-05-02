@@ -33,6 +33,9 @@ from ..crud.token_crud import (
     regenerate_token_secret
 )
 
+# Import decryption utility
+from ..utils.security import decrypt_token
+
 # Import datetime for expiry check
 from datetime import datetime, timezone, date, timedelta
 
@@ -333,15 +336,55 @@ async def create_token_route(
 @router.get("/{token_id}", response_model=TokenResponse)
 async def read_token(
     token_id: int,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    db_token = get_token_by_id(db, token_id=token_id)
-    if db_token is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
-    if db_token.owner_email != current_user.email:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
-    return token_db_to_response(db_token)
+    """Retrieve details of a specific token by its ID."""
+    token_db = get_token_by_id(db, token_id=token_id)
+    if not token_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Token not found"
+        )
+
+    # --- ADDED: Logic to include full token value for owner --- 
+    full_token_value: Optional[str] = None
+    if token_db.owner_email == current_user.email:
+        logger.debug(f"User {current_user.email} is owner of token {token_id}. Attempting to construct full token.") 
+        if token_db.token_prefix and token_db.hashed_secret:
+            try:
+                # Check if it's a bcrypt hash (starts with $2b$)
+                if token_db.hashed_secret.startswith('$2b$'):
+                    logger.info(f"Token {token_id} uses bcrypt hash which cannot be decrypted. Using prefix-only mode for owner.")
+                    # For bcrypt hashed tokens, owner can use prefix-only access mode
+                    # Return just the prefix instead of full value
+                    full_token_value = token_db.token_prefix
+                    # Add an error message to indicate bcrypt cannot be decrypted
+                    response.headers["X-Token-Error"] = "Token uses bcrypt hash which cannot be decrypted"
+                else:
+                    # Normal case, attempt to decrypt
+                    decrypted_secret = decrypt_token(token_db.hashed_secret)
+                    if decrypted_secret is None:
+                        # Decryption failed, log and don't include token value
+                        logger.error(f"Failed to decrypt secret for token {token_id} owned by {current_user.email}. Decryption returned None.")
+                    else:
+                        # Successfully decrypted, build full token value
+                        full_token_value = f"{token_db.token_prefix}.{decrypted_secret}"
+                        logger.debug(f"Successfully constructed full token value for owner. Length: {len(full_token_value)}, Preview: {full_token_value[:10]}...")
+            except Exception as e:
+                # Log error but don't fail the request, just don't return the value
+                logger.error(f"Failed to decrypt secret for token {token_id} owned by {current_user.email}: {e}", exc_info=True)
+    # --- END ADDED ---
+
+    # Return the response, passing the full_token_value if constructed
+    # Pydantic will automatically handle converting token_db attributes
+    # and including token_value if it's not None.
+    return TokenResponse(
+        **token_db.__dict__, 
+        token_value=full_token_value,
+        token_preview=token_db.token_prefix or "[No Prefix]" # Ensure token_preview is always present
+    )
 
 # PATCH /token/{token_id} - Update a token
 @router.patch("/{token_id}", response_model=TokenResponse)
@@ -860,3 +903,61 @@ async def regenerate_token_secret_route(
             detail="Failed to regenerate token secret."
         )
 # --- END NEW ENDPOINT --- 
+
+# --- NEW ENDPOINT for Token Value Debugging ---
+@router.get(
+    "/{token_id}/debug-token-value",
+    summary="Debug Token Value Format",
+    description="Debug endpoint to validate token value format (owner only)",
+    include_in_schema=False # Hide from docs
+)
+async def debug_token_value(
+    token_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Debug endpoint to check token value format."""
+    # Get the token
+    token_db = get_token_by_id(db, token_id=token_id)
+    if not token_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Token not found"
+        )
+    
+    # Verify ownership 
+    if token_db.owner_email != current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only token owner can debug token value"
+        )
+    
+    # Get the token components
+    full_token_value = None
+    try:
+        if token_db.token_prefix and token_db.hashed_secret:
+            decrypted_secret = decrypt_token(token_db.hashed_secret)
+            full_token_value = f"{token_db.token_prefix}.{decrypted_secret}"
+            
+            # Log and return the token details
+            logger.info(f"Debug token value for ID {token_id}:")
+            logger.info(f"- Prefix: {token_db.token_prefix}")
+            logger.info(f"- Secret: {decrypted_secret}")
+            logger.info(f"- Full token: {full_token_value}")
+            
+            return {
+                "token_id": token_id,
+                "prefix": token_db.token_prefix,
+                "secret_length": len(decrypted_secret),
+                "full_token_length": len(full_token_value),
+                "contains_period": "." in full_token_value,
+                "period_position": full_token_value.find("."),
+                "components_valid": bool(token_db.token_prefix and decrypted_secret)
+            }
+    except Exception as e:
+        logger.error(f"Error debugging token {token_id}: {e}", exc_info=True)
+        return {
+            "token_id": token_id,
+            "error": str(e)
+        }
+# --- END DEBUG ENDPOINT --- 

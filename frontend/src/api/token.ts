@@ -1,4 +1,6 @@
 import axiosInstance from './apiClient';
+// import { apiDELETE, apiGET, apiPOST, apiPUT } from './apiClient'; // REMOVE THIS LINE
+import apiClient from './apiClient'; // Import the configured axios instance
 
 // Define interfaces for Token data (align with backend models)
 // Consider sharing types via a common package if project grows
@@ -92,6 +94,34 @@ export interface SharedMilvusResult {
   metadata: Record<string, any>;
 }
 // --- END ADDITION ---
+
+// --- START: Types for Catalog Search ---
+
+// Matches backend/app/schemas/shared_knowledge.py -> CatalogSearchRequest
+export interface CatalogSearchRequest {
+  query: string;
+  sender?: string | null;
+  date_from?: string | null; // ISO date string (YYYY-MM-DD)
+  date_to?: string | null;   // ISO date string (YYYY-MM-DD)
+  limit?: number; // Optional limit from frontend, backend will cap by token
+}
+
+// Matches backend/app/schemas/shared_knowledge.py -> CatalogSearchResult
+// Represents a single item returned from the catalog search.
+// The actual keys present will depend on the token's allow_columns.
+export interface CatalogSearchResult {
+  [key: string]: any; // Use a generic index signature as columns vary
+  // Example common fields (actual fields depend on token allow_columns):
+  // id?: number | string;
+  // subject?: string;
+  // sender_name?: string;
+  // created_at?: string; // ISO datetime string
+  // content_preview?: string;
+  // attachment_filenames?: string[];
+  // attachment_count?: number;
+}
+
+// --- END: Types for Catalog Search ---
 
 // --- API Functions --- 
 
@@ -338,3 +368,119 @@ export const regenerateTokenSecret = async (tokenId: number): Promise<Regenerate
   }
 };
 // --- END NEW ---
+
+// --- START: API Function for Catalog Search Test ---
+
+/**
+ * Tests the /api/v1/shared-knowledge/search_catalog endpoint with a specific token.
+ * @param tokenId The ID of the token to test (used for context).
+ * @param requestBody The search parameters (query, filters, limit).
+ * @param kbTokenValue The actual Knowledge Base token string (e.g., "kb_...") to use for authorization.
+ * @returns A promise resolving to an array of catalog search results.
+ */
+export const testTokenCatalogSearch = async (
+  tokenId: number, 
+  requestBody: CatalogSearchRequest,
+  kbTokenValue: string | null // Added parameter for the KB token value
+): Promise<CatalogSearchResult[]> => {
+  // For catalog search, we need one of:
+  // 1. The full token value (with secret)
+  // 2. The token prefix (if owner is authenticated)
+  if (!kbTokenValue) {
+    throw new Error('Knowledge Base token identifier is required for catalog search test.');
+  }
+  
+  // Remove any inadvertent whitespace that might be causing issues
+  const cleanedToken = kbTokenValue.trim();
+  
+  // Check if token is prefix-only (no period) - this is owner-only mode
+  const ownerOnlyMode = !cleanedToken.includes('.');
+  if (ownerOnlyMode) {
+    console.log('Using token in owner-only mode (prefix only)');
+  }
+  
+  try {
+    // Get the user's session JWT token from cookies
+    // This will help authenticate as the owner when using prefix-only mode
+    const getUserToken = (): string => {
+      const cookies = document.cookie.split('; ');
+      const accessTokenCookie = cookies.find(cookie => cookie.startsWith('access_token='));
+      if (accessTokenCookie) {
+        return accessTokenCookie.split('=')[1];
+      }
+      return '';
+    };
+    
+    const sessionToken = getUserToken();
+    
+    // Use apiClient instance directly
+    const response = await apiClient.post<CatalogSearchResult[]>(
+      '/v1/shared-knowledge/search_catalog',
+      requestBody,
+      {
+        headers: {
+          // Use both the KB token and session token for authentication
+          'Authorization': `Bearer ${cleanedToken}`,
+          // Add the session token as a custom header
+          'X-User-Session': sessionToken
+        }
+      }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error in catalog search test:', error);
+    throw new Error(error.response?.data?.detail || 'Failed to perform catalog search test');
+  }
+};
+
+// --- END: API Function for Catalog Search Test ---
+
+export interface TokenResponse extends Token {
+  token_value?: string; // Add this field for token owner responses
+}
+
+/**
+ * Debug function to validate a token's format
+ */
+export const debugTokenValue = async (tokenId: number): Promise<any> => {
+  console.log(`API: Debugging token value format for ID ${tokenId}`);
+  try {
+    const response = await axiosInstance.get<any>(`/v1/token/${tokenId}/debug-token-value`);
+    console.log(`Debug token response:`, response.data);
+    return response.data;
+  } catch (error: any) {
+    console.error(`Error debugging token value for ID ${tokenId}:`, error);
+    throw new Error(error.response?.data?.detail || 'Failed to debug token value.');
+  }
+};
+
+/**
+ * Test catalog search as the token owner, using a dedicated owner-only endpoint.
+ * This provides a more reliable way for token owners to test their tokens.
+ */
+export const ownerTestTokenCatalogSearch = async (
+  tokenId: number,
+  tokenPrefix: string,
+  requestBody: CatalogSearchRequest
+): Promise<CatalogSearchResult[]> => {
+  console.log(`API: Using owner-only token test for token prefix: ${tokenPrefix}`);
+  
+  try {
+    // Create the request with the token prefix
+    const ownerRequest = {
+      ...requestBody,
+      token_prefix: tokenPrefix
+    };
+    
+    // Call the owner-specific endpoint
+    const response = await apiClient.post<CatalogSearchResult[]>(
+      '/v1/shared-knowledge/owner_search_catalog',
+      ownerRequest
+    );
+    
+    return response.data;
+  } catch (error: any) {
+    console.error('Error in owner catalog search test:', error);
+    throw new Error(error.response?.data?.detail || 'Failed to perform owner catalog search test');
+  }
+};
