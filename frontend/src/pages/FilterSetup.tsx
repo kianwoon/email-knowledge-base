@@ -1436,23 +1436,23 @@ const FilterSetup: React.FC = () => {
                                  />
                                </Td> */}
                                <Td>
-                                 <Text noOfLines={1} title={email.sender}>
-                                   {email.sender}
+                                 <Text noOfLines={1} title={email.sender?.emailAddress?.name || t('common.unknownSender')}>
+                                   {email.sender?.emailAddress?.name || t('common.unknownSender')}
                                  </Text>
                                </Td>
                                <Td>
-                                 <Text noOfLines={1} title={email.subject}>
-                                   {email.subject}
-                                 </Text>
-                               </Td>
-                               <Td>
-                                 <Text noOfLines={1}>
-                                   {formatDisplayDate(email.received_date)}
+                                 <Text noOfLines={1} title={email.subject || t('common.noSubject')}>
+                                   {email.subject || t('common.noSubject')}
                                  </Text>
                                </Td>
                                <Td>
                                  <Text noOfLines={1}>
-                                   {email.has_attachments ? t('common.yes') : t('common.no')}
+                                   {email.receivedDateTime ? new Date(email.receivedDateTime).toLocaleString() : '-'}
+                                 </Text>
+                               </Td>
+                               <Td>
+                                 <Text noOfLines={1}>
+                                   {email.hasAttachments ? t('common.yes') : t('common.no')}
                                  </Text>
                                </Td>
                                <Td>

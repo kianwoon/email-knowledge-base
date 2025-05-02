@@ -85,27 +85,37 @@ const EmailReview: React.FC = () => {
     // Generate mock data for the current page
     const items = Array(endIndex - startIndex).fill(0).map((_, i) => {
       const itemIndex = startIndex + i;
+      const hasAttachments = itemIndex % 3 === 0;
       return {
         email_id: `email_${itemIndex}`,
         content: {
           id: `email_${itemIndex}`,
-          internet_message_id: `message_${itemIndex}`,
           subject: t('emailReview.sampleEmails.subject', { number: itemIndex + 1 }),
-          sender: 'John Doe',
-          sender_email: 'john.doe@example.com',
-          recipients: ['user@example.com'],
-          cc_recipients: [],
-          received_date: new Date().toISOString(),
-          body: t('emailReview.sampleEmails.body', { number: itemIndex + 1 }),
-          is_html: false,
-          folder_id: 'inbox',
-          folder_name: 'Inbox',
-          attachments: itemIndex % 3 === 0 ? [{
+          sender: {
+            emailAddress: { 
+              name: 'John Doe', 
+              address: 'john.doe@example.com' 
+            }
+          },
+          toRecipients: [{
+            emailAddress: { name: 'Recipient User', address: 'user@example.com'}
+          }],
+          ccRecipients: [], 
+          bccRecipients: [],
+          receivedDateTime: new Date().toISOString(),
+          sentDateTime: new Date().toISOString(),
+          body: {
+            contentType: 'text',
+            content: t('emailReview.sampleEmails.body', { number: itemIndex + 1 })
+          },
+          attachments: hasAttachments ? [{
             id: `attachment_${itemIndex}`,
             name: 'document.pdf',
-            content_type: 'application/pdf',
+            contentType: 'application/pdf',
             size: 1024 * 1024,
+            isInline: false
           }] : [],
+          webLink: `https://example.com/email/${itemIndex}`,
           importance: itemIndex % 4 === 0 ? 'high' : 'normal'
         },
         analysis: {
@@ -123,7 +133,7 @@ const EmailReview: React.FC = () => {
           ]
         },
         status: ReviewStatus.PENDING
-      };
+      } as EmailReviewItem;
     });
     
     return {
@@ -166,8 +176,8 @@ const EmailReview: React.FC = () => {
           page: currentPage,
           per_page: itemsPerPage
         });
-        setReviews(response.items);
-        setFilteredReviews(response.items);
+        setReviews(response.items as EmailReviewItem[]);
+        setFilteredReviews(response.items as EmailReviewItem[]);
         setTotalPages(response.total_pages);
         setTotalItems(response.total);
       } catch (error) {
@@ -651,10 +661,10 @@ const EmailReview: React.FC = () => {
                 <Box>
                   <Heading size="md">{currentReview.content.subject}</Heading>
                   <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                    {t('emailReview.drawer.from', { sender: currentReview.content.sender, email: currentReview.content.sender_email })}
+                    {t('emailReview.drawer.from', { sender: currentReview.content.sender?.emailAddress?.name, email: currentReview.content.sender?.emailAddress?.address || t('common.notAvailable') })}
                   </Text>
                   <Text color={colorMode === 'dark' ? 'gray.300' : 'gray.600'}>
-                    {t('emailReview.drawer.date', { date: new Date(currentReview.content.received_date).toLocaleString() })}
+                    {t('emailReview.drawer.date', { date: new Date(currentReview.content.receivedDateTime || '').toLocaleString() })}
                   </Text>
                 </Box>
                 
@@ -736,40 +746,28 @@ const EmailReview: React.FC = () => {
                         color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}
                         whiteSpace="pre-wrap"
                       >
-                        {currentReview.content.body}
+                        {currentReview.content.body?.content || ''}
                       </Box>
                     </AccordionPanel>
                   </AccordionItem>
                   
                   {currentReview.content.attachments && currentReview.content.attachments.length > 0 && (
-                    <AccordionItem borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}>
+                    <AccordionItem>
                       <h2>
                         <AccordionButton>
-                          <Box flex="1" textAlign="left">{t('emailReview.drawer.attachmentsCount', { count: currentReview.content.attachments.length })}</Box>
+                          <Box flex="1" textAlign="left">{t('emailReview.details.attachments', { count: currentReview.content.attachments.length })}</Box>
                           <AccordionIcon />
                         </AccordionButton>
                       </h2>
                       <AccordionPanel pb={4}>
-                        <VStack align="stretch">
-                          {currentReview.content.attachments.map(attachment => (
-                            <Box 
-                              key={attachment.id}
-                              p={3}
-                              borderWidth="1px"
-                              borderRadius="md"
-                              bg={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'white'}
-                              borderColor={colorMode === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'gray.200'}
-                            >
-                              <Text fontWeight="bold" color={colorMode === 'dark' ? 'gray.300' : 'gray.700'}>{attachment.name}</Text>
-                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
-                                {t('emailReview.drawer.attachmentType', { type: attachment.content_type })}
-                              </Text>
-                              <Text fontSize="sm" color={colorMode === 'dark' ? 'gray.400' : 'gray.600'}>
-                                {t('emailReview.drawer.attachmentSize', { size: Math.round(attachment.size / 1024) })} KB
-                              </Text>
-                            </Box>
+                        <List spacing={2}>
+                          {currentReview.content.attachments.map((attachment, index) => (
+                            <ListItem key={index}>
+                              <ListIcon as={InfoIcon} color="blue.500" />
+                              {attachment.name} ({attachment.contentType} - {Math.round(attachment.size / 1024)} KB)
+                            </ListItem>
                           ))}
-                        </VStack>
+                        </List>
                       </AccordionPanel>
                     </AccordionItem>
                   )}
