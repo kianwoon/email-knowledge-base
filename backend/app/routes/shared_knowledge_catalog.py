@@ -16,14 +16,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/shared-knowledge")
+router = APIRouter()
 
 # Add token_prefix field to the CatalogSearchRequest for the owner endpoint
 class OwnerCatalogSearchRequest(CatalogSearchRequest):
     token_prefix: str
 
 @router.post("/owner_search_catalog", response_model=List[CatalogSearchResult])
-def owner_search_catalog(
+async def owner_search_catalog(
     *, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user), # Ensure the user is authenticated
@@ -32,6 +32,8 @@ def owner_search_catalog(
     """
     Owner-only endpoint for testing catalog search with token prefix only.
     This endpoint skips token validation and directly uses owner credentials.
+    
+    Now implemented as an async function.
     """
     start_time = time.perf_counter()
     audit_log = None
@@ -85,7 +87,7 @@ def owner_search_catalog(
 
     try:
         # --- Implement Catalog Search Logic ---
-        results = crud_catalog.search_catalog_items(
+        results = await crud_catalog.search_catalog_items(
             query=request_body.query,
             token=token,
             effective_limit=effective_limit,
@@ -129,7 +131,7 @@ def owner_search_catalog(
         raise HTTPException(status_code=500, detail="Internal server error during owner catalog search.")
 
 @router.post("/search_catalog", response_model=List[CatalogSearchResult])
-def search_shared_catalog(
+async def search_shared_catalog(
     *, 
     db: Session = Depends(get_db),
     token: Token = Depends(get_token_with_request()),
@@ -147,6 +149,8 @@ def search_shared_catalog(
     
     Does NOT currently apply token restrictions:
     - `allow_rules`, `deny_rules`, `sensitivity` (row-level filtering based on these is deferred)
+    
+    Now implemented as an async function.
     """
     start_time = time.perf_counter()
     audit_log = None
@@ -164,7 +168,7 @@ def search_shared_catalog(
 
     try:
         # --- Implement Catalog Search Logic ---
-        results = crud_catalog.search_catalog_items(
+        results = await crud_catalog.search_catalog_items(
             query=request_body.query,
             token=token,
             effective_limit=effective_limit,

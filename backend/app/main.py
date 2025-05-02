@@ -191,7 +191,7 @@ app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["Use
 app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=["Schema"])
 app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Jarvis Settings"])
 # Include the new router
-app.include_router(shared_knowledge_catalog.router, prefix="/api/v1/shared-knowledge", tags=["shared-knowledge"])
+app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge Catalog"])
 
 # --- Log Registered Routes --- #
 logger.info("--- Registered Routes --- DUMP START ---")

@@ -68,7 +68,7 @@ def get_iceberg_catalog() -> Catalog:
 
 
 # --- Rewritten search_catalog_items using DuckDB view pattern --- 
-def search_catalog_items(
+async def search_catalog_items(
     query: str,
     token: Token,
     effective_limit: int,
@@ -78,10 +78,12 @@ def search_catalog_items(
     Searches the Iceberg email_facts table using PyIceberg's native scan API
     and executes filtering directly on the Iceberg table, respecting token permissions.
     This approach doesn't use DuckDB SQL and instead follows the REST catalog API pattern.
+    
+    Now implemented as an async function.
     """
     try:
-        # 1. Get Iceberg Catalog
-        catalog = get_iceberg_catalog()
+        # 1. Get Iceberg Catalog (synchronous operation wrapped in to_thread)
+        catalog = await asyncio.to_thread(get_iceberg_catalog)
 
         # 2. Define Target Table
         namespace = settings.ICEBERG_DEFAULT_NAMESPACE
@@ -91,7 +93,8 @@ def search_catalog_items(
         # 3. Load Iceberg Table
         logger.info(f"Attempting to load Iceberg table: {full_table_name}")
         try:
-            iceberg_table = catalog.load_table(full_table_name)
+            # Wrap the synchronous operation in asyncio.to_thread
+            iceberg_table = await asyncio.to_thread(lambda: catalog.load_table(full_table_name))
             logger.info(f"Successfully loaded Iceberg table: {full_table_name}")
         except (NoSuchTableError, NoSuchNamespaceError) as table_not_found:
             logger.error(f"Iceberg table or namespace not found: {full_table_name}. Error: {table_not_found}")
@@ -170,42 +173,46 @@ def search_catalog_items(
             scan = scan.filter(f"created_at <= '{date_to}'")
 
         # 6. Execute scan and get results
-        # Convert to Arrow table and then to Python list
-        arrow_table = scan.to_arrow()
+        # Convert to Arrow table and then to Python list - wrapped in to_thread as it's CPU-bound
+        arrow_table = await asyncio.to_thread(lambda: scan.to_arrow())
         
-        # Convert to pandas first for easier manipulation if needed
-        import pandas as pd
-        df = arrow_table.to_pandas()
-        
-        # Apply text search as post-filter in pandas (case-insensitive)
-        if query and len(query.strip()) > 0:
-            query_lower = query.lower()
-            # Create a combined filter across all text columns
-            mask = pd.Series(False, index=df.index)
-            search_columns = ["subject", "body_text", "sender", "sender_name", "content_preview"]
+        # These pandas operations are CPU-bound, so wrap them in to_thread
+        def process_dataframe():
+            import pandas as pd
+            df = arrow_table.to_pandas()
             
-            for col in search_columns:
-                if col in df.columns:
-                    # Convert column to string and handle NaN/None values
-                    string_col = df[col].astype(str).str.lower()
-                    mask = mask | string_col.str.contains(query_lower, na=False)
+            # Apply text search as post-filter in pandas (case-insensitive)
+            if query and len(query.strip()) > 0:
+                query_lower = query.lower()
+                # Create a combined filter across all text columns
+                mask = pd.Series(False, index=df.index)
+                search_columns = ["subject", "body_text", "sender", "sender_name", "content_preview"]
+                
+                for col in search_columns:
+                    if col in df.columns:
+                        # Convert column to string and handle NaN/None values
+                        string_col = df[col].astype(str).str.lower()
+                        mask = mask | string_col.str.contains(query_lower, na=False)
+                
+                # Apply the filter mask
+                before_count = len(df)
+                df = df[mask]
+                after_count = len(df)
+                logger.debug(f"Text search filter reduced results from {before_count} to {after_count}")
             
-            # Apply the filter mask
-            before_count = len(df)
-            df = df[mask]
-            after_count = len(df)
-            logger.debug(f"Text search filter reduced results from {before_count} to {after_count}")
-        
-        # Apply sorting (if needed) and limit
-        if "created_at" in df.columns:
-            df = df.sort_values("created_at", ascending=False)
-        
-        # Apply limit
-        if effective_limit > 0:
-            df = df.head(effective_limit)
-        
-        # Convert to dict records
-        results = df.to_dict('records')
+            # Apply sorting (if needed) and limit
+            if "created_at" in df.columns:
+                df = df.sort_values("created_at", ascending=False)
+            
+            # Apply limit
+            if effective_limit > 0:
+                df = df.head(effective_limit)
+            
+            # Convert to dict records
+            return df.to_dict('records')
+            
+        # Run the pandas operations in a separate thread
+        results = await asyncio.to_thread(process_dataframe)
         logger.info(f"Iceberg scan found {len(results)} results (limit: {effective_limit}).")
         
         return results
