@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1/shared-knowledge")
 
 # Add token_prefix field to the CatalogSearchRequest for the owner endpoint
 class OwnerCatalogSearchRequest(CatalogSearchRequest):

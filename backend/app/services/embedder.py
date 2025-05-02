@@ -387,8 +387,35 @@ async def search_milvus_knowledge_hybrid(
 # --- Add helper for safe metadata extraction ---
 def safe_get_metadata(hit) -> Dict:
     try:
-        # Check different potential locations for metadata based on Milvus response variations
-        if hasattr(hit, 'entity') and hasattr(hit.entity, 'get') and isinstance(hit.entity.get('metadata'), dict):
+        # If hit is a dictionary, try to get metadata directly
+        if isinstance(hit, dict):
+            # Try direct access to metadata field
+            if isinstance(hit.get('metadata'), dict):
+                return hit.get('metadata')
+            
+            # Try the entity sub-dictionary if it exists
+            if isinstance(hit.get('entity'), dict) and isinstance(hit.get('entity').get('metadata'), dict):
+                return hit.get('entity').get('metadata')
+                
+            # Try parse if metadata is a string
+            raw_meta = hit.get('metadata')
+            if isinstance(raw_meta, str):
+                try:
+                    parsed_meta = json.loads(raw_meta)
+                    if isinstance(parsed_meta, dict):
+                        return parsed_meta
+                except json.JSONDecodeError:
+                    hit_id = hit.get('id', '?')
+                    logger.warning(f"Metadata field was a string but failed JSON parsing for hit ID '{hit_id}': {raw_meta}")
+                    return {}
+                    
+            # If we reach here, couldn't find valid metadata in the dictionary
+            hit_id = hit.get('id', '?')
+            logger.warning(f"Could not extract dictionary metadata from hit ID '{hit_id}'. Hit type: {type(hit)}.")
+            return {}
+            
+        # Object-style access for non-dictionary objects
+        elif hasattr(hit, 'entity') and hasattr(hit.entity, 'get') and isinstance(hit.entity.get('metadata'), dict):
             return hit.entity.get('metadata')
         elif hasattr(hit, 'get') and isinstance(hit.get('metadata'), dict):
             return hit.get('metadata')
