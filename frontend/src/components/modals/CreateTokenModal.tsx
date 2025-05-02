@@ -225,7 +225,7 @@ const CreateTokenModal: React.FC<CreateTokenModalProps> = ({ isOpen, onClose, on
   return (
     <Modal isOpen={isOpen} onClose={handleCloseAndReset} size="3xl" closeOnOverlayClick={!showSuccessView} scrollBehavior="inside">
       <ModalOverlay />
-      <ModalContent as={"div"}>
+      <ModalContent as={"form"} onSubmit={handleSubmit}>
         <ModalHeader>
           {showSuccessView
             ? t('createTokenModal.successTitle', 'Token Created Successfully')
