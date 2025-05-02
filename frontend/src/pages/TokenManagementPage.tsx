@@ -48,10 +48,11 @@ import {
   InputRightElement,
   useColorModeValue,
   Code,
+  Icon,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
 import PageBanner from '../components/PageBanner';
-import { FaPlus, FaEdit, FaTrash, FaSearch, FaPlay } from 'react-icons/fa';
+import { FaPlus, FaEdit, FaTrash, FaSearch, FaPlay, FaInfoCircle, FaListAlt, FaListUl } from 'react-icons/fa';
 import {
   getUserTokens,
   Token,
@@ -418,17 +419,20 @@ const TokenManagementPage: React.FC = () => {
 
           {(!isLoading || tokens.length > 0) && !error && (
             <Box>
-              <Tabs variant="soft-rounded" colorScheme="cyan">
+              <Tabs variant="soft-rounded" colorScheme="blue">
                 <TabList mb="1em">
                   <Tab>
+                    <Icon as={FaListAlt} mr={2} />
                     {t('tokenManagementPage.tabs.active', 'Active')} 
                     ({activeTokens.length}{searchTerm ? ` / ${tokens.filter(t => t.is_active).length}` : ''})
                   </Tab>
                   <Tab>
+                    <Icon as={FaListUl} mr={2} />
                     {t('tokenManagementPage.tabs.inactive', 'Inactive')} 
                     ({inactiveTokens.length}{searchTerm ? ` / ${tokens.filter(t => !t.is_active).length}` : ''})
                   </Tab>
                   <Tab>
+                    <Icon as={FaInfoCircle} mr={2} />
                     {t('tokenManagementPage.tabs.guide', 'Guide')}
                   </Tab>
                 </TabList>
