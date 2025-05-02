@@ -318,12 +318,20 @@ async def create_token_route(
             owner_email=current_user.email
         )
         
-        # Prepare response using TokenCreateResponse, including raw token value
-        raw_token_value = getattr(db_token, 'token_value', '[Error Retrieving Token]')
         # Use the helper function for consistent response formatting
         response_data = token_db_to_response(db_token)
-        # Add the raw token value ONLY for the create response
-        return TokenCreateResponse(**response_data.model_dump(), token_value=raw_token_value)
+        
+        # Check if token_value is already in the response_data
+        # If it is, use model_validate directly, otherwise add the raw token value
+        if hasattr(response_data, 'token_value') and response_data.token_value:
+            return TokenCreateResponse.model_validate(response_data)
+        else:
+            # Add the raw token value ONLY for the create response if it's missing
+            raw_token_value = getattr(db_token, 'token_value', '[Error Retrieving Token]')
+            return TokenCreateResponse(
+                **response_data.model_dump(),
+                token_value=raw_token_value
+            )
 
     except Exception as e:
         logger.error(f"Failed to create token for user '{current_user.email}': {e}", exc_info=True)
