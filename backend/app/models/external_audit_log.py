@@ -24,6 +24,7 @@ class ExternalAuditLog(ExternalBase):
     token_id = Column(Integer, nullable=False, index=True) # FK to internal tokens.id
     resource_id = Column(String, nullable=True) # e.g., collection name used
     action_type = Column(String, nullable=True) # e.g., shared_knowledge_search
+    query_text = Column(Text, nullable=False) # From the NotNullViolation error
     filter_data = Column(Text, nullable=True) # Using Text for broad compatibility
     result_count = Column(Integer, nullable=True)
     response_data = Column(Text, nullable=True) # Using Text for broad compatibility

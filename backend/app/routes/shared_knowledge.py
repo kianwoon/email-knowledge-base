@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from pymilvus import MilvusClient
 from datetime import datetime, timezone
 import bcrypt
+import time # Added time for execution duration
+import json
 
 from ..db.session import get_db
 # Use Milvus client dependency
@@ -21,6 +23,7 @@ from ..services.embedder import create_embedding, search_milvus_knowledge, reran
 # Import the counters defined in main
 # We need to import them from where they are defined
 from app.main import COLUMN_BLOCKS, ATTACHMENT_REDACTIONS
+from ..models.external_audit_log import ExternalAuditLog # Added import for logging
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -76,15 +79,19 @@ Deny rules (`deny_rules`) in the token are **not** currently applied.
 )
 async def search_shared_knowledge(
     request_body: SharedSearchRequest, # Accept request body
+    db: Session = Depends(get_db), # Added Session dependency
     token: TokenDB = Depends(get_validated_token), # Use the dependency
     milvus_client: MilvusClient = Depends(get_milvus_client) # Milvus client dependency
 ):
+    start_time = time.perf_counter() # Start timer
     # Get query and limit from request body
     query = request_body.query
     limit = request_body.limit
     
     logger.info(f"Shared search request received using token {token.id} (Owner: {token.owner_email}), Query: '{query}'")
-
+    
+    audit_log = None # Initialize audit log variable
+    
     try:
         # 1. Determine target collection based on token owner
         sanitized_email = token.owner_email.replace('@', '_').replace('.', '_')
@@ -147,7 +154,8 @@ async def search_shared_knowledge(
                             blocked_cols.append(col_key)
                 if blocked_cols:
                      column_block_count += len(blocked_cols)
-                     logger.debug(f"Blocked columns {blocked_cols} for result {result.get('id')} due to token {token.id} policy.")
+                     # NOTE: Column blocking logging now handled by audit log below
+                     # logger.debug(f"Blocked columns {blocked_cols} for result {result.get('id')} due to token {token.id} policy.")
             else:
                 # If allow_columns is not set, include all metadata initially
                 filtered_metadata = metadata.copy()
@@ -160,7 +168,8 @@ async def search_shared_knowledge(
                         del filtered_metadata[attach_key]
                 if len(keys_before_filter.intersection(attachment_keys)) > 0:
                     attachment_redaction_count += 1
-                    logger.debug(f"Redacted attachment keys for result {result.get('id')} due to token {token.id} policy.")
+                    # NOTE: Attachment redaction logging now handled by audit log below
+                    # logger.debug(f"Redacted attachment keys for result {result.get('id')} due to token {token.id} policy.")
             
             processed_result['metadata'] = filtered_metadata
             processed_results.append(processed_result)
@@ -173,8 +182,55 @@ async def search_shared_knowledge(
 
         # Final list already limited by search_limit which respects token.row_limit
         final_limited_results = processed_results
+        
+        end_time = time.perf_counter() # End timer
+        execution_time_ms = int((end_time - start_time) * 1000)
 
-        logger.info(f"Returning {len(final_limited_results)} processed results after applying token {token.id} scope for query '{query}'.")
+        logger.info(f"Returning {len(final_limited_results)} processed results after applying token {token.id} scope for query '{query}'. Took {execution_time_ms} ms.")
+
+        # --- Create and Add Audit Log Entry ---
+        try:
+            # Ensure filter_data is valid JSON or None
+            try:
+                # Attempt to represent the filter as JSON
+                filter_json_data = json.dumps({"milvus_filter": milvus_filter_expression}) if milvus_filter_expression else None
+            except TypeError:
+                logger.warning(f"Could not serialize Milvus filter to JSON: {milvus_filter_expression}. Storing as None.")
+                filter_json_data = None # Fallback to None if serialization fails
+
+            # Create response data as a dictionary
+            response_details = {
+                "resource_id": target_collection_name, # Include resource_id here
+                "query": query, # Include query here
+                "blocked_column_count": column_block_count,
+                "attachment_redaction_count": attachment_redaction_count
+            }
+            # Serialize response data to JSON string
+            response_data_json = json.dumps(response_details)
+
+            audit_log = ExternalAuditLog(
+                token_id=token.id,
+                # NOTE: Set action_type based on existence in model, expecting DB column to be added later
+                action_type='SHARED_KNOWLEDGE_SEARCH' if hasattr(ExternalAuditLog, 'action_type') else None,
+                resource_id=target_collection_name, # Use resource_id as defined in the model
+                query_text=query, # ADDED: Provide the query text for the NOT NULL column
+                # collection_name=target_collection_name, # REMOVED: Model uses resource_id for this
+                filter_data=filter_json_data, # Assign JSON string or None
+                result_count=len(final_limited_results),
+                response_data=response_data_json, # Assign serialized JSON string
+                execution_time_ms=execution_time_ms,
+                created_at=datetime.now(timezone.utc)
+            )
+            db.add(audit_log)
+            db.commit()
+            logger.info(f"Successfully logged audit entry for token {token.id}")
+        except Exception as audit_exc:
+            logger.error(f"Failed to save audit log for token {token.id}: {audit_exc}", exc_info=True)
+            db.rollback() # Rollback audit log commit on error
+            # Decide if the main request should still succeed or fail if logging fails
+            # For now, let the main response return, but log the failure critically
+        # --- End Audit Log Entry ---
+
         # FastAPI will automatically validate the output against List[SharedMilvusResult]
         return final_limited_results
 

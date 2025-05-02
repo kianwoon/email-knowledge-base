@@ -40,7 +40,7 @@ from datetime import datetime, timezone, date, timedelta
 from ..models.external_audit_log import ExternalAuditLog
 
 # Import necessary types and functions
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from pydantic import BaseModel, Field
 
 from app.db.milvus_client import get_milvus_client # Import Milvus client getter
@@ -127,12 +127,15 @@ async def get_token_usage_report(
         # --- End Query 1 --- 
         
         # --- Query 2: Get Blocked Column Count --- 
+        # Temporarily disable action_type filter until DB schema is updated
+        # NOTE: blocked_column_count will be 0 until `action_type` column is added to audit_logs
         blocked_stmt = select(
             ExternalAuditLog.token_id,
-            func.count(ExternalAuditLog.id).label('blocked_count')
+            text("0 as blocked_count") # Return 0 until action_type exists
+            # func.count(ExternalAuditLog.id).label('blocked_count')
         ).where(
-            ExternalAuditLog.token_id.in_(token_ids),
-            ExternalAuditLog.action_type == 'COLUMN_BLOCKED' # Filter by action type
+            ExternalAuditLog.token_id.in_(token_ids)
+            # ExternalAuditLog.action_type == 'COLUMN_BLOCKED' # <-- Temporarily commented out
         )
 
         # Apply date filters to blocked count query
@@ -143,9 +146,12 @@ async def get_token_usage_report(
             end_dt_blocked = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
             blocked_stmt = blocked_stmt.where(ExternalAuditLog.created_at <= end_dt_blocked)
             
-        blocked_stmt = blocked_stmt.group_by(ExternalAuditLog.token_id)
+        # Only need distinct token IDs if we are not actually counting
+        blocked_stmt = blocked_stmt.distinct(ExternalAuditLog.token_id)
+        # blocked_stmt = blocked_stmt.group_by(ExternalAuditLog.token_id)
         blocked_result = db.execute(blocked_stmt).all()
-        blocked_map = {row.token_id: row.blocked_count for row in blocked_result}
+        # Initialize map with 0 for all tokens, as the query won't return actual counts yet
+        blocked_map = {token_id: 0 for token_id in token_ids}
         # --- End Query 2 --- 
 
         # Build the response list, combining results from both queries

@@ -216,6 +216,7 @@ export interface TokenUsageStat {
   token_preview: string;
   usage_count: number;
   last_used_at?: string | null; // ISO string from backend
+  blocked_column_count?: number; // Added this field based on P6 requirements
 }
 
 // Interface for the overall usage report response

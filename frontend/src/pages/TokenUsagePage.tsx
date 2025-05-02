@@ -94,7 +94,7 @@ const DatePickerWrapperStyles = `
   }
 `;
 
-type SortKey = keyof TokenUsageStat | 'last_used_at_date';
+type SortKey = keyof TokenUsageStat | 'last_used_at_date' | 'blocked_column_count';
 type SortDirection = 'asc' | 'desc';
 
 const TokenUsagePage: React.FC = () => {
@@ -402,13 +402,14 @@ const TokenUsagePage: React.FC = () => {
                     <SortableTh columnKey="token_description">{t('tokenUsage.table.description', 'Description')}</SortableTh>
                     <SortableTh columnKey="token_preview">{t('tokenUsage.table.preview', 'Preview')}</SortableTh>
                     <SortableTh columnKey="usage_count" isNumeric>{t('tokenUsage.table.usageCount', 'Usage Count')}</SortableTh>
+                    <SortableTh columnKey="blocked_column_count" isNumeric>{t('tokenUsage.table.blockedCount', 'Blocked Columns')}</SortableTh>
                     <SortableTh columnKey="last_used_at_date">{t('tokenUsage.table.lastUsed', 'Last Used')}</SortableTh>
                     </Tr>
                 </Thead>
                 <Tbody>
                     {processedUsageData.length === 0 ? (
                     <Tr>
-                        <Td colSpan={5} textAlign="center">
+                        <Td colSpan={6} textAlign="center">
                         {selectedTokenId === 'all' 
                             ? t('tokenUsage.table.noData', 'No data available.') 
                             : t('tokenUsage.table.noDataForToken', 'No data for the selected token.')} 
@@ -423,6 +424,7 @@ const TokenUsagePage: React.FC = () => {
                             <Tag size="sm" variant="outline">{token.token_preview}</Tag>
                         </Td>
                         <Td isNumeric>{token.usage_count}</Td>
+                        <Td isNumeric>{token.blocked_column_count ?? 0}</Td>
                         <Td>
                             {token.last_used_at 
                             ? format(parseISO(token.last_used_at), 'yyyy-MM-dd HH:mm:ss')
