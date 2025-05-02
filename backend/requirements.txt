@@ -69,3 +69,5 @@ grpcio-tools~=1.56.0
 
 # ADDED prometheus-fastapi-instrumentator
 prometheus-fastapi-instrumentator
+cryptography
+httpx

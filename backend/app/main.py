@@ -36,16 +36,17 @@ from app.config import settings
 from app.routes import (
     auth, email, review, vector, knowledge, token,
     sharepoint, s3, azure_blob, custom_knowledge,
-    tasks, export # Removed ingestion, added tasks back
+    tasks, export, user, schema, chat, shared_knowledge,
+    jarvis_settings
 )
 # Import the new shared_knowledge router
-from app.routes import shared_knowledge 
+# from app.routes import shared_knowledge 
 # Import the new chat router
-from app.routes import chat 
+# from app.routes import chat 
 # Import the user router for API key management
-from app.routes import user
+# from app.routes import user
 # Import the new schema router
-from app.routes import schema 
+# from app.routes import schema 
 # Import services and dependencies needed for startup/app instance
 from app.services import token_service 
 from app.db.session import SessionLocal, engine
@@ -180,15 +181,11 @@ app.include_router(azure_blob.router, prefix=f"{settings.API_PREFIX}/azure_blob"
 app.include_router(custom_knowledge.router, prefix=f"{settings.API_PREFIX}/custom-knowledge", tags=["Custom Knowledge"])
 app.include_router(tasks.router, prefix=f"{settings.API_PREFIX}/tasks", tags=["Tasks"])
 app.include_router(export.router, prefix=f"{settings.API_PREFIX}/export", tags=["Export"])
-
-# --- Include Chat Router --- 
 app.include_router(chat.router, prefix=f"{settings.API_PREFIX}/chat", tags=["Chat"])
-# --- Include Shared Knowledge Router ---
 app.include_router(shared_knowledge.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge"]) 
-# --- Include User Router ---
 app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["User"])
-# --- Include Schema Router ---
 app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=["Schema"])
+app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Jarvis Settings"])
 
 # --- Log Registered Routes --- #
 logger.info("--- Registered Routes --- DUMP START ---")

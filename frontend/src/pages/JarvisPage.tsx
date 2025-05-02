@@ -50,7 +50,7 @@ import {
   FormErrorMessage,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle, FaKey, FaTrash, FaCommentDots, FaUpload, FaEdit, FaHistory, FaCog } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sendChatMessage } from '../api/chat';
@@ -59,6 +59,8 @@ import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/cu
 import { ProcessedFile } from '../models/processedFile';
 import axios from 'axios';
 import { keyframes } from '@emotion/react';
+import { listExternalTokens, addExternalToken, deleteExternalToken, JarvisTokenDisplay, JarvisTokenCreate } from '../api/jarvis';
+import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon } from '@chakra-ui/icons';
 
 // Types for LLM models
 interface LLMModel {
@@ -247,6 +249,15 @@ const JarvisPage: React.FC = () => {
 
   // Reference for the refresh interval
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- ADDED: State for External Knowledge Tokens ---
+  const [externalTokens, setExternalTokens] = useState<JarvisTokenDisplay[]>([]);
+  const [isLoadingExternalTokens, setIsLoadingExternalTokens] = useState(false);
+  const [newTokenNickname, setNewTokenNickname] = useState('');
+  const [newTokenValue, setNewTokenValue] = useState('');
+  const [isAddingToken, setIsAddingToken] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  // --- END ADDED STATE ---
 
   // Initialize with a welcome message or load existing chat history
   useEffect(() => {
@@ -746,6 +757,76 @@ const JarvisPage: React.FC = () => {
     }
   };
 
+  // --- ADDED: Load External Tokens when Tab is Active ---
+  useEffect(() => {
+    if (activeTab === 5) { // New Knowledge Token tab index (will be 5 after adding it)
+      fetchExternalTokens();
+    }
+  }, [activeTab]);
+
+  const fetchExternalTokens = async () => {
+    setIsLoadingExternalTokens(true);
+    setTokenError(null);
+    try {
+      const tokens = await listExternalTokens();
+      setExternalTokens(tokens);
+    } catch (error: any) {
+      console.error("Error fetching external tokens:", error);
+      setTokenError(error.response?.data?.detail || error.message || "Failed to load external tokens.");
+    } finally {
+      setIsLoadingExternalTokens(false);
+    }
+  };
+  // --- END ADDED ---
+
+  // --- ADDED: Handlers for External Knowledge Tokens ---
+  const handleAddExternalToken = async () => {
+    if (!newTokenNickname.trim() || !newTokenValue.trim()) {
+      setTokenError("Nickname and Token Value cannot be empty.");
+      return;
+    }
+    setIsAddingToken(true);
+    setTokenError(null);
+    try {
+      const tokenData: JarvisTokenCreate = {
+        token_nickname: newTokenNickname,
+        raw_token_value: newTokenValue,
+      };
+      await addExternalToken(tokenData);
+      toast({ title: "Token Added", description: `Token '${newTokenNickname}' added successfully.`, status: "success" });
+      setNewTokenNickname('');
+      setNewTokenValue('');
+      fetchExternalTokens(); // Refresh the list
+    } catch (error: any) {
+      console.error("Error adding external token:", error);
+      const detail = error.response?.data?.detail || error.message || "Failed to add token.";
+      setTokenError(detail);
+      toast({ title: "Error Adding Token", description: detail, status: "error" });
+    } finally {
+      setIsAddingToken(false);
+    }
+  };
+
+  const handleDeleteExternalToken = async (tokenId: number, nickname: string) => {
+    // Optional: Add confirmation dialog here
+    if (!window.confirm(`Are you sure you want to delete the token "${nickname}"?`)) {
+      return;
+    }
+    // Indicate loading state for the specific token being deleted?
+    // For simplicity, we'll just refresh the list after.
+    try {
+      await deleteExternalToken(tokenId);
+      toast({ title: "Token Deleted", description: `Token '${nickname}' deleted successfully.`, status: "info" });
+      fetchExternalTokens(); // Refresh the list
+    } catch (error: any) {
+      console.error(`Error deleting token ${tokenId}:`, error);
+      const detail = error.response?.data?.detail || error.message || "Failed to delete token.";
+      setTokenError(detail); // Show error related to deletion
+      toast({ title: "Error Deleting Token", description: detail, status: "error" });
+    }
+  };
+  // --- END ADDED HANDLERS ---
+
   // --- Memoized Markdown Components ---
   const markdownComponents = useMemo(() => ({
     // Tables
@@ -902,12 +983,13 @@ const JarvisPage: React.FC = () => {
           onChange={setActiveTab}
           isLazy
         >
-          <TabList mb="1em">
-            <Tab>{t('jarvis.chat')}</Tab>
-            <Tab>{t('customKnowledge.uploadTab', 'Customer knowledge')}</Tab>
-            <Tab>{t('jarvis.addKnowledge', 'Add Knowledge')}</Tab>
-            <Tab>{t('customKnowledge.historyTab', 'History')}</Tab>
-            <Tab>{t('jarvis.settings')}</Tab>
+          <TabList mb="1em" flexWrap="wrap">
+            <Tab><Icon as={FaCommentDots} mr={2} />{t('jarvis.chat')}</Tab>
+            <Tab><Icon as={FaUpload} mr={2} />{t('customKnowledge.uploadTab', 'Customer knowledge')}</Tab>
+            <Tab><Icon as={FaEdit} mr={2} />{t('jarvis.addKnowledge', 'Add Knowledge')}</Tab>
+            <Tab><Icon as={FaHistory} mr={2} />{t('customKnowledge.historyTab', 'History')}</Tab>
+            <Tab><Icon as={FaCog} mr={2} />{t('jarvis.apiSettings')}</Tab>
+            <Tab><Icon as={FaKey} mr={2} />{t('jarvis.knowledgeTokens', 'Knowledge Tokens')}</Tab>
           </TabList>
           <TabPanels>
             <TabPanel p={0}>
@@ -1442,6 +1524,105 @@ const JarvisPage: React.FC = () => {
                         )}
                    </Stack>
                 )}
+              </VStack>
+            </TabPanel>
+
+            <TabPanel p={4}>
+              <VStack spacing={6} align="stretch">
+                <Heading size="md" color={headingColor}>{t('jarvis.knowledgeTokensTitle', 'External Knowledge Tokens')}</Heading>
+                <Text color={useColorModeValue('gray.600', 'gray.400')}>
+                  {t('jarvis.knowledgeTokensDesc', 'Add tokens from other users or sources. Jarvis will use these tokens to search their shared knowledge bases via the secure /shared-knowledge/search endpoint, expanding its response capabilities.')}
+                </Text>
+
+                {/* Add New Token Form */} 
+                <Box borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
+                  <Heading size="sm" mb={3} color={headingColor}>{t('jarvis.addKnowledgeToken', 'Add New Token')}</Heading>
+                  <VStack spacing={3}>
+                    <FormControl isRequired isInvalid={!!tokenError && tokenError.includes("Nickname")}>
+                      <FormLabel htmlFor="new-token-nickname">{t('jarvis.tokenNickname', 'Nickname')}</FormLabel>
+                      <Input 
+                        id="new-token-nickname"
+                        value={newTokenNickname}
+                        onChange={(e) => setNewTokenNickname(e.target.value)}
+                        placeholder={t('jarvis.tokenNicknamePlaceholder', 'e.g., Team Project Alpha Token')}
+                        isDisabled={isAddingToken}
+                      />
+                    </FormControl>
+                    <FormControl isRequired isInvalid={!!tokenError && tokenError.includes("Value")}>
+                      <FormLabel htmlFor="new-token-value">{t('jarvis.tokenValue', 'Token Value')}</FormLabel>
+                      <Input 
+                        id="new-token-value"
+                        type="password" 
+                        value={newTokenValue}
+                        onChange={(e) => setNewTokenValue(e.target.value)}
+                        placeholder={t('jarvis.tokenValuePlaceholder', 'Paste the shared token here')}
+                        isDisabled={isAddingToken}
+                      />
+                    </FormControl>
+                    {tokenError && (
+                        <Alert status="error" borderRadius="md" fontSize="sm">
+                          <AlertIcon boxSize="16px"/>
+                          {tokenError}
+                        </Alert>
+                    )}
+                    <Button 
+                      alignSelf="flex-end"
+                      colorScheme="blue"
+                      onClick={handleAddExternalToken}
+                      isLoading={isAddingToken}
+                      isDisabled={isAddingToken || !newTokenNickname || !newTokenValue}
+                    >
+                      {t('jarvis.addTokenButton', 'Add Token')}
+                    </Button>
+                  </VStack>
+                </Box>
+
+                {/* List Existing Tokens */} 
+                <Box borderWidth="1px" borderRadius="lg" p={0} bg={boxBgColor} shadow="sm" overflow="hidden">
+                  <Heading size="sm" p={4} pb={2} color={headingColor}>{t('jarvis.existingKnowledgeTokens', 'Existing Tokens')}</Heading>
+                  {isLoadingExternalTokens ? (
+                    <Center p={6}><Spinner /></Center>
+                  ) : externalTokens.length === 0 ? (
+                    <Text p={4} color="gray.500">{t('jarvis.noExternalTokens', 'No external knowledge tokens added yet.')}</Text>
+                  ) : (
+                    <TableContainer>
+                      <Table variant="simple" size="sm">
+                        <Thead>
+                          <Tr>
+                            <Th>{t('jarvis.tokenNickname', 'Nickname')}</Th>
+                            <Th>{t('jarvis.tokenAddedOn', 'Added On')}</Th>
+                            <Th>{t('jarvis.tokenIsValid', 'Valid')}</Th>
+                            <Th isNumeric>{t('common.actions', 'Actions')}</Th>
+                          </Tr>
+                        </Thead>
+                        <Tbody>
+                          {externalTokens.map(token => (
+                            <Tr key={token.id} _hover={{ bg: tableHoverBg }}>
+                              <Td fontWeight="medium">{token.token_nickname}</Td>
+                              <Td>{formatDateTime(token.created_at)}</Td>
+                              <Td>
+                                <Tag size="sm" colorScheme={token.is_valid ? 'green' : 'red'}>
+                                  {token.is_valid ? t('common.yes') : t('common.no')}
+                                </Tag>
+                              </Td>
+                              <Td isNumeric>
+                                <IconButton 
+                                  aria-label={t('common.delete', 'Delete')}
+                                  icon={<FaTrash />}
+                                  size="xs"
+                                  colorScheme="red"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteExternalToken(token.id, token.token_nickname)}
+                                  // Add disabled state if needed during deletion
+                                />
+                              </Td>
+                            </Tr>
+                          ))}
+                        </Tbody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
               </VStack>
             </TabPanel>
           </TabPanels>
