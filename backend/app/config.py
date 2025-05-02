@@ -198,6 +198,9 @@ class Settings(BaseSettings):
     R2_CATALOG_TOKEN: Optional[str] = os.getenv("R2_CATALOG_TOKEN") # Optional auth token for REST catalog
     ICEBERG_DEFAULT_NAMESPACE: str = os.getenv("ICEBERG_DEFAULT_NAMESPACE", "default") # Default namespace
     ICEBERG_EMAIL_FACTS_TABLE: str = os.getenv("ICEBERG_EMAIL_FACTS_TABLE", "email_facts") # Name for the email facts table
+    # --- ADDED: Catalog Table Name --- 
+    CATALOG_TABLE_NAME: str = os.getenv("DUCKDB_CATALOG_TABLE_NAME", "email_facts_catalog")
+    # --- END ADDED ---
 
     # External Analysis Service URL
     EXTERNAL_ANALYSIS_URL: str = os.getenv("EXTERNAL_ANALYSIS_URL") # validated by check_required_env_vars

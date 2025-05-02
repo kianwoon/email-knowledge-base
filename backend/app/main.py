@@ -37,7 +37,9 @@ from app.routes import (
     auth, email, review, vector, knowledge, token,
     sharepoint, s3, azure_blob, custom_knowledge,
     tasks, export, user, schema, chat, shared_knowledge,
-    jarvis_settings
+    jarvis_settings,
+    # Add the new router import
+    shared_knowledge_catalog
 )
 # Import the new shared_knowledge router
 # from app.routes import shared_knowledge 
@@ -54,6 +56,8 @@ from app.db.job_mapping_db import initialize_db as initialize_job_mapping_db
 # Import Base and engine from the new base module to ensure models are registered
 from app.db.base import Base, engine 
 from app.db.milvus_client import get_milvus_client, ensure_collection_exists
+# Corrected import path for celery_app
+from app.celery_app import celery_app
 
 # Configure logging
 logger = logging.getLogger("app")
@@ -186,6 +190,8 @@ app.include_router(shared_knowledge.router, prefix=f"{settings.API_PREFIX}/share
 app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["User"])
 app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=["Schema"])
 app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Jarvis Settings"])
+# Include the new router
+app.include_router(shared_knowledge_catalog.router, prefix="/api/v1/shared-knowledge", tags=["shared-knowledge"])
 
 # --- Log Registered Routes --- #
 logger.info("--- Registered Routes --- DUMP START ---")
@@ -244,6 +250,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 #     app.mount("/", StaticFiles(directory=frontend_build_dir, html=True), name="static")
 # else:
 #     logger.info(f"Static files directory not found: {frontend_build_dir}, skipping static file mount.")
+
+# Celery task route (example - adjust as needed)
+@app.post("/api/v1/trigger-task", status_code=202)
+async def trigger_task():
+    # Implementation of the task trigger logic
+    pass
 
 if __name__ == "__main__":
     import uvicorn
