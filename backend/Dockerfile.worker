@@ -9,6 +9,7 @@ ENV CELERY_RESULT_BACKEND="redis://redis-queue.email-knowledge-base-2.internal:6
 
 # Set work directory
 WORKDIR /app
+ENV PYTHONPATH="/app"
 
 # Install system dependencies if needed (e.g., for database connectors)
 # RUN apt-get update && apt-get install -y --no-install-recommends some-package && rm -rf /var/lib/apt/lists/*
