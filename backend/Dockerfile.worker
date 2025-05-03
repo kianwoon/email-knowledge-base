@@ -18,7 +18,7 @@ WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3-dev supervisor \
+    && apt-get install -y --no-install-recommends build-essential python3-dev supervisor redis-tools \
     && pip install --upgrade pip setuptools wheel cython \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential python3-dev \
