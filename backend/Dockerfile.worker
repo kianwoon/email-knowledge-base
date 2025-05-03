@@ -56,4 +56,4 @@ USER celery
 
 # Command to start worker and beat directly, bypassing Supervisor
 # Use sh -c to handle the '&' backgrounding. Add 'wait' to keep the container alive.
-CMD ["/bin/sh", "-c", "python -m celery -A app.celery_app worker --pool=threads --loglevel=info & python -m celery -A app.celery_app beat -l info & wait"]
+CMD ["/bin/sh", "-c", "celery -A app.celery_app worker --pool=threads --loglevel=info & celery -A app.celery_app beat -l info & wait"]
