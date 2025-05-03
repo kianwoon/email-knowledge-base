@@ -1559,8 +1559,8 @@
   },
   "outlookSync": {
     "title": "Outlook Sync",
-    "loading": "Loading your Outlook folders...",
     "loading": {
+      "default": "Loading your Outlook folders...",
       "error": "Failed to load your Outlook folders. Please try again later."
     },
     "selectFolders": "Select Folders to Sync",

@@ -204,7 +204,7 @@ const OutlookSyncPage: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to fetch folders:", error);
-      setLoadingError(t('outlookSync.loading.error', "Failed to load your Outlook folders. Please try again later."));
+      setLoadingError(t('outlookSync.loading.error'));
     } finally {
       setLoading(false);
     }
@@ -399,7 +399,7 @@ const OutlookSyncPage: React.FC = () => {
     return (
       <Box p={8} textAlign="center">
         <Spinner size="xl" />
-        <Text mt={4}>{t('outlookSync.loading', "Loading your Outlook folders...")}</Text>
+        <Text mt={4}>{t('outlookSync.loading.default')}</Text>
       </Box>
     );
   }
