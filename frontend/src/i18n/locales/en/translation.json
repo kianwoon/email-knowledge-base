@@ -1061,7 +1061,8 @@
     "currentLanguage": "Current Language:",
     "error": {
       "failedToLoad": "Failed to load token configuration."
-    }
+    },
+    "unknownSender": "Unknown Sender"
   },
   "analysis": {
     "classification": {

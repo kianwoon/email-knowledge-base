@@ -99,7 +99,8 @@
     "currentLanguage": "当前语言：",
     "error": {
       "failedToLoad": "无法加载令牌配置。"
-    }
+    },
+    "unknownSender": "未知发件人"
   },
   "home": {
     "hero": {
