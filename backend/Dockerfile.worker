@@ -25,7 +25,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a dedicated, non-root celery user
-RUN groupadd -r celery && useradd -r -g celery celery
+RUN groupadd -r celery && useradd -r -g celery -d /home/celery -m celery
 
 # Copy the backend application code specifically
 COPY backend/ /app/
@@ -47,11 +47,11 @@ RUN sed -i 's|logfile=/var/log/supervisord.log|logfile=/app/logs/supervisor/supe
 RUN sed -i 's|stdout_logfile=/var/log/celery/|stdout_logfile=/app/logs/celery/|g' /etc/supervisor/conf.d/celery.conf
 RUN sed -i 's|stderr_logfile=/var/log/celery/|stderr_logfile=/app/logs/celery/|g' /etc/supervisor/conf.d/celery.conf
 
-# Ensure celery user owns application and log directories
-RUN chown -R celery:celery /app /etc/supervisor
+# Ensure celery user owns application, log directories, and its home directory
+RUN chown -R celery:celery /app /etc/supervisor /home/celery
 
 # Switch to non-root user
 USER celery
 
-# Command to start Celery Beat directly, bypassing Supervisor for debugging
-CMD ["celery", "-A", "app.celery_app", "beat"]
+# Command to start Celery Beat directly with INFO log level, bypassing Supervisor for debugging
+CMD ["celery", "-A", "app.celery_app", "beat", "--loglevel=INFO"]
