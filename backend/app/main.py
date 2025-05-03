@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+# Force UTC for JWT operations
+# os.environ['TZ'] = 'UTC'
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -165,11 +167,12 @@ if settings.CORS_ALLOWED_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ALLOWED_ORIGINS, 
-        allow_credentials=True,
+        allow_credentials=True,  # Essential for cookies
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],  # Expose all headers to the frontend
     )
-    logger.info(f"CORS enabled for origins: {settings.CORS_ALLOWED_ORIGINS}")
+    logger.info(f"CORS enabled for origins: {settings.CORS_ALLOWED_ORIGINS} with credentials support")
 else:
     logger.warning("CORS_ALLOWED_ORIGINS not set, CORS middleware not added.")
 

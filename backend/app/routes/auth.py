@@ -268,14 +268,17 @@ async def auth_callback(
             key=settings.JWT_COOKIE_NAME,
             value=jwt_token,
             httponly=True,
-            secure=True,
-            samesite='Lax',
+            secure=True,  # Must be secure for SameSite=None to work
+            samesite='None',  # Allow cross-site usage
+            domain=None,  # Allow the cookie to work on localhost
             path='/',
             expires=expires_at
         )
+        logger.info(f"Setting cookie: name={settings.JWT_COOKIE_NAME}, secure=True, samesite=None, domain=None")
         
-        # Construct success redirect URL
-        success_url = f"{settings.FRONTEND_URL}?auth=success"
+        # Construct success redirect URL with token
+        token_param = urllib.parse.quote(jwt_token)
+        base_success_url = f"{settings.FRONTEND_URL}?auth=success&token={token_param}"
         
         # Handle state if present
         if state:
@@ -285,10 +288,21 @@ async def auth_callback(
                     next_url = state_data["next_url"]
                     if next_url and isinstance(next_url, str) and next_url.startswith(settings.FRONTEND_URL):
                         # Ensure it's a safe relative URL within our frontend domain
-                        success_url = next_url
-                        logger.info(f"Redirecting to state.next_url: {success_url}")
+                        # Append token to the next_url
+                        if "?" in next_url:
+                            success_url = f"{next_url}&token={token_param}"
+                        else:
+                            success_url = f"{next_url}?token={token_param}"
+                        logger.info(f"Redirecting to state.next_url: {success_url} with token")
+                    else:
+                        success_url = base_success_url
+                else:
+                    success_url = base_success_url
             except json.JSONDecodeError:
                 logger.warning(f"Could not decode state JSON: {state}")
+                success_url = base_success_url
+        else:
+            success_url = base_success_url
         
         # Redirect to frontend
         return RedirectResponse(url=success_url)
@@ -313,9 +327,9 @@ async def logout(response: Response):
         response.delete_cookie(
             key=settings.JWT_COOKIE_NAME,
             path="/",
-            domain=settings.COOKIE_DOMAIN,
-            samesite="Lax",
-            secure=True,
+            domain=None,  # Allow the cookie to work on localhost
+            samesite="None",  # Match login cookie settings
+            secure=True,  # Must be secure for SameSite=None
             httponly=True
         )
         return {"message": "Successfully logged out"}
@@ -332,17 +346,24 @@ async def debug_cookies(request: Request):
     """Debug endpoint to check what cookies are being received by the backend."""
     cookies = request.cookies
     headers = dict(request.headers)
+    cookie_header = request.headers.get("cookie", "Not found")
     
     # Log for server-side debugging
-    print("====== DEBUG COOKIES RECEIVED ======")
-    print(f"Cookies received: {cookies}")
-    print(f"Headers: {headers}")
-    print("====================================")
+    logger.info("====== DEBUG COOKIES RECEIVED ======")
+    logger.info(f"Raw cookie header: {cookie_header}")
+    logger.info(f"Cookies received: {cookies}")
+    logger.info(f"Checking for JWT cookie '{settings.JWT_COOKIE_NAME}': {settings.JWT_COOKIE_NAME in cookies}")
+    logger.info(f"Referer: {request.headers.get('referer', 'Not found')}")
+    logger.info(f"Origin: {request.headers.get('origin', 'Not found')}")
+    logger.info("====================================")
     
     # Return for client-side debugging
     return {
         "cookies": cookies,
         "headers": headers,
+        "raw_cookie_header": cookie_header,
+        "jwt_cookie_name": settings.JWT_COOKIE_NAME,
+        "jwt_cookie_found": settings.JWT_COOKIE_NAME in cookies,
         "note": "Check if access_token is present in cookies"
     }
 
@@ -361,3 +382,39 @@ async def get_token(request: Request):
     
     # Return token directly to client
     return {"access_token": token}
+
+
+@router.get("/test-cookie")
+async def test_cookie(request: Request, response: Response):
+    """Set a test cookie and check existing cookies."""
+    # Log incoming cookies
+    cookie_header = request.headers.get("cookie", "Not found")
+    cookies = request.cookies
+    
+    logger.info("==== TEST COOKIE REQUEST ====")
+    logger.info(f"Origin: {request.headers.get('origin', 'Not found')}")
+    logger.info(f"Referer: {request.headers.get('referer', 'Not found')}")
+    logger.info(f"Raw Cookie header: {cookie_header}")
+    logger.info(f"Parsed cookies: {cookies}")
+    logger.info(f"JWT cookie present: {settings.JWT_COOKIE_NAME in cookies}")
+    
+    # Set a test cookie
+    test_cookie_name = "test_cookie"
+    response.set_cookie(
+        key=test_cookie_name,
+        value="test_value",
+        httponly=True,
+        secure=True,
+        samesite="None",
+        path="/",
+        domain=None,
+        max_age=300  # 5 minutes
+    )
+    
+    return {
+        "message": "Test cookie set",
+        "cookies_received": cookies,
+        "test_cookie_name": test_cookie_name,
+        "jwt_cookie_name": settings.JWT_COOKIE_NAME,
+        "jwt_cookie_present": settings.JWT_COOKIE_NAME in cookies
+    }

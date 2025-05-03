@@ -77,6 +77,10 @@ export const logout = async (): Promise<void> => {
     console.log('Calling backend /v1/auth/logout...');
     await apiClient.post('/v1/auth/logout');
     
+    // Clear localStorage token
+    localStorage.removeItem('access_token');
+    console.log('Cleared access_token from localStorage');
+    
     // Also manually clear the cookie on the client side for immediate effect
     document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     console.log('Cleared access_token cookie');
@@ -108,8 +112,11 @@ export const getTokenDirectly = async (): Promise<string | null> => {
     
     const data = await response.json();
     if (data.access_token) {
-      console.log('Received token directly, setting as local cookie');
-      // Set the token as a cookie that the frontend can read
+      console.log('Received token directly, storing in localStorage and setting cookie');
+      // Store the token in localStorage for API calls
+      localStorage.setItem('access_token', data.access_token);
+      
+      // Set the token as a cookie for backward compatibility
       document.cookie = `access_token=${data.access_token}; path=/; max-age=7200; SameSite=Lax`;
       return data.access_token;
     }

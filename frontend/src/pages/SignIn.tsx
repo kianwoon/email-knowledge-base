@@ -109,13 +109,12 @@ const SignIn: React.FC<SignInProps> = ({ onLogin, isAuthenticated }) => {
     // Check for token in URL after OAuth redirect
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
-    const expires = params.get('expires');
+    const authSuccess = params.get('auth') === 'success';
 
-    if (token && expires) {
-      // Store tokens - REMOVED as HttpOnly cookie is set by backend
-      // localStorage.setItem('token', token);
-      // localStorage.setItem('expires', expires);
-
+    if (token && authSuccess) {
+      // Store token in localStorage for API calls
+      localStorage.setItem('access_token', token);
+      
       // Clear URL parameters
       window.history.replaceState({}, document.title, window.location.pathname);
 

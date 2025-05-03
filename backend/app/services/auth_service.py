@@ -252,16 +252,47 @@ class AuthService:
         if not token:
             return {}
             
-        # Decode and validate the token
+        # Debug: decode without verification to check expiry
+        try:
+            debug_payload = jwt.decode(
+                token,
+                settings.JWT_SECRET,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_signature": False, "verify_exp": False}
+            )
+            # Always use UTC for timestamp operations
+            exp_time = datetime.fromtimestamp(debug_payload.get("exp", 0), tz=timezone.utc)
+            iat_time = datetime.fromtimestamp(debug_payload.get("iat", 0), tz=timezone.utc)
+            now_time = datetime.now(timezone.utc)
+            
+            # Compare timestamps in a timezone-aware manner
+            time_until_expiry = (exp_time - now_time).total_seconds()
+            
+            logger.info(f"DEBUG JWT: Token issued at: {iat_time}, expires: {exp_time}, current time: {now_time}")
+            logger.info(f"DEBUG JWT: Token expires in {time_until_expiry} seconds")
+            logger.info(f"DEBUG JWT: Token secret: {settings.JWT_SECRET[:5]}... Algorithm: {settings.JWT_ALGORITHM}")
+            
+            # Check if token is already expired to provide better logging
+            if time_until_expiry < 0:
+                logger.warning(f"DEBUG JWT: Token is expired by {abs(time_until_expiry)} seconds")
+            
+            # Add debug logging for raw timestamps
+            logger.debug(f"DEBUG JWT RAW: exp={debug_payload.get('exp')}, iat={debug_payload.get('iat')}, now={datetime.now().timestamp()}")
+        except Exception as e:
+            logger.error(f"DEBUG JWT: Failed to decode token for debugging: {e}")
+        
+        # Decode and validate the token with explicit leeway for clock skew
         try:
             payload = jwt.decode(
                 token,
                 settings.JWT_SECRET,
-                algorithms=[settings.JWT_ALGORITHM]
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"leeway": 60}  # Increase leeway for clock skew to 60 seconds
             )
             return payload
         except JWTError as e:
             logger.error(f"JWT Error during token decode: {e}")
+            logger.error(f"JWT validation error: {str(e)}")
             raise
     
     @staticmethod
@@ -282,7 +313,7 @@ class AuthService:
                 token,
                 settings.JWT_SECRET,
                 algorithms=[settings.JWT_ALGORITHM],
-                options={"verify_signature": False, "verify_exp": False}
+                options={"verify_signature": False, "verify_exp": False, "leeway": 30}
             )
             return payload
         except JWTError:

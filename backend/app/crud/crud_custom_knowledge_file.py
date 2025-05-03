@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from app.models.custom_knowledge_file import CustomKnowledgeFile, AnalysisStatus
 from app.schemas.custom_knowledge_file import CustomKnowledgeFileCreate
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 def create_custom_knowledge_file(db: Session, *, user_email: str, file_in: CustomKnowledgeFileCreate) -> CustomKnowledgeFile:
     db_file = CustomKnowledgeFile(
@@ -12,7 +12,7 @@ def create_custom_knowledge_file(db: Session, *, user_email: str, file_in: Custo
         file_size=file_in.file_size,
         qdrant_collection=file_in.qdrant_collection,
         status=file_in.status,
-        uploaded_at=datetime.utcnow(),
+        uploaded_at=datetime.now(timezone.utc),
     )
     db.add(db_file)
     db.commit()

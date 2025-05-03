@@ -22,38 +22,20 @@ const apiClient = axios.create({
 // Add a request interceptor for debugging
 apiClient.interceptors.request.use(
   (config) => {
-    // Manually add cookies to headers as a fallback
-    const cookies = document.cookie.split(';').map(cookie => cookie.trim());
-    const accessTokenCookie = cookies.find(cookie => cookie.startsWith('access_token='));
+    // Get token from localStorage (primary source)
+    const token = localStorage.getItem('access_token');
     
     console.log(`[ApiClient] Request to ${config.url}`, { 
       headers: config.headers,
       withCredentials: config.withCredentials,
-      cookies: document.cookie || 'none'
+      cookies: document.cookie || 'none',
+      hasToken: !!token
     });
     
-    // Try to get token from cookie first
-    let token = null;
-    let tokenSource = ''; // Track where the token came from
-    
-    if (accessTokenCookie) {
-      token = accessTokenCookie.split('=')[1];
-      tokenSource = 'cookie';
-    }
-    
-    // If no token from cookie, try localStorage as fallback
-    if (!token) {
-      const storageToken = localStorage.getItem('access_token');
-      if (storageToken) {
-        token = storageToken;
-        tokenSource = 'localStorage';
-      }
-    }
-    
-    // If we found a token from either source, add it to the header if not already present
-    if (token && !config.headers['Authorization']) {
+    // Always add token to Authorization header if it exists in localStorage
+    if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
-      console.log(`[ApiClient] Manually added token from ${tokenSource} to Authorization header.`);
+      console.log(`[ApiClient] Added token from localStorage to Authorization header.`);
     }
     
     // +++ Added Log +++

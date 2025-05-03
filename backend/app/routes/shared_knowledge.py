@@ -22,7 +22,7 @@ from ..crud import token_crud
 from ..services.embedder import create_embedding, search_milvus_knowledge, rerank_results
 # Import the counters defined in main
 # We need to import them from where they are defined
-from app.main import COLUMN_BLOCKS, ATTACHMENT_REDACTIONS
+from app.metrics import COLUMN_BLOCKS, ATTACHMENT_REDACTIONS
 from ..models.external_audit_log import ExternalAuditLog # Added import for logging
 
 # Configure logging

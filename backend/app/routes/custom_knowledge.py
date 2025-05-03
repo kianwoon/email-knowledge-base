@@ -2,7 +2,7 @@ import base64
 import io
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any
@@ -52,7 +52,7 @@ def generate_r2_object_key(user_email: str, original_key: str) -> str:
     """Generates a unique R2 object key for custom uploads."""
     CUSTOM_UPLOAD_NAMESPACE_UUID = uuid.UUID('c1a2b3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d') # Example namespace
     sanitized_email = user_email.replace('@', '_').replace('.', '_')
-    unique_suffix = str(uuid.uuid5(CUSTOM_UPLOAD_NAMESPACE_UUID, f"{user_email}:{original_key}:{datetime.utcnow().isoformat()}")) # Add timestamp for uniqueness
+    unique_suffix = str(uuid.uuid5(CUSTOM_UPLOAD_NAMESPACE_UUID, f"{user_email}:{original_key}:{datetime.now(timezone.utc).isoformat()}")) # Add timestamp for uniqueness
     filename = original_key # Keep original filename for clarity
     return f"custom_uploads/{sanitized_email}/{unique_suffix}/{filename}"
 

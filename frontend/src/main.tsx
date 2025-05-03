@@ -6,6 +6,8 @@ import i18n from './i18n/i18n'; // Import the configured i18n instance
 import { I18nextProvider } from 'react-i18next'; // Import the provider
 import { BrowserRouter as Router } from 'react-router-dom'; // Import Router
 import './index.css';
+// Import API client to initialize interceptors globally
+import './api/apiClient';
 
 // Define gradient colors for reuse
 const gradientColors = {

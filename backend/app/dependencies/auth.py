@@ -227,7 +227,8 @@ async def get_current_user_from_cookie(
     )
     
     try:
-        validation_time_utc = datetime.utcnow()
+        # Explicitly use UTC for validation timestamp
+        validation_time_utc = datetime.now(timezone.utc)
         logger.debug(f"Validating token from cookie at (UTC): {validation_time_utc}")
         # ... (keep existing logging for algorithm and secret) ...
         
@@ -289,7 +290,7 @@ async def get_current_user_from_cookie(
         # Attempt to parse the stored data into TokenData Pydantic model
         try:
             stored_token_obj = TokenData(**current_ms_token_data)
-            is_expired = stored_token_obj.expires_at <= datetime.utcnow()
+            is_expired = stored_token_obj.expires_at <= datetime.now(timezone.utc)
             refresh_token_available = stored_token_obj.refresh_token
         except Exception as parse_error:
             logger.error(f"Failed to parse stored ms_token_data for user {user_id}: {parse_error}", exc_info=True)
@@ -313,7 +314,7 @@ async def get_current_user_from_cookie(
                     access_token=result.get("access_token"),
                     # Use new refresh token if provided, otherwise keep the old one
                     refresh_token=result.get("refresh_token", refresh_token_available), 
-                    expires_at=datetime.utcnow() + timedelta(seconds=result.get("expires_in", 3600)),
+                    expires_at=datetime.now(timezone.utc) + timedelta(seconds=result.get("expires_in", 3600)),
                     scope=result.get("scope", [])
                 )
 
@@ -445,7 +446,8 @@ async def get_validated_token(
                 payload = jwt.decode(
                     cookie_token, 
                     settings.JWT_SECRET, 
-                    algorithms=[settings.JWT_ALGORITHM]
+                    algorithms=[settings.JWT_ALGORITHM],
+                    options={"leeway": 30}  # Add leeway for clock skew
                 )
                 owner_email = payload.get("email")
                 logger.info(f"Found authenticated user from cookie: {owner_email}")
@@ -468,7 +470,8 @@ async def get_validated_token(
                     payload = jwt.decode(
                         full_token_value,
                         settings.JWT_SECRET,
-                        algorithms=[settings.JWT_ALGORITHM]
+                        algorithms=[settings.JWT_ALGORITHM],
+                        options={"leeway": 30}  # Add leeway for clock skew
                     )
                     owner_email = payload.get("email")
                     

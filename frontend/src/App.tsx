@@ -236,15 +236,25 @@ function App() {
       let extractedTokenFromUrl = false;
       console.log('Current URL:', window.location.href);
       const urlParams = new URLSearchParams(window.location.search);
-      const tokenFromUrl = urlParams.get('access_token');
+      
+      // Check for both potential token param names (token from callback.py, access_token from elsewhere)
+      const tokenFromUrl = urlParams.get('token') || urlParams.get('access_token');
+      const authSuccess = urlParams.get('auth') === 'success';
+      
       console.log('URL search params:', window.location.search);
-      console.log('access_token in URL:', tokenFromUrl ? `Found (${tokenFromUrl.substring(0, 10)}...)` : 'Not found');
+      console.log('Token in URL:', tokenFromUrl ? `Found (${tokenFromUrl.substring(0, 10)}...)` : 'Not found');
+      console.log('Auth success param:', authSuccess);
 
       if (tokenFromUrl) {
-        console.log('Found token in URL, setting cookie and localStorage...');
-        document.cookie = `access_token=${tokenFromUrl}; path=/; max-age=7200; SameSite=Lax`;
+        console.log('Found token in URL, storing in localStorage and setting up Authorization header...');
+        // Store in localStorage for use in API requests
         localStorage.setItem('access_token', tokenFromUrl);
+        
+        // Set in cookie for backward compatibility
+        document.cookie = `access_token=${tokenFromUrl}; path=/; max-age=7200; SameSite=Lax`;
+        
         extractedTokenFromUrl = true; // Mark that we got it from the URL
+        
         // Clean up URL
         const cleanUrl = window.location.href.split('?')[0] + window.location.hash; // Keep hash if present
         window.history.replaceState({}, document.title, cleanUrl);
@@ -253,8 +263,8 @@ function App() {
         // If no URL token, check if we have one in localStorage already (e.g., from previous session)
         const storedToken = localStorage.getItem('access_token');
         if (storedToken) {
-          console.log('No token in URL, but found token in localStorage. Setting as cookie...');
-          document.cookie = `access_token=${storedToken}; path=/; max-age=7200; SameSite=Lax`;
+          console.log('No token in URL, but found token in localStorage. Will use for Authorization header...');
+          // No need to set cookie here as apiClient middleware will handle the token
         }
       }
       // --- End Token Extraction Logic ---

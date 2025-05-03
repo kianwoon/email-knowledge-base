@@ -21,13 +21,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         A tuple containing the encoded JWT string and the expiry datetime.
     """
     to_encode = data.copy()
+    # Explicitly use UTC timezone for JWT operations
     now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
     else:
         expire = now + timedelta(seconds=settings.JWT_EXPIRATION)
     
-    to_encode.update({"exp": expire, "iat": now})
+    logger.info(f"DEBUG JWT CREATE: Current time (UTC): {now}, Expiry time (UTC): {expire}")
+    logger.info(f"DEBUG JWT CREATE: JWT_EXPIRATION from settings: {settings.JWT_EXPIRATION} seconds")
+    logger.info(f"DEBUG JWT CREATE: JWT_SECRET: {settings.JWT_SECRET[:5]}..., Algorithm: {settings.JWT_ALGORITHM}")
+    
+    # Convert to datetime.timestamp for consistent serialization
+    to_encode.update({"exp": expire.timestamp(), "iat": now.timestamp()})
     
     # Ensure 'sub' (user ID) and 'email' are present for user tokens
     if "ms_token" in to_encode: # Heuristic check if it's a user session token
@@ -37,6 +43,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
     logger.debug(f"Created JWT with expiry: {expire}")
+    
+    # Debug: decode to verify contents
+    try:
+        decoded = jwt.decode(
+            encoded_jwt,
+            settings.JWT_SECRET,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_exp": False}  # Skip expiry check for debug
+        )
+        logger.info(f"DEBUG JWT CREATE: Decoded token exp: {decoded.get('exp')}, iat: {decoded.get('iat')}")
+    except Exception as e:
+        logger.error(f"DEBUG JWT CREATE: Error decoding token right after creation: {e}")
+    
     return encoded_jwt, expire
 
 # Placeholder for refresh_ms_token if we decide to extract it later
