@@ -15,7 +15,8 @@ import calendar # Import calendar module
 from app.config import settings
 from app.models.user import User, Token, AuthResponse, TokenData
 from app.services.outlook import OutlookService
-from app.dependencies.auth import get_current_active_user, msal_app
+from app.dependencies.auth import get_current_active_user
+from app.services.auth_service import AuthService # Import the new auth service
 from app.db.session import get_db # Import get_db
 from sqlalchemy.orm import Session # Import Session
 from app.crud import user_crud # Import the user CRUD function
@@ -78,6 +79,7 @@ async def login():
 @router.get("/callback")
 async def auth_callback(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db) # Inject DB session
 ):
     """Handle OAuth callback from Microsoft and set HttpOnly cookie."""
@@ -245,96 +247,55 @@ async def auth_callback(
         # Let's stick with email for consistency with get_current_user lookup
         jwt_subject = db_user.email
         # Convert UUID to string for JWT serialization
-        jwt_user_id = str(db_user.id) if db_user.id else None 
+        jwt_user_id = str(db_user.id) if db_user.id else None
 
-        # --- Store MS Refresh Token (Example: In localStorage - adjust as needed) ---
-        # NOTE: Storing refresh tokens securely is crucial. localStorage is NOT secure.
-        #       This is a placeholder. Use HttpOnly cookies or secure server-side storage.
-        # if ms_refresh_token: # COMMENTED OUT - Now handled above with DB storage
-        #     # This is just for the example to make the interceptor work later
-        #     # In a real app, handle this more securely! 
-        #     # We might pass it back in the JWT or via another secure mechanism.
-        #     print("DEBUG - (Placeholder) Got MS Refresh Token, would store securely.") 
+        # Use our new AuthService to create the JWT token
+        # Filter reserved scopes for the token
+        all_scopes = settings.MS_SCOPE_STR.split()
+        reserved_scopes = {'openid', 'profile', 'offline_access'}
+        resource_scopes = [s for s in all_scopes if s not in reserved_scopes]
         
-        # Create JWT payload, INCLUDING the MS Access Token
-        jwt_payload = {
-            "sub": jwt_user_id, # Use the string representation
-            "email": jwt_subject,
-            "ms_token": ms_access_token # Include the MS token here
-        }
-        
-        jwt_access_token, jwt_expires_at_dt = create_access_token(
-            data=jwt_payload, # Pass the payload with the MS token
-            expires_delta=timedelta(seconds=settings.JWT_EXPIRATION) 
+        # Create JWT token with the AuthService
+        jwt_token, expires_at = AuthService.create_user_jwt(
+            user_id=jwt_user_id,
+            email=jwt_subject, 
+            ms_token=ms_access_token,
+            scopes=resource_scopes
         )
         
-        # Calculate max_age using timezone-aware comparison
-        max_age_seconds = max(0, int((jwt_expires_at_dt - datetime.now(timezone.utc)).total_seconds()))
-        
-        # Determine cookie security based on environment
-        secure_cookie = settings.IS_PRODUCTION
-        print(f"DEBUG - Setting cookie attributes: HttpOnly=True, Secure={secure_cookie}, SameSite=Lax, Max-Age={max_age_seconds}")
-
-        # Determine final redirect URL (without token params)
-        next_url = settings.FRONTEND_URL
-        if state:
-             try:
-                 state_data = json.loads(state)
-                 potential_next_url = state_data.get("next_url")
-                 if potential_next_url:
-                      parsed_url = urlparse(potential_next_url)
-                      hostname = parsed_url.hostname
-                      if hostname and hostname in settings.ALLOWED_REDIRECT_DOMAINS:
-                          next_url = potential_next_url
-                      else:
-                           print(f"DEBUG - State next_url hostname '{hostname}' not allowed, using default.")
-             except Exception as e:
-                 print(f"DEBUG - Error processing state: {e}, using default redirect.")
-        if not next_url or not next_url.startswith(('http://', 'https://')):
-            next_url = settings.FRONTEND_URL
-            
-        # Add token as URL parameter as a fallback for browsers that don't handle cookies properly
-        # Frontend will extract this and set as a cookie
-        if '?' in next_url:
-            next_url = f"{next_url}&access_token={jwt_access_token}"
-        else:
-            next_url = f"{next_url}?access_token={jwt_access_token}"
-        
-        print(f"DEBUG - Redirecting to frontend URL: {next_url}")
-        
-        # Create RedirectResponse and set the HttpOnly cookie
-        response = RedirectResponse(url=next_url)
-        
-        # Debug cookie settings
-        print("=========== DEBUG COOKIE SETTINGS ==========")
-        print(f"Setting cookie with key: access_token")
-        print(f"Cookie value length: {len(jwt_access_token)}")
-        print(f"HttpOnly: True")
-        print(f"Secure: {secure_cookie}")
-        print(f"SameSite: lax")
-        print(f"Max-Age: {max_age_seconds}")
-        print(f"Path: /")
-        print(f"Domain: None (using current domain)")
-        print("===========================================")
-        
+        # Set the token as an HttpOnly cookie
         response.set_cookie(
-            key="access_token",
-            value=jwt_access_token,
+            key=settings.JWT_COOKIE_NAME,
+            value=jwt_token,
             httponly=True,
-            secure=secure_cookie,
-            samesite="lax",
-            max_age=max_age_seconds, # Use calculated max_age
-            path="/",
-            domain=None # Explicitly set to None to use the current domain
+            secure=True,
+            samesite='Lax',
+            path='/',
+            expires=expires_at
         )
-        print(f"DEBUG - Set access_token cookie (HttpOnly) with Max-Age: {max_age_seconds}.")
-        return response
-
-    except Exception as e:
-        print(f"Error during user processing/DB/token creation/redirect: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        error_url = f"{settings.FRONTEND_URL}?error=callback_processing_error&error_description={urllib.parse.quote(str(e))}"
+        
+        # Construct success redirect URL
+        success_url = f"{settings.FRONTEND_URL}?auth=success"
+        
+        # Handle state if present
+        if state:
+            try:
+                state_data = json.loads(state)
+                if isinstance(state_data, dict) and "next_url" in state_data:
+                    next_url = state_data["next_url"]
+                    if next_url and isinstance(next_url, str) and next_url.startswith(settings.FRONTEND_URL):
+                        # Ensure it's a safe relative URL within our frontend domain
+                        success_url = next_url
+                        logger.info(f"Redirecting to state.next_url: {success_url}")
+            except json.JSONDecodeError:
+                logger.warning(f"Could not decode state JSON: {state}")
+        
+        # Redirect to frontend
+        return RedirectResponse(url=success_url)
+        
+    except Exception as ex:
+        logger.error(f"Error processing user info: {str(ex)}", exc_info=True)
+        error_url = f"{settings.FRONTEND_URL}?error=user_info_exception&error_description={urllib.parse.quote(str(ex))}"
         return RedirectResponse(url=error_url)
 
 
@@ -346,21 +307,24 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
 
 @router.post("/logout")
 async def logout(response: Response):
-    """Clear the access token cookie to log the user out."""
-    logger.info("Logout request received, clearing access token cookie.")
-    
-    # Determine secure flag based on environment
-    secure_cookie = settings.IS_PRODUCTION
-    
-    response.delete_cookie(
-        key="access_token", 
-        path="/", 
-        httponly=True, 
-        secure=secure_cookie, 
-        samesite="lax",
-        domain=None
-    )
-    return {"message": "Logout successful"}
+    """Clear the authentication cookie."""
+    try:
+        # Use the JWT_COOKIE_NAME from settings for consistency
+        response.delete_cookie(
+            key=settings.JWT_COOKIE_NAME,
+            path="/",
+            domain=settings.COOKIE_DOMAIN,
+            samesite="Lax",
+            secure=True,
+            httponly=True
+        )
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to logout"
+        )
 
 
 @router.get("/debug-cookies")

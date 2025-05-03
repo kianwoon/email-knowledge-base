@@ -23,6 +23,7 @@ from app.crud.user_crud import get_user_with_refresh_token, update_user_refresh_
 from app.crud import crud_export_job # Import token_crud
 from app.tasks.export_tasks import export_data_task # Import export_data_task
 from app.db.models.export_job import ExportJobStatus # Import ExportJobStatus
+from app.services.auth_service import AuthService  # Import the new centralized AuthService
 
 # Create MSAL app for authentication
 msal_app = msal.ConfidentialClientApplication(
@@ -82,7 +83,7 @@ async def get_current_user(
         # Check if it looks like our internal JWT or a potential API key
         try:
             # Attempt to decode as JWT first
-            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM], options={"verify_signature": False, "verify_exp": False}) # Decode without full verify just to check structure
+            payload = AuthService.decode_jwt_unsafe(token)
             if "email" in payload and "sub" in payload:
                 logger.debug("Token in header looks like a user session JWT.")
             else:
@@ -120,192 +121,18 @@ async def get_current_user(
             logger.debug(f"All headers: {dict(request.headers)}")
             return None # No authentication provided at all
 
-    # --- If we have a token (JWT from header or cookie), validate it --- 
+    # --- If we have a token (JWT from header or cookie), authenticate using AuthService --- 
     logger.debug(f"Attempting to validate JWT found in: {token_source}. Token: {token[:10]}...{token[-10:] if len(token)>20 else ''}")
-    ms_token: str | None = None # Initialize ms_token
-    email: str | None = None # Initialize email
-    try:
-        payload = jwt.decode(
-            token, 
-            settings.JWT_SECRET, 
-            algorithms=[settings.JWT_ALGORITHM]
-        )
-        email = payload.get("email") # Assign email
-        user_id: str | None = payload.get("sub") 
-        ms_token = payload.get("ms_token") # Assign ms_token
-
-        # +++ Log extracted values +++
-        logger.debug(f"Extracted from JWT payload: email='{email}', ms_token_present={'Yes' if ms_token else 'No'}")
-        # --- End Log ---
-
-        if email is None:
-            logger.error("JWT payload missing 'email'.")
-            raise credentials_exception
-        
-    except JWTError as e:
-        logger.error(f"JWT Error during token decode: {e}")
-        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
-        raise credentials_exception from e
-    except ValidationError as e: 
-        logger.error(f"Unexpected Pydantic validation error: {e}")
-        raise credentials_exception from e
-
-    # Ensure email was successfully extracted before proceeding
-    if not email:
-        logger.error("Email could not be extracted from JWT payload even after decode.")
-        raise credentials_exception # Should not happen if JWTError didn't catch it
-
-    # --- Validate MS Access Token & Attempt Refresh if Needed ---
-    validated_ms_token = None
-    graph_url = "https://graph.microsoft.com/v1.0/me?$select=id"
-    headers = {"Authorization": f"Bearer {ms_token}"}
     
-    try:
-        logger.debug(f"Validating MS token for user {email} via GET /me")
-        
-        # --- Run blocking requests.get in threadpool ---
-        sync_graph_call = lambda: requests.get(graph_url, headers=headers)
-        graph_response = await run_in_threadpool(sync_graph_call)
-        # --- End threadpool execution ---
-
-        if graph_response.status_code == 200:
-            logger.info(f"MS token for user {email} is valid.")
-            validated_ms_token = ms_token
-        
-        elif graph_response.status_code == 401:
-            logger.warning(f"MS token for user {email} is expired or invalid (401). Attempting refresh.")
-            
-            # --- Attempt Token Refresh --- 
-            user_db_for_refresh = get_user_with_refresh_token(db, email=email)
-            
-            if not user_db_for_refresh or not user_db_for_refresh.ms_refresh_token:
-                logger.error(f"Cannot refresh token: User {email} not found or no refresh token stored in DB.")
-                response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
-                raise refresh_failed_exception
-
-            encrypted_refresh_token = user_db_for_refresh.ms_refresh_token
-            decrypted_refresh_token = decrypt_token(encrypted_refresh_token)
-
-            if not decrypted_refresh_token:
-                logger.error(f"Failed to decrypt refresh token for user {email}. InvalidToken or other error.")
-                response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
-                raise refresh_failed_exception
-
-            try:
-                logger.info(f"Attempting MSAL refresh for user {email}")
-                # Filter out reserved OIDC scopes before requesting refresh
-                all_scopes = settings.MS_SCOPE_STR.split()
-                reserved_scopes = {'openid', 'profile', 'offline_access'}
-                resource_scopes = [s for s in all_scopes if s not in reserved_scopes]
-                logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
-                
-                # --- Wrap MSAL call in threadpool and add timeout --- 
-                REFRESH_TIMEOUT = 60 # MODIFIED: Increased timeout to 60 seconds
-                try:
-                    # Define the synchronous function call
-                    sync_msal_call = lambda: msal_app.acquire_token_by_refresh_token(
-                        decrypted_refresh_token,
-                        scopes=resource_scopes
-                    )
-                    # Run the sync call in threadpool and await its completion with timeout
-                    refresh_result = await asyncio.wait_for(
-                        run_in_threadpool(sync_msal_call),
-                        timeout=REFRESH_TIMEOUT
-                    )
-                except asyncio.TimeoutError:
-                    logger.error(f"MSAL refresh for user {email} timed out after {REFRESH_TIMEOUT} seconds (executed via threadpool).")
-                    raise refresh_failed_exception # Raise the same exception as other refresh failures
-                # --- End threadpool/timeout wrapper ---
-
-                if "access_token" in refresh_result:
-                    new_ms_access_token = refresh_result['access_token']
-                    validated_ms_token = new_ms_access_token # Use the new token
-                    logger.info(f"Successfully refreshed MS token for user {email}.")
-
-                    # Check if a new refresh token was issued
-                    if "refresh_token" in refresh_result:
-                        new_ms_refresh_token = refresh_result['refresh_token']
-                        logger.info(f"New MS refresh token received for user {email}. Updating database.")
-                        encrypted_new_refresh = encrypt_token(new_ms_refresh_token)
-                        if encrypted_new_refresh:
-                            try:
-                                update_success = update_user_refresh_token(db, user_email=email, encrypted_refresh_token=encrypted_new_refresh)
-                                if update_success:
-                                    logger.info(f"Successfully updated refresh token in DB for {email}.")
-                                else:
-                                    # Should not happen if rowcount check works, but log just in case
-                                    logger.warning(f"Update refresh token call returned False for user {email}, user might not exist? Inconsistency.")
-                            except Exception as db_update_err:
-                                logger.error(f"Failed to update new refresh token in DB for {email}: {db_update_err}", exc_info=True)
-                                # Log error but proceed with new access token
-                        else:
-                            logger.error(f"Failed to encrypt new refresh token for {email}. DB not updated.")
-
-                    # --- Create and Set New Internal JWT Cookie --- 
-                    # Use the correct user_id from the initial JWT decode
-                    internal_token_data = {
-                        "sub": user_id, 
-                        "email": email,
-                        "ms_token": new_ms_access_token, 
-                        "scopes": resource_scopes, # Embed filtered scopes in new JWT
-                    }
-                    # Use the imported create_access_token function
-                    new_internal_token, expires_at = create_access_token(data=internal_token_data)
-
-                    response.set_cookie(
-                        key="access_token",
-                        value=new_internal_token,
-                        httponly=True,
-                        secure=True,
-                        samesite='Lax',
-                        path='/',
-                        expires=expires_at,
-                    )
-                    logger.info(f"New internal JWT cookie set for user {email} after token refresh.")
-
-                else: # MSAL refresh attempt failed
-                    error_details = refresh_result.get('error_description', 'Unknown MSAL error')
-                    logger.error(f"MSAL refresh token acquisition failed for user {email}: {error_details}")
-                    # If refresh fails permanently (e.g., invalid_grant), clear tokens and force re-login
-                    if refresh_result.get("error") == "invalid_grant":
-                        logger.warning(f"Refresh token for {email} is invalid or revoked. Clearing tokens.")
-                        try:
-                            update_user_refresh_token(db, user_email=email, encrypted_refresh_token=None) # Clear RT from DB
-                        except Exception as clear_err:
-                             logger.error(f"Failed to clear refresh token from DB for {email} after invalid_grant: {clear_err}", exc_info=True)
-                        response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
-                    raise refresh_failed_exception
-
-            except Exception as msal_err:
-                logger.error(f"Unexpected error during MSAL refresh for {email}: {msal_err}", exc_info=True)
-                raise refresh_failed_exception
-
-        else: # Graph API returned non-200/401 status
-            logger.error(f"Unexpected error validating MS token for {email}. Status: {graph_response.status_code}, Body: {graph_response.text}")
-            raise credentials_exception
-
-    except requests.exceptions.RequestException as req_err:
-        logger.error(f"HTTP request error during MS token validation for {email}: {req_err}", exc_info=True)
-        raise credentials_exception
-
-    # --- Fetch User from DB and Return ---
-    if not validated_ms_token:
-         logger.error(f"Failed to obtain a validated MS token for {email} after validation/refresh attempts.")
-         # Ensure cookie is cleared if we end up here without a valid token
-         response.delete_cookie("access_token", path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=True, httponly=True)
-         raise credentials_exception
-         
-    # Fetch user details (excluding refresh token)
-    user_db = user_crud.get_user_full_instance(db, email=email)
-    if user_db is None:
-        logger.error(f"Consistency Error: User {email} not found in DB after token validation/refresh.")
-        raise credentials_exception
+    # Use the new centralized auth service to authenticate user
+    user = await AuthService.authenticate_and_validate_token(db, token, response)
     
-    user = User.model_validate(user_db)
-    user.ms_access_token = validated_ms_token # Attach the final validated/refreshed token
-    
-    logger.debug(f"get_current_user returning validated user: {user.email}")
-    return user
+    if user:
+        logger.info(f"User {user.email} authenticated successfully")
+        return user
+    else:
+        logger.warning(f"User authentication failed for token from {token_source}")
+        return None
 
 # REVISED get_current_active_user_or_token_owner signature
 async def get_current_active_user_or_token_owner(

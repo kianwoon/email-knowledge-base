@@ -26,7 +26,11 @@ class TaskStatusResponse(BaseModel):
 async def get_task_status(task_id: str):
     """Get the status of a Celery task by its ID."""
     try:
-        task_result = AsyncResult(task_id, app=celery_app)
+        # Ensure task_id is a string
+        task_id_str = str(task_id)
+        logger.debug(f"Getting status for task: {task_id_str}")
+        
+        task_result = AsyncResult(task_id_str, app=celery_app)
         
         status = task_result.state
         details = None
@@ -52,26 +56,16 @@ async def get_task_status(task_id: str):
              # Don't return the raw result, just confirm success.
              # If specific result info is needed, extract serializable parts carefully.
              details = "Task completed successfully." # Simple success message
-             # Example if counts were needed (assuming result is a tuple like (succeeded, failed, ...)):
-             # try:
-             #     result_data = task_result.result
-             #     if isinstance(result_data, tuple) and len(result_data) >= 2:
-             #         details = f"Completed. Processed: {result_data[0]}, Failed: {result_data[1]}"
-             #     else:
-             #        details = "Task completed successfully."
-             # except Exception as e:
-             #     logger.warning(f"Could not parse successful task result for {task_id}: {e}")
-             #     details = "Task completed successfully."
 
         return {
-            "task_id": task_id,
+            "task_id": task_id_str,
             "status": status,
             "progress": progress,
             "details": details
         }
     except Exception as e:
         # Log the exception
-        # Consider specific exceptions if needed
+        logger.error(f"Error fetching task status for task_id {task_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching task status: {str(e)}")
 
 # +++ New Endpoint to get latest active KB task +++
@@ -89,7 +83,10 @@ async def get_my_latest_kb_task_status(
             # No task ID stored, so no active task to report
             return None # FastAPI handles Optional[Model] by returning null with 200 OK
 
-        task_id = task_id_result[0]
+        # Get the task ID and ensure it's a string
+        task_id_raw = task_id_result[0]
+        task_id = str(task_id_raw)  # Convert UUID or any other type to string
+        logger.debug(f"Retrieved task_id for user {current_user.email}: {task_id} (type: {type(task_id_raw).__name__})")
         
         try:
             task_result = AsyncResult(task_id, app=celery_app)

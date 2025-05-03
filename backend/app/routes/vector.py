@@ -541,7 +541,8 @@ async def save_filtered_emails_to_knowledge_base(
             # Make sure UserDB model is imported at the top of the file
             db_user = db.query(UserDB).filter(UserDB.email == owner_email).first()
             if db_user:
-                db_user.last_kb_task_id = task.id
+                # Ensure task.id is stored as a string to avoid UUID type issues
+                db_user.last_kb_task_id = str(task.id)
                 db.commit()
                 logger.info(f"[Op:{operation_id}] Stored task ID {task.id} for user {owner_email}.")
             else:
