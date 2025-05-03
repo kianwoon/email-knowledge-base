@@ -105,4 +105,4 @@ jobs:
       - name: Redeploy Celery Worker
         if: steps.changed_worker_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy governing-siusan/celery-worker
+          koyeb service redeploy email-knowledge-base-2/celery-worker
