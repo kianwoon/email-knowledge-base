@@ -41,6 +41,9 @@ def dispatch_sync_tasks():
     and dispatches individual sync tasks based on their configured frequencies.
     This task is meant to run every 15 minutes via Celery Beat.
     """
+    # TEMP: Added log to check if task is being executed by worker
+    logger.info("********* DEBUG: dispatch_sync_tasks task entered *********")
+    
     logger.info("Starting Outlook sync task dispatcher")
     
     try:
