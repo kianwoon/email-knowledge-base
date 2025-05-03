@@ -53,5 +53,5 @@ RUN chown -R celery:celery /app /etc/supervisor
 # Switch to non-root user
 USER celery
 
-# Command to start supervisord which will manage both processes
-CMD ["/app/start.sh"]
+# Command to start Celery Beat directly, bypassing Supervisor for debugging
+CMD ["celery", "-A", "app.celery_app", "beat"]
