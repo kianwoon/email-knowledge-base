@@ -1855,8 +1855,8 @@
   },
   "outlookSync": {
     "title": "Outlook 同步",
-    "loading": "正在加载您的 Outlook 文件夹...",
     "loading": {
+      "default": "正在加载您的 Outlook 文件夹...",
       "error": "加载您的 Outlook 文件夹失败。请稍后重试。"
     },
     "selectFolders": "选择要同步的文件夹",
