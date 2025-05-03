@@ -99,17 +99,14 @@ celery_app = Celery(
     'app', # Main name matches the directory
     broker=broker_url,
     backend=backend_url,
-    # Restore task includes with correct path
+    # Include only the modules that actually exist
     include=[
         'app.tasks.email_tasks', 
         'app.tasks.sharepoint_tasks', 
         'app.tasks.s3_tasks', 
         'app.tasks.azure_tasks',
         'app.tasks.export_tasks', 
-        'app.tasks.outlook_sync',
-        'app.tasks.email_parser',
-        'app.tasks.knowledge_updater',
-        'app.tasks.sharepoint_sync' 
+        'app.tasks.outlook_sync'
     ]
 )
 
