@@ -1,4 +1,7 @@
 import os
+# TEMP: Check if module is loaded
+print("--- DEBUG: Loading celery_app.py module ---")
+
 from celery import Celery
 from app.config import settings
 import logging
@@ -41,9 +44,15 @@ celery_app = Celery(
         'app.tasks.s3_tasks', 
         'app.tasks.azure_tasks',
         'app.tasks.export_tasks', # Add the new export tasks module
-        'app.tasks.outlook_sync'  # Add the new outlook sync tasks module
+        'app.tasks.outlook_sync',  # Add the new outlook sync tasks module
+        'app.tasks.email_parser', # Ensure email parsing task is included
+        'app.tasks.knowledge_updater', # Ensure knowledge update tasks are included
+        'app.tasks.sharepoint_sync' # Ensure sharepoint sync tasks are included
     ]
 )
+
+# TEMP: Check if app object is created
+print(f"--- DEBUG: Celery app object created. Broker: {broker_url} ---")
 
 # Optional configuration settings
 celery_app.conf.update(
