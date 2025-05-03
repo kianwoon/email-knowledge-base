@@ -17,11 +17,13 @@ COPY backend/requirements.txt /app/requirements.txt
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev supervisor \
-    && pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir cython \
+    && pip install --upgrade pip setuptools wheel cython \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential python3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Create a dedicated, non-root celery user
+RUN groupadd -r celery && useradd -r -g celery celery
 
 # Copy the backend application code specifically
 COPY backend/ /app/
@@ -36,6 +38,12 @@ RUN chmod +x /app/start.sh
 
 # Create necessary directories for logs
 RUN mkdir -p /var/log/celery
+
+# Ensure celery user owns application and log directories
+RUN chown -R celery:celery /app /var/log/celery /etc/supervisor
+
+# Switch to non-root user
+USER celery
 
 # Command to start supervisord which will manage both processes
 CMD ["/app/start.sh"]
