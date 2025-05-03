@@ -33,6 +33,7 @@ jobs:
             !backend/app/celery_app.py
             !backend/app/config.py
             !backend/supervisor/**
+            !backend/Dockerfile.worker
 
       - name: Install and configure the Koyeb CLI
         uses: koyeb-community/koyeb-actions@v2
@@ -88,6 +89,7 @@ jobs:
         uses: tj-actions/changed-files@v44
         with:
           files: |
+            backend/Dockerfile.worker
             backend/supervisor/**
             backend/services/**
             backend/tasks/**
