@@ -53,5 +53,6 @@ RUN chown -R celery:celery /app /etc/supervisor /home/celery
 # Switch to non-root user
 USER celery
 
-# Command to start supervisord which will manage both processes
-CMD ["/app/start.sh"]
+# Command to start worker and beat directly, bypassing Supervisor
+# Use sh -c to handle the '&' backgrounding. Add 'wait' to keep the container alive.
+CMD ["/bin/sh", "-c", "python -m celery -A app.celery_app worker --pool=threads --loglevel=info & python -m celery -A app.celery_app beat -l info & wait"]
