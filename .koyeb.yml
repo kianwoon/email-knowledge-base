@@ -80,9 +80,9 @@ services:
       - name: SQLALCHEMY_DATABASE_URI
         secret: SQLALCHEMY_DATABASE_URI
       - name: CELERY_BROKER_URL
-        secret: CELERY_BROKER_URL
+        value: "redis://redis-queue.email-knowledge-base-2.internal:6379/0"
       - name: CELERY_RESULT_BACKEND
-        secret: CELERY_RESULT_BACKEND
+        value: "redis://redis-queue.email-knowledge-base-2.internal:6379/0"
     health_check:
       port: 8000
       path: /api/health
@@ -159,9 +159,9 @@ services:
         value: "false" # Consider setting to false for production workers
       # Add other environment variables needed by Celery tasks
       - name: CELERY_BROKER_URL
-        secret: CELERY_BROKER_URL # Make sure this secret exists in Koyeb
+        value: "redis://redis-queue.email-knowledge-base-2.internal:6379/0"
       - name: CELERY_RESULT_BACKEND
-        secret: CELERY_RESULT_BACKEND # Make sure this secret exists in Koyeb
+        value: "redis://redis-queue.email-knowledge-base-2.internal:6379/0"
       - name: SQLALCHEMY_DATABASE_URI
         secret: SQLALCHEMY_DATABASE_URI
       - name: OPENAI_API_KEY

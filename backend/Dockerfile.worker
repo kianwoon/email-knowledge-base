@@ -4,6 +4,8 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV CELERY_BROKER_URL="redis://redis-queue.email-knowledge-base-2.internal:6379/0"
+ENV CELERY_RESULT_BACKEND="redis://redis-queue.email-knowledge-base-2.internal:6379/0"
 
 # Set work directory
 WORKDIR /app
