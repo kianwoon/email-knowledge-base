@@ -101,15 +101,15 @@ celery_app = Celery(
     backend=backend_url,
     # Restore task includes
     include=[
-        'app.tasks.email_tasks', 
-        'app.tasks.sharepoint_tasks', 
-        'app.tasks.s3_tasks', 
-        'app.tasks.azure_tasks',
-        'app.tasks.export_tasks', 
-        'app.tasks.outlook_sync',
-        'app.tasks.email_parser',
-        'app.tasks.knowledge_updater',
-        'app.tasks.sharepoint_sync' 
+        'tasks.email_tasks',
+        'tasks.sharepoint_tasks',
+        'tasks.s3_tasks',
+        'tasks.azure_tasks',
+        'tasks.export_tasks',
+        'tasks.outlook_sync',
+        'tasks.email_parser',
+        'tasks.knowledge_updater',
+        'tasks.sharepoint_sync'
     ]
 )
 
