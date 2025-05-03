@@ -8,7 +8,7 @@ touch /app/logs/celery/beat.log /app/logs/celery/beat_error.log
 
 # Wait for Redis to be ready
 echo "Waiting for Redis to be available..."
-until celery -A app.celery_app inspect ping; do
+until celery -A app.celery_app -b $CELERY_BROKER_URL inspect ping; do
   echo "Redis not available yet - waiting..."
   sleep 5
 done
