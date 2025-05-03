@@ -3,82 +3,63 @@ import os
 print("--- DEBUG: Loading celery_app.py module ---")
 
 from celery import Celery
-from app.config import settings
+# TEMP: Comment out settings import for now
+# from app.config import settings 
 import logging
 
-# Ensure logging is configured before Celery imports modules
-# (Assuming you have a logger setup, e.g., in app.utils.logger)
-# from app.utils.logger import setup_logging
-# setup_logging()
+# TEMP: Hardcode broker URL for basic test (ensure env var is still primary method)
+# This is ONLY to see if the Celery object itself can be created without relying on settings module initially
+# Replace with your actual broker URL if different, but ideally keep reading from env
+broker_url = os.environ.get("CELERY_BROKER_URL", "redis://redis-queue.email-knowledge-base-2.internal:6379/0")
+backend_url = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis-queue.email-knowledge-base-2.internal:6379/0")
 
 logger = logging.getLogger(__name__)
 
-# Ensure environment variables are loaded (config should handle this)
-# from dotenv import load_dotenv
-# load_dotenv()
-
-# Get broker and backend URLs from settings
-broker_url = settings.CELERY_BROKER_URL
-backend_url = settings.CELERY_RESULT_BACKEND
-
-logger.info(f"Initializing Celery with Broker: {broker_url}")
-logger.info(f"Initializing Celery with Backend: {backend_url}")
+logger.info(f"TEMP DEBUG: Initializing Celery with Broker: {broker_url}")
+logger.info(f"TEMP DEBUG: Initializing Celery with Backend: {backend_url}")
 
 if not broker_url:
     logger.error("CELERY_BROKER_URL is not set. Celery cannot start.")
-    # Optionally raise an exception or exit
     raise ValueError("CELERY_BROKER_URL environment variable not set.")
-if not backend_url:
-    logger.warning("CELERY_RESULT_BACKEND is not set. Task results will not be stored.")
-    # Depending on requirements, you might want to raise an error here too.
 
 # Define the Celery application instance
-# We use 'app' as the main name, which corresponds to the directory structure
+# TEMP: Comment out include list
 celery_app = Celery(
-    'app', # Main name of the application module package
+    'app',
     broker=broker_url,
     backend=backend_url,
-    include=[
-        'app.tasks.email_tasks', 
-        'app.tasks.sharepoint_tasks', 
-        'app.tasks.s3_tasks', 
-        'app.tasks.azure_tasks',
-        'app.tasks.export_tasks', # Add the new export tasks module
-        'app.tasks.outlook_sync',  # Add the new outlook sync tasks module
-        'app.tasks.email_parser', # Ensure email parsing task is included
-        'app.tasks.knowledge_updater', # Ensure knowledge update tasks are included
-        'app.tasks.sharepoint_sync' # Ensure sharepoint sync tasks are included
-    ]
+    # include=[
+    #     'app.tasks.email_tasks', 
+    #     'app.tasks.sharepoint_tasks', 
+    #     'app.tasks.s3_tasks', 
+    #     'app.tasks.azure_tasks',
+    #     'app.tasks.export_tasks', 
+    #     'app.tasks.outlook_sync',
+    #     'app.tasks.email_parser',
+    #     'app.tasks.knowledge_updater',
+    #     'app.tasks.sharepoint_sync' 
+    # ]
 )
 
 # TEMP: Check if app object is created
 print(f"--- DEBUG: Celery app object created. Broker: {broker_url} ---")
 
-# Optional configuration settings
-celery_app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],  # Allow json content
-    result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
-    # Example: Set task time limits
-    # task_time_limit=300, # soft time limit (seconds)
-    # task_soft_time_limit=240, # hard time limit (seconds)
-    broker_connection_retry_on_startup=True,
-    beat_schedule={
-        'outlook-sync-dispatcher': {
-            'task': 'tasks.outlook_sync.dispatch_sync_tasks',
-            'schedule': 60.0,  # Run every minute (in seconds)
-        },
-    },
-)
-
-# Autodiscover tasks from the 'include' list
-# celery_app.autodiscover_tasks() # Not strictly needed if using 'include'
+# TEMP: Comment out conf updates
+# celery_app.conf.update(
+#     task_serializer='json',
+#     accept_content=['json'],
+#     result_serializer='json',
+#     timezone='UTC',
+#     enable_utc=True,
+#     broker_connection_retry_on_startup=True,
+#     beat_schedule={
+#         'outlook-sync-dispatcher': {
+#             'task': 'tasks.outlook_sync.dispatch_sync_tasks',
+#             'schedule': 60.0, 
+#         },
+#     },
+# )
 
 if __name__ == '__main__':
-    # This allows running the worker directly using:
-    # python -m app.celery_app worker --loglevel=info
-    # (Adjust the command based on your project structure if needed)
     logger.info("Starting Celery worker from __main__ context.")
     celery_app.start() 
