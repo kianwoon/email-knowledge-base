@@ -501,8 +501,6 @@ const OutlookSyncPage: React.FC = () => {
                     value={syncFrequency} 
                     onChange={(e) => setSyncFrequency(e.target.value)}
                   >
-                    <option value="1min">{t('outlookSync.frequency.1min', "Every minute (Testing)")}</option>
-                    <option value="15min">{t('outlookSync.frequency.15min', "Every 15 minutes")}</option>
                     <option value="30min">{t('outlookSync.frequency.30min', "Every 30 minutes")}</option>
                     <option value="hourly">{t('outlookSync.frequency.hourly', "Hourly")}</option>
                     <option value="daily">{t('outlookSync.frequency.daily', "Daily")}</option>

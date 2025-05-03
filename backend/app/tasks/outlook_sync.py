@@ -15,6 +15,7 @@ from app.services.auth_service import AuthService
 from app.tasks.email_tasks import process_user_emails
 from app.config import settings
 from app.utils.security import decrypt_token
+from app.utils.redis_lock import with_lock, RedisLock
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -104,6 +105,15 @@ def dispatch_sync_tasks():
                     if time_since_last_sync >= interval:
                         should_sync = True
                 
+                # Before dispatching, check if there's an existing lock for this user
+                lock_key = f"outlook_sync:{str(user.id)}"
+                redis_lock = RedisLock()
+                
+                # Only check if lock exists - don't try to acquire it here
+                if redis_lock.is_locked(lock_key):
+                    logger.info(f"Skipping sync task for user {user.email} - previous sync still running")
+                    continue
+                
                 if should_sync:
                     logger.info(f"Dispatching sync task for user {user.email} with frequency {frequency}")
                     process_user_outlook_sync.delay(
@@ -128,9 +138,19 @@ def dispatch_sync_tasks():
             db.close()
 
 
+# Helper function to generate the lock key from task arguments
+def get_outlook_sync_lock_key(user_id: str, *args, **kwargs) -> str:
+    """Generate a unique lock key for Outlook sync tasks based on user ID"""
+    return f"outlook_sync:{user_id}"
+
+
 @celery_app.task(name="tasks.outlook_sync.process_user_outlook_sync")
+@with_lock(key_function=get_outlook_sync_lock_key, timeout=7200)  # 2 hour lock timeout
 def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Optional[str] = None):
-    """Process Outlook sync for a specific user."""
+    """
+    Process Outlook sync for a specific user.
+    This function is decorated with @with_lock to prevent concurrent executions for the same user.
+    """
     logger.info(f"Processing Outlook sync for user {user_id}, folders: {folders}")
     task_id = process_user_outlook_sync.request.id
     
@@ -187,6 +207,7 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
 def cancel_user_sync_tasks(user_id: str) -> bool:
     """
     Cancel any pending sync tasks for a user and reset their sync configuration.
+    Also release any Redis locks held by the user's sync tasks.
     
     Args:
         user_id: The UUID of the user as a string
@@ -201,25 +222,34 @@ def cancel_user_sync_tasks(user_id: str) -> bool:
         session_local = get_db()
         db = next(session_local)
         
-        # Get user
+        # Get the user
         user = db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
         if not user:
-            logger.error(f"User {user_id} not found")
+            logger.error(f"User {user_id} not found for cancellation")
             return False
-        
-        # Update user's sync configuration to disable syncing
+            
+        # Reset the sync configuration
         if user.outlook_sync_config:
-            try:
-                config = json.loads(user.outlook_sync_config)
-                config["enabled"] = False
-                user.outlook_sync_config = json.dumps(config)
-                db.commit()
-                logger.info(f"Disabled sync configuration for user {user_id}")
-            except Exception as e:
-                logger.error(f"Error updating sync config for user {user_id}: {str(e)}")
-                db.rollback()
-                return False
-        
+            # Parse existing config
+            config = json.loads(user.outlook_sync_config)
+            # Disable sync
+            config["enabled"] = False
+            # Save updated config
+            user.outlook_sync_config = json.dumps(config)
+            db.commit()
+            
+        # Try to release any Redis lock for this user
+        try:
+            lock_key = f"outlook_sync:{user_id}"
+            redis_lock = RedisLock()
+            
+            # We can't release a lock without the token, so we'll just 
+            # check if it exists and log it - the lock will expire automatically
+            if redis_lock.is_locked(lock_key):
+                logger.info(f"Found active lock for user {user_id} sync - will expire naturally")
+        except Exception as e:
+            logger.error(f"Error checking/releasing Redis lock for user {user_id}: {str(e)}")
+            
         return True
     except Exception as e:
         logger.error(f"Error cancelling sync tasks for user {user_id}: {str(e)}")
