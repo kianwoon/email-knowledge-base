@@ -756,3 +756,146 @@ class OutlookService:
         logger.info(f"Returning {len(events_list)} formatted upcoming events.")
         return events_list
     # --- END NEW METHOD ---
+
+    async def get_folder_details(self, folder_id: str) -> Dict[str, Any]:
+        """Get detailed information about a specific folder."""
+        try:
+            response = await self.client.get(f"/me/mailFolders/{folder_id}")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error getting folder details: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code, 
+                detail=f"Error getting folder details: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error getting folder details: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unexpected error getting folder details: {str(e)}"
+            )
+    
+    async def list_messages(self, folder_id: str, top: int = 50, skip: int = 0, filter: str = None, **kwargs) -> List[Dict[str, Any]]:
+        """List messages in a folder with pagination support."""
+        try:
+            params = {
+                "$select": "id,subject,sender,receivedDateTime,hasAttachments,importance,bodyPreview",
+                "$orderby": "receivedDateTime desc",
+                "$top": top,
+                "$skip": skip
+            }
+            
+            # Add filter if provided
+            if filter:
+                params["$filter"] = filter
+            
+            response = await self.client.get(
+                f"/me/mailFolders/{folder_id}/messages",
+                params=params
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("value", [])
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error listing messages: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code, 
+                detail=f"Error listing messages: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error listing messages: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unexpected error listing messages: {str(e)}"
+            )
+    
+    async def create_delta_link(self, folder_id: str) -> str:
+        """Create a delta link for tracking changes in a folder."""
+        try:
+            response = await self.client.get(
+                f"/me/mailFolders/{folder_id}/messages/delta",
+                params={"$select": "id,subject,receivedDateTime"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # The delta link is in the @odata.deltaLink property of the response
+            delta_link = data.get("@odata.deltaLink", "")
+            if not delta_link:
+                raise ValueError("Delta link not found in response")
+                
+            return delta_link
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error creating delta link: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code, 
+                detail=f"Error creating delta link: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating delta link: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unexpected error creating delta link: {str(e)}"
+            )
+    
+    async def get_changes(self, delta_link: str) -> Dict[str, Any]:
+        """Get changes using a delta link."""
+        try:
+            # The delta link already contains all necessary parameters
+            async with httpx.AsyncClient(timeout=30.0) as temp_client:
+                response = await temp_client.get(
+                    delta_link,
+                    headers=self.headers
+                )
+            response.raise_for_status()
+            data = response.json()
+            
+            return {
+                "changes": data.get("value", []),
+                "delta_link": data.get("@odata.deltaLink", "")
+            }
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error getting changes: {e.response.status_code} - {e.response.text}")
+            raise HTTPException(
+                status_code=e.response.status_code, 
+                detail=f"Error getting changes: {e.response.text}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error getting changes: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Unexpected error getting changes: {str(e)}"
+            )
+    
+    @classmethod
+    async def create(cls, user_email: str) -> 'OutlookService':
+        """Factory method to create an OutlookService instance with fresh tokens for a user."""
+        from app.dependencies.auth import get_user_with_refresh_token
+        from app.db.session import get_db
+        from app.services.auth_service import AuthService
+        
+        # Get a database session
+        db = next(get_db())
+        
+        try:
+            # Get the user from the database
+            user_db = get_user_with_refresh_token(db, user_email)
+            if not user_db:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+                
+            # Get a fresh access token using AuthService
+            ms_token = await AuthService.refresh_ms_token(db, user_email)
+            if not ms_token or not ms_token.get("access_token"):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Failed to get Microsoft access token"
+                )
+                
+            # Create an OutlookService instance with the fresh token
+            return cls(ms_token["access_token"])
+        finally:
+            db.close()

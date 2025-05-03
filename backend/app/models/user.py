@@ -116,6 +116,14 @@ class UserDB(Base):
     # +++ Add field for last KB task ID +++
     last_kb_task_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     # --- End Add --- 
+    
+    # +++ Add field for Outlook sync configuration +++
+    outlook_sync_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # --- End Add ---
+
+    # +++ Add field for last Outlook sync +++
+    last_outlook_sync: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- End Add ---
 
     # Use string literal for forward reference
     api_keys: Mapped[List["APIKeyDB"]] = relationship(

@@ -1,0 +1,229 @@
+import logging
+import json
+from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Any, Optional
+from uuid import UUID
+
+from sqlalchemy.orm import Session
+from sqlalchemy.sql import text
+
+from app.db.session import get_db
+from app.celery_app import celery_app
+from app.models.user import UserDB
+from app.services.outlook import OutlookService 
+from app.services.auth_service import AuthService
+from app.tasks.email_tasks import process_user_emails
+from app.config import settings
+from app.utils.security import decrypt_token
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Constants for frequency mapping
+FREQUENCY_INTERVALS = {
+    "1min": timedelta(minutes=1),
+    "15min": timedelta(minutes=15),
+    "30min": timedelta(minutes=30),
+    "hourly": timedelta(hours=1),
+    "daily": timedelta(days=1),
+    "weekly": timedelta(weeks=1)
+}
+
+# Default to one month ago if no start date is provided
+DEFAULT_START_PERIOD = timedelta(days=30)
+
+
+@celery_app.task(name="tasks.outlook_sync.dispatch_sync_tasks")
+def dispatch_sync_tasks():
+    """
+    Main scheduler task that checks for users with sync enabled
+    and dispatches individual sync tasks based on their configured frequencies.
+    This task is meant to run every 15 minutes via Celery Beat.
+    """
+    logger.info("Starting Outlook sync task dispatcher")
+    
+    try:
+        # Create a database session directly since we're not in an async context
+        session_local = get_db()
+        db = next(session_local)
+        
+        # Check if there are any users with outlook sync enabled at all
+        # If no users have it enabled, exit early
+        users_with_enabled_sync = db.query(UserDB).filter(
+            UserDB.outlook_sync_config.isnot(None)
+        ).filter(
+            UserDB.outlook_sync_config.like('%"enabled": true%')
+        ).count()
+        
+        if users_with_enabled_sync == 0:
+            logger.info("No users have Outlook sync enabled, skipping dispatch")
+            return
+            
+        # Get all users with outlook_sync_config
+        users_with_config = db.query(UserDB).filter(
+            UserDB.outlook_sync_config.isnot(None)
+        ).all()
+        
+        logger.info(f"Found {len(users_with_config)} users with Outlook sync configurations")
+        
+        now = datetime.now(timezone.utc)
+        
+        for user in users_with_config:
+            try:
+                # Parse the sync configuration
+                config = json.loads(user.outlook_sync_config)
+                
+                # Skip if sync is not enabled
+                if not config.get("enabled", False):
+                    logger.debug(f"Sync disabled for user {user.email}, skipping")
+                    continue
+                
+                # Get sync frequency and selected folders
+                frequency = config.get("frequency", "daily")
+                folders = config.get("folders", [])
+                
+                if not folders:
+                    logger.debug(f"No folders configured for user {user.email}, skipping")
+                    continue
+                
+                # Get last_sync time from the user record
+                last_sync_time = user.last_outlook_sync
+                
+                # Determine if it's time to sync based on frequency
+                should_sync = False
+                
+                if last_sync_time is None:
+                    # First time sync
+                    should_sync = True
+                else:
+                    # Convert frequency to timedelta
+                    interval = FREQUENCY_INTERVALS.get(frequency, FREQUENCY_INTERVALS["daily"])
+                    
+                    # Check if enough time has passed since last sync
+                    time_since_last_sync = now - last_sync_time
+                    if time_since_last_sync >= interval:
+                        should_sync = True
+                
+                if should_sync:
+                    logger.info(f"Dispatching sync task for user {user.email} with frequency {frequency}")
+                    process_user_outlook_sync.delay(
+                        str(user.id),
+                        folders,
+                        config.get("startDate") 
+                    )
+                else:
+                    logger.debug(
+                        f"Skipping sync for user {user.email}: last sync at {last_sync_time}, "
+                        f"frequency {frequency}"
+                    )
+            
+            except Exception as e:
+                logger.error(f"Error processing sync config for user {user.email}: {str(e)}")
+                continue
+    
+    except Exception as e:
+        logger.error(f"Error in Outlook sync task dispatcher: {str(e)}")
+    finally:
+        if 'db' in locals():
+            db.close()
+
+
+@celery_app.task(name="tasks.outlook_sync.process_user_outlook_sync")
+def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Optional[str] = None):
+    """Process Outlook sync for a specific user."""
+    logger.info(f"Processing Outlook sync for user {user_id}, folders: {folders}")
+    task_id = process_user_outlook_sync.request.id
+    
+    try:
+        # Create a database session directly since we're not in an async context
+        session_local = get_db()
+        db = next(session_local)
+        
+        # Get user
+        user = db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
+        if not user:
+            logger.error(f"User {user_id} not found")
+            return
+        
+        user_email = user.email
+        
+        # Update last sync time
+        user.last_outlook_sync = datetime.now(timezone.utc)
+        db.commit()
+        
+        # Process each folder
+        for folder_id in folders:
+            try:
+                # Prepare filter criteria for the folder
+                filter_criteria = {
+                    "folder_id": folder_id
+                }
+                
+                # Add start date if provided, otherwise default to one month ago
+                if start_date:
+                    filter_criteria["start_date"] = start_date
+                else:
+                    one_month_ago = datetime.now(timezone.utc) - DEFAULT_START_PERIOD
+                    filter_criteria["start_date"] = one_month_ago.strftime("%Y-%m-%d")
+                
+                # Call the existing email processing task
+                logger.info(f"Dispatching email processing task for user {user_email}, folder: {folder_id}")
+                
+                # Call the existing process_user_emails task with the folder filter
+                # No need to handle auth here as it will be handled by the process_user_emails task
+                process_user_emails.delay(user_email, filter_criteria)
+                
+            except Exception as e:
+                logger.error(f"Error processing folder {folder_id} for user {user_email}: {str(e)}")
+                continue
+    
+    except Exception as e:
+        logger.error(f"Error in Outlook sync for user {user_id}: {str(e)}")
+    finally:
+        if 'db' in locals():
+            db.close()
+
+
+def cancel_user_sync_tasks(user_id: str) -> bool:
+    """
+    Cancel any pending sync tasks for a user and reset their sync configuration.
+    
+    Args:
+        user_id: The UUID of the user as a string
+        
+    Returns:
+        bool: True if the operation was successful
+    """
+    logger.info(f"Cancelling sync tasks for user {user_id}")
+    
+    try:
+        # Create a database session
+        session_local = get_db()
+        db = next(session_local)
+        
+        # Get user
+        user = db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
+        if not user:
+            logger.error(f"User {user_id} not found")
+            return False
+        
+        # Update user's sync configuration to disable syncing
+        if user.outlook_sync_config:
+            try:
+                config = json.loads(user.outlook_sync_config)
+                config["enabled"] = False
+                user.outlook_sync_config = json.dumps(config)
+                db.commit()
+                logger.info(f"Disabled sync configuration for user {user_id}")
+            except Exception as e:
+                logger.error(f"Error updating sync config for user {user_id}: {str(e)}")
+                db.rollback()
+                return False
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error cancelling sync tasks for user {user_id}: {str(e)}")
+        return False
+    finally:
+        if 'db' in locals():
+            db.close() 

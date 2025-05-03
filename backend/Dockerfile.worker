@@ -16,7 +16,7 @@ WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && apt-get install -y --no-install-recommends build-essential python3-dev supervisor \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir cython \
     && pip install --no-cache-dir -r requirements.txt \
@@ -26,7 +26,16 @@ RUN apt-get update \
 # Copy the backend application code specifically
 COPY backend/ /app/
 
-# Command to run the Celery worker
-# The working directory is /app, and the code is copied into /app,
-# so 'app.celery_app' should now correctly resolve to /app/app/celery_app.py
-CMD ["celery", "-A", "app.celery_app", "worker", "--loglevel=info", "-P", "solo"]
+# Create supervisord configuration to run both worker and beat
+RUN mkdir -p /etc/supervisor/conf.d
+COPY backend/supervisor/celery.conf /etc/supervisor/conf.d/celery.conf
+
+# Create startup script
+COPY backend/supervisor/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Create necessary directories for logs
+RUN mkdir -p /var/log/celery
+
+# Command to start supervisord which will manage both processes
+CMD ["/app/start.sh"]

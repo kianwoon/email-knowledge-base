@@ -211,12 +211,12 @@ def update_user_ms_tokens(db: Session, user_email: str, access_token: str, expir
     """
     try:
         values_to_update = {
-            UserDB.ms_access_token: access_token,
-            UserDB.ms_token_expiry: expiry,
+            "ms_access_token": access_token,
+            "ms_token_expiry": expiry,
         }
         # Only include refresh token in the update if a new one was provided
         if refresh_token is not None:
-            values_to_update[UserDB.ms_refresh_token] = refresh_token
+            values_to_update["ms_refresh_token"] = refresh_token
 
         statement = (
             update(UserDB)

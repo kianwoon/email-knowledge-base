@@ -157,12 +157,31 @@ services:
         secret: JWT_SECRET
       - name: DEBUG
         value: "false" # Consider setting to false for production workers
-      # Add other environment variables needed by Celery tasks (e.g., Broker/Backend URLs)
-      # Ensure these match what's configured in backend/app/celery_app.py
+      # Add other environment variables needed by Celery tasks
       - name: CELERY_BROKER_URL
         secret: CELERY_BROKER_URL # Make sure this secret exists in Koyeb
       - name: CELERY_RESULT_BACKEND
         secret: CELERY_RESULT_BACKEND # Make sure this secret exists in Koyeb
+      - name: SQLALCHEMY_DATABASE_URI
+        secret: SQLALCHEMY_DATABASE_URI
+      - name: OPENAI_API_KEY
+        secret: OPENAI_API_KEY
+      - name: EMBEDDING_MODEL
+        secret: EMBEDDING_MODEL
+      - name: EMBEDDING_DIMENSION
+        secret: EMBEDDING_DIMENSION
+      - name: QDRANT_URL
+        secret: QDRANT_URL
+      - name: QDRANT_API_KEY
+        secret: QDRANT_API_KEY
+      - name: QDRANT_COLLECTION_NAME
+        secret: QDRANT_COLLECTION_NAME
+      - name: ENCRYPTION_KEY
+        secret: ENCRYPTION_KEY
+      - name: APP_AWS_ACCESS_KEY_ID
+        secret: APP_AWS_ACCESS_KEY_ID
+      - name: APP_AWS_SECRET_ACCESS_KEY
+        secret: APP_AWS_SECRET_ACCESS_KEY
     restart_policy:
       type: on-failure
       max_retries: 10

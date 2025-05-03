@@ -40,7 +40,8 @@ celery_app = Celery(
         'app.tasks.sharepoint_tasks', 
         'app.tasks.s3_tasks', 
         'app.tasks.azure_tasks',
-        'app.tasks.export_tasks' # Add the new export tasks module
+        'app.tasks.export_tasks', # Add the new export tasks module
+        'app.tasks.outlook_sync'  # Add the new outlook sync tasks module
     ]
 )
 
@@ -55,6 +56,12 @@ celery_app.conf.update(
     # task_time_limit=300, # soft time limit (seconds)
     # task_soft_time_limit=240, # hard time limit (seconds)
     broker_connection_retry_on_startup=True,
+    beat_schedule={
+        'outlook-sync-dispatcher': {
+            'task': 'tasks.outlook_sync.dispatch_sync_tasks',
+            'schedule': 60.0,  # Run every minute (in seconds)
+        },
+    },
 )
 
 # Autodiscover tasks from the 'include' list

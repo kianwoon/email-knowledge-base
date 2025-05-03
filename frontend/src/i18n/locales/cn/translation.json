@@ -115,6 +115,7 @@
   "navigation": {
     "home": "首页",
     "filterEmails": "邮件过滤",
+    "outlookSync": "邮件同步",
     "review": "审核",
     "search": "搜索",
     "documentation": "文档",
@@ -860,7 +861,8 @@
   "settings": {
     "language": "语言",
     "english": "English",
-    "chinese": "中文"
+    "chinese": "中文",
+    "changed": "语言已更改"
   },
   "signIn": {
     "title": "登录",
@@ -1593,20 +1595,26 @@
   },
   "customKnowledge": {
     "uploadTab": "自定义知识",
+    "historyTab": "历史记录",
     "uploadTitle": "上传自定义知识文件",
     "selectFiles": "选择文件",
-    "uploadHelp": "允许类型：pdf, doc, docx, xls, xlsx, pptx, ppt, csv, txt。每个文件最大20MB。",
-    "filesToUpload": "待上传文件",
-    "noFilesSelected": "尚未选择文件。",
-    "process": "处理所选文件",
-    "historyTab": "历史记录",
-    "historyTitle": "上传历史",
+    "uploadHelp": "允许的类型：{{allowedTypes}}。最大大小：每个文件 {{maxSize}}。",
+    "filesToUpload": "准备上传的文件",
     "filename": "文件名",
     "size": "大小",
+    "noFilesSelected": "尚未选择文件。",
+    "process": "处理选定的文件",
+    "historyTitle": "上传历史",
+    "noHistory": "未找到上传历史。",
     "status": "状态",
     "uploadedAt": "上传时间",
-    "noHistory": "未找到上传历史。",
-    "duplicateFile": "该文件已被处理。如需重新上传，请重命名文件。",
+    "statusEnum": {
+      "pending": "等待中",
+      "processing": "处理中",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "duplicateFile": "此文件已被处理。如果要再次上传，请重命名文件。",
     "uploadSuccess": "文件上传成功",
     "uploadFailed": "部分文件上传失败"
   },
@@ -1843,6 +1851,140 @@
     "toast": {
       "noMilvusResultsTitle": "无 Milvus 结果",
       "noMilvusResultsDesc": "根据令牌权限，您的测试查询未返回任何 Milvus 结果。"
+    }
+  },
+  "outlookSync": {
+    "title": "Outlook 同步",
+    "loading": "正在加载您的 Outlook 文件夹...",
+    "loading": {
+      "error": "加载您的 Outlook 文件夹失败。请稍后重试。"
+    },
+    "selectFolders": "选择要同步的文件夹",
+    "tableHeaders": {
+      "select": "选择",
+      "folder": "文件夹",
+      "items": "项目",
+      "status": "状态"
+    },
+    "status": {
+      "notSynced": "未同步",
+      "syncing": "同步中",
+      "completed": "已完成",
+      "error": "错误",
+      "unknown": "未知"
+    },
+    "controls": {
+      "startSync": "开始同步",
+      "syncing": "同步中",
+      "enableAutomatedSync": "启用自动同步",
+      "syncFrequency": "同步频率",
+      "startingDate": "开始日期（可选）",
+      "startingDatePlaceholder": "选择开始日期",
+      "startingDateHelp": "只有此日期之后的电子邮件将被同步。如果未指定，默认为一个月前。",
+      "saveSettings": "保存设置",
+      "stopSync": "停止同步"
+    },
+    "frequency": {
+      "1min": "每分钟（测试）",
+      "15min": "每15分钟",
+      "30min": "每30分钟",
+      "hourly": "每小时",
+      "daily": "每天",
+      "weekly": "每周"
+    },
+    "notifications": {
+      "noFoldersSelected": "未选择文件夹",
+      "noFoldersSelectedDesc": "请至少选择一个要同步的文件夹",
+      "syncStarted": "同步已开始",
+      "syncStartedDesc": "开始同步 {{count}} 个文件夹",
+      "syncFailed": "同步失败",
+      "syncFailedDesc": "无法启动同步过程。请稍后再试。",
+      "settingsSaved": "设置已保存",
+      "automationEnabled": "已计划自动同步 {{frequency}}",
+      "automationDisabled": "自动同步已禁用",
+      "saveError": "保存失败",
+      "saveErrorDesc": "无法保存自动化设置",
+      "syncCancelled": "同步已取消",
+      "syncCancelledDesc": "自动同步已停止并禁用",
+      "stopSyncError": "停止同步失败",
+      "stopSyncErrorDesc": "无法取消自动同步",
+      "syncCompleted": "同步完成",
+      "syncCompletedDesc": "所有文件夹同步已完成"
+    },
+    "errors": {
+      "startSync": "启动同步失败"
+    },
+    "syncInfo": {
+      "itemsProcessed": "项已处理"
+    },
+    "syncProgress": "同步进度",
+    "automationSettings": "自动化设置",
+    "lastSync": "上次同步",
+    "noSyncs": "没有之前的同步",
+    "aboutOutlookSync": "关于 Outlook 同步",
+    "aboutDescription": "此功能允许您自动将 Outlook 文件夹与知识库同步。选择您要监控的文件夹，系统将提取新电子邮件并更新已更改的电子邮件。",
+    "automationEnabled": "启用自动化后，系统将根据您选择的频率定期检查更改。",
+    "confirmStop": {
+      "title": "确认停止同步",
+      "message": "您确定要停止自动同步吗？这将禁用所选文件夹的所有计划同步。",
+      "cancel": "取消",
+      "confirm": "停止同步"
+    }
+  },
+  "sharepointBrowser": {
+    "title": "SharePoint 浏览器",
+    "selectSitePlaceholder": "选择一个站点",
+    "noSitesFound": "未找到站点",
+    "noSitesFoundForFilter": "未找到以字母 {{letter}} 开头的站点",
+    "drivesForSite": "{{siteName}} 的文档库",
+    "noDrivesFound": "未找到文档库",
+    "searchDrivePlaceholder": "搜索文档...",
+    "searchDrive": "搜索文档库",
+    "searchResults": "搜索结果",
+    "noItemsFound": "此文件夹中没有内容",
+    "downloadStartedTitle": "下载已启动",
+    "downloadStartedDesc": "正在下载并处理",
+    "downloadTaskRunningTitle": "已有下载任务",
+    "downloadTaskRunningDesc": "正在处理其他文件，请稍后再试",
+    "downloadTaskProgressTitle": "下载和处理状态",
+    "syncTaskProgressTitle": "同步进度",
+    "syncCompleteTitle": "同步完成",
+    "syncCompleteDesc": "所有项目已成功同步",
+    "syncFailedTitle": "同步失败",
+    "syncFailedDesc": "无法同步一个或多个项目",
+    "syncPartialFailureTitle": "部分同步失败",
+    "syncPartialFailureDesc": "部分项目未能同步",
+    "addToSync": "添加到同步列表",
+    "alreadyInSync": "已在同步列表中",
+    "alreadyInSyncList": "此项目已在同步列表中",
+    "fileTypeNotSupported": "不支持此文件类型",
+    "itemAddedToSync": "{{name}} 已添加到同步列表",
+    "itemRemovedFromSync": "{{name}} 已从同步列表中移除",
+    "syncListEmptyTitle": "同步列表为空",
+    "syncListEmptyDesc": "请先添加要同步的项目",
+    "syncAlreadyInProgress": "同步操作正在进行中",
+    "syncProcessStartedTitle": "同步处理已启动",
+    "syncProcessStartedDesc": "正在处理同步列表项目。任务 ID: {{taskId}}",
+    "tabs": {
+      "browseSites": "浏览站点",
+      "quickAccess": "快速访问",
+      "myRecent": "最近访问",
+      "history": "历史记录"
+    },
+    "history": {
+      "title": "已完成的同步项目",
+      "empty": "没有已完成的同步项目",
+      "driveIdLabel": "文档库 ID:"
+    },
+    "errors": {
+      "fetchSitesTitle": "无法加载站点",
+      "fetchDrivesTitle": "无法加载文档库",
+      "fetchItemsTitle": "无法加载项目",
+      "searchQueryMissing": "请输入搜索内容",
+      "searchFailedTitle": "搜索失败",
+      "downloadFailedTitle": "下载失败",
+      "processSyncListError": "处理同步列表时出错",
+      "noDriveSelected": "未选择文档库"
     }
   }
 }

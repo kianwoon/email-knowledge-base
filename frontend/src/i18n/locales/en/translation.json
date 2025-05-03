@@ -17,6 +17,7 @@
   "navigation": {
     "home": "Home",
     "filterEmails": "Outlook",
+    "outlookSync": "Outlook Sync",
     "review": "Review",
     "search": "Search",
     "documentation": "Documentation",
@@ -1107,7 +1108,7 @@
   },
   "language": {
     "english": "English",
-    "chinese": "中文"
+    "chinese": "Chinese"
   },
   "userMenu": {
     "account": "Account",
@@ -1556,7 +1557,85 @@
     "uploadSuccess": "Files uploaded successfully",
     "uploadFailed": "Some files failed to upload"
   },
-  "sharepoint": {
+  "outlookSync": {
+    "title": "Outlook Sync",
+    "loading": "Loading your Outlook folders...",
+    "loading": {
+      "error": "Failed to load your Outlook folders. Please try again later."
+    },
+    "selectFolders": "Select Folders to Sync",
+    "tableHeaders": {
+      "select": "Select",
+      "folder": "Folder",
+      "items": "Items",
+      "status": "Status"
+    },
+    "status": {
+      "notSynced": "Not synced",
+      "syncing": "Syncing",
+      "completed": "Completed",
+      "error": "Error",
+      "unknown": "Unknown"
+    },
+    "controls": {
+      "startSync": "Start Sync",
+      "syncing": "Syncing",
+      "enableAutomatedSync": "Enable Automated Sync",
+      "syncFrequency": "Sync Frequency",
+      "startingDate": "Starting Date (Optional)",
+      "startingDatePlaceholder": "Select start date",
+      "startingDateHelp": "Only emails after this date will be synchronized. If not specified, defaults to one month ago.",
+      "saveSettings": "Save Settings",
+      "stopSync": "Stop Sync"
+    },
+    "frequency": {
+      "1min": "Every minute (Testing)",
+      "15min": "Every 15 minutes",
+      "30min": "Every 30 minutes",
+      "hourly": "Hourly",
+      "daily": "Daily",
+      "weekly": "Weekly"
+    },
+    "notifications": {
+      "noFoldersSelected": "No folders selected",
+      "noFoldersSelectedDesc": "Please select at least one folder to sync",
+      "syncStarted": "Sync started",
+      "syncStartedDesc": "Started syncing {{count}} folders",
+      "syncFailed": "Sync failed",
+      "syncFailedDesc": "Failed to start the sync process. Please try again later.",
+      "settingsSaved": "Settings saved",
+      "automationEnabled": "Automated sync scheduled {{frequency}}",
+      "automationDisabled": "Automated sync disabled",
+      "saveError": "Failed to save",
+      "saveErrorDesc": "Could not save automation settings",
+      "syncCancelled": "Sync Cancelled",
+      "syncCancelledDesc": "Automated sync has been stopped and disabled",
+      "stopSyncError": "Failed to stop sync",
+      "stopSyncErrorDesc": "Could not cancel the automated sync",
+      "syncCompleted": "Sync completed",
+      "syncCompletedDesc": "All folder syncs have completed"
+    },
+    "errors": {
+      "startSync": "Failed to start sync"
+    },
+    "syncInfo": {
+      "itemsProcessed": "items processed"
+    },
+    "syncProgress": "Sync Progress",
+    "automationSettings": "Automation Settings",
+    "lastSync": "Last Sync",
+    "noSyncs": "No previous syncs",
+    "aboutOutlookSync": "About Outlook Sync",
+    "aboutDescription": "This feature allows you to automatically synchronize your Outlook folders with the knowledge base. Select the folders you want to monitor, and the system will extract new emails and update changed ones.",
+    "automationEnabled": "With automation enabled, the system will regularly check for changes based on your selected frequency.",
+    "confirmStop": {
+      "title": "Confirm Stop Sync",
+      "message": "Are you sure you want to stop the automated sync? This will disable all scheduled syncing for your selected folders.",
+      "cancel": "Cancel",
+      "confirm": "Stop Sync"
+    }
+  },
+  "sharepointBrowser": {
     "title": "SharePoint Integration",
     "description": "Connect and manage your SharePoint data sources.",
     "sitesTitle": "Your SharePoint Sites",

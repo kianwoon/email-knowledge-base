@@ -66,6 +66,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
       icon: FaDatabase,
       children: [
         { path: '/filter', label: t('navigation.filterEmails'), icon: FaFilter },
+        { path: '/outlook-sync', label: t('navigation.outlookSync'), icon: FaEnvelopeOpenText },
         { path: '/sharepoint', label: t('navigation.sharepoint'), icon: FaShareSquare },
         { path: '/s3', label: t('navigation.awsS3'), icon: FaAws, disabled: false },
         { path: '/azure-blob', label: t('navigation.azureBlob'), icon: FaMicrosoft, disabled: false },
@@ -252,7 +253,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
               px={2}
               color={useColorModeValue('gray.800', 'whiteAlpha.900')}
             >
-              {isChinese ? t('language.chinese') : t('language.english')}
+              {isChinese ? '中文' : t('language.english')}
             </MenuButton>
             <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
               <MenuItem
@@ -265,7 +266,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
                 onClick={() => changeLanguage('cn')}
                 _hover={{ bg: useColorModeValue('gray.100', 'whiteAlpha.200') }}
               >
-                {t('language.chinese')}
+                中文
               </MenuItem>
             </MenuList>
           </Menu>
@@ -319,7 +320,7 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
               />
               <MenuList bg={useColorModeValue('white', 'gray.800')} borderColor={useColorModeValue('gray.200', 'whiteAlpha.300')}>
                 <MenuItem onClick={() => changeLanguage('en')}>{t('language.english')}</MenuItem>
-                <MenuItem onClick={() => changeLanguage('cn')}>{t('language.chinese')}</MenuItem>
+                <MenuItem onClick={() => changeLanguage('cn')}>中文</MenuItem>
               </MenuList>
             </Menu>
             <IconButton

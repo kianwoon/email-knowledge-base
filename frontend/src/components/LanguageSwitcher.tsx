@@ -53,7 +53,7 @@ const LanguageSwitcher: React.FC = () => {
           bg={isChinese ? (colorMode === 'dark' ? "whiteAlpha.200" : "gray.100") : "transparent"}
           _hover={{ bg: colorMode === 'dark' ? "whiteAlpha.200" : "gray.100" }}
         >
-          {t('language.chinese')}
+          中文
         </MenuItem>
       </MenuList>
     </Menu>

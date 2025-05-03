@@ -46,6 +46,8 @@ import S3ConfigurationPage from '@/pages/S3ConfigurationPage'; // <<< Added S3 C
 // import AzureBlobPage from './pages/AzureBlob'; 
 // Import the new Azure Blob browser component
 import AzureBlobBrowser from './pages/DataSource/AzureBlob/AzureBlobBrowser';
+// Import the OutlookSync page
+import OutlookSyncPage from './pages/DataSource/OutlookSync';
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
 
 // MUI Theme imports for wrapping AzureBlobBrowser - NO LONGER NEEDED
@@ -106,6 +108,7 @@ const protectedPaths = [
   '/s3', // <<< RE-ADDED S3 path
   '/settings/s3', // <<< Added S3 Settings path
   '/azure-blob', // <<< Added Azure Blob path
+  '/outlook-sync', // <<< Added Outlook Sync path
   // Add other protected paths like dashboard, knowledge-bases, etc.
   '/dashboard',
   '/knowledge-bases',
@@ -413,6 +416,14 @@ function App() {
             element={
               <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
                 <EmailReview />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/outlook-sync"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <OutlookSyncPage />
               </ProtectedRoute>
             }
           />
