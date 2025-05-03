@@ -8,6 +8,7 @@ import base64
 import binascii # For Base64 decoding errors
 from dateutil.parser import isoparse # Added import
 from pydantic import ValidationError # Added import
+import json
 
 from app.models.email import EmailPreview, EmailContent, EmailAttachment, EmailFilter
 from app.config import settings
@@ -219,8 +220,10 @@ class OutlookService:
             data = response.json()
             logger.debug(f"[RESPONSE] Data received: {data}")
 
+            # Process items and potentially filter
             items_raw = data.get("value", [])
             filtered_items = []
+
             if initial_use_search_mode:
                 logger.info("[RESPONSE-FILTER] Applying manual filtering after $search.")
                 dt_start_obj, dt_end_obj = self._parse_dates_for_filtering(start_date, end_date)
@@ -345,22 +348,32 @@ class OutlookService:
                     formatted_date = None # Send null if invalid
             # --- End Validate/Format Date ---
 
+            # --- FIXED: Preserve the original sender structure ---
+            # Pass the entire sender object directly through to the frontend
+            # This ensures we keep the expected nested structure: { emailAddress: { name, address } }
+            sender = email.get("sender")
+            
             preview = {
                 "id": email["id"],
-                # Safely get sender, providing defaults if keys are missing
-                "sender": email.get("sender", {}).get("emailAddress", {}).get("address", "Unknown Sender"),
-                "subject": email.get("subject", "No Subject"), # Use .get for subject too
-                "preview": email.get("bodyPreview", ""), # And for preview
-                "received_date": formatted_date, # Use validated/formatted date
-                "has_attachments": email.get("hasAttachments", False), # And attachments flag
-                "importance": email.get("importance", "normal"), # And importance
-                "is_read": email.get("isRead", True) # And isRead flag
+                # Preserve the complete sender object structure
+                "sender": sender,
+                "subject": email.get("subject", "No Subject"),
+                # Fix field name to match frontend expectations
+                "bodyPreview": email.get("bodyPreview", ""),
+                # Fix field name to match frontend expectations
+                "receivedDateTime": formatted_date,
+                "hasAttachments": email.get("hasAttachments", False),
+                "importance": email.get("importance", "normal"),
+                "isRead": email.get("isRead", True)
             }
+            # --- END FIXED ---
+
             # Add optional fields if they exist
-            if "toRecipients" in email and email["toRecipients"]:
-                preview["to_recipients"] = [r.get("emailAddress", {}).get("address") for r in email["toRecipients"]]
-            if "ccRecipients" in email and email["ccRecipients"]:
-                preview["cc_recipients"] = [r.get("emailAddress", {}).get("address") for r in email["ccRecipients"]]
+            # Directly preserve the original structure for recipients
+            if "toRecipients" in email:
+                preview["toRecipients"] = email["toRecipients"]
+            if "ccRecipients" in email:
+                preview["ccRecipients"] = email["ccRecipients"]
             
             return preview
         except KeyError as e:
