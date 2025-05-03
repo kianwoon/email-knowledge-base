@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Ensure log directories exist and have proper permissions
+mkdir -p /app/logs/supervisor /app/logs/celery
+touch /app/logs/supervisor/supervisord.log
+touch /app/logs/celery/worker.log /app/logs/celery/worker_error.log
+touch /app/logs/celery/beat.log /app/logs/celery/beat_error.log
+
 # Wait for Redis to be ready
 echo "Waiting for Redis to be available..."
 until celery -A app.celery_app inspect ping; do

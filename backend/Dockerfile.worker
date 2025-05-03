@@ -36,11 +36,17 @@ COPY backend/supervisor/celery.conf /etc/supervisor/conf.d/celery.conf
 COPY backend/supervisor/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-# Create necessary directories for logs
-RUN mkdir -p /var/log/celery
+# Create necessary directories for logs with proper permissions
+RUN mkdir -p /app/logs/celery
+RUN mkdir -p /app/logs/supervisor
+
+# Update supervisord configuration to use app logs directory instead of /var/log
+RUN sed -i 's|logfile=/var/log/supervisord.log|logfile=/app/logs/supervisor/supervisord.log|g' /etc/supervisor/conf.d/celery.conf
+RUN sed -i 's|stdout_logfile=/var/log/celery/|stdout_logfile=/app/logs/celery/|g' /etc/supervisor/conf.d/celery.conf
+RUN sed -i 's|stderr_logfile=/var/log/celery/|stderr_logfile=/app/logs/celery/|g' /etc/supervisor/conf.d/celery.conf
 
 # Ensure celery user owns application and log directories
-RUN chown -R celery:celery /app /var/log/celery /etc/supervisor
+RUN chown -R celery:celery /app /etc/supervisor
 
 # Switch to non-root user
 USER celery
