@@ -125,7 +125,7 @@ celery_app.conf.update(
     beat_schedule={
         'outlook-sync-dispatcher': {
             'task': 'tasks.outlook_sync.dispatch_sync_tasks',
-            'schedule': settings.OUTLOOK_SYNC_DISPATCH_INTERVAL_SECONDS, # Use setting
+            'schedule': settings.outlook_sync_dispatch_interval_seconds,
         },
         # Add other beat schedules here if needed
     },
