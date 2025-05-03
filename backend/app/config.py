@@ -249,6 +249,11 @@ class Settings(BaseSettings):
     # Optional: Add CELERY_RESULT_BACKEND if you use results
     CELERY_RESULT_BACKEND: Optional[str] = os.getenv("CELERY_RESULT_BACKEND") # Uncommented and made Optional
     
+    # Interval (in seconds) for Outlook sync dispatch (used by Celery beat)
+    outlook_sync_dispatch_interval_seconds: float = float(
+        os.getenv("OUTLOOK_SYNC_DISPATCH_INTERVAL_SECONDS", "300")
+    )
+    
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,
