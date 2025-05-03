@@ -99,17 +99,17 @@ celery_app = Celery(
     'app', # Main name matches the directory
     broker=broker_url,
     backend=backend_url,
-    # Restore task includes
+    # Restore task includes with correct path
     include=[
-        'tasks.email_tasks',
-        'tasks.sharepoint_tasks',
-        'tasks.s3_tasks',
-        'tasks.azure_tasks',
-        'tasks.export_tasks',
-        'tasks.outlook_sync',
-        'tasks.email_parser',
-        'tasks.knowledge_updater',
-        'tasks.sharepoint_sync'
+        'app.tasks.email_tasks', 
+        'app.tasks.sharepoint_tasks', 
+        'app.tasks.s3_tasks', 
+        'app.tasks.azure_tasks',
+        'app.tasks.export_tasks', 
+        'app.tasks.outlook_sync',
+        'app.tasks.email_parser',
+        'app.tasks.knowledge_updater',
+        'app.tasks.sharepoint_sync' 
     ]
 )
 
@@ -124,8 +124,9 @@ celery_app.conf.update(
     # Restore beat schedule configuration
     beat_schedule={
         'outlook-sync-dispatcher': {
-            'task': 'tasks.outlook_sync.dispatch_sync_tasks',
-            'schedule': settings.outlook_sync_dispatch_interval_seconds,
+            'task': 'tasks.outlook_sync.dispatch_sync_tasks', # Keep task name without 'app.' prefix as per Celery convention for beat schedule
+            # Keep potentially corrected lowercase setting name for now
+            'schedule': settings.outlook_sync_dispatch_interval_seconds, 
         },
         # Add other beat schedules here if needed
     },
