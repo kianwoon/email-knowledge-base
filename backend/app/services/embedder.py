@@ -9,6 +9,7 @@ from fastapi import HTTPException
 import httpx # Keep for now, maybe remove _httpx_search later
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from fastapi.concurrency import run_in_threadpool
+import threading # Added for locks
 
 import re
 from collections import Counter
@@ -29,39 +30,85 @@ logger = logging.getLogger(__name__)
 # Configure logger level based on LOG_LEVEL env var
 logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
 
-# --- Initialize Reranker Model ---
-# Define the reranker model name (can be moved to settings if needed)
-RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-_reranker_model = None
-try:
-    _reranker_model = CrossEncoder(RERANKER_MODEL_NAME)
-    logger.info(f"Successfully loaded reranker model: {RERANKER_MODEL_NAME}")
-except Exception as e:
-    logger.warning(f"Failed to load reranker model '{RERANKER_MODEL_NAME}': {e}. Reranking will be skipped.")
+# --- Model Initialization (Lazy Loading) ---
+# Global variables to hold loaded models, initialized to None
+_reranker_model: Optional[CrossEncoder] = None
+_dense_model: Optional[SentenceTransformer] = None
+_colbert_model: Optional[SentenceTransformer] = None
 
-# Initialize retrieval models per vector field
-try:
-    _dense_model = SentenceTransformer(settings.DENSE_EMBEDDING_MODEL)
-except Exception as e:
-    logger.warning(f"Failed to load dense embedding model '{settings.DENSE_EMBEDDING_MODEL}': {e}")
-    _dense_model = None
-try:
-    _colbert_model = SentenceTransformer(settings.COLBERT_EMBEDDING_MODEL)
-except Exception as e:
-    logger.warning(f"Failed to load colbert embedding model '{settings.COLBERT_EMBEDDING_MODEL}': {e}")
-    _colbert_model = None
+# Locks to prevent race conditions during loading in concurrent environments
+_reranker_lock = threading.Lock()
+_dense_lock = threading.Lock()
+_colbert_lock = threading.Lock()
+
+RERANKER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+def _get_reranker_model() -> Optional[CrossEncoder]:
+    """Lazily loads and returns the reranker model."""
+    global _reranker_model
+    # Double-checked locking pattern
+    if _reranker_model is None:
+        with _reranker_lock:
+            if _reranker_model is None: # Check again inside lock
+                logger.info(f"Attempting to load reranker model: {RERANKER_MODEL_NAME}...")
+                try:
+                    _reranker_model = CrossEncoder(RERANKER_MODEL_NAME)
+                    logger.info(f"Successfully loaded reranker model: {RERANKER_MODEL_NAME}")
+                except Exception as e:
+                    logger.error(f"Failed to load reranker model '{RERANKER_MODEL_NAME}': {e}. Reranking will be skipped.", exc_info=True)
+                    # Keep _reranker_model as None if loading failed
+    return _reranker_model
+
+def _get_dense_model() -> Optional[SentenceTransformer]:
+    """Lazily loads and returns the dense embedding model."""
+    global _dense_model
+    if _dense_model is None:
+        with _dense_lock:
+            if _dense_model is None:
+                model_name = settings.DENSE_EMBEDDING_MODEL
+                logger.info(f"Attempting to load dense embedding model: {model_name}...")
+                if not model_name:
+                    logger.error("DENSE_EMBEDDING_MODEL setting is not configured.")
+                    return None
+                try:
+                    # Note: SentenceTransformer might still print warnings/errors directly
+                    _dense_model = SentenceTransformer(model_name)
+                    logger.info(f"Successfully loaded dense embedding model: {model_name}")
+                except Exception as e:
+                    logger.error(f"Failed to load dense embedding model '{model_name}': {e}", exc_info=True)
+    return _dense_model
+
+def _get_colbert_model() -> Optional[SentenceTransformer]:
+    """Lazily loads and returns the colbert embedding model."""
+    global _colbert_model
+    if _colbert_model is None:
+        with _colbert_lock:
+            if _colbert_model is None:
+                model_name = settings.COLBERT_EMBEDDING_MODEL
+                logger.info(f"Attempting to load colbert embedding model: {model_name}...")
+                if not model_name:
+                    logger.error("COLBERT_EMBEDDING_MODEL setting is not configured.")
+                    return None
+                try:
+                    _colbert_model = SentenceTransformer(model_name)
+                    logger.info(f"Successfully loaded colbert embedding model: {model_name}")
+                except Exception as e:
+                    logger.error(f"Failed to load colbert embedding model '{model_name}': {e}", exc_info=True)
+    return _colbert_model
+# --- End Model Initialization ---
 
 # Modify to accept an optional client
 async def create_embedding(text: str, client: Optional[Any] = None) -> List[float]:
     """Creates an embedding for the given text using the configured dense embedding model."""
-    if not settings.DENSE_EMBEDDING_MODEL:
-        logger.error("DENSE_EMBEDDING_MODEL setting is not configured in settings.")
-        raise ValueError("Dense embedding model name is not configured.")
+    dense_model = _get_dense_model() # Ensure model is loaded
+    if dense_model is None:
+        logger.error("Dense embedding model is not available.")
+        raise ValueError("Dense embedding model failed to load or is not configured.")
+
     logger.debug(f"Creating embedding using local model: {settings.DENSE_EMBEDDING_MODEL}")
     try:
-        if _dense_model is None:
-            raise ValueError("Dense embedding model is not loaded.")
-        embedding = await run_in_threadpool(_dense_model.encode, text.replace("\n", " "))
+        # Use the loaded model
+        embedding = await run_in_threadpool(dense_model.encode, text.replace("\n", " "))
         return embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
     except Exception as e:
         logger.error(f"Error creating embedding: {e}", exc_info=True)
@@ -597,10 +644,11 @@ async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict
     Adds a 'rerank_score' to each result and sorts them.
     If the reranker model failed to load or an error occurs, returns the original results.
     """
-    if _reranker_model is None:
-        logger.warning("Reranker model not loaded. Skipping reranking.")
-        return results
-    
+    reranker_model = _get_reranker_model() # Ensure model is loaded
+    if reranker_model is None:
+        logger.warning("Reranker model not loaded or failed to load. Skipping reranking.")
+        return results # Return original results if model isn't available
+
     if not results:
         logger.debug("No results provided to rerank.")
         return []
@@ -624,13 +672,13 @@ async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict
     try:
         logger.debug(f"Reranking {len(pairs)} results with model {RERANKER_MODEL_NAME}...")
         # Run prediction in threadpool as it can be CPU-intensive
-        scores = await run_in_threadpool(_reranker_model.predict, pairs)
+        scores = await run_in_threadpool(reranker_model.predict, pairs)
         logger.debug(f"Reranking scores obtained.")
 
         # Add scores back to the corresponding valid results
         reranked_results_subset = []
-        original_results_with_scores = [] 
-        
+        original_results_with_scores = []
+
         score_idx = 0
         for original_idx, res in enumerate(results):
             if original_idx in valid_results_indices:
@@ -641,13 +689,13 @@ async def rerank_results(query: str, results: List[Dict[str, Any]]) -> List[Dict
                 score_idx += 1
             else:
                 # Assign a very low score to results that couldn't be reranked
-                res['rerank_score'] = -float('inf') 
+                res['rerank_score'] = -float('inf')
                 original_results_with_scores.append(res)
 
         # Sort ALL results (including those not reranked) by the new score, highest first
         # Those with -inf score will end up at the bottom.
         sorted_results = sorted(original_results_with_scores, key=lambda x: x.get('rerank_score', -float('inf')), reverse=True)
-        
+
         logger.info(f"Reranking complete. Returning {len(sorted_results)} results.")
         return sorted_results
 
@@ -663,17 +711,19 @@ async def create_retrieval_embedding(text: str, field: str) -> List[float]:
     Supported fields: 'dense', 'colbertv2.0'. REMOVED 'bm25'.
     """
     normalized = text.replace("\n", " ")
-    # Select the appropriate model
+    model = None
+    # Select the appropriate model using lazy loaders
     if field == "dense":
-        if _dense_model is None:
-            raise ValueError("Dense embedding model is not loaded.")
-        model = _dense_model
+        model = _get_dense_model()
+        if model is None:
+            raise ValueError("Dense embedding model is not loaded or failed to load.")
     elif field == "colbertv2.0":
-        if _colbert_model is None:
-            raise NotImplementedError("ColBERT embedding model is not loaded.")
-        model = _colbert_model
+        model = _get_colbert_model()
+        if model is None:
+            raise NotImplementedError("ColBERT embedding model is not loaded or failed to load.")
     else:
         raise ValueError(f"Unsupported vector field for embedding generation: {field}")
+
     # Generate embedding, skip non-critical failures for hybrid branches
     try:
         embedding = await run_in_threadpool(model.encode, normalized)
