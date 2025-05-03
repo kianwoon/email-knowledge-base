@@ -1863,6 +1863,63 @@
         "SharePoint": "Drive ID" 
     }
   },
+  "sharepoint": {
+    "title": "SharePoint Documents",
+    "selectSitePlaceholder": "Select a site",
+    "noSitesFound": "No sites found",
+    "noSitesFoundForFilter": "No sites found starting with {{letter}}",
+    "drivesForSite": "Drives for {{siteName}}",
+    "noDrivesFound": "No drives found",
+    "searchDrivePlaceholder": "Search documents...",
+    "searchDrive": "Search Drive",
+    "searchResults": "Search Results",
+    "noItemsFound": "No items in this folder",
+    "downloadStartedTitle": "Download Started",
+    "downloadStartedDesc": "Downloading and processing",
+    "downloadTaskRunningTitle": "Download Task Running",
+    "downloadTaskRunningDesc": "Another file is being processed, please try again later",
+    "downloadTaskProgressTitle": "Download and Processing Status",
+    "syncTaskProgressTitle": "Sync Progress",
+    "syncCompleteTitle": "Sync Complete",
+    "syncCompleteDesc": "All items have been successfully synced",
+    "syncFailedTitle": "Sync Failed",
+    "syncFailedDesc": "Failed to sync one or more items",
+    "syncPartialFailureTitle": "Partial Sync Failure",
+    "syncPartialFailureDesc": "Some items could not be synced",
+    "addToSync": "Add to Sync List",
+    "alreadyInSync": "Already in Sync List",
+    "alreadyInSyncList": "This item is already in the sync list",
+    "fileTypeNotSupported": "This file type is not supported",
+    "itemAddedToSync": "{{name}} added to sync list",
+    "itemRemovedFromSync": "{{name}} removed from sync list",
+    "syncListEmptyTitle": "Sync List Empty",
+    "syncListEmptyDesc": "Please add items to sync first",
+    "syncAlreadyInProgress": "Sync operation is already in progress",
+    "syncProcessStartedTitle": "Sync Processing Started",
+    "syncProcessStartedDesc": "Processing sync list items. Task ID: {{taskId}}",
+    "tabs": {
+      "browseSites": "Browse Sites",
+      "quickAccess": "Quick Access",
+      "myRecent": "My Recent",
+      "history": "History"
+    },
+    "history": {
+      "title": "Completed Sync Items",
+      "empty": "No completed sync items",
+      "driveIdLabel": "Drive ID:"
+    },
+    "errors": {
+      "fetchSitesTitle": "Unable to load sites",
+      "fetchDrivesTitle": "Unable to load drives",
+      "fetchItemsTitle": "Unable to load items",
+      "searchQueryMissing": "Please enter a search query",
+      "searchFailedTitle": "Search failed",
+      "downloadFailedTitle": "Download failed",
+      "processSyncListError": "Error processing sync list",
+      "noDriveSelected": "No drive selected"
+    },
+    "root": "Root"
+  },
   "tokenManagementPage": {
     "title": "Manage API Tokens",
     "subtitle": "Create and manage access tokens for sharing knowledge",
