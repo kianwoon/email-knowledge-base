@@ -45,13 +45,20 @@ jobs:
       - name: Redeploy Backend Service
         if: steps.changed_backend_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy email-knowledge-base-2/backend-service
+          # Redeploy backend, skipping cache only if requirements.txt, Dockerfile, or Dockerfile.worker changed
+          if echo "${{ steps.changed_backend_files.outputs.changed_files }}" | grep -q '^backend/\(requirements\.txt\|Dockerfile\|Dockerfile\.worker\)$'; then
+            echo "Requirements, Dockerfile, or Dockerfile.worker changed, redeploying backend without cache"
+            koyeb service redeploy email-knowledge-base-2/backend-service --skip-cache
+          else
+            echo "Redeploying backend with cache"
+            koyeb service redeploy email-knowledge-base-2/backend-service
+          fi
 
   deploy-frontend:
     name: Deploy Frontend Service
     runs-on: ubuntu-22.04
     env:
-      KOYEB_APP_NAME: ${{ secrets.KOYEB_API_TOKEN }}
+      KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,7 +86,7 @@ jobs:
     name: Deploy Celery Worker
     runs-on: ubuntu-22.04
     env:
-      KOYEB_APP_NAME: ${{ secrets.KOYEB_API_TOKEN }}
+      KOYEB_APP_NAME: ${{ secrets.KOYEB_APP_NAME }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -109,4 +116,11 @@ jobs:
       - name: Redeploy Celery Worker
         if: steps.changed_worker_files.outputs.any_changed == 'true'
         run: |
-          koyeb service redeploy email-knowledge-base-2/celery-worker
+          # Redeploy worker, skipping cache only if requirements.txt, Dockerfile, or Dockerfile.worker changed
+          if echo "${{ steps.changed_worker_files.outputs.changed_files }}" | grep -q '^backend/\(requirements\.txt\|Dockerfile\|Dockerfile\.worker\)$'; then
+            echo "Requirements, Dockerfile, or Dockerfile.worker changed, redeploying worker without cache"
+            koyeb service redeploy email-knowledge-base-2/celery-worker --skip-cache
+          else
+            echo "Redeploying worker with cache"
+            koyeb service redeploy email-knowledge-base-2/celery-worker
+          fi
