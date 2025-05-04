@@ -64,6 +64,7 @@ class Settings(BaseSettings):
 
     # Microsoft Graph API Settings
     MS_GRAPH_BASE_URL: str = os.getenv("MS_GRAPH_BASE_URL") # validated by check_required_env_vars
+    MS_GRAPH_TIMEOUT_SECONDS: float = float(os.getenv("MS_GRAPH_TIMEOUT_SECONDS", "120.0")) # Default 120 seconds timeout for Graph API requests
 
     @computed_field
     @property

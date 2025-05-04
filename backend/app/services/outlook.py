@@ -28,7 +28,7 @@ class OutlookService:
         self.client = httpx.AsyncClient(
             base_url=settings.MS_GRAPH_BASE_URL,
             headers=self.headers,
-            timeout=30.0
+            timeout=settings.MS_GRAPH_TIMEOUT_SECONDS  # Use the configurable timeout setting
         )
 
     async def get_user_info(self) -> Dict[str, Any]:
@@ -138,7 +138,7 @@ class OutlookService:
                 pagination_use_search = bool(keywords and any(kw.strip() for kw in keywords))
                 logger.info(f"[PAGINATION] Mode check: pagination_use_search={pagination_use_search}")
 
-                async with httpx.AsyncClient(timeout=30.0) as temp_client:
+                async with httpx.AsyncClient(timeout=settings.MS_GRAPH_TIMEOUT_SECONDS) as temp_client:
                     response = await temp_client.get(
                         next_link,
                         headers=self.headers
@@ -398,151 +398,171 @@ class OutlookService:
 
         select_fields = "id,subject,sender,toRecipients,ccRecipients,bccRecipients,receivedDateTime,sentDateTime,body,hasAttachments,importance,parentFolderId,attachments"
         expand_attachments = "attachments" # Expand attachments to get their details
+        
+        # Add retry logic for handling timeouts
+        max_retries = 2
+        retry_count = 0
+        backoff_time = 1  # Start with 1 second
 
-        try:
-            response = await self.client.get(
-                f"/me/messages/{email_id}",
-                params={"$select": select_fields, "$expand": expand_attachments}
-            )
-            logger.info(f"[EMAIL-CONTENT] Request URL: {response.request.url}")
-            response.raise_for_status()
-            data = response.json()
-            logger.debug(f"[EMAIL-CONTENT] Raw data received for {email_id}: {data}") # Log raw data for debugging
-
-            # Log the raw attachments data received
-            raw_attachments = data.get('attachments', [])
-            logger.debug(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {raw_attachments}")
-
-            # --- Helper function for extracting recipients ---
-            def get_recipient_info(recipient_list):
-                if not recipient_list:
-                    return []
-                return [{"name": r.get("emailAddress", {}).get("name"), 
-                         "email": r.get("emailAddress", {}).get("address")} 
-                        for r in recipient_list]
-
-            # --- Helper function for parsing datetime ---
-            def parse_datetime_to_utc(dt_str: Optional[str]) -> Optional[str]:
-                 if not dt_str:
-                     return None
-                 try:
-                     # Attempt to parse with different possible formats from Graph API
-                     dt_obj = isoparse(dt_str)
-                     # Ensure timezone is UTC
-                     if dt_obj.tzinfo is None:
-                         dt_obj = dt_obj.replace(tzinfo=timezone.utc)
-                     else:
-                         dt_obj = dt_obj.astimezone(timezone.utc)
-                     # Format consistently
-                     return dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z')
-                 except ValueError as e:
-                     logger.warning(f"[DATE-PARSE] Failed to parse datetime string '{dt_str}': {e}")
-                     return None # Return None if parsing fails
-
-            # --- Default value handling ---
-            sender_info = data.get("sender", {}).get("emailAddress", {})
-            sender_email = sender_info.get("address", "")
-            sender_name = sender_info.get("name", "")
-
-            recipients_raw = data.get("toRecipients", [])
-            cc_recipients_raw = data.get("ccRecipients", [])
-            attachments_raw = data.get("attachments", [])
-
-            # --- Attachment processing ---
-            attachments_list = []
-            if data.get("hasAttachments"):
-                logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {attachments_raw}")
-            if data.get("hasAttachments") and attachments_raw:
-                 # logger.debug(f"[EMAIL-CONTENT] Processing {len(attachments_raw)} attachments found in raw data for email {email_id}.") # Commented out debug log
-                 for att in attachments_raw:
-                     # Skip inline attachments based on common indicators
-                     if att.get('isInline'): 
-                         # logger.debug(f"[ATTACHMENT-SKIP] Skipping inline attachment based on isInline flag: {att.get('name')} (ID: {att.get('id')})") # Commented out debug log
-                         continue
-
-                     # Handle potential missing contentBytes or other fields gracefully
-                     content_type = att.get("contentType")
-                     if not content_type:
-                         logger.warning(f"[ATTACHMENT-WARN] Attachment '{att.get('name')}' for email '{email_id}' is missing 'contentType'. Setting to 'application/octet-stream'.")
-                         content_type = "application/octet-stream" # Default if missing
-
-                     # Check for contentBytes explicitly if it's expected but might be missing
-                     # Note: Graph API sometimes doesn't return contentBytes in the initial message fetch even with $expand
-                     # It often requires a separate call to get the attachment content itself.
-                     # Here, we are creating the model based on metadata. Actual bytes are fetched later if needed.
-                     has_content_bytes = 'contentBytes' in att
-
-                     try:
-                        attachment_obj = EmailAttachment(
-                            id=att.get("id", ""), # Provide default empty string if id is missing
-                            name=att.get("name", "Unnamed Attachment"), # Default name
-                            content_type=content_type, # Use defaulted content_type
-                            size=att.get("size", 0), # Default size 0
-                            is_inline=att.get("isInline", False),
-                            # content_bytes might not be present here; handle appropriately later
-                            # content_bytes=att.get("contentBytes") # This line likely causes errors if not present
-                        )
-                        attachments_list.append(attachment_obj)
-                        # logger.debug(f"[ATTACHMENT-ADD] Added attachment metadata: {attachment_obj.name} (ID: {attachment_obj.id})") # Commented out debug log
-                     except ValidationError as ve:
-                         logger.error(f"[ATTACHMENT-ERROR] Pydantic validation error for attachment in email {email_id}: {ve}. Attachment data: {att}")
-                         # Decide how to handle validation errors: skip attachment, log and continue, etc.
-                         # For now, we log and skip this attachment.
-                     except Exception as ex:
-                         logger.error(f"[ATTACHMENT-ERROR] Unexpected error processing attachment in email {email_id}: {ex}. Attachment data: {att}")
-                         # Log and skip
-
-
-            # --- Helper function to extract email addresses ---
-            def get_email_address(recipient: Dict) -> Optional[str]:
-                return recipient.get("emailAddress", {}).get("address")
-
-            # --- Prepare data for EmailContent ---
-            recipients_list = [addr for r in recipients_raw if (addr := get_email_address(r))]
-            cc_recipients_list = [addr for r in cc_recipients_raw if (addr := get_email_address(r))]
-            
-            # Determine if body is HTML
-            body_content_type = data.get("body", {}).get("contentType", "html").lower()
-            is_html_body = body_content_type == "html"
-
-            # --- Final EmailContent Creation with Defaults ---
+        while True:
             try:
-                email_content = EmailContent(
-                    id=data.get("id", ""), # Use 'id' field name
-                    internet_message_id=data.get("internetMessageId"), # Add if needed, matches model field
-                    subject=data.get("subject", ""), 
-                    sender=sender_name, # Using sender_name for now
-                    sender_email=sender_email, # Adding sender_email field
-                    recipients=recipients_list, # Pass list of email strings
-                    cc_recipients=cc_recipients_list, # Pass list of email strings
-                    received_date=data.get("receivedDateTime"), # Pass raw string, let Pydantic handle if possible
-                    sent_date=data.get("sentDateTime"), # Pass raw string, let Pydantic handle
-                    body=data.get("body", {}).get("content", ""), # Use 'body' field name
-                    is_html=is_html_body, # Set based on contentType
-                    folder_id=data.get("parentFolderId", ""), 
-                    # folder_name needs separate lookup if essential
-                    attachments=attachments_list, 
-                    importance=data.get("importance", "normal"), 
+                response = await self.client.get(
+                    f"/me/messages/{email_id}",
+                    params={"$select": select_fields, "$expand": expand_attachments}
                 )
-                logger.info(f"[EMAIL-CONTENT] Successfully created EmailContent for {email_id}. Attachments processed: {len(attachments_list)}")
-                return email_content
-            except ValidationError as ve:
-                logger.error(f"[EMAIL-CONTENT-ERROR] Pydantic validation error creating EmailContent for {email_id}: {ve}. Processed data snippet: sender={sender_email}, subject='{data.get('subject', '')[:50]}...'")
-                # Re-raise or handle as appropriate
-                raise HTTPException(status_code=500, detail=f"Data validation error processing email {email_id}: {ve}")
-            except Exception as ex:
-                 logger.error(f"[EMAIL-CONTENT-ERROR] Unexpected error creating EmailContent for {email_id}: {ex}")
-                 raise HTTPException(status_code=500, detail=f"Unexpected error processing email {email_id}: {ex}")
+                logger.info(f"[EMAIL-CONTENT] Request URL: {response.request.url}")
+                response.raise_for_status()
+                data = response.json()
+                logger.debug(f"[EMAIL-CONTENT] Raw data received for {email_id}: {data}") # Log raw data for debugging
+
+                # Log the raw attachments data received
+                raw_attachments = data.get('attachments', [])
+                logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {raw_attachments}")
+
+                # --- Helper function for extracting recipients ---
+                def get_recipient_info(recipient_list):
+                    if not recipient_list:
+                        return []
+                    return [{"name": r.get("emailAddress", {}).get("name"), 
+                            "email": r.get("emailAddress", {}).get("address")} 
+                            for r in recipient_list]
+
+                # --- Helper function for parsing datetime ---
+                def parse_datetime_to_utc(dt_str: Optional[str]) -> Optional[str]:
+                    if not dt_str:
+                        return None
+                    try:
+                        # Attempt to parse with different possible formats from Graph API
+                        dt_obj = isoparse(dt_str)
+                        # Ensure timezone is UTC
+                        if dt_obj.tzinfo is None:
+                            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+                        else:
+                            dt_obj = dt_obj.astimezone(timezone.utc)
+                        # Format consistently
+                        return dt_obj.strftime('%Y-%m-%d %H:%M:%S %Z%z')
+                    except ValueError as e:
+                        logger.warning(f"[DATE-PARSE] Failed to parse datetime string '{dt_str}': {e}")
+                        return None # Return None if parsing fails
+
+                # --- Default value handling ---
+                sender_info = data.get("sender", {}).get("emailAddress", {})
+                sender_email = sender_info.get("address", "")
+                sender_name = sender_info.get("name", "")
+
+                recipients_raw = data.get("toRecipients", [])
+                cc_recipients_raw = data.get("ccRecipients", [])
+                attachments_raw = data.get("attachments", [])
+
+                # --- Attachment processing ---
+                attachments_list = []
+                if data.get("hasAttachments"):
+                    logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {attachments_raw}")
+                if data.get("hasAttachments") and attachments_raw:
+                    # logger.debug(f"[EMAIL-CONTENT] Processing {len(attachments_raw)} attachments found in raw data for email {email_id}.") # Commented out debug log
+                    for att in attachments_raw:
+                        # Skip inline attachments based on common indicators
+                        if att.get('isInline'): 
+                            # logger.debug(f"[ATTACHMENT-SKIP] Skipping inline attachment based on isInline flag: {att.get('name')} (ID: {att.get('id')})") # Commented out debug log
+                            continue
+
+                        # Handle potential missing contentBytes or other fields gracefully
+                        content_type = att.get("contentType")
+                        if not content_type:
+                            logger.warning(f"[ATTACHMENT-WARN] Attachment '{att.get('name')}' for email '{email_id}' is missing 'contentType'. Setting to 'application/octet-stream'.")
+                            content_type = "application/octet-stream" # Default if missing
+
+                        # Check for contentBytes explicitly if it's expected but might be missing
+                        # Note: Graph API sometimes doesn't return contentBytes in the initial message fetch even with $expand
+                        # It often requires a separate call to get the attachment content itself.
+                        # Here, we are creating the model based on metadata. Actual bytes are fetched later if needed.
+                        has_content_bytes = 'contentBytes' in att
+
+                        try:
+                            attachment_obj = EmailAttachment(
+                                id=att.get("id", ""), # Provide default empty string if id is missing
+                                name=att.get("name", "Unnamed Attachment"), # Default name
+                                content_type=content_type, # Use defaulted content_type
+                                size=att.get("size", 0), # Default size 0
+                                is_inline=att.get("isInline", False),
+                                # content_bytes might not be present here; handle appropriately later
+                                # content_bytes=att.get("contentBytes") # This line likely causes errors if not present
+                            )
+                            attachments_list.append(attachment_obj)
+                            # logger.debug(f"[ATTACHMENT-ADD] Added attachment metadata: {attachment_obj.name} (ID: {attachment_obj.id})") # Commented out debug log
+                        except ValidationError as ve:
+                            logger.error(f"[ATTACHMENT-ERROR] Pydantic validation error for attachment in email {email_id}: {ve}. Attachment data: {att}")
+                            # Decide how to handle validation errors: skip attachment, log and continue, etc.
+                            # For now, we log and skip this attachment.
+                        except Exception as ex:
+                            logger.error(f"[ATTACHMENT-ERROR] Unexpected error processing attachment in email {email_id}: {ex}. Attachment data: {att}")
+                            # Log and skip
 
 
-        except httpx.HTTPStatusError as e:
-            error_body = e.response.text
-            logger.error(f"[EMAIL-CONTENT] Graph API HTTP error fetching email {email_id}: {e.response.status_code} - {error_body}", exc_info=True)
-            detail_message = f"Error fetching email content for ID {email_id}: Status {e.response.status_code}"
-            raise HTTPException(status_code=e.response.status_code, detail=detail_message)
-        except Exception as e:
-            logger.error(f"[EMAIL-CONTENT] Unexpected error fetching email {email_id}: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Internal server error fetching email content for {email_id}")
+                # --- Helper function to extract email addresses ---
+                def get_email_address(recipient: Dict) -> Optional[str]:
+                    return recipient.get("emailAddress", {}).get("address")
+
+                # --- Prepare data for EmailContent ---
+                recipients_list = [addr for r in recipients_raw if (addr := get_email_address(r))]
+                cc_recipients_list = [addr for r in cc_recipients_raw if (addr := get_email_address(r))]
+                
+                # Determine if body is HTML
+                body_content_type = data.get("body", {}).get("contentType", "html").lower()
+                is_html_body = body_content_type == "html"
+
+                # --- Final EmailContent Creation with Defaults ---
+                try:
+                    email_content = EmailContent(
+                        id=data.get("id", ""), # Use 'id' field name
+                        internet_message_id=data.get("internetMessageId"), # Add if needed, matches model field
+                        subject=data.get("subject", ""), 
+                        sender=sender_name, # Using sender_name for now
+                        sender_email=sender_email, # Adding sender_email field
+                        recipients=recipients_list, # Pass list of email strings
+                        cc_recipients=cc_recipients_list, # Pass list of email strings
+                        received_date=data.get("receivedDateTime"), # Pass raw string, let Pydantic handle if possible
+                        sent_date=data.get("sentDateTime"), # Pass raw string, let Pydantic handle
+                        body=data.get("body", {}).get("content", ""), # Use 'body' field name
+                        is_html=is_html_body, # Set based on contentType
+                        folder_id=data.get("parentFolderId", ""), 
+                        # folder_name needs separate lookup if essential
+                        attachments=attachments_list, 
+                        importance=data.get("importance", "normal"), 
+                    )
+                    logger.info(f"[EMAIL-CONTENT] Successfully created EmailContent for {email_id}. Attachments processed: {len(attachments_list)}")
+                    return email_content
+                except ValidationError as ve:
+                    logger.error(f"[EMAIL-CONTENT-ERROR] Pydantic validation error creating EmailContent for {email_id}: {ve}. Processed data snippet: sender={sender_email}, subject='{data.get('subject', '')[:50]}...'")
+                    # Re-raise or handle as appropriate
+                    raise HTTPException(status_code=500, detail=f"Data validation error processing email {email_id}: {ve}")
+                except Exception as ex:
+                    logger.error(f"[EMAIL-CONTENT-ERROR] Unexpected error creating EmailContent for {email_id}: {ex}")
+                    raise HTTPException(status_code=500, detail=f"Unexpected error processing email {email_id}: {ex}")
+
+                # Break out of the retry loop if successful
+                break
+
+            except httpx.ReadTimeout as e:
+                # Specific handling for ReadTimeout
+                retry_count += 1
+                if retry_count <= max_retries:
+                    logger.warning(f"[EMAIL-CONTENT] Read timeout fetching email {email_id}. Retrying ({retry_count}/{max_retries}) after {backoff_time}s delay...")
+                    await asyncio.sleep(backoff_time)
+                    backoff_time *= 2  # Progressive backoff
+                else:
+                    logger.error(f"[EMAIL-CONTENT] Read timeout fetching email {email_id} after {max_retries} retries.", exc_info=True)
+                    raise HTTPException(status_code=500, detail=f"Internal server error fetching email content for {email_id}")
+
+            except httpx.HTTPStatusError as e:
+                error_body = e.response.text
+                logger.error(f"[EMAIL-CONTENT] Graph API HTTP error fetching email {email_id}: {e.response.status_code} - {error_body}", exc_info=True)
+                detail_message = f"Error fetching email content for ID {email_id}: Status {e.response.status_code}"
+                raise HTTPException(status_code=e.response.status_code, detail=detail_message)
+                
+            except Exception as e:
+                logger.error(f"[EMAIL-CONTENT] Unexpected error fetching email {email_id}: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Internal server error fetching email content for {email_id}")
 
     async def get_attachment_content(self, message_id: str, attachment_id: str) -> Optional[bytes]:
         """Fetches the raw content (bytes) of a specific attachment."""
@@ -552,50 +572,62 @@ class OutlookService:
 
         endpoint = f"/me/messages/{message_id}/attachments/{attachment_id}"
         logger.info(f"Fetching attachment content from endpoint: {endpoint}")
-        try:
-            response = await self.client.get(endpoint)
-            response.raise_for_status() # Raises HTTPStatusError for 4xx/5xx responses
-            
-            data = response.json()
-            
-            content_bytes_b64 = data.get('contentBytes')
-            
-            if not content_bytes_b64:
-                logger.warning(f"No 'contentBytes' found in response for attachment {attachment_id} in message {message_id}.")
-                return None
-                
-            if not isinstance(content_bytes_b64, str):
-                 logger.warning(f"'contentBytes' is not a string for attachment {attachment_id} in message {message_id}. Type: {type(content_bytes_b64)}")
-                 return None
-
-            # Decode the Base64 string
+        
+        # Add retry logic for handling timeouts
+        max_retries = 2
+        retry_count = 0
+        backoff_time = 1  # Start with 1 second
+        
+        while True:
             try:
-                decoded_bytes = base64.b64decode(content_bytes_b64)
-                logger.info(f"Successfully decoded {len(decoded_bytes)} bytes for attachment {attachment_id}.")
-                return decoded_bytes
-            except binascii.Error as decode_error:
-                logger.error(f"Failed to decode Base64 contentBytes for attachment {attachment_id}: {decode_error}")
+                response = await self.client.get(endpoint)
+                response.raise_for_status() # Raises HTTPStatusError for 4xx/5xx responses
+                
+                data = response.json()
+                
+                content_bytes_b64 = data.get('contentBytes')
+                
+                if not content_bytes_b64:
+                    logger.warning(f"No 'contentBytes' found in response for attachment {attachment_id} in message {message_id}.")
+                    return None
+                    
+                if not isinstance(content_bytes_b64, str):
+                     logger.warning(f"'contentBytes' is not a string for attachment {attachment_id} in message {message_id}. Type: {type(content_bytes_b64)}")
+                     return None
+
+                # Decode the Base64 string
+                try:
+                    decoded_bytes = base64.b64decode(content_bytes_b64)
+                    logger.info(f"Successfully decoded {len(decoded_bytes)} bytes for attachment {attachment_id}.")
+                    return decoded_bytes
+                except binascii.Error as decode_error:
+                    logger.error(f"Failed to decode Base64 contentBytes for attachment {attachment_id}: {decode_error}")
+                    return None
+                except Exception as e:
+                     logger.error(f"Unexpected error decoding Base64 for attachment {attachment_id}: {e}", exc_info=True)
+                     return None
+
+            except httpx.ReadTimeout as e:
+                # Specific handling for ReadTimeout
+                retry_count += 1
+                if retry_count <= max_retries:
+                    logger.warning(f"[ATTACHMENT-CONTENT] Read timeout fetching attachment {attachment_id} for message {message_id}. Retrying ({retry_count}/{max_retries}) after {backoff_time}s delay...")
+                    await asyncio.sleep(backoff_time)
+                    backoff_time *= 2  # Progressive backoff
+                else:
+                    logger.error(f"[ATTACHMENT-CONTENT] Read timeout fetching attachment {attachment_id} for message {message_id} after {max_retries} retries.", exc_info=True)
+                    return None  # Return None instead of raising exception to allow processing other attachments
+
+            except httpx.HTTPStatusError as e:
+                # Log specific HTTP errors
+                logger.error(f"[ATTACHMENT-CONTENT] HTTP error fetching attachment {attachment_id} for message {message_id}: Status {e.response.status_code}, Response: {e.response.text}")
+                if e.response.status_code == 404:
+                    logger.warning(f"[ATTACHMENT-CONTENT] Attachment {attachment_id} not found for message {message_id}.")
+                    return None
                 return None
             except Exception as e:
-                 logger.error(f"Unexpected error decoding Base64 for attachment {attachment_id}: {e}", exc_info=True)
-                 return None
-
-        except httpx.HTTPStatusError as e:
-            # Log specific HTTP errors
-            if e.response.status_code == status.HTTP_404_NOT_FOUND:
-                logger.warning(f"Attachment {attachment_id} not found in message {message_id}. Status: 404")
-            elif e.response.status_code == status.HTTP_401_UNAUTHORIZED or e.response.status_code == status.HTTP_403_FORBIDDEN:
-                 logger.error(f"Authorization error fetching attachment {attachment_id}. Status: {e.response.status_code}. Check token/permissions.")
-            else:
-                logger.error(f"HTTP error fetching attachment {attachment_id}: {e.response.status_code} - {e.response.text}")
-            return None # Return None on HTTP errors
-        except httpx.RequestError as e:
-             logger.error(f"Request error fetching attachment {attachment_id}: {e}")
-             return None # Return None on request errors (network, DNS, etc.)
-        except Exception as e:
-            # Catch any other unexpected errors
-            logger.error(f"Unexpected error fetching attachment {attachment_id}: {e}", exc_info=True)
-            return None # Return None on other errors
+                logger.error(f"[ATTACHMENT-CONTENT] Unexpected error fetching attachment {attachment_id} for message {message_id}: {e}", exc_info=True)
+                return None
 
     async def get_email_attachment(self, email_id: str, attachment_id: str) -> EmailAttachment:
         """Get email attachment by ID"""
@@ -657,7 +689,7 @@ class OutlookService:
             
             try:
                 if "@odata.nextLink" in request_url: 
-                     async with httpx.AsyncClient(timeout=30.0) as next_link_client:
+                     async with httpx.AsyncClient(timeout=120.0) as next_link_client:
                         response = await next_link_client.get(request_url, headers=self.headers)
                 else:
                     response = await self.client.get(request_url, params=params)
@@ -856,7 +888,7 @@ class OutlookService:
         """Get changes using a delta link."""
         try:
             # The delta link already contains all necessary parameters
-            async with httpx.AsyncClient(timeout=30.0) as temp_client:
+            async with httpx.AsyncClient(timeout=settings.MS_GRAPH_TIMEOUT_SECONDS) as temp_client:
                 response = await temp_client.get(
                     delta_link,
                     headers=self.headers
