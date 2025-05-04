@@ -529,12 +529,35 @@ async def save_filtered_emails_to_knowledge_base(
     # Dispatch the Celery task
     try:
         # Convert filter model to dict for Celery serialization
-        filter_dict = filter_input.model_dump(mode='json')
-        
+        filter_dict = filter_input.model_dump(mode='json') # Keep this for logging/job details
+
+        logger.info(f"[Op:{operation_id}] Received filter: {filter_dict}") # Log the received filter
+
+        # Extract required arguments for the task
+        user_id_for_task = owner_email # Or maybe use current_user.id if that's intended
+        user_email_for_task = owner_email
+        folder_id_for_task = filter_input.folder_id
+        # Ensure from_date is a datetime object or None
+        from_date_for_task = None
+        if filter_input.start_date:
+            try:
+                from_date_for_task = datetime.fromisoformat(filter_input.start_date)
+            except ValueError:
+                logger.error(f"[Op:{operation_id}] Invalid start_date format: {filter_input.start_date}. Cannot parse.")
+                # Optionally raise an error or proceed without a start date
+                # raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD.")
+                pass # Or handle as needed
+
         logger.info(f"[Op:{operation_id}] Dispatching Celery task 'process_user_emails' for user {owner_email}.")
-        task = process_user_emails.delay(user_id=owner_email, filter_criteria_dict=filter_dict)
+        # Call the task with individual arguments
+        task = process_user_emails.delay(
+            user_id=user_id_for_task,
+            user_email=user_email_for_task,
+            folder_id=folder_id_for_task,
+            from_date=from_date_for_task
+        )
         logger.info(f"[Op:{operation_id}] Task dispatched with ID: {task.id}")
-        
+
         # +++ Store task ID on user record +++
         try:
             # Re-fetch the DB user to update them using the injected session 'db'
