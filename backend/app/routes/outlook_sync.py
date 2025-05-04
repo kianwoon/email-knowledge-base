@@ -43,6 +43,12 @@ class SyncFolderRequest(BaseModel):
     startDate: Optional[str] = None
 
 
+class LastSyncInfo(BaseModel):
+    last_sync: Optional[datetime] = None
+    items_processed: Optional[int] = None
+    folder: Optional[str] = None
+
+
 # Global storage for active sync tasks (in-memory)
 # In a production environment, this should be in a database or Redis
 active_sync_tasks: Dict[str, Dict[str, Any]] = {}
@@ -327,4 +333,46 @@ async def stop_sync(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to stop sync: {str(e)}"
+        )
+
+
+@router.get("/last-sync", response_model=LastSyncInfo)
+async def get_last_sync_info(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get the timestamp of the last Outlook sync from the database."""
+    try:
+        # Get the user record from the database
+        user_db = db.query(UserDB).filter(UserDB.email == current_user.email).first()
+        
+        if not user_db:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Get active folder info if available
+        folder_info = None
+        items_processed = None
+        for task_id, task_info in active_sync_tasks.items():
+            if task_info['user_email'] == current_user.email:
+                for folder_id, status in task_info['statuses'].items():
+                    if status['status'] == 'completed' and status['lastSync']:
+                        folder_info = status['folder']
+                        items_processed = status['itemsProcessed']
+                        break
+        
+        return LastSyncInfo(
+            last_sync=user_db.last_outlook_sync,
+            items_processed=items_processed,
+            folder=folder_info
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving last sync info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve last sync information"
         ) 

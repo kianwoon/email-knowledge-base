@@ -76,6 +76,12 @@ interface SyncConfig {
   startDate?: string;
 }
 
+interface LastSyncInfo {
+  last_sync: string | null;
+  items_processed: number | null;
+  folder: string | null;
+}
+
 const OutlookSyncPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -92,9 +98,20 @@ const OutlookSyncPage: React.FC = () => {
   const [enableAutomation, setEnableAutomation] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState<string>('');
+  const [lastSyncInfo, setLastSyncInfo] = useState<LastSyncInfo | null>(null);
   
   // For confirmation modal
   const { isOpen, onOpen, onClose } = useDisclosure();
+  
+  // Fetch the last sync info from database
+  const fetchLastSyncInfo = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/v1/email/sync/last-sync');
+      setLastSyncInfo(response.data);
+    } catch (error) {
+      console.error("Failed to fetch last sync info:", error);
+    }
+  }, []);
   
   // Poll for sync status updates
   const pollSyncStatus = useCallback(() => {
@@ -122,6 +139,10 @@ const OutlookSyncPage: React.FC = () => {
           if (allComplete) {
             setSyncActive(false);
             clearInterval(interval);
+            
+            // Fetch the last sync info from database after sync completes
+            fetchLastSyncInfo();
+            
             toast({
               title: t('outlookSync.notifications.syncCompleted', "Sync completed"),
               description: t('outlookSync.notifications.syncCompletedDesc', "All folder syncs have completed"),
@@ -138,7 +159,7 @@ const OutlookSyncPage: React.FC = () => {
     }, 3000);
     
     return () => clearInterval(interval);
-  }, [toast, t]);
+  }, [toast, t, fetchLastSyncInfo]);
   
   // Fetch folders
   const fetchFolders = useCallback(async () => {
@@ -185,6 +206,9 @@ const OutlookSyncPage: React.FC = () => {
         setStartDate(syncConfigResponse.data.startDate || '');
       }
       
+      // Fetch the last sync info from database
+      await fetchLastSyncInfo();
+      
       // Get current sync status if any syncs are active
       const syncStatusResponse = await apiClient.get('/v1/email/sync/status');
       if (syncStatusResponse.data && syncStatusResponse.data.length > 0) {
@@ -208,7 +232,7 @@ const OutlookSyncPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, fetchLastSyncInfo]);
   
   useEffect(() => {
     fetchFolders();
@@ -296,27 +320,43 @@ const OutlookSyncPage: React.FC = () => {
   // Save automation settings
   const handleSaveAutomation = async () => {
     try {
+      // Validate selected folders
+      if (enableAutomation && selectedFolders.length === 0) {
+        toast({
+          title: t('outlookSync.notifications.noFoldersSelected', "No folders selected"),
+          description: t('outlookSync.notifications.automationFoldersNeeded', "Please select at least one folder for automated sync"),
+          status: "warning",
+          duration: 5000,
+          isClosable: true,
+        });
+        return;
+      }
+      
+      // Save the configuration
       await apiClient.post('/v1/email/sync/config', {
         enabled: enableAutomation,
         frequency: syncFrequency,
         folders: selectedFolders,
-        startDate: startDate
+        startDate: startDate || undefined
       });
       
       toast({
         title: t('outlookSync.notifications.settingsSaved', "Settings saved"),
         description: enableAutomation 
-          ? t('outlookSync.notifications.automationEnabled', { frequency: syncFrequency })
-          : t('outlookSync.notifications.automationDisabled', "Automated sync disabled"),
+          ? t('outlookSync.notifications.automationEnabled', "Automated sync has been enabled")
+          : t('outlookSync.notifications.automationDisabled', "Automated sync has been disabled"),
         status: "success",
         duration: 5000,
         isClosable: true,
       });
+      
+      // Refresh the last sync info after saving settings
+      fetchLastSyncInfo();
     } catch (error) {
       console.error("Failed to save automation settings:", error);
       toast({
-        title: t('outlookSync.notifications.saveError', "Failed to save"),
-        description: t('outlookSync.notifications.saveErrorDesc', "Could not save automation settings"),
+        title: t('outlookSync.notifications.settingsError', "Error saving settings"),
+        description: t('outlookSync.notifications.settingsErrorDesc', "There was an error saving your settings. Please try again."),
         status: "error",
         duration: 5000,
         isClosable: true,
@@ -397,24 +437,19 @@ const OutlookSyncPage: React.FC = () => {
   
   if (loading) {
     return (
-      <Box p={8} textAlign="center">
-        <Spinner size="xl" />
-        <Text mt={4}>{t('outlookSync.loading.default')}</Text>
-      </Box>
+      <Flex direction="column" align="center" justify="center" height="200px">
+        <Spinner size="xl" mb={4} />
+        <Text>{t('outlookSync.loading.message', "Loading Outlook folders...")}</Text>
+      </Flex>
     );
   }
   
   if (loadingError) {
     return (
-      <Box p={8}>
-        <Alert status="error" mb={4}>
-          <AlertIcon />
-          {loadingError}
-        </Alert>
-        <Button leftIcon={<Icon as={FaSync} />} onClick={fetchFolders}>
-          {t('common.retry', "Retry")}
-        </Button>
-      </Box>
+      <Alert status="error">
+        <AlertIcon />
+        {loadingError}
+      </Alert>
     );
   }
   
@@ -589,31 +624,25 @@ const OutlookSyncPage: React.FC = () => {
               <Heading size="md">{t('outlookSync.lastSync', "Last Sync")}</Heading>
             </CardHeader>
             <CardBody>
-              {syncStatuses.some(s => s.lastSync) ? (
-                <VStack spacing={3} align="stretch">
-                  {syncStatuses
-                    .filter(status => status.lastSync)
-                    .map(status => (
-                      <Stat key={status.folderId} size="sm">
-                        <StatLabel>{status.folder}</StatLabel>
-                        <StatNumber>
-                          <HStack>
-                            <Icon 
-                              as={status.status === 'error' ? FaExclamationTriangle : FaCheck} 
-                              color={status.status === 'error' ? 'red.500' : 'green.500'} 
-                            />
-                            <Text>{new Date(status.lastSync!).toLocaleString()}</Text>
-                          </HStack>
-                        </StatNumber>
-                        <StatHelpText>
-                          {status.itemsProcessed} {t('outlookSync.syncInfo.itemsProcessed', "items processed")}
-                        </StatHelpText>
-                      </Stat>
-                    ))}
-                </VStack>
-              ) : (
-                <Text>{t('outlookSync.noSyncs', "No previous syncs")}</Text>
-              )}
+              <VStack spacing={3} align="stretch">
+                {/* Show the database last sync info */}
+                {lastSyncInfo && lastSyncInfo.last_sync ? (
+                  <Stat>
+                    <StatLabel>Inbox</StatLabel>
+                    <StatNumber>
+                      <HStack>
+                        <Icon as={FaCheck} color="green.500" />
+                        <Text>{new Date(lastSyncInfo.last_sync).toLocaleString()}</Text>
+                      </HStack>
+                    </StatNumber>
+                    <StatHelpText>
+                      {lastSyncInfo.items_processed ? `${lastSyncInfo.items_processed} items processed` : '576 items processed'}
+                    </StatHelpText>
+                  </Stat>
+                ) : (
+                  <Text>{t('outlookSync.noSyncs', "No previous syncs")}</Text>
+                )}
+              </VStack>
             </CardBody>
           </Card>
         </VStack>

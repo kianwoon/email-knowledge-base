@@ -53,20 +53,30 @@ def dispatch_sync_tasks():
         
         # Check if there are any users with outlook sync enabled at all
         # If no users have it enabled, exit early
-        users_with_enabled_sync = db.query(UserDB).filter(
-            UserDB.outlook_sync_config.isnot(None)
-        ).filter(
-            UserDB.outlook_sync_config.like('%"enabled": true%')
-        ).count()
+        # Using a more robust method with PostgreSQL JSON functions instead of LIKE pattern matching
+        query = """
+            SELECT COUNT(*) 
+            FROM users 
+            WHERE outlook_sync_config IS NOT NULL 
+            AND outlook_sync_config::jsonb ? 'enabled' 
+            AND outlook_sync_config::jsonb ->> 'enabled' = 'true'
+        """
+        users_with_enabled_sync = db.execute(text(query)).scalar()
         
         if users_with_enabled_sync == 0:
             logger.info("No users have Outlook sync enabled, skipping dispatch")
             return
             
-        # Get all users with outlook_sync_config
-        users_with_config = db.query(UserDB).filter(
-            UserDB.outlook_sync_config.isnot(None)
-        ).all()
+        # Get all users with outlook_sync_config that have sync enabled
+        # Using a proper JSON query instead of pattern matching
+        query = """
+            SELECT * 
+            FROM users 
+            WHERE outlook_sync_config IS NOT NULL 
+            AND outlook_sync_config::jsonb ? 'enabled' 
+            AND outlook_sync_config::jsonb ->> 'enabled' = 'true'
+        """
+        users_with_config = db.execute(text(query)).all()
         
         logger.info(f"Found {len(users_with_config)} users with Outlook sync configurations")
         
@@ -77,7 +87,7 @@ def dispatch_sync_tasks():
                 # Parse the sync configuration
                 config = json.loads(user.outlook_sync_config)
                 
-                # Skip if sync is not enabled
+                # Skip if sync is not enabled (double-check)
                 if not config.get("enabled", False):
                     logger.debug(f"Sync disabled for user {user.email}, skipping")
                     continue
@@ -170,38 +180,54 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
         
         user_email = user.email
         
-        # Update last sync time
-        user.last_outlook_sync = datetime.now(timezone.utc)
-        db.commit()
+        # Initialize the update flag to track if we actually processed any emails
+        emails_processed = False
         
         # Process each folder
         for folder_id in folders:
             try:
-                # Prepare filter criteria for the folder
-                filter_criteria = {
-                    "folder_id": folder_id
-                }
+                # Only process emails from the last sync date if available, otherwise use the start_date
+                from_date = None
+                if user.last_outlook_sync:
+                    from_date = user.last_outlook_sync
+                elif start_date:
+                    try:
+                        from_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        logger.error(f"Invalid start date format: {start_date}")
                 
-                # Add start date if provided, otherwise default to one month ago
-                if start_date:
-                    filter_criteria["start_date"] = start_date
-                else:
-                    one_month_ago = datetime.now(timezone.utc) - DEFAULT_START_PERIOD
-                    filter_criteria["start_date"] = one_month_ago.strftime("%Y-%m-%d")
+                if not from_date:
+                    # Default to one month ago if no date is specified
+                    from_date = datetime.now(timezone.utc) - timedelta(days=30)
                 
-                # Call the existing email processing task
-                logger.info(f"Dispatching email processing task for user {user_email}, folder: {folder_id}")
+                logger.info(f"Syncing emails for user {user_email}, folder {folder_id} from {from_date}")
                 
-                # Call the existing process_user_emails task with the folder filter
-                # No need to handle auth here as it will be handled by the process_user_emails task
-                process_user_emails.delay(user_email, filter_criteria)
+                # Process emails for this folder
+                processed_count = process_user_emails(
+                    user_id=str(user.id),
+                    user_email=user_email,
+                    folder_id=folder_id,
+                    from_date=from_date
+                )
                 
+                if processed_count > 0:
+                    emails_processed = True
+                    logger.info(f"Processed {processed_count} emails for user {user_email}, folder {folder_id}")
             except Exception as e:
                 logger.error(f"Error processing folder {folder_id} for user {user_email}: {str(e)}")
-                continue
+                # Continue with the next folder even if this one fails
+        
+        # Update last sync time only if we actually processed emails
+        if emails_processed:
+            # Update the last sync time to the current time
+            user.last_outlook_sync = datetime.now(timezone.utc)
+            db.commit()
+            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync}")
+        else:
+            logger.info(f"No emails processed for user {user_email}, not updating last_outlook_sync")
     
     except Exception as e:
-        logger.error(f"Error in Outlook sync for user {user_id}: {str(e)}")
+        logger.error(f"Error in Outlook sync task for user {user_id}: {str(e)}")
     finally:
         if 'db' in locals():
             db.close()

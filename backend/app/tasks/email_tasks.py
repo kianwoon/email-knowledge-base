@@ -8,6 +8,7 @@ import pandas as pd
 import pyarrow as pa
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from typing import List, Dict, Tuple, Any
+from datetime import datetime
 
 # Remove Qdrant Imports
 # from qdrant_client import QdrantClient, models
@@ -189,21 +190,39 @@ EMAIL_FACTS_PARTITION_SPEC = PartitionSpec(
 
 # Task Name reflects new location
 @celery_app.task(bind=True, base=EmailProcessingTask, name='tasks.email_tasks.process_user_emails') 
-def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria_dict: dict):
+def process_user_emails(
+    self: EmailProcessingTask, 
+    user_id: str, 
+    user_email: str, 
+    folder_id: str, 
+    from_date: datetime
+) -> int:
     """
     Celery task to fetch, process (generate tags), and store emails based on criteria.
     Uses OutlookService for fetching, OpenAI for tagging, and Milvus for storage.
+    
     Args:
-        user_id (str): The email address of the user whose emails are being processed.
-        filter_criteria_dict (dict): A dictionary representation of EmailFilter criteria.
+        user_id (str): The ID of the user whose emails are being processed.
+        user_email (str): The email address of the user.
+        folder_id (str): The ID of the folder to process.
+        from_date (datetime): Process emails from this date onward.
+        
     Returns:
-        dict: A summary dictionary indicating success or failure.
+        int: Number of emails processed
     """
     task_id = self.request.id
-    logger.info(f"Starting email processing task {task_id} for user '{user_id}' with filter: {filter_criteria_dict}")
-    self.update_state(state='STARTED', meta={'user_email': user_id, 'progress': 0, 'status': 'Initializing...'})
+    logger.info(f"Starting email processing task {task_id} for user '{user_id}' with folder: {folder_id}, from_date: {from_date}")
+    self.update_state(state='STARTED', meta={'user_email': user_email, 'progress': 0, 'status': 'Initializing...'})
+    
+    # Convert the parameters to the filter_criteria_dict format expected by the rest of the function
+    filter_criteria_dict = {
+        "folder_id": folder_id,
+        "start_date": from_date.strftime("%Y-%m-%d") if from_date else None
+    }
     
     db = None # Initialize db to None
+    processed_count = 0
+    
     try:
         # --- Parse Filter Criteria ---
         try:
@@ -211,8 +230,8 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             logger.debug(f"Task {task_id}: Parsed filter criteria: {filter_criteria.model_dump_json()}")
         except Exception as parse_error:
             logger.error(f"Task {task_id}: Failed to parse filter_criteria_dict: {parse_error}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Invalid filter criteria provided'})
-            return {'status': 'ERROR', 'message': 'Invalid filter criteria'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'Invalid filter criteria provided'})
+            return processed_count
 
         # --- Get DB Session & Milvus Client ---
         db = SessionLocal()
@@ -237,7 +256,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             logger.info(f"Task {task_id}: Iceberg REST Catalog initialized successfully.")
         except Exception as catalog_err:
             logger.error(f"Task {task_id}: Failed to initialize Iceberg REST Catalog: {catalog_err}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to connect to Iceberg catalog: {catalog_err}'})
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Failed to connect to Iceberg catalog: {catalog_err}'})
             raise Exception(f"Failed to initialize Iceberg Catalog: {catalog_err}")
 
         # --- Get R2 Client ---
@@ -247,31 +266,31 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             logger.info(f"Task {task_id}: R2 client initialized successfully.")
         except Exception as r2_err:
             logger.error(f"Task {task_id}: Failed to initialize R2 client: {r2_err}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to connect to R2: {r2_err}'})
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Failed to connect to R2: {r2_err}'})
             raise Exception(f"Failed to initialize R2 client: {r2_err}")
 
         # --- Retrieve User and Refresh Token ---
-        db_user = user_crud.get_user_full_instance(db=db, email=user_id)
+        db_user = user_crud.get_user_full_instance(db=db, email=user_email)
 
         if not db_user:
-            logger.error(f"Task {task_id}: User with email '{user_id}' not found in database.")
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'User not found'})
-            return {'status': 'ERROR', 'message': 'User not found'}
+            logger.error(f"Task {task_id}: User with email '{user_email}' not found in database.")
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'User not found'})
+            return processed_count
 
         logger.debug(f"Task {task_id}: Found user {db_user.email}.")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 5, 'status': 'User found'})
+        self.update_state(state='PROGRESS', meta={'user_email': user_email, 'progress': 5, 'status': 'User found'})
 
         encrypted_token_bytes = db_user.ms_refresh_token
         if not encrypted_token_bytes:
             logger.error(f"Task {task_id}: No encrypted refresh token found in DB for user {db_user.email}.")
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Missing refresh token data'})
-            return {'status': 'ERROR', 'message': 'Refresh token data not found'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'Missing refresh token data'})
+            return processed_count
 
         refresh_token = decrypt_token(encrypted_token_bytes)
         if not refresh_token:
             logger.error(f"Task {task_id}: Failed to decrypt refresh token for user {db_user.email}.")
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Failed to decrypt token'})
-            return {'status': 'ERROR', 'message': 'Could not decrypt session token'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'Failed to decrypt token'})
+            return processed_count
         
         logger.debug(f"Task {task_id}: Refresh token retrieved and decrypted for user {db_user.email}.")
 
@@ -285,7 +304,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             job_record = crud_ingestion_job.create_ingestion_job(db=db, job_in=job_schema, user_id=user_id)
             if not job_record:
                 raise Exception("CRUD function failed to create IngestionJob record.")
-            logger.info(f"Task {task_id}: Created IngestionJob ID {job_record.id} for user {user_id}.")
+            logger.info(f"Task {task_id}: Created IngestionJob ID {job_record.id} for user {user_email}.")
             # Immediately update status to processing and link Celery task ID
             updated_job = crud_ingestion_job.update_job_status(
                 db=db, 
@@ -300,13 +319,13 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             ingestion_job_db_id = job_record.id # Store the integer ID
         except Exception as job_create_err:
             logger.error(f"Task {task_id}: Failed to create/update initial IngestionJob record: {job_create_err}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed to initialize job tracking: {job_create_err}'})
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Failed to initialize job tracking: {job_create_err}'})
             db.rollback() # Ensure rollback if job creation failed
-            return {'status': 'ERROR', 'message': 'Failed to initialize job tracking'}
+            return processed_count
         # --- End Create IngestionJob Record ---
 
         # --- Acquire New Access Token ---
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 10, 'status': 'Acquiring access token...'})
+        self.update_state(state='PROGRESS', meta={'user_email': user_email, 'progress': 10, 'status': 'Acquiring access token...'})
         msal_instance = get_msal_app()
 
         reserved_scopes = {'openid', 'profile', 'offline_access'}
@@ -340,8 +359,8 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
         except TimeoutError: # Catch timeout specifically
             timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
             logger.error(f"Task {task_id}: Timeout ({timeout_seconds}s) occurred while acquiring access token for user {db_user.email}.")
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Token acquisition timed out'})
-            return {'status': 'ERROR', 'message': 'Token acquisition timed out'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'Token acquisition timed out'})
+            return processed_count
         except Exception as refresh_exc: # Catch any other errors during run_refresh_with_timeout
             logger.error(f"Task {task_id}: Error during token refresh execution for user {db_user.email}: {refresh_exc}", exc_info=True)
             # Attempt to extract MSAL-specific error if possible (structure might vary)
@@ -350,31 +369,31 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
                  error_desc = refresh_exc.error_response.get('error_description', str(refresh_exc))
                  logger.error(f"Task {task_id}: MSAL error during refresh: {error_desc}")
 
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Token acquisition failed: {error_desc}'})
-            return {'status': 'ERROR', 'message': f'Token acquisition failed: {error_desc}'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Token acquisition failed: {error_desc}'})
+            return processed_count
 
 
         # Check the result dictionary *after* successful execution (no timeout/exception)
         if not token_result or "error" in token_result:
             error_desc = token_result.get('error_description', 'Unknown token acquisition error') if token_result else "No result from refresh call"
             logger.error(f"Task {task_id}: Failed to acquire access token (MSAL error) for user {db_user.email}. Error: {token_result.get('error') if token_result else 'N/A'}, Desc: {error_desc}")
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Token acquisition failed (MSAL): {error_desc}'})
-            return {'status': 'ERROR', 'message': f'Token acquisition failed (MSAL): {error_desc}'}
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Token acquisition failed (MSAL): {error_desc}'})
+            return processed_count
 
         access_token = token_result.get('access_token')
         if not access_token:
              logger.error(f"Task {task_id}: Acquired token result does not contain an access token for user {db_user.email}.")
-             self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': 'Acquired token missing access_token key'})
-             return {'status': 'ERROR', 'message': 'Internal error during token acquisition'}
+             self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': 'Acquired token missing access_token key'})
+             return processed_count
 
         logger.info(f"Task {task_id}: Successfully acquired new access token for user {db_user.email}.")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 15, 'status': 'Access token acquired'})
+        self.update_state(state='PROGRESS', meta={'user_email': user_email, 'progress': 15, 'status': 'Access token acquired'})
 
         # --- Initialize Outlook Service ---
         outlook_service = OutlookService(access_token)
 
         # --- Define Target Milvus Collection Name ---
-        sanitized_email = user_id.replace('@', '_').replace('.', '_')
+        sanitized_email = user_email.replace('@', '_').replace('.', '_')
         # !!! IMPORTANT: Make sure this suffix matches the one used elsewhere (e.g., in embedder.py if it overrides default) !!!
         target_collection_name = f"{sanitized_email}_knowledge_base_bm" 
         logger.info(f"Task {task_id}: Target Milvus collection: {target_collection_name}")
@@ -397,22 +416,22 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             logger.info(f"Task {task_id}: Milvus collection check/creation successful for '{target_collection_name}'.")
         except Exception as milvus_err:
             logger.error(f"Task {task_id}: Failed during Milvus initialization or collection check: {milvus_err}", exc_info=True)
-            self.update_state(state='FAILURE', meta={'user_email': user_id, 'status': f'Failed Milvus setup: {milvus_err}'})
+            self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': f'Failed Milvus setup: {milvus_err}'})
             raise Exception(f"Failed Milvus setup: {milvus_err}") # Reraise to stop the task
 
         # --- Perform Email Processing using Knowledge Service --- 
-        logger.info(f"Task {task_id}: Calling knowledge service to process emails for user {user_id}")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 20, 'status': 'Processing emails...'})
+        logger.info(f"Task {task_id}: Calling knowledge service to process emails for user {user_email}")
+        self.update_state(state='PROGRESS', meta={'user_email': user_email, 'progress': 20, 'status': 'Processing emails...'})
 
         def update_progress(state, meta):
-            full_meta = {'user_email': user_id, **meta}
+            full_meta = {'user_email': user_email, **meta}
             self.update_state(state=state, meta=full_meta)
         
         # MODIFIED: Call service which now returns data for Iceberg (and attachment counts)
         processed_count, failed_count, att_processed, att_failed, facts_data = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,
-                owner_email=user_id,
+                owner_email=user_email,
                 filter_criteria=filter_criteria,
                 outlook_service=outlook_service,
                 update_state_func=update_progress,
@@ -423,7 +442,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
         )
 
         logger.info(f"Task {task_id}: Email processing completed. Emails: {processed_count} processed, {failed_count} failed. Attachments: {att_processed} processed, {att_failed} failed. Data points to insert: {len(facts_data)}")
-        self.update_state(state='PROGRESS', meta={'user_email': user_id, 'progress': 90, 'status': 'Saving email facts...'})
+        self.update_state(state='PROGRESS', meta={'user_email': user_email, 'progress': 90, 'status': 'Saving email facts...'})
 
         # --- Write Data to Iceberg ---
         if facts_data:
@@ -450,9 +469,9 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
 
             except Exception as iceberg_err: # Catch errors during the call to _write_to_iceberg or setup
                 logger.error(f"Task {task_id}: Failed Iceberg operation for table '{full_table_name}': {iceberg_err}", exc_info=True)
-                self.update_state(state='FAILURE', meta={'user_email': user_id, 'progress': 95, 'status': f'Failed Iceberg operation: {iceberg_err}'})
+                self.update_state(state='FAILURE', meta={'user_email': user_email, 'progress': 95, 'status': f'Failed Iceberg operation: {iceberg_err}'})
                 # Include existing counts in the return message
-                return {'status': 'ERROR', 'message': f'Failed final save step to Iceberg: {iceberg_err}', 'emails_processed': processed_count, 'emails_failed': failed_count, 'attachments_processed': att_processed, 'attachments_failed': att_failed}
+                return processed_count
         else:
             logger.warning(f"Task {task_id}: No data points were generated by the processing service, nothing to write to Iceberg.")
 
@@ -465,7 +484,7 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
         
         logger.info(f"Task {task_id}: {final_message}")
         self.update_state(state='SUCCESS', meta={
-            'user_email': user_id, 
+            'user_email': user_email, 
             'progress': 100, 
             'status': final_message, 
             'emails_processed': processed_count, 
@@ -473,61 +492,12 @@ def process_user_emails(self: EmailProcessingTask, user_id: str, filter_criteria
             'attachments_processed': att_processed,
             'attachments_failed': att_failed
             })
-        return {
-            'status': final_status, 
-            'message': final_message, 
-            'emails_processed': processed_count, 
-            'emails_failed': failed_count,
-            'attachments_processed': att_processed,
-            'attachments_failed': att_failed
-            }
+        return processed_count
 
     except Exception as e:
-        task_id_exc = getattr(self.request, 'id', 'UNKNOWN_TASK_ID')
-        user_id_exc = user_id if 'user_id' in locals() else 'UNKNOWN_USER'
-        logger.error(f"Task {task_id_exc} failed for user '{user_id_exc}': {e}", exc_info=True)
-        job_id_exc = job_record.id if 'job_record' in locals() and job_record else None
-        error_msg_exc = str(e)
-        try:
-            # Attempt to update state one last time on general failure
-            self.update_state(state='FAILURE', meta={'user_email': user_id_exc, 'status': f'Internal task error: {error_msg_exc}'})
-            # ++ Update IngestionJob status on failure ++
-            if db and job_id_exc is not None:
-                try:
-                    crud_ingestion_job.update_job_status(db=db, job_id=job_id_exc, status='failed', error_message=error_msg_exc)
-                    db.commit()
-                    logger.info(f"Task {task_id_exc}: Updated IngestionJob ID {job_id_exc} status to failed.")
-                except Exception as update_fail_err:
-                    db.rollback()
-                    logger.error(f"Task {task_id_exc}: Failed to update IngestionJob ID {job_id_exc} status to failed during exception handling: {update_fail_err}")
-            # -- End Update --
-        except Exception as state_update_error:
-            logger.error(f"Task {task_id_exc}: Failed to update state/job during exception handling: {state_update_error}")
-        # Reraise the exception to let Celery handle it (logging, retries etc.)
-        raise e # Reraise after logging and state update attempt
+        logger.error(f"Error processing emails: {str(e)}")
+        return processed_count
     finally:
-        # ++ Update IngestionJob status on completion (if successful/partial) ++
-        final_job_status = None
-        final_job_error = None
-        if 'final_status' in locals(): # Check if task reached completion logic
-            if final_status == 'SUCCESS':
-                final_job_status = 'completed'
-            elif final_status == 'PARTIAL_SUCCESS':
-                 final_job_status = 'partial_complete'
-                 final_job_error = final_message # Store the partial success message
-            
-            if db and job_record and final_job_status:
-                try:
-                    crud_ingestion_job.update_job_status(db=db, job_id=job_record.id, status=final_job_status, error_message=final_job_error)
-                    db.commit()
-                    logger.info(f"Task {task_id}: Updated IngestionJob ID {job_record.id} status to {final_job_status}.")
-                except Exception as final_update_err:
-                    db.rollback()
-                    logger.error(f"Task {task_id}: Failed to update final IngestionJob ID {job_record.id} status to {final_job_status}: {final_update_err}")
-        # -- End Update --
-
-        # Ensure DB session is closed
         if db:
             db.close()
-            logger.debug(f"Task {getattr(self.request, 'id', 'UNKNOWN')}: Database session closed.")
         # Milvus client closing might not be needed if managed elsewhere 
