@@ -239,7 +239,7 @@ const OutlookSyncPage: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to fetch folders:", error);
-      setLoadingError(t('outlookSync.loading.error'));
+      setLoadingError(t('outlookSync.loading.error', "Error loading folders. Please check the connection and try again."));
     } finally {
       setLoading(false);
     }
@@ -290,7 +290,7 @@ const OutlookSyncPage: React.FC = () => {
       
       toast({
         title: t('outlookSync.notifications.syncStarted', "Sync started"),
-        description: t('outlookSync.notifications.syncStartedDesc', { count: selectedFolders.length }),
+        description: t('outlookSync.notifications.syncStartedDesc', "Sync initiated for {{count}} folders", { count: selectedFolders.length }),
         status: "success",
         duration: 5000,
         isClosable: true,
@@ -700,7 +700,7 @@ const OutlookSyncPage: React.FC = () => {
                 {/* Show the database last sync info */}
                 {lastSyncInfo && lastSyncInfo.last_sync ? (
                   <Stat>
-                    <StatLabel>Inbox</StatLabel>
+                    <StatLabel>{t('outlookSync.lastSyncFolder', 'Inbox')}</StatLabel> {/* Placeholder for actual folder */}
                     <StatNumber>
                       <HStack>
                         <Icon as={FaCheck} color="green.500" />
@@ -708,7 +708,9 @@ const OutlookSyncPage: React.FC = () => {
                       </HStack>
                     </StatNumber>
                     <StatHelpText>
-                      {lastSyncInfo.items_processed ? `${lastSyncInfo.items_processed} items processed` : '576 items processed'}
+                      {lastSyncInfo.items_processed 
+                        ? t('outlookSync.lastSyncItemsProcessed', '{{count}} items processed', { count: lastSyncInfo.items_processed }) 
+                        : t('outlookSync.lastSyncItemsProcessedDefault', '576 items processed')} {/* Consider making default dynamic or removing */}
                     </StatHelpText>
                   </Stat>
                 ) : (

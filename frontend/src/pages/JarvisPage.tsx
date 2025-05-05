@@ -1418,7 +1418,7 @@ const JarvisPage: React.FC = () => {
                                p={4} 
                                bg={cardBgColor} 
                                shadow="sm"
-                               borderColor={borderColor}
+                               borderColor={borderColor} 
                              >
                                <Heading size="sm" mb={3} color={headingColor}>{provider.toUpperCase()} {t('jarvis.settingsContent.apiKeyTitle')}</Heading>
                                <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>

@@ -1883,7 +1883,11 @@
       "startingDatePlaceholder": "选择开始日期",
       "startingDateHelp": "只有此日期之后的电子邮件将被同步。如果未指定，默认为一个月前。",
       "saveSettings": "保存设置",
-      "stopSync": "停止同步"
+      "stopSync": "停止同步",
+      "primaryDomain": "主域名",
+      "allianceDomains": "联盟域名",
+      "addAllianceDomainPlaceholder": "输入域名并按添加",
+      "addAllianceDomainButton": "添加"
     },
     "frequency": {
       "1min": "每分钟（测试）",
@@ -1912,6 +1916,8 @@
       "syncCompleted": "同步完成",
       "syncCompletedDesc": "所有文件夹同步已完成"
     },
+    "outsiderDetectionTitle": "外部引用过滤",
+    "outsiderDetectionHelp": "配置域名以识别内部人员的电子邮件。只有来自这些域名之外发件人的引用部分才会被保存。如果主域名为空，则使用您的登录邮箱域名。",
     "errors": {
       "startSync": "启动同步失败"
     },
