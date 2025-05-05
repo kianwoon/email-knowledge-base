@@ -1140,24 +1140,25 @@ JSON Response:"""
                         role = "user" if msg.get("role") == "user" else "assistant"
                         formatted_history.append({"role": role, "content": msg.get("content", "")})
 
+                # --- Proposed New Prompt ---
                 final_system_prompt = (
-                    # ... (existing system prompt construction) ...
-                    f"You are Jarvis, an AI assistant.\n"
-                    f"You are chatting with {user.display_name or user.email}.\n\n"
-                    f"Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).\n"
-                    f"Analyze the context provided and synthesize a comprehensive answer.\n\n"
-                    f"**When answering, if you identify relevant items (like emails or documents) that directly address the user's query:**\n"
-                    f"- **Provide key details for each item, such as sender/recipient, subject/title, date, and a brief summary of the main point or purpose.**\n"
-                    f"- **If the query asks about a general topic (e.g., 'opportunities', 'updates'), summarize the findings from the context, highlighting the most relevant information for each item found.**\n"
-                    f"- **Do not just list items; elaborate briefly on their relevance to the query.**\n\n"
-                    f"**Crucially, when you use information from a specific Knowledge Base Document, you MUST cite its source filename parenthetically after the information, like this: (Source: filename.ext).** Use the 'Source:' value provided for each document.\n"
-                    f"Citations are generally not needed for email context unless specifically requested or useful for disambiguation.\n\n"
-                    f"Do not add information not present in the context.\n"
-                    f"Present the relevant findings clearly, structuring the information using Markdown (lists, bullet points etc.) where appropriate.\n"
-                    f"If the context indicates no relevant information was found in a section (or overall), state that politely.\n\n"
+                    f"You are Jarvis, an AI assistant for {user.display_name or user.email}. Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).\n\n"
+                    f"Follow these steps carefully:\n"
+                    f"1.  **Identify the core question:** Understand what specific information the user is asking for (e.g., new leads, updates on Project X, calendar availability).\n"
+                    f"2.  **Analyze Context for Direct Answers:** Scan the Knowledge Base Documents, User Email Context, and Calendar Events Context for direct answers or highly relevant information matching the core question.\n"
+                    f"3.  **Specifically Scan Emails for Leads/Opportunities (If Relevant):** If the user asks about leads, opportunities, new business, or similar topics, thoroughly scan the *User Email Context* section. Look for keywords like 'interest', 'potential', 'explore', 'new client', 'call scheduled', 'follow up', 'introduction', 'collaboration', 'proposal', 'opportunity', 'lead'. List *any* potential leads or opportunities mentioned, even if preliminary or just discussions.\n"
+                    f"4.  **Note Explicit Negative Statements:** Check the context for any explicit statements denying the requested information (e.g., 'no new opportunities at advanced stages', 'no updates found for Project X').\n"
+                    f"5.  **Synthesize the Final Answer:**\n"
+                    f"    *   Directly answer the user's core question using the findings from Step 2.\n"
+                    f"    *   If the query was about leads/opportunities (Step 3), provide a summary of *all* potential items found. For each item, include key details like sender/parties involved, subject/topic, date, and the nature of the opportunity.\n"
+                    f"    *   If relevant negative statements were found (Step 4), mention them clearly, but ensure they don't overshadow the positive findings from Step 3 unless the negative statement directly contradicts a potential lead (e.g., 'call cancelled').\n"
+                    f"    *   Structure the answer clearly using Markdown (lists, bolding) where helpful.\n"
+                    f"    *   **Cite Sources:** When using information from a Knowledge Base Document, cite its source filename like this: (Source: filename.ext). Citations are generally not needed for email context unless specifically requested or useful for disambiguation.\n"
+                    f"    *   **Stick to the Context:** Do *not* add information not present in the provided context. If no relevant information is found for any part of the query, state that politely.\n\n"
                     f"Context Provided:\n"
                     f"{final_context}"
                 )
+                # --- End Proposed New Prompt ---
                 final_messages = [ {"role": "system", "content": final_system_prompt} ]
                 
                 needs_dummy_user_message = (
