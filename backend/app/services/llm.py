@@ -80,21 +80,29 @@ client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 # --- START: DuckDB Query Helper ---
 async def query_iceberg_emails_duckdb(
     user_email: str,
-    keywords: List[str],
+    # REMOVED: keywords: List[str],
+    # REMOVED: original_message: str = "",
+    # ADDED: Specific filter parameters
+    sender_filter: Optional[str] = None,
+    subject_filter: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    search_terms: Optional[List[str]] = None, # Renamed from keywords for general search
     limit: int = 5,
-    original_message: str = "",
     user_client: AsyncOpenAI = None, # Client configured for the correct provider
     token: Optional[TokenDB] = None, # ADDED: Optional Token parameter
     provider: str = "openai" # ADDED: Provider name ('openai', 'deepseek', etc.)
 ) -> List[Dict[str, Any]]:
-    """Queries the email_facts Iceberg table using DuckDB, applying token scope (columns) if provided.""" # Updated docstring
+    """Queries the email_facts Iceberg table using DuckDB based on structured filters, applying token scope (columns) if provided.""" # Updated docstring
     results = []
-    if not keywords and not original_message:
-        logger.debug("No keywords provided and no message for date extraction, skipping DuckDB query.")
+    # REMOVED: Check for keywords/original_message
+    # ADDED: Basic check if *any* filter is provided beyond user_email
+    if not sender_filter and not subject_filter and not start_date and not end_date and not search_terms:
+        logger.warning("DuckDB Query: No specific filters (sender, subject, date, terms) provided. Returning empty results.")
         return results
     if not user_client:
         logger.error("DuckDB Query: User-specific OpenAI client (user_client) was not provided.")
-        return results 
+        return results
 
     try:
         catalog = await get_iceberg_catalog()
@@ -112,127 +120,54 @@ async def query_iceberg_emails_duckdb(
         view_name = 'email_facts_view'
         iceberg_table.scan().to_duckdb(table_name=view_name, connection=con)
 
-        # --- START: LLM-based Date Filtering Logic ---
-        date_filter_sql = ""
-        params = [user_email] # Start params list with user_email
-        start_date_utc: Optional[datetime] = None
-        end_date_utc: Optional[datetime] = None
+        # --- REMOVED: LLM-based Date Filtering Logic ---
+        # Removed the entire block that called an LLM to extract dates.
+        # --- END REMOVED ---
 
-        if original_message: # Only attempt date extraction if there's a message
-            logger.debug(f"Attempting LLM date extraction from message: '{original_message}'")
-            try:
-                # Get current time in UTC as reference for LLM
-                now_utc_iso = datetime.now(timezone.utc).isoformat()
-                
-                date_extraction_prompt = f"""Analyze the user's message to determine the intended date range for a search. The current UTC time is {now_utc_iso}.
+        # --- REVISED: Build WHERE clause based on provided filters ---
+        where_clauses = ["owner_email = ?"]
+        params = [user_email]
 
-User Message: "{original_message}"
+        # Add specific filters
+        if sender_filter:
+            where_clauses.append("sender LIKE ?")
+            params.append(f"%{sender_filter}%") # Use LIKE for partial matching
+            logger.debug(f"Applying sender filter: {sender_filter}")
+        if subject_filter:
+            where_clauses.append("subject LIKE ?")
+            params.append(f"%{subject_filter}%")
+            logger.debug(f"Applying subject filter: {subject_filter}")
+        if start_date:
+            where_clauses.append("received_datetime_utc >= ?")
+            params.append(start_date)
+            logger.debug(f"Applying start_date filter: {start_date.isoformat()}")
+        if end_date:
+            where_clauses.append("received_datetime_utc <= ?")
+            params.append(end_date)
+            logger.debug(f"Applying end_date filter: {end_date.isoformat()}")
 
-Identify the start date and end date implied by the message. Consider relative terms like "yesterday", "last week", "last 2 weeks", "last 4 weeks", "this month", "last month", specific dates, etc. 
-
-Respond ONLY with a JSON object containing two keys: "start_date_utc" and "end_date_utc". 
-The date format MUST be ISO 8601 UTC (e.g., "YYYY-MM-DDTHH:MM:SSZ"). 
-If no specific date range is implied, return null for both keys.
-
-Example for "yesterday": {{"start_date_utc": "2024-08-11T00:00:00Z", "end_date_utc": "2024-08-11T23:59:59Z"}}
-Example for "last 2 weeks" (assuming today is 2024-08-12T10:00:00Z): {{"start_date_utc": "2024-07-29T10:00:00Z", "end_date_utc": "2024-08-12T10:00:00Z"}}
-Example for "show me emails": {{"start_date_utc": null, "end_date_utc": null}}
-
-JSON Response:"""
-                
-                # Determine the model based on the provider
-                date_extraction_model = getattr(settings, 'DATE_EXTRACTION_MODEL', 'gpt-4.1-mini')
-                if provider == "deepseek":
-                    # Use a suitable Deepseek model for this task
-                    date_extraction_model = "deepseek-chat" # Or another appropriate deepseek model
-                    logger.debug(f"Using Deepseek model ({date_extraction_model}) for date extraction.")
-                else:
-                    logger.debug(f"Using OpenAI model ({date_extraction_model}) for date extraction.")
-
-                # Use the passed user_client and the determined model
-                response = await user_client.chat.completions.create(
-                    model=date_extraction_model, 
-                    messages=[
-                        {"role": "system", "content": "You are an expert date range extractor. Respond only with the specified JSON format."},
-                        {"role": "user", "content": date_extraction_prompt}
-                    ],
-                    temperature=0.0,
-                    response_format={"type": "json_object"}
-                )
-                
-                date_result_json = response.choices[0].message.content
-                logger.debug(f"LLM Date Extraction Response: {date_result_json}")
-                
-                date_result = json.loads(date_result_json)
-                raw_start = date_result.get("start_date_utc")
-                raw_end = date_result.get("end_date_utc")
-
-                # Attempt to parse the dates
-                if raw_start:
-                    try:
-                        # Ensure timezone info is handled correctly (Z means UTC)
-                        start_date_utc = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
-                        # Convert aware datetime to naive UTC for DuckDB compatibility if needed, or ensure DuckDB handles aware
-                        # start_date_utc = start_date_utc.astimezone(timezone.utc).replace(tzinfo=None) 
-                    except ValueError:
-                        logger.warning(f"LLM returned invalid start date format: {raw_start}. Ignoring date filter.")
-                if raw_end:
-                    try:
-                        end_date_utc = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
-                        # end_date_utc = end_date_utc.astimezone(timezone.utc).replace(tzinfo=None)
-                    except ValueError:
-                        logger.warning(f"LLM returned invalid end date format: {raw_end}. Ignoring date filter.")
-                        start_date_utc = None # Invalidate start date too if end date is bad
-
-                if start_date_utc and end_date_utc:
-                     # Optional: Basic validation (start <= end)
-                    if start_date_utc > end_date_utc:
-                         logger.warning(f"LLM returned start date after end date ({start_date_utc} > {end_date_utc}). Ignoring date filter.")
-                    else:
-                        date_filter_sql = " AND received_datetime_utc >= ? AND received_datetime_utc <= ?"
-                        # Insert date params *after* user_email but *before* keywords
-                        params.insert(1, start_date_utc) 
-                        params.insert(2, end_date_utc)
-                        logger.info(f"Applying LLM-extracted date filter: >= {start_date_utc.isoformat()} AND <= {end_date_utc.isoformat()} UTC")
-                else:
-                     logger.info("LLM did not extract a valid date range from the message.")
-
-            except Exception as llm_date_err:
-                logger.error(f"Error during LLM date extraction: {llm_date_err}", exc_info=True)
-                # Proceed without date filter on error
-                date_filter_sql = ""
-                params = [user_email] # Reset params
-        # --- END: LLM-based Date Filtering Logic ---
-
-        # Build WHERE clause for keywords (simple LIKE matching)
+        # Add general search terms filter (like original keyword logic)
         keyword_params = []
-        keyword_filter = ""
-        if keywords:
-            like_clauses = []
-            for kw in keywords:
-                # MODIFIED: Added quoted_raw_text to the LIKE clause
-                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ? OR quoted_raw_text LIKE ?)")
-                # Escape % and _ within the keyword itself before adding wildcards
-                safe_kw = kw.replace('%', '\\%').replace('_', '\\_')
-                # MODIFIED: Added parameter for quoted_raw_text
-                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
-            keyword_filter = " OR ".join(like_clauses)
-            params.extend(keyword_params) # Add keyword params to the list
-        else:
-            # If no keywords AND date filter exists, we need a valid filter condition
-            if date_filter_sql:
-                 # No keyword filter needed, date filter is sufficient if present
-                 pass # keyword_filter remains ""
-            else: # No keywords and no date filter - this case should be handled by initial check/original_message presence
-                 # Original logic check: if not keywords and not original_message, return [] early.
-                 # If original_message WAS present but date extraction failed, AND no keywords were given,
-                 # this path might be hit. Should we proceed with just owner_email? Let's log.
-                 logger.warning("Querying DuckDB potentially without keywords OR date filter. Review logic if this occurs unexpectedly.")
-                 # Reverting the forced return for now, let it proceed if date extraction failed but message existed.
-                 # con.close()
-                 # return []
+        keyword_filter_parts = []
+        if search_terms:
+            logger.debug(f"Applying general search terms: {search_terms}")
+            for term in search_terms:
+                # Apply LIKE across multiple relevant fields
+                like_part = f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ? OR quoted_raw_text LIKE ?)"
+                keyword_filter_parts.append(like_part)
+                # Escape % and _ within the term itself before adding wildcards
+                safe_term = term.replace('%', '\\%').replace('_', '\\_')
+                keyword_params.extend([f'%{safe_term}%'] * 6) # Parameter for each '?' in like_part
 
-        # --- START: Determine SELECT columns based on token --- 
+            if keyword_filter_parts:
+                # Combine keyword parts with OR, and wrap the whole group in parentheses
+                keyword_clause = "(" + " OR ".join(keyword_filter_parts) + ")"
+                where_clauses.append(keyword_clause)
+                params.extend(keyword_params)
+
+        # --- END REVISED WHERE clause ---
+
+        # --- START: Determine SELECT columns based on token ---
         select_columns = "*" # Default to selecting all columns
         # Define columns essential for the query logic (WHERE, ORDER BY) AND context building
         essential_query_cols = {"owner_email", "received_datetime_utc", "subject", "body_text", "sender", "sender_name", "generated_tags", "granularity", "quoted_raw_text", "message_id"}
@@ -254,37 +189,36 @@ JSON Response:"""
                 select_columns = "*"
         # --- END: Determine SELECT columns ---
 
-        # Construct the full SQL query with dynamic SELECT
-        # The limit is already handled by the 'limit' parameter passed to this function
+        # Construct the full SQL query with dynamic SELECT and WHERE clauses
         effective_limit = token.row_limit if token else limit # Prioritize token limit if available
         effective_limit = min(effective_limit, limit) # Ensure it doesn't exceed the requested limit
+
+        where_sql = " AND ".join(where_clauses)
 
         sql_query = f"""
         SELECT
             {select_columns}
         FROM {view_name}
-        WHERE owner_email = ? 
-          {date_filter_sql} 
-          { "AND (" + keyword_filter + ")" if keyword_filter else ""} 
+        WHERE {where_sql}
         ORDER BY received_datetime_utc DESC
         LIMIT ?;
         """
-        params.append(effective_limit) # Add the final limit to parameters
+        params.append(effective_limit) # Add limit as the last parameter
 
-        logger.debug(f"Executing DuckDB query for user {user_email}. SQL: {sql_query.strip()} PARAMS: {params}")
-        result_df = con.execute(sql_query, params).fetchdf()
-        logger.info(f"DuckDB query returned {len(result_df)} email facts for user {user_email}.")
+        logger.debug(f"Executing DuckDB Query: {sql_query}")
+        logger.debug(f"With Params: {params}")
 
-        results = result_df.to_dict('records')
-        con.close()
+        # Execute query and fetch results
+        arrow_table = con.execute(sql_query, params).fetch_arrow_table()
+        results = arrow_table.to_pylist()
+        logger.info(f"DuckDB query returned {len(results)} email results.")
 
     except Exception as e:
-        logger.error(f"DuckDB query failed for user {user_email}: {e}", exc_info=True)
+        logger.error(f"Error querying DuckDB for emails: {e}", exc_info=True)
+        results = [] # Ensure empty list on error
+    finally:
         if 'con' in locals() and con:
-            try:
-                con.close()
-            except Exception as close_err:
-                logger.error(f"Error closing DuckDB connection: {close_err}")
+            con.close()
 
     return results
 # --- END: DuckDB Query Helper ---
@@ -593,6 +527,94 @@ async def generate_openai_rag_response(
         # Detect intent before starting retrievals
         query_intent = await _detect_query_intent(message, user_client)
         
+        # --- START: LLM-based Parameter Extraction for Email Search ---
+        extracted_email_params = {}
+        if query_intent == 'email_focused': # Only extract if intent is relevant
+            logger.debug(f"Attempting LLM parameter extraction for email search query: '{message}'")
+            try:
+                now_utc_iso = datetime.now(timezone.utc).isoformat()
+                extraction_prompt = f"""Analyze the user's message to extract parameters for searching emails. The current UTC time is {now_utc_iso}.
+
+User Message: "{message}"
+
+Extract the following details if mentioned:
+- "sender": Specific sender email address or name.
+- "subject": Keywords or phrases from the subject line.
+- "start_date_utc": The beginning of the relevant date range (ISO 8601 UTC format: "YYYY-MM-DDTHH:MM:SSZ"). Consider relative terms like "yesterday", "last week", "last 2 weeks", "last 4 weeks", "this month", "last month".
+- "end_date_utc": The end of the relevant date range (ISO 8601 UTC format: "YYYY-MM-DDTHH:MM:SSZ").
+- "search_terms": General keywords or phrases from the message body or topic not covered by sender/subject.
+
+Respond ONLY with a JSON object containing these keys. Use null if a parameter is not mentioned or cannot be determined.
+
+Example for "emails from jeff last week about the UOB project":
+{{"sender": "jeff", "subject": "UOB project", "start_date_utc": "2024-08-05T10:00:00Z", "end_date_utc": "2024-08-12T10:00:00Z", "search_terms": ["UOB project"]}}
+
+Example for "show me onboarding emails":
+{{"sender": null, "subject": "onboarding", "start_date_utc": null, "end_date_utc": null, "search_terms": ["onboarding"]}}
+
+JSON Response:"""
+
+                extraction_model = getattr(settings, 'EMAIL_PARAM_EXTRACTION_MODEL', 'gpt-4.1-mini') # Use a potentially specific model
+                if provider == "deepseek":
+                     extraction_model = "deepseek-chat" # Or appropriate model
+                     logger.debug(f"Using Deepseek model ({extraction_model}) for email param extraction.")
+                else:
+                     logger.debug(f"Using OpenAI model ({extraction_model}) for email param extraction.")
+
+                response = await user_client.chat.completions.create(
+                    model=extraction_model,
+                    messages=[
+                        {"role": "system", "content": "You are an expert email search parameter extractor. Respond only with the specified JSON format."},
+                        {"role": "user", "content": extraction_prompt}
+                    ],
+                    temperature=0.0,
+                    response_format={"type": "json_object"}
+                )
+                param_result_json = response.choices[0].message.content
+                logger.debug(f"LLM Email Parameter Extraction Response: {param_result_json}")
+
+                raw_params = json.loads(param_result_json)
+
+                # Parse dates and clean up params
+                start_date_obj = None
+                end_date_obj = None
+                raw_start = raw_params.get("start_date_utc")
+                raw_end = raw_params.get("end_date_utc")
+
+                if raw_start:
+                    try:
+                        start_date_obj = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
+                    except ValueError: logger.warning(f"Invalid start date format from LLM: {raw_start}")
+                if raw_end:
+                    try:
+                        end_date_obj = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
+                    except ValueError: logger.warning(f"Invalid end date format from LLM: {raw_end}")
+                    # Fixed indentation below:
+                    start_date_obj = None # Invalidate start if end is bad
+
+                # Basic validation
+                if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
+                    logger.warning(f"LLM returned start date after end date. Ignoring dates.")
+                    start_date_obj = None
+                    end_date_obj = None
+
+                extracted_email_params = {
+                    "sender_filter": raw_params.get("sender"),
+                    "subject_filter": raw_params.get("subject"),
+                    "start_date": start_date_obj,
+                    "end_date": end_date_obj,
+                    "search_terms": raw_params.get("search_terms") if isinstance(raw_params.get("search_terms"), list) else None
+                }
+                # Remove None values to avoid passing them
+                extracted_email_params = {k: v for k, v in extracted_email_params.items() if v is not None}
+                logger.info(f"Extracted email search parameters: {extracted_email_params}")
+
+            except Exception as param_err:
+                logger.error(f"Error during LLM email parameter extraction: {param_err}", exc_info=True)
+                extracted_email_params = {} # Fallback to empty params on error
+
+        # --- END: LLM-based Parameter Extraction ---
+
         # --- START: Simple Intent Detection for Calendar ---
         calendar_keywords = ["meeting", "calendar", "event", "appointment", "schedule", "upcoming"]
         is_calendar_query = any(keyword in message.lower() for keyword in calendar_keywords)
@@ -774,8 +796,8 @@ Comma-separated keywords:"""
                 return results_to_return
             except Exception as e_milvus: logger.error(f"Failed during Milvus context retrieval: {e_milvus}", exc_info=True); return []
 
-        async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI):
-            logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})..." )
+        async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI, search_params: dict): # ADDED: search_params argument
+            logger.debug(f"Starting Email context retrieval with params: {search_params} (max_items={max_items}, max_chars={max_chunk_chars})...")
             def _truncate_text(text: str, max_len: int) -> str:
                 # Ensure text is a string before processing
                 text_str = str(text) if text is not None else ''
@@ -783,9 +805,15 @@ Comma-separated keywords:"""
             try:
                 initial_email_results = await query_iceberg_emails_duckdb(
                     user_email=user.email,
-                    keywords=final_keywords_for_email, 
-                    limit=max_items, 
-                    original_message=message,
+                    # REMOVED: keywords=final_keywords_for_email,
+                    # REMOVED: original_message=message,
+                    # ADDED: Pass extracted parameters
+                    sender_filter=search_params.get("sender_filter"),
+                    subject_filter=search_params.get("subject_filter"),
+                    start_date=search_params.get("start_date"),
+                    end_date=search_params.get("end_date"),
+                    search_terms=search_params.get("search_terms"),
+                    limit=max_items,
                     user_client=user_client,
                     provider=provider,
                     token=None # Assuming internal RAG doesn't need token column filtering here
@@ -858,14 +886,19 @@ Comma-separated keywords:"""
 
         if query_intent == 'email_focused':
             logger.info("Query intent is email_focused, running email and calendar retrieval first.")
-            retrieved_email_context, retrieved_calendar_context = await asyncio.gather( _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client), _get_calendar_context())
+            # MODIFIED: Pass extracted_email_params to _get_email_context
+            retrieved_email_context, retrieved_calendar_context = await asyncio.gather(
+                _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client, search_params=extracted_email_params),
+                _get_calendar_context()
+            )
             logger.info("Skipping knowledge base retrieval due to email-focused query intent.")
         else: # 'general_or_mixed' intent
             logger.info("Query intent is general_or_mixed, retrieving from knowledge base first.")
             retrieved_milvus_docs, retrieved_calendar_context = await asyncio.gather(_get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS), _get_calendar_context())
             if not retrieved_milvus_docs:
                 logger.info("Milvus KB context is empty or errored, proceeding with email retrieval.")
-                retrieved_email_context = await _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client)
+                 # MODIFIED: Pass empty params dict if intent wasn't email_focused (or extract if needed)
+                retrieved_email_context = await _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client, search_params={})
             else:
                 logger.info(f"Milvus KB retrieval successful ({len(retrieved_milvus_docs)} docs found). Skipping email retrieval for now.")
                 retrieved_email_context = "Email search skipped as knowledge base context was retrieved."
@@ -973,44 +1006,47 @@ Comma-separated keywords:"""
         else: final_context_parts.append("<User Email Context>\nNo relevant emails found or search skipped.\n</User Email Context>")
 
         # 3. Format Calendar Context
-        if retrieved_calendar_context and remaining_token_budget > 0 and "error retrieving" not in retrieved_calendar_context.lower() and "query not detected" not in retrieved_calendar_context.lower():
-            calendar_boilerplate_tokens = count_tokens("<Calendar Events Context>\n\n</Calendar Events Context>", tokenizer_model)
-            allowed_calendar_tokens = max(0, remaining_token_budget - calendar_boilerplate_tokens)
-            current_calendar_tokens = count_tokens(retrieved_calendar_context, tokenizer_model)
-            
-            if current_calendar_tokens <= allowed_calendar_tokens:
-                final_context_parts.append(f"<Calendar Events Context>\n{retrieved_calendar_context}\n</Calendar Events Context>")
-                remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
+        if retrieved_calendar_context and remaining_token_budget > 0:
+            calendar_header = "\n<Calendar Events Context>\n"
+            calendar_footer = "\n</Calendar Events Context>"
+            estimated_calendar_boilerplate = count_tokens(calendar_header + calendar_footer, tokenizer_model)
+            max_allowed_tokens_calendar = max(0, remaining_token_budget - estimated_calendar_boilerplate)
+
+            if count_tokens(retrieved_calendar_context, tokenizer_model) > max_allowed_tokens_calendar:
+                logger.warning(f"Truncating Calendar context to fit budget {max_allowed_tokens_calendar}.")
+                truncated_calendar_context = truncate_text_by_tokens(retrieved_calendar_context, tokenizer_model, max_allowed_tokens_calendar)
             else:
-                logger.warning(f"Skipping Calendar context ({current_calendar_tokens} tokens) as it exceeds remaining budget ({allowed_calendar_tokens}).")
-                final_context_parts.append("<Calendar Events Context>\nCalendar events found but omitted due to token limits.\n</Calendar Events Context>")
-        else: final_context_parts.append("<Calendar Events Context>\nNo relevant calendar events found or search skipped.\n</Calendar Events Context>")
+                truncated_calendar_context = retrieved_calendar_context
 
-        # Combine all parts into the final context string
-        final_context = "\n\n".join(final_context_parts)
-        final_context_tokens = count_tokens(final_context, tokenizer_model)
-        logger.info(f"Constructed final context for LLM. Estimated tokens: {final_context_tokens} (Budget remaining: {remaining_token_budget})")
-        # ADDED: Log the full final context before sending to LLM
-        logger.debug(f"Final Context being sent to LLM:\n{final_context}")
-        # logger.debug(f"Final Context Snippet:\n{final_context[:1000]}...") # Original snippet log
-        # --- END: Construct Final Context Directly ---
+            final_context_parts.append(calendar_header + truncated_calendar_context + calendar_footer)
+            remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
 
-        # --- 4. Final Answer Generation using NEW Final Context ---
+        final_context = "\n\n".join(final_context_parts).strip()
+        logger.debug(f"Final combined context length (chars): {len(final_context)}")
+        # --- END: Construct Final Context ---
+
+        # --- Final LLM Generation ---
         formatted_history = []
         if chat_history:
             for msg in chat_history:
                 role = "user" if msg.get("role") == "user" else "assistant"
                 formatted_history.append({"role": role, "content": msg.get("content", "")})
 
-        # MODIFIED: Updated final system prompt
+        # MODIFIED: Updated final system prompt for more detail
         final_system_prompt = f"""You are Jarvis, an AI assistant.
         You are chatting with {user.display_name or user.email}.
 
         Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).
         Analyze the context provided and synthesize a comprehensive answer.
-        
+
+        **When answering, if you identify relevant items (like emails or documents) that directly address the user's query:**
+        - **Provide key details for each item, such as sender/recipient, subject/title, date, and a brief summary of the main point or purpose.**
+        - **If the query asks about a general topic (e.g., 'opportunities', 'updates'), summarize the findings from the context, highlighting the most relevant information for each item found.**
+        - **Do not just list items; elaborate briefly on their relevance to the query.**
+
         **Crucially, when you use information from a specific Knowledge Base Document, you MUST cite its source filename parenthetically after the information, like this: (Source: filename.ext).** Use the 'Source:' value provided for each document.
-        
+        Citations are generally not needed for email context unless specifically requested or useful for disambiguation.
+
         Do not add information not present in the context.
         Present the relevant findings clearly, structuring the information using Markdown (lists, bullet points etc.) where appropriate.
         If the context indicates no relevant information was found in a section (or overall), state that politely.
