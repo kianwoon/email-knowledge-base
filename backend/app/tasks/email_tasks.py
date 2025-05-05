@@ -145,21 +145,42 @@ class EmailProcessingTask(Task):
             loaded_schema = table.schema()
             logger.info(f"Task {job_id}: Loaded table schema identifier field IDs: {loaded_schema.identifier_field_ids}")
 
-            # --- Use Upsert (Reverted from Overwrite) --- 
-            logger.info(f"Task {job_id}: Performing UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier field ID {table.schema().identifier_field_ids}.")
-            try:
-                result = table.upsert(arrow_table)
-                logger.debug(f"Task {job_id}: Upsert operation returned: {result}")
-                # Use arrow_table.num_rows as it accounts for potential deduplication
-                success_count = arrow_table.num_rows 
-                logger.info(f"Task {job_id}: Upsert operation successful for owner '{owner_email_for_batch}', batch of {success_count} records.")
-            except Exception as upsert_err:
-                logger.error(f"Task {job_id}: Error during Iceberg UPSERT operation: {upsert_err}", exc_info=True)
-                 # Count failures based on input rows before potential deduplication?
-                 # Using arrow_table.num_rows might be more accurate here too
-                failure_count = arrow_table.num_rows 
-                success_count = 0
-            # --- End Upsert ---
+            # --- Use Upsert with Batching --- 
+            logger.info(f"Task {job_id}: Performing BATCHED UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier field ID {table.schema().identifier_field_ids}.")
+            
+            batch_size = getattr(settings, 'ICEBERG_WRITE_BATCH_SIZE', 500) # Default batch size
+            total_rows = arrow_table.num_rows
+            num_batches = (total_rows + batch_size - 1) // batch_size # Calculate number of batches
+            
+            logger.info(f"Task {job_id}: Total rows after deduplication: {total_rows}. Batch size: {batch_size}. Number of batches: {num_batches}")
+
+            current_success = 0
+            current_failure = 0
+
+            for i in range(num_batches):
+                start_idx = i * batch_size
+                end_idx = min((i + 1) * batch_size, total_rows)
+                batch_arrow_table = arrow_table.slice(start_idx, end_idx - start_idx)
+                batch_rows = batch_arrow_table.num_rows
+                
+                logger.info(f"Task {job_id}: Processing batch {i+1}/{num_batches} ({batch_rows} rows) for owner '{owner_email_for_batch}'.")
+                
+                try:
+                    result = table.upsert(batch_arrow_table)
+                    logger.debug(f"Task {job_id}: Batch {i+1} upsert operation returned: {result}")
+                    current_success += batch_rows
+                    logger.info(f"Task {job_id}: Batch {i+1} upsert successful. Total success so far: {current_success}")
+                except Exception as batch_upsert_err:
+                    logger.error(f"Task {job_id}: Error during Iceberg UPSERT operation for batch {i+1}: {batch_upsert_err}", exc_info=True)
+                    current_failure += batch_rows
+                    # Decide: Stop on first batch error or try all batches?
+                    # For now, log the error and continue with other batches.
+                    logger.warning(f"Task {job_id}: Batch {i+1} failed. Continuing with next batch. Total failures so far: {current_failure}")
+            
+            success_count = current_success
+            failure_count = current_failure
+            logger.info(f"Task {job_id}: Batched upsert finished. Total successful: {success_count}, Total failed: {failure_count}")
+            # --- End Upsert with Batching ---
 
         except Exception as table_error:
             logger.error(f"Task {job_id}: Iceberg table operation failed for owner '{owner_email_for_batch}' in '{table_name}': {table_error}", exc_info=True)
