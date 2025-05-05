@@ -164,8 +164,13 @@ const ChatMessageItem = memo<ChatMessageItemProps>(({ msg, components }) => {
         borderWidth="1px"
         borderColor={msg.role === 'user' ? userBubbleBorderColor : bubbleBorderColor}
         overflowWrap="break-word"
-        wordBreak="break-all"
         whiteSpace="pre-wrap"
+        sx={{
+          '& p': {
+            wordBreak: 'normal',
+            overflowWrap: 'break-word',
+          },
+        }}
       >
         <HStack align="flex-start">
           <Icon as={msg.role === 'user' ? FaUser : FaRobot} mt={1} />
@@ -1411,13 +1416,9 @@ const JarvisPage: React.FC = () => {
                                borderWidth="1px" 
                                borderRadius="lg" 
                                p={4} 
-                               // --- MODIFIED: Apply conditional background color ---
                                bg={cardBgColor} 
-                               // --- END MODIFICATION ---
                                shadow="sm"
-                               // --- REVERTED: Use default border color ---
-                               borderColor={borderColor} 
-                               // --- END REVERT ---
+                               borderColor={borderColor}
                              >
                                <Heading size="sm" mb={3} color={headingColor}>{provider.toUpperCase()} {t('jarvis.settingsContent.apiKeyTitle')}</Heading>
                                <Text fontSize="sm" mb={4} color={useColorModeValue('gray.600', 'gray.400')}>

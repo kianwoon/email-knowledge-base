@@ -161,6 +161,7 @@ async def chat_endpoint(
             )
         else:
             logger.info("Routing to Standard RAG pipeline...")
+            # Use the original function
             response_content = await generate_openai_rag_response(
                 message=message_for_rag, # Use potentially modified message
                 chat_history=chat_message.chat_history or [],
@@ -171,6 +172,12 @@ async def chat_endpoint(
             )
             
         logger.info(f"Successfully generated response for user: {current_user.email}")
+        
+        # Add safeguard check to handle None response
+        if response_content is None:
+            logger.error(f"Received None response from RAG function for user {current_user.email}")
+            response_content = "I'm sorry, but I couldn't generate a response at this time. There was an issue with the language model service. Please try again later."
+            
         return ChatResponse(reply=response_content)
 
     except HTTPException as http_exc:
