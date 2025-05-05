@@ -1993,5 +1993,12 @@
       "processSyncListError": "处理同步列表时出错",
       "noDriveSelected": "未选择文档库"
     }
+  },
+  "kbGeneration": {
+    "progressTitle": "知识库生成进度",
+    "successDetails": "邮件处理完成。邮件：{{processed}} 已处理，{{failed}} 失败。附件：{{attProcessed}} 已处理，{{attFailed}} 失败。",
+    "tooltips": {
+        "running": "知识库生成正在进行中..."
+    }
   }
 }

@@ -708,13 +708,41 @@ const FilterSetup: React.FC = () => {
         setIsKbGenerationRunning(false); // Task finished, allow button clicks again
         setActiveTaskId(null); // Clear active task ID
         
-        // Show final toast
-        const finalMessage = typeof statusResult.details === 'string' ? statusResult.details :
-                             (statusResult.details && typeof statusResult.details.message === 'string' ? statusResult.details.message :
-                             (statusResult.status === 'SUCCESS' ? t('common.taskCompleted') : t('common.taskFailed')));
+        // --- Improved Success Toast Logic --- 
+        let successDescription = t('common.taskCompleted'); // Default success message
+        if (statusResult.details && typeof statusResult.details === 'object') {
+            // Check for specific counts provided by the backend task
+            const { 
+                emails_processed,
+                emails_failed,
+                attachments_processed,
+                attachments_failed
+            } = statusResult.details;
+
+            // Check if at least one count is a number (to avoid formatting if details is just {} or unrelated object)
+            if ([emails_processed, emails_failed, attachments_processed, attachments_failed].some(count => typeof count === 'number')) {
+                 successDescription = t('kbGeneration.successDetails', 
+                    'Email processing completed. Emails: {{processed}} processed, {{failed}} failed. Attachments: {{attProcessed}} processed, {{attFailed}} failed.',
+                    {
+                        processed: emails_processed ?? 0,
+                        failed: emails_failed ?? 0,
+                        attProcessed: attachments_processed ?? 0,
+                        attFailed: attachments_failed ?? 0
+                    }
+                );
+            } else if (typeof statusResult.details.final_message === 'string') {
+                 // Fallback to using the 'final_message' if counts aren't present but message is
+                 successDescription = statusResult.details.final_message;
+            }
+        } else if (typeof statusResult.details === 'string') {
+             // Fallback if details is just a string (older format or different task)
+             successDescription = statusResult.details;
+        }
+        // --- End Improved Success Toast Logic ---
+        
         toast({
           title: statusResult.status === 'SUCCESS' ? t('common.success') : t('common.error'),
-          description: finalMessage,
+          description: successDescription, // Use the determined description
           status: statusResult.status === 'SUCCESS' ? 'success' : 'error',
           duration: 7000,
           isClosable: true,
