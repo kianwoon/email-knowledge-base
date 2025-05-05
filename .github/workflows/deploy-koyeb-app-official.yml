@@ -28,8 +28,7 @@ jobs:
         with:
           files: |
             backend/**
-            !backend/services/**
-            !backend/tasks/**
+            !backend/services/**         
             !backend/app/celery_app.py
             !backend/app/config.py
             !backend/supervisor/**
@@ -102,6 +101,7 @@ jobs:
             backend/supervisor/**
             backend/supervison/**
             backend/services/**
+            backend/app/tasks/**
             backend/tasks/**
             backend/requirements.txt
             backend/app/celery_app.py
