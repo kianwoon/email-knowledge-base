@@ -210,10 +210,12 @@ JSON Response:"""
         if keywords:
             like_clauses = []
             for kw in keywords:
-                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ?)")
+                # MODIFIED: Added quoted_raw_text to the LIKE clause
+                like_clauses.append(f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ? OR quoted_raw_text LIKE ?)")
                 # Escape % and _ within the keyword itself before adding wildcards
                 safe_kw = kw.replace('%', '\\%').replace('_', '\\_')
-                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
+                # MODIFIED: Added parameter for quoted_raw_text
+                keyword_params.extend([f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%', f'%{safe_kw}%'])
             keyword_filter = " OR ".join(like_clauses)
             params.extend(keyword_params) # Add keyword params to the list
         else:
@@ -232,8 +234,8 @@ JSON Response:"""
 
         # --- START: Determine SELECT columns based on token --- 
         select_columns = "*" # Default to selecting all columns
-        # Define columns essential for the query logic (WHERE, ORDER BY) even if not explicitly allowed
-        essential_query_cols = {"owner_email", "received_datetime_utc", "subject", "body_text", "sender", "sender_name", "generated_tags"}
+        # Define columns essential for the query logic (WHERE, ORDER BY) AND context building
+        essential_query_cols = {"owner_email", "received_datetime_utc", "subject", "body_text", "sender", "sender_name", "generated_tags", "granularity", "quoted_raw_text", "message_id"}
         
         if token and token.allow_columns: # Check if token exists and allow_columns is set
             allowed_set = set(token.allow_columns)
@@ -773,23 +775,58 @@ Comma-separated keywords:"""
             except Exception as e_milvus: logger.error(f"Failed during Milvus context retrieval: {e_milvus}", exc_info=True); return []
 
         async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI):
-            logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})...")
+            logger.debug(f"Starting Email context retrieval (max_items={max_items}, max_chars={max_chunk_chars})..." )
             def _truncate_text(text: str, max_len: int) -> str:
-                if len(text) > max_len: return text[:max_len] + "... [TRUNCATED]"; return text
+                # Ensure text is a string before processing
+                text_str = str(text) if text is not None else ''
+                if len(text_str) > max_len: return text_str[:max_len] + "... [TRUNCATED]"; return text_str
             try:
-                # Pass the provider name to the query function
                 initial_email_results = await query_iceberg_emails_duckdb(
                     user_email=user.email,
                     keywords=final_keywords_for_email, 
                     limit=max_items, 
                     original_message=message,
                     user_client=user_client,
-                    provider=provider # Pass the determined provider
+                    provider=provider,
+                    token=None # Assuming internal RAG doesn't need token column filtering here
                 )
+                # ADDED: Log the raw results received from DuckDB query
+                logger.debug(f"Email Retrieval: Raw results from query_iceberg_emails_duckdb: {initial_email_results}")
+                
                 if not initial_email_results: logger.info("Email Retrieval: No initial results from DuckDB."); return "No relevant emails found."
                 logger.info(f"Email Retrieval: Initially retrieved {len(initial_email_results)} emails from DuckDB.")
-                email_context = "\n\n---\n\n".join([f"Email ID: {email.get('message_id')}\nReceived: {email.get('received_datetime_utc')}\nSender: {email.get('sender')}\nSubject: {email.get('subject')}\nTags: {email.get('generated_tags')}\nSnippet: {_truncate_text(email.get('body_snippet', ''), max_chunk_chars)}" for email in initial_email_results ])
-                logger.debug(f"Email Retrieval: Final formatted context length: {len(email_context)} chars from {len(initial_email_results)} emails.")
+                
+                context_entries = []
+                for email in initial_email_results:
+                    granularity = email.get('granularity', 'full_message') # Default to full if missing
+                    text_content = ""
+                    if granularity == 'full_message':
+                        text_content = email.get('body_text')
+                        entry_type = "Email Reply/Body"
+                    elif granularity == 'quoted_message':
+                        text_content = email.get('quoted_raw_text')
+                        entry_type = "Quoted Section"
+                    else:
+                        text_content = email.get('body_text') or email.get('quoted_raw_text') # Fallback
+                        entry_type = "Email (Unknown Granularity)"
+                    
+                    # Construct entry, ensuring text_content is truncated
+                    entry = (
+                        f"Email ID: {email.get('message_id')}\n"
+                        f"Type: {entry_type}\n"
+                        f"Received: {email.get('received_datetime_utc')}\n"
+                        f"Sender: {email.get('sender')}\n"
+                        f"Subject: {email.get('subject')}\n"
+                        f"Tags: {email.get('generated_tags')}\n"
+                        # Ensure content is a string before logging/truncating
+                        f"Content: {_truncate_text(str(text_content) if text_content else '', max_chunk_chars)}"
+                    )
+                    context_entries.append(entry)
+                    
+                email_context = "\n\n---\n\n".join(context_entries)
+                # ADDED: Log the final formatted email context string
+                logger.debug(f"Email Retrieval: Final formatted context string:\n{email_context}")
+                logger.debug(f"Email Retrieval: Final formatted context length: {len(email_context)} chars from {len(initial_email_results)} rows.")
                 return email_context
             except Exception as e_email: logger.error(f"Failed to retrieve Email context: {e_email}", exc_info=True); return "Error retrieving email context."
 
@@ -953,7 +990,9 @@ Comma-separated keywords:"""
         final_context = "\n\n".join(final_context_parts)
         final_context_tokens = count_tokens(final_context, tokenizer_model)
         logger.info(f"Constructed final context for LLM. Estimated tokens: {final_context_tokens} (Budget remaining: {remaining_token_budget})")
-        logger.debug(f"Final Context Snippet:\n{final_context[:1000]}...")
+        # ADDED: Log the full final context before sending to LLM
+        logger.debug(f"Final Context being sent to LLM:\n{final_context}")
+        # logger.debug(f"Final Context Snippet:\n{final_context[:1000]}...") # Original snippet log
         # --- END: Construct Final Context Directly ---
 
         # --- 4. Final Answer Generation using NEW Final Context ---

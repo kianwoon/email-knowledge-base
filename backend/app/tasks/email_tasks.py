@@ -9,6 +9,7 @@ import pyarrow as pa
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from typing import List, Dict, Tuple, Any
 from datetime import datetime
+import json
 
 # Remove Qdrant Imports
 # from qdrant_client import QdrantClient, models
@@ -39,13 +40,15 @@ from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, TableAlreadyExistsError, NoSuchTableError # ADDED Iceberg exceptions from diff
 # ADD PyIceberg types and schema helpers
 from pyiceberg.schema import Schema # REMOVED field import
-from pyiceberg.expressions import EqualTo # ADDED this import
+from pyiceberg.expressions import EqualTo, In # ADDED In import
 from pyiceberg.types import ( 
     NestedField, # ADDED NestedField import
     BooleanType, 
     IntegerType, 
     StringType, 
     TimestampType, 
+    StructType,
+    ListType,
 ) 
 from pyiceberg.partitioning import PartitionSpec, PartitionField
 from pyiceberg.transforms import IdentityTransform
@@ -108,6 +111,8 @@ class EmailProcessingTask(Task):
             # Get or create the table
             try:
                 table = catalog.load_table(table_name)
+                # --- Log loaded table partition spec ---
+                logger.info(f"Task {job_id}: Loaded table partition spec: {table.spec()}")
             except NoSuchTableError:
                 logger.info(f"Task {job_id}: Creating new Iceberg table '{table_name}'")
                 table = catalog.create_table(
@@ -115,40 +120,46 @@ class EmailProcessingTask(Task):
                     schema=EMAIL_FACTS_SCHEMA,
                     partition_spec=EMAIL_FACTS_PARTITION_SPEC
                 )
-                logger.info(f"Task {job_id}: Created Iceberg table '{table_name}'")
+                logger.info(f"Task {job_id}: Created Iceberg table '{table_name}' with flattened schema.")
 
             # Convert list of dictionaries to Arrow Table
-            arrow_schema = schema_to_pyarrow(table.schema())
+            logger.info(f"Task {job_id}: Generating Arrow schema from EMAIL_FACTS_SCHEMA constant.")
+            arrow_schema = schema_to_pyarrow(EMAIL_FACTS_SCHEMA)
             arrow_table = pa.Table.from_pylist(facts, schema=arrow_schema)
             logger.debug(f"Task {job_id}: Converted {len(facts)} records to Arrow table for owner '{owner_email_for_batch}'.")
 
-            # --- REVERTED: Use Upsert (Merge based on identifier) --- 
-            # Check if table has identifier fields defined for true upsert
-            if table.schema().identifier_field_ids:
-                logger.info(f"Task {job_id}: Performing UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier fields {table.schema().identifier_field_ids}.")
-                # PyIceberg upsert handles merging based on the schema's identifier fields.
-                # It should implicitly handle partitioning if implemented correctly in the library/catalog.
-                try:
-                    result = table.upsert(arrow_table)
-                    logger.debug(f"Task {job_id}: Upsert operation returned: {result}")
-                    success_count = len(facts) # Assume all rows were processed if no error
-                    logger.info(f"Task {job_id}: Upsert operation successful for owner '{owner_email_for_batch}', batch of {success_count} records.")
-                except Exception as upsert_err:
-                    logger.error(f"Task {job_id}: Error during Iceberg UPSERT operation for owner '{owner_email_for_batch}' in '{table_name}': {upsert_err}", exc_info=True)
-                    failure_count = len(facts)
-                    success_count = 0
-            else:
-                # Fallback to append if no identifier is defined (should not happen with our schema)
-                logger.warning(f"Task {job_id}: No identifier fields found on table '{table_name}'. Performing append operation for owner '{owner_email_for_batch}'.")
-                try:
-                    table.append(arrow_table)
-                    success_count = len(facts)
-                    logger.info(f"Task {job_id}: Append operation successful for owner '{owner_email_for_batch}', {success_count} records.")
-                except Exception as append_err:
-                    logger.error(f"Task {job_id}: Error during Iceberg APPEND operation for owner '{owner_email_for_batch}' in '{table_name}': {append_err}", exc_info=True)
-                    failure_count = len(facts)
-                    success_count = 0
-            # --- END REVERTED SECTION --- 
+            # --- Deduplicate input data based on message_id before upsert ---
+            if arrow_table.num_rows > 0:
+                initial_rows = arrow_table.num_rows
+                df = arrow_table.to_pandas()
+                # Corrected: Use 'message_id' for deduplication, matching the table identifier
+                df.drop_duplicates(subset=['message_id'], keep='first', inplace=True) 
+                final_rows = len(df)
+                if final_rows < initial_rows:
+                    # Corrected log message
+                    logger.warning(f"Task {job_id}: Deduplicated input data for upsert based on 'message_id'. Original rows: {initial_rows}, Final rows: {final_rows}.")
+                arrow_table = pa.Table.from_pandas(df, schema=arrow_schema, preserve_index=False)
+            # --- End Deduplication ---
+
+            # --- Explicitly check the loaded table schema's identifier --- 
+            loaded_schema = table.schema()
+            logger.info(f"Task {job_id}: Loaded table schema identifier field IDs: {loaded_schema.identifier_field_ids}")
+
+            # --- Use Upsert (Reverted from Overwrite) --- 
+            logger.info(f"Task {job_id}: Performing UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier field ID {table.schema().identifier_field_ids}.")
+            try:
+                result = table.upsert(arrow_table)
+                logger.debug(f"Task {job_id}: Upsert operation returned: {result}")
+                # Use arrow_table.num_rows as it accounts for potential deduplication
+                success_count = arrow_table.num_rows 
+                logger.info(f"Task {job_id}: Upsert operation successful for owner '{owner_email_for_batch}', batch of {success_count} records.")
+            except Exception as upsert_err:
+                logger.error(f"Task {job_id}: Error during Iceberg UPSERT operation: {upsert_err}", exc_info=True)
+                 # Count failures based on input rows before potential deduplication?
+                 # Using arrow_table.num_rows might be more accurate here too
+                failure_count = arrow_table.num_rows 
+                success_count = 0
+            # --- End Upsert ---
 
         except Exception as table_error:
             logger.error(f"Task {job_id}: Iceberg table operation failed for owner '{owner_email_for_batch}' in '{table_name}': {table_error}", exc_info=True)
@@ -157,29 +168,54 @@ class EmailProcessingTask(Task):
 
         return (success_count, failure_count)
 
+# Define the SIMPLIFIED structure for quoted email details (Raw Text approach)
+# Corrected field IDs to match actual table schema
+QUOTED_DETAIL_STRUCT = StructType(
+    NestedField(field_id=27, name="quoted_raw_text", field_type=StringType(), required=False, doc="Raw text content of the quoted section."), # Changed ID from 701 to 27
+    NestedField(field_id=28, name="quoted_depth", field_type=IntegerType(), required=False, doc="Nesting level of the quote (0 = direct reply, 1 = quote of a reply, etc.).") # Changed ID from 702 to 28
+)
+
 # Define the expected schema for the email_facts table
-# Field IDs are assigned automatically starting from 1
-# UPDATED: Use NestedField instead of field
+# FLATTENED MODEL - Reflects schema after evolution script
 EMAIL_FACTS_SCHEMA = Schema(
-    NestedField(field_id=1, name="message_id", field_type=StringType(), required=True, doc="Unique message ID from the email provider."),
+    # --- Core Fields ---
+    NestedField(field_id=1, name="message_id", field_type=StringType(), required=True, doc="Unique message ID or synthetic quote ID."),
     NestedField(field_id=2, name="job_id", field_type=StringType(), required=False, doc="ID of the ingestion job."),
     NestedField(field_id=3, name="owner_email", field_type=StringType(), required=True, doc="Email address of the user who owns this data."),
+    # --- Parent Email Fields (duplicated for quotes) ---
     NestedField(field_id=4, name="sender", field_type=StringType(), required=False, doc="Sender's email address."),
-    NestedField(field_id=18, name="sender_name", field_type=StringType(), required=False, doc="Sender's display name."),
-    NestedField(field_id=5, name="recipients", field_type=StringType(), required=False, doc="JSON array of 'To' recipient emails."),
-    NestedField(field_id=6, name="cc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Cc' recipient emails."),
-    NestedField(field_id=7, name="bcc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Bcc' recipient emails."),
-    NestedField(field_id=8, name="subject", field_type=StringType(), required=False, doc="Email subject line."),
-    NestedField(field_id=9, name="body_text", field_type=StringType(), required=False, doc="Plain text body content."),
-    NestedField(field_id=10, name="received_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was received (UTC)."),
-    NestedField(field_id=11, name="sent_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was sent (UTC)."),
-    NestedField(field_id=12, name="folder", field_type=StringType(), required=False, doc="Folder ID or name where the email resided."),
-    NestedField(field_id=13, name="has_attachments", field_type=BooleanType(), required=False, doc="Whether the email has attachments."),
-    NestedField(field_id=14, name="attachment_count", field_type=IntegerType(), required=False, doc="Number of attachments."),
-    NestedField(field_id=15, name="attachment_details", field_type=StringType(), required=False, doc="JSON array containing details about each attachment."),
-    NestedField(field_id=16, name="generated_tags", field_type=StringType(), required=False, doc="JSON array of tags generated during processing."),
-    NestedField(field_id=17, name="ingested_at_utc", field_type=TimestampType(), required=False, doc="Timestamp when the record was added to Iceberg (UTC)."),
-    identifier_field_ids=[1] # Set message_id (field ID 1) as the identifier
+    NestedField(field_id=5, name="sender_name", field_type=StringType(), required=False, doc="Sender's display name."),
+    NestedField(field_id=6, name="recipients", field_type=StringType(), required=False, doc="JSON array of 'To' recipient emails."),
+    NestedField(field_id=7, name="cc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Cc' recipient emails."),
+    NestedField(field_id=8, name="bcc_recipients", field_type=StringType(), required=False, doc="JSON array of 'Bcc' recipient emails."),
+    NestedField(field_id=9, name="subject", field_type=StringType(), required=False, doc="Email subject line."),
+    # --- Row-Specific Content / Metadata (Adjusted Order) ---
+    NestedField(field_id=10, name="body_text", field_type=StringType(), required=False, doc="Plain text body content (of the parent email, null for quotes)."),
+    # --- Parent Email Fields (Continued - Adjusted Order) ---
+    NestedField(field_id=11, name="received_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was received (UTC)."),
+    NestedField(field_id=12, name="sent_datetime_utc", field_type=TimestampType(), required=False, doc="Timestamp when the email was sent (UTC)."),
+    NestedField(field_id=13, name="folder", field_type=StringType(), required=False, doc="Folder ID or name where the email resided."),
+    # --- General Metadata (Adjusted Order) ---
+    NestedField(field_id=14, name="has_attachments", field_type=BooleanType(), required=False, doc="Whether the email has attachments (applies to parent)."),
+    NestedField(field_id=15, name="attachment_count", field_type=IntegerType(), required=False, doc="Number of attachments (applies to parent)."),
+    NestedField(field_id=16, name="attachment_details", field_type=StringType(), required=False, doc="JSON array containing details about each attachment (applies to parent)."),
+    NestedField(field_id=17, name="generated_tags", field_type=StringType(), required=False, doc="JSON array of tags generated during processing (applies to parent)."),
+    NestedField(field_id=18, name="ingested_at_utc", field_type=TimestampType(), required=False, doc="Timestamp when the record was added to Iceberg (UTC)."),
+    # --- Parent Email Fields (Continued - Adjusted Order) ---
+    NestedField(field_id=19, name="conversation_id", field_type=StringType(), required=False, doc="ID that groups related emails in a thread."),
+    # --- Row-Specific Content / Metadata (Adjusted Order) ---
+    NestedField(field_id=20, name="thread_position", field_type=IntegerType(), required=False, doc="Position of parent message in thread (null for quotes)."),
+    NestedField(field_id=21, name="granularity", field_type=StringType(), required=False, doc="Type of row: 'full_message' or 'quoted_message'."),
+    NestedField(field_id=22, name="quoted_email_count", field_type=IntegerType(), required=False, doc="Total quotes in parent email (null for quotes)."),
+    NestedField(field_id=23, name="quoted_sender_domains", field_type=StringType(), required=False, doc="JSON array of sender domains in parent's quotes (null for quotes)."),
+    NestedField(field_id=24, name="is_quoted_only", field_type=BooleanType(), required=False, doc="If parent email is only quotes (null for quotes)."),
+    # --- Quote-Specific Fields (null for parent) - Use IDs from evolution script ---
+    NestedField(field_id=29, name="quoted_raw_text", field_type=StringType(), required=False, doc="Raw text content of this specific quoted section (null for parent)."), # ID 29 from evolution
+    NestedField(field_id=30, name="quoted_depth", field_type=IntegerType(), required=False, doc="Nesting level of this specific quote (null for parent)."), # ID 30 from evolution
+    # Removed row_id (field_id=481) as it's not in the target table schema
+    # --- Identifier ---
+    # Use message_id (ID 1) as indicated by UPSERT log message
+    identifier_field_ids=[1]
 )
 
 # Define the partition specification (partition by owner_email)
@@ -340,19 +376,19 @@ def process_user_emails(
                 scopes=required_scopes
             )
 
-            # --- Define an async function to run the call with timeout ---
+            # RESTORED: Inner async function and asyncio.run() for token refresh
+            # --- Define an async function to run the call with timeout --- 
             async def run_refresh_with_timeout():
                 logger.info(f"Task {task_id}: Attempting token refresh in threadpool for user {db_user.email}.")
-                # Use a timeout value from settings, defaulting if not present
                 timeout_seconds = getattr(settings, 'MS_REFRESH_TIMEOUT_SECONDS', 30)
-                result = await asyncio.wait_for(
-                    run_in_threadpool(refresh_call),
+                result = await asyncio.wait_for( # await within async func
+                    run_in_threadpool(refresh_call), 
                     timeout=timeout_seconds
                 )
                 logger.info(f"Task {task_id}: Token refresh call completed successfully for user {db_user.email}.")
                 return result
 
-            # --- Run the async function using asyncio.run() ---
+            # --- Run the async function using asyncio.run() --- 
             token_result = asyncio.run(run_refresh_with_timeout())
             # --- End wrapped call ---
 
@@ -428,6 +464,7 @@ def process_user_emails(
             self.update_state(state=state, meta=full_meta)
         
         # MODIFIED: Call service which now returns data for Iceberg (and attachment counts)
+        # RESTORED: asyncio.run() for the main processing call
         processed_count, failed_count, att_processed, att_failed, facts_data = asyncio.run(
             _process_and_store_emails(
                 operation_id=task_id,

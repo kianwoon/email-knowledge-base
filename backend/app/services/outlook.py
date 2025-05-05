@@ -396,7 +396,7 @@ class OutlookService:
         if not email_id:
             raise HTTPException(status_code=400, detail="Email ID cannot be empty")
 
-        select_fields = "id,subject,sender,toRecipients,ccRecipients,bccRecipients,receivedDateTime,sentDateTime,body,hasAttachments,importance,parentFolderId,attachments"
+        select_fields = "id,subject,sender,toRecipients,ccRecipients,bccRecipients,receivedDateTime,sentDateTime,body,hasAttachments,importance,parentFolderId,attachments,conversationId"
         expand_attachments = "attachments" # Expand attachments to get their details
         
         # Add retry logic for handling timeouts
@@ -417,8 +417,14 @@ class OutlookService:
 
                 # Log the raw attachments data received
                 raw_attachments = data.get('attachments', [])
-                logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {raw_attachments}")
-
+                # logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {raw_attachments}") # OLD LOGGING
+                # NEW: Log only metadata
+                attachments_metadata = [
+                    {k: v for k, v in att.items() if k != 'contentBytes'}
+                    for att in raw_attachments
+                ]
+                # logger.info(f"[EMAIL-CONTENT] Attachments metadata received for email {email_id}: {attachments_metadata}") # Commented out to reduce verbosity
+                
                 # --- Helper function for extracting recipients ---
                 def get_recipient_info(recipient_list):
                     if not recipient_list:
@@ -457,7 +463,8 @@ class OutlookService:
                 # --- Attachment processing ---
                 attachments_list = []
                 if data.get("hasAttachments"):
-                    logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {attachments_raw}")
+                    # logger.info(f"[EMAIL-CONTENT] Raw attachments data received for email {email_id}: {attachments_raw}") # <<< Commenting out this line
+                    pass # Add pass to avoid syntax error after commenting
                 if data.get("hasAttachments") and attachments_raw:
                     # logger.debug(f"[EMAIL-CONTENT] Processing {len(attachments_raw)} attachments found in raw data for email {email_id}.") # Commented out debug log
                     for att in attachments_raw:

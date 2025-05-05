@@ -10,6 +10,7 @@ import asyncio
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 import os
+import re # Import regex module
 
 import openai
 # Remove Qdrant imports
@@ -55,11 +56,10 @@ async def _process_and_store_emails(
     r2_client: Any = None # Added r2_client parameter
 ) -> Tuple[int, int, int, int, List[Dict[str, Any]]]: # CHANGED: Return type changed for Iceberg list
     """
-    Fetches emails, generates tags via OpenAI, extracts structured facts,
-    and prepares a list of dictionaries matching the Iceberg 'email_facts' table schema.
-    (TODO: Also needs to process attachments: downloads, uploads to R2, creates processed_files records)
+    Fetches emails, generates tags via OpenAI, extracts structured facts (flattened),
+    uploads attachments to R2, and prepares a list of dictionaries matching the 
+    flattened Iceberg 'email_facts' table schema.
     """
-    # CHANGED: Initialize list for Iceberg records from diff
     facts_for_iceberg: List[Dict[str, Any]] = [] 
     processed_email_count = 0
     failed_email_count = 0
@@ -109,7 +109,16 @@ async def _process_and_store_emails(
         for i, email_id in enumerate(all_email_ids):
             progress_percent = 40 + int(60 * (i / total_emails_found)) if total_emails_found > 0 else 99
             if update_state_func:
-                update_state_func(state='PROGRESS', meta={'progress': progress_percent, 'status': f'Processing email {i+1}/{total_emails_found}'})
+                update_meta = {
+                    'progress': progress_percent, # Keep updating percentage
+                    'status': f'Processed email {i+1}/{total_emails_found}',
+                    'processed_email_count': processed_email_count,
+                    'failed_email_count': failed_email_count,
+                    'processed_attachment_count': processed_attachment_count,
+                    'failed_attachment_count': failed_attachment_count,
+                    'total_emails_found': total_emails_found
+                }
+                update_state_func(state='PROGRESS', meta=update_meta)
 
             try:
                 logger.debug(f"[Op:{operation_id}] Fetching content for email_id: {email_id}")
@@ -144,274 +153,405 @@ async def _process_and_store_emails(
                 elif not subject: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: empty subject.")
                 elif not openai_client.api_key: logger.debug(f"[Op:{operation_id}] Skip OpenAI for email {email_id}: API key not set.")
 
-                # --- Prepare Attachment Details (for Iceberg) ---
-                attachments_payload = []
-                # Graph API uses contentBytes for attachments
+                # --- Prepare Attachment Details (for Iceberg parent row) ---
+                processed_attachments_metadata = [] # Store metadata for parent row
+                email_attachment_count = 0 # Count attachments *belonging to this specific email*
+                email_failed_attachment_count = 0 # Count failures for *this specific email*
+
                 if email_content.attachments:
-                    # logger.debug(f"[Op:{operation_id}] Starting attachment processing loop for email {email_id}. Found {len(email_content.attachments)} potential attachments.") # Commented out debug log
                     for att_index, att in enumerate(email_content.attachments):
                         # Initialize flags for success tracking within the loop
                         upload_success = False
                         db_record_success = False
                         filename = getattr(att, 'name', 'unknown_filename')
                         att_id = getattr(att, 'id', str(uuid.uuid4())) # Use uuid.uuid4() for fallback ID
-                        # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}/{len(email_content.attachments)}] Processing: ID={att_id}, Name='{filename}'") # Commented out debug log
+                        source_uri = f"email://{email_id}/attachment/{att_id}"
 
                         try:
-                            # content_bytes_b64 = getattr(att, 'contentBytes', None) # Check for contentBytes specifically -> Content fetched later
-                            
-                            # --- NEW: Check for existing ProcessedFile record FIRST ---
-                            source_uri = f"email://{email_id}/attachment/{att_id}"
+                            # --- Check for existing ProcessedFile record FIRST ---
                             existing_record = None
                             if db_session and att_id:
                                 try:
-                                    # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Checking DB for existing record with source_uri: {source_uri}") # Commented out debug log
                                     existing_record = crud_processed_file.get_processed_file_by_source_id(db=db_session, source_identifier=source_uri)
-                                    if existing_record:
-                                         # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Found existing record: DB ID {existing_record.id}, R2 Key {existing_record.r2_object_key}") # Commented out debug log
-                                         pass # Keep pass here to maintain structure
-                                    else:
-                                         # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] No existing record found in DB.") # Commented out debug log
-                                         pass # Keep pass here
                                 except Exception as db_check_err:
                                     logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Error checking DB for existing ProcessedFile for {source_uri}: {db_check_err}", exc_info=True)
-                                    # Decide if we should proceed or fail this attachment - let's proceed cautiously but log the error
                             else:
                                 logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping DB check for {att_id} due to missing DB session or attachment ID.")
 
-                            
                             if existing_record:
-                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Attachment {att_id} ('{filename}') already processed (DB ID: {existing_record.id}, R2 Key: {existing_record.r2_object_key}). Skipping re-processing.")
-                                # IMPORTANT: Count previously processed as success for metrics
-                                processed_attachment_count += 1 
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Attachment {att_id} ('{filename}') already processed (DB ID: {existing_record.id}, R2 Key: {existing_record.r2_object_key}). Using existing record.")
+                                # Add metadata from existing record for the parent email row
+                                processed_attachments_metadata.append({
+                                    "id": att_id,
+                                    "name": existing_record.original_filename,
+                                    "contentType": existing_record.content_type,
+                                    "size": existing_record.size_bytes,
+                                    "isInline": False, # Assume not inline if processed (or get from DB if stored)
+                                    "r2_key": existing_record.r2_object_key
+                                })
+                                email_attachment_count += 1 # Count as successfully processed for this email
+                                processed_attachment_count += 1 # Increment global counter
                                 continue # Skip to the next attachment
-
-                            # --- END Check ---
 
                             # --- Skip Inline/Images/Specific Extensions (No R2 Upload/DB Record) ---
                             is_inline = getattr(att, 'isInline', False)
-                            filename_lower = filename.lower()
-                            # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Details: isInline={is_inline}, filename='{filename}'") # Commented out debug log
-                            
-                            # --- Define allowed extensions --- 
-                            allowed_extensions = ['.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.pdf']
-                            # MODIFIED: Use os.path.splitext for robust extension extraction
                             attachment_extension = os.path.splitext(filename)[1].lower()
-                            # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Detected extension: '{attachment_extension}'") # Commented out debug log
-                            
-                            # --- NEW: Skip if inline OR not an allowed extension --- 
+                            allowed_extensions = ['.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.pdf']
+
                             if is_inline:
-                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping attachment: {att_id} ('{filename}'). Reason: Inline ({is_inline}).")
-                                continue # Skip to next attachment
-                            if not attachment_extension in allowed_extensions:
-                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping attachment: {att_id} ('{filename}'). Reason: Disallowed Extension ('{attachment_extension}'). Allowed: {allowed_extensions}")
-                                continue # Skip to next attachment
-                            # --- End Skip Logic ---
-                            
-                            # --- Fetch contentBytes separately --- 
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping inline attachment: {att_id} ('{filename}').")
+                                continue
+                            if attachment_extension not in allowed_extensions:
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping attachment: {att_id} ('{filename}') due to disallowed extension ('{attachment_extension}'). Allowed: {allowed_extensions}")
+                                continue
+
+                            # --- Fetch contentBytes separately only if needed ---
                             attachment_content_bytes = None
                             if r2_client and db_session:
-                                # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Attachment not skipped. Checking R2/DB client availability: R2 OK={bool(r2_client)}, DB OK={bool(db_session)}") # Commented out debug log
                                 try:
-                                    # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Fetching contentBytes for attachment {att_id} ('{filename}')...") # Commented out debug log
-                                    # Use the existing service method designed for this
                                     attachment_content_bytes = await outlook_service.get_attachment_content(
-                                        message_id=email_id, 
+                                        message_id=email_id,
                                         attachment_id=att_id
                                     )
-                                    if attachment_content_bytes:
-                                        logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Successfully fetched {len(attachment_content_bytes)} bytes for attachment {att_id}.")
-                                    else:
+                                    if not attachment_content_bytes:
                                         logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Fetched attachment {att_id} but contentBytes was missing or empty.")
-                                        # This attachment cannot be processed further
+                                        email_failed_attachment_count += 1
+                                        failed_attachment_count += 1
+                                        continue
                                 except Exception as content_fetch_err:
                                     logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Failed to fetch contentBytes for attachment {att_id}: {content_fetch_err}", exc_info=True)
-                                    # Count as failed if content fetch fails
+                                    email_failed_attachment_count += 1
                                     failed_attachment_count += 1
-                                    continue # Skip to next attachment
+                                    continue
                             else:
-                                logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping contentBytes fetch for {att_id} due to missing R2 client or DB session.")
+                                logger.warning(f"[Op:{operation_id}] [Attach {att_index+1}] Skipping contentBytes fetch and processing for {att_id} due to missing R2 client or DB session.")
+                                email_failed_attachment_count += 1
                                 failed_attachment_count += 1
-                                continue # Skip to next attachment
+                                continue
 
-                            # Proceed only if we have contentBytes AND an R2 client/DB session
-                            if attachment_content_bytes:
-                                content_type = getattr(att, 'contentType', 'application/octet-stream') # Get content type from original metadata
-                                r2_key = generate_email_attachment_r2_key(email_id, att_id, filename)
-                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Preparing to upload attachment '{filename}' as '{r2_key}' to R2 (Size: {len(attachment_content_bytes)} bytes).")
+                            # --- Upload and Create DB Record ---
+                            content_type = getattr(att, 'contentType', 'application/octet-stream')
+                            r2_key = generate_email_attachment_r2_key(email_id, att_id, filename)
+                            logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Uploading attachment '{filename}' as '{r2_key}' to R2 (Size: {len(attachment_content_bytes)} bytes).")
 
-                                # +++ ADDED LOG BEFORE UPLOAD +++
-                                # logger.debug(f"[Op:{operation_id}] [Attach {att_index+1}] Calling r2_service.upload_bytes_to_r2 for key: {r2_key}") # Commented out debug log
-                                
-                                # MODIFIED: Corrected parameter names and added bucket_name
-                                upload_successful = await r2_service.upload_bytes_to_r2(
-                                    r2_client=r2_client,
-                                    bucket_name=settings.R2_BUCKET_NAME, # Added bucket name from settings
-                                    object_key=r2_key, # Corrected parameter name
-                                    data_bytes=attachment_content_bytes, # Corrected parameter name
-                                    content_type=content_type
-                                )
-                                
-                                # Check the boolean return value from the upload function
-                                if upload_successful:
-                                    # +++ ADDED LOG AFTER UPLOAD SUCCESS +++
-                                    logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Successfully uploaded to R2 as '{r2_key}'.")
-                                    upload_success = True # Mark upload as successful
-                                else:
-                                    logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Call to r2_service.upload_bytes_to_r2 failed for key '{r2_key}'. Check previous logs for ClientError.")
-                                    # Do not proceed to create DB record if upload failed
-                                    failed_attachment_count += 1 # Increment failure count
-                                    continue # Skip to the next attachment
-                                
-                                # Create processed_file record only AFTER successful upload
+                            upload_successful = await r2_service.upload_bytes_to_r2(
+                                r2_client=r2_client,
+                                bucket_name=settings.R2_BUCKET_NAME,
+                                object_key=r2_key,
+                                data_bytes=attachment_content_bytes,
+                                content_type=content_type
+                            )
+
+                            if upload_successful:
+                                logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Successfully uploaded to R2 as '{r2_key}'.")
+                                upload_success = True
+                                # Now create the DB record
                                 try:
                                     file_metadata = {
                                         "r2_object_key": r2_key,
                                         "original_filename": filename,
                                         "source_type": "email_attachment",
-                                        "source_identifier": source_uri, # MODIFIED: Corrected key name
+                                        "source_identifier": source_uri,
                                         "content_type": content_type,
-                                        "size_bytes": getattr(att, 'size', 0),
-                                        "status": "pending_analysis" # Initial status
+                                        "size_bytes": getattr(att, 'size', len(attachment_content_bytes)), # Use actual size if available
+                                        "status": "pending_analysis"
                                     }
-                                    # MODIFIED: Use the correct function name create_processed_file_entry
                                     created_record = crud_processed_file.create_processed_file_entry(
                                         db=db_session,
-                                        # Assuming create_processed_file_entry takes the dictionary directly
-                                        # or expects a ProcessedFile object constructed from it.
-                                        # If it expects an object, we need to create it first.
-                                        # Let's assume it takes the dict for now, based on typical CRUD patterns.
-                                        file_data=ProcessedFile(**file_metadata, 
-                                                              ingestion_job_id=ingestion_job_id, 
+                                        file_data=ProcessedFile(**file_metadata,
+                                                              ingestion_job_id=ingestion_job_id,
                                                               owner_email=owner_email)
-                                        # file_info=file_metadata,
-                                        # ingestion_job_id=ingestion_job_id,
-                                        # owner_email=owner_email # Pass owner email
                                     )
                                     if created_record:
                                         logger.info(f"[Op:{operation_id}] [Attach {att_index+1}] Saved ProcessedFile {created_record.id} for attachment {att_id} ('{filename}').")
-                                        db_record_success = True # Mark DB record as successful
+                                        db_record_success = True
+                                        # Add metadata for the parent email row *after* successful upload and DB record
+                                        processed_attachments_metadata.append({
+                                            "id": att_id,
+                                            "name": filename,
+                                            "contentType": content_type,
+                                            "size": file_metadata["size_bytes"],
+                                            "isInline": is_inline, # Keep original value
+                                            "r2_key": r2_key
+                                        })
                                     else:
-                                         logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] CRUD function failed to return ProcessedFile record for attachment {att_id} ('{filename}').")
-                                
+                                        logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] CRUD function failed to return ProcessedFile record for attachment {att_id} ('{filename}').")
                                 except Exception as db_err:
                                     logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Failed to save ProcessedFile record for attachment {att_id} ('{filename}') after R2 upload: {db_err}", exc_info=True)
-                                
-                                if upload_success and db_record_success:
-                                    processed_attachment_count += 1
-                                else:
-                                    failed_attachment_count += 1
+                                    # Even if DB fails, R2 upload succeeded, but we might want to handle this (e.g., retry DB later?)
+                            else:
+                                logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Call to r2_service.upload_bytes_to_r2 failed for key '{r2_key}'.")
+
+                            # Update counters based on final success
+                            if upload_success and db_record_success:
+                                email_attachment_count += 1
+                                processed_attachment_count += 1 # Increment global counter
+                            else:
+                                email_failed_attachment_count += 1
+                                failed_attachment_count += 1 # Increment global counter
 
                         except Exception as att_error:
-                            # General catch-all for errors during the attachment loop iteration
-                            failed_attachment_count += 1
+                            email_failed_attachment_count += 1
+                            failed_attachment_count += 1 # Increment global counter
                             logger.error(f"[Op:{operation_id}] [Attach {att_index+1}] Unhandled error processing attachment {att_id} ('{filename}'): {att_error}", exc_info=True)
-                            # Attempt to save a failure record? (Optional, similar to above)
 
-                has_attachments_bool = bool(attachments_payload)
+                has_attachments_bool = bool(processed_attachments_metadata) # Determine based on successfully processed/found attachments
 
                 raw_text_content = email_content.body or ""
                 if not raw_text_content and subject:
-                    logger.warning(f"[Op:{operation_id}] Email {email_id} has empty body, using subject for raw_text.")
-                    raw_text_content = subject
-                
+                    logger.warning(f"[Op:{operation_id}] Email {email_id} has empty body, using subject.")
+                    raw_text_content = subject # Use subject if body is empty
+
                 if not raw_text_content and not subject:
                      logger.warning(f"[Op:{operation_id}] Email {email_id} has empty body and subject. Skipping.")
                      failed_email_count += 1
-                     continue
+                     continue # Skip this email if both body and subject are empty
 
-                # --- Extract and Format Data for Iceberg --- 
-                # Use helper function to safely get email address from recipient object
-                def get_email_address(recipient_obj) -> str | None:
-                    if recipient_obj and hasattr(recipient_obj, 'emailAddress') and recipient_obj.emailAddress:
-                        return getattr(recipient_obj.emailAddress, 'address', None)
-                    return None
+                # --- Analyze Email Body for Flattened Structure ---
+                quote_data_list = []
+                email_body = raw_text_content # Use the potentially subject-filled content
+                original_body_lines = []
+                current_quote_block = []
+                in_quote = False
+                quote_depth = 0 # Reset for each email
 
-                # --- Extract recipients and sender CORRECTLY ---
-                # Sender: Directly use the pre-extracted sender_email
-                sender_address = email_content.sender_email or "unknown@sender.com"
-                
-                # Recipients/CC: Directly use the pre-extracted lists of strings
-                # Ensure they are lists, default to empty list if attribute doesn't exist or is None
-                to_recipients = getattr(email_content, 'recipients', None) or []
-                cc_recipients = getattr(email_content, 'cc_recipients', None) or []
-                # BCC is not currently fetched by outlook.py, so it will remain empty
-                bcc_recipients = [] 
+                # Regex to detect common reply headers (adjust as needed)
+                reply_header_pattern = re.compile(r"^\s*_{2,}\s*Original Message\s*_{2,}\s*$|" # ----- Original Message -----
+                                                r"^\s*From:\s*.*$|"                            # From: ...
+                                                r"^\s*Sent:\s*.*$|"                            # Sent: ...
+                                                r"^\s*To:\s*.*$|"                              # To: ...
+                                                r"^\s*Cc:\s*.*$|"                              # Cc: ...
+                                                r"^\s*Subject:\s*.*$")                         # Subject: ...
 
-                # Handle Timestamps - Ensure they are timezone-aware (UTC preferably)
-                def ensure_utc(dt_obj: datetime | None) -> datetime | None:
-                    if dt_obj is None: return None
-                    # Ensure input is actually a datetime object
-                    if not isinstance(dt_obj, datetime):
-                         logger.error(f"[Op:{operation_id}] ensure_utc received non-datetime object: {type(dt_obj)}. Cannot process.")
-                         return None # Or raise an error? Returning None for now.
+                # Regex to detect quote indicators (e.g., '>', '>>')
+                quote_indicator_pattern = re.compile(r"^\s*>+\s?")
 
-                    if dt_obj.tzinfo is None:
-                        logger.warning(f"[Op:{operation_id}] Email {email_id}: Making naive datetime {dt_obj} UTC-aware.")
-                        return dt_obj.replace(tzinfo=timezone.utc)
-                    return dt_obj.astimezone(timezone.utc)
+                for line in email_body.splitlines():
+                    is_reply_header = reply_header_pattern.match(line)
+                    quote_match = quote_indicator_pattern.match(line)
+                    current_line_depth = len(quote_match.group(0).strip()) if quote_match else 0
 
-                # --- START: Parse string dates before calling ensure_utc ---
-                parsed_received_dt = None
-                received_dt_str = getattr(email_content, 'received_date', None)
-                if received_dt_str and isinstance(received_dt_str, str):
-                    try:
-                        # Parse the ISO 8601 string (potentially replacing 'Z')
-                        parsed_received_dt = datetime.fromisoformat(received_dt_str.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.error(f"[Op:{operation_id}] Failed to parse received_date string: '{received_dt_str}'")
-                    except Exception as parse_err:
-                        logger.error(f"[Op:{operation_id}] Unexpected error parsing received_date string '{received_dt_str}': {parse_err}", exc_info=True)
-                
-                # sent_date should already be a datetime object from outlook.py, but we can add a check
-                sent_dt_obj = getattr(email_content, 'sent_date', None)
-                if sent_dt_obj and not isinstance(sent_dt_obj, datetime):
-                     logger.warning(f"[Op:{operation_id}] sent_date was not a datetime object: {type(sent_dt_obj)}. Will attempt ensure_utc.")
-                     # Handle unexpected type if necessary, maybe try parsing if it's a string?
-                     # For now, we'll let ensure_utc handle it (which might return None).
+                    if is_reply_header and not in_quote:
+                        # Start of a new quote block detected by header
+                        # Finalize previous original body text block if any
+                        if original_body_lines and not raw_text_content: # Only capture the first block
+                             raw_text_content = "\n".join(original_body_lines).strip()
+                             original_body_lines = [] # Reset for safety
 
-                received_dt_utc = ensure_utc(parsed_received_dt) # Pass the parsed datetime object
-                sent_dt_utc = ensure_utc(sent_dt_obj) # Pass the datetime object directly
-                # --- END: Parse string dates ---
+                        # Finalize previous quote block if any (shouldn't happen if header starts a new block logically)
+                        if current_quote_block:
+                            quote_data_list.append({
+                                "quoted_raw_text": "\n".join(current_quote_block).strip(),
+                                "quoted_depth": quote_depth
+                            })
+                        current_quote_block = [line] # Start new block with header line
+                        in_quote = True
+                        quote_depth = 1 # Assume depth 1 for header block, could refine
+                    elif quote_match:
+                         # Line starts with '>'
+                        current_line_depth = len(quote_match.group(0).strip())
+                        if not in_quote:
+                             # Transitioning from original text to quoted text
+                             if original_body_lines and not raw_text_content: # Capture first original block
+                                 raw_text_content = "\n".join(original_body_lines).strip()
+                                 original_body_lines = []
 
-                ingested_dt_utc = datetime.now(timezone.utc)
+                             in_quote = True
+                             current_quote_block = [line]
+                             quote_depth = current_line_depth
+                        elif current_line_depth > quote_depth:
+                             # Nested quote detected within the current block
+                             # Keep appending to the same block but update max depth
+                             current_quote_block.append(line)
+                             quote_depth = current_line_depth # Update max depth for the block
+                        elif current_line_depth < quote_depth:
+                             # Depth decreased, signifies end of nested block and possibly start of new outer block
+                             # Finalize the deeper block
+                             if current_quote_block:
+                                 quote_data_list.append({
+                                    "quoted_raw_text": "\n".join(current_quote_block).strip(),
+                                    "quoted_depth": quote_depth
+                                 })
+                             # Start new block with current line
+                             current_quote_block = [line]
+                             quote_depth = current_line_depth
+                             in_quote = True # Remain in quote mode
+                        else: # current_line_depth == quote_depth
+                             # Continuation of the same quote level
+                             current_quote_block.append(line)
+                    elif in_quote:
+                         # We were in a quote block, but this line doesn't start with '>' or header
+                         # Check if it's likely continuation (not empty) or end (empty)
+                         if line.strip():
+                             # Assume continuation (handles wrapped lines)
+                             current_quote_block.append(line)
+                         else:
+                             # Empty line likely signifies end of the current quote block
+                             if current_quote_block:
+                                 quote_data_list.append({
+                                     "quoted_raw_text": "\n".join(current_quote_block).strip(),
+                                     "quoted_depth": quote_depth
+                                 })
+                             current_quote_block = []
+                             in_quote = False
+                             quote_depth = 0
+                             # Don't add the empty line itself to original_body_lines yet
+                    else:
+                         # Not in quote, not starting a quote -> must be original body
+                         # Only collect if we haven't captured the first block yet
+                         if not raw_text_content:
+                            original_body_lines.append(line)
 
-                # Prepare the record dictionary matching the assumed Iceberg schema
-                email_fact_record = {
-                    "message_id": email_id,
-                    "job_id": str(ingestion_job_id) if ingestion_job_id else operation_id, # Use Job ID if available
+                # Finalize any remaining blocks after loop
+                if current_quote_block:
+                    quote_data_list.append({
+                        "quoted_raw_text": "\n".join(current_quote_block).strip(),
+                        "quoted_depth": quote_depth
+                    })
+                # Capture remaining original body lines if no quotes were found or if it's the last block
+                if original_body_lines and not raw_text_content:
+                    raw_text_content = "\n".join(original_body_lines).strip()
+
+                # --- End Improved Quote Parsing Logic ---
+
+                # ADDED: Log number of quotes found
+                logger.debug(f"[Op:{operation_id}] Email {email_id}: Found {len(quote_data_list)} quote blocks.")
+
+                # List to hold all rows (parent + quotes) for this email
+                all_email_rows = []
+
+                # --- Prepare Parent Email Row ---
+                parent_row_id = email_id # Use real ID for parent row
+                parent_email_data = {
+                    "message_id": parent_row_id, # Real ID, used for upsert grouping
+                    "row_id": parent_row_id, # Unique ID for THIS row (parent)
+                    "job_id": str(ingestion_job_id) if ingestion_job_id else None,
                     "owner_email": owner_email,
-                    "sender": sender_address, # Use CORRECTED sender address (email)
-                    "sender_name": email_content.sender, # ADDED: Use sender display name from EmailContent
-                    # Convert lists to JSON strings for Iceberg compatibility with string columns
-                    "recipients": json.dumps(to_recipients), # Use CORRECTED recipient list
-                    "cc_recipients": json.dumps(cc_recipients), # Use CORRECTED cc_recipient list
-                    "bcc_recipients": json.dumps(bcc_recipients), # Use empty BCC list
-                    "subject": email_content.subject or "",
-                    "body_text": email_content.body or "", # Use plain text body
-                    "received_datetime_utc": received_dt_utc,
-                    "sent_datetime_utc": sent_dt_utc,
-                    "folder": filter_criteria.folder_id or "",
-                     "has_attachments": has_attachments_bool,
-                    "attachment_count": len(attachments_payload),
-                    "attachment_details": json.dumps(attachments_payload),
+                    "sender": email_content.sender_email, # Corrected: Use sender_email field
+                    "sender_name": email_content.sender, # Corrected: Use sender field (which holds the name)
+                    "recipients": json.dumps(email_content.recipients) if hasattr(email_content, 'recipients') and email_content.recipients else json.dumps([]),
+                    "cc_recipients": json.dumps(email_content.cc_recipients) if hasattr(email_content, 'cc_recipients') and email_content.cc_recipients else json.dumps([]),
+                    "bcc_recipients": json.dumps([]), # Assuming bcc is not directly available on EmailContent
+                    "subject": email_content.subject,
+                    "received_datetime_utc": ensure_utc(email_content.received_date, operation_id, email_id), # Corrected attribute name
+                    "sent_datetime_utc": ensure_utc(email_content.sent_date, operation_id, email_id), # Corrected attribute name
+                    "folder_id": filter_criteria.folder_id, # Assuming folder_id applies to parent
+                    "conversation_id": email_content.conversation_id,
+                    "has_attachments": has_attachments_bool, # Based on successfully processed/found ones
+                    "attachment_count": len(processed_attachments_metadata), # Count of successfully processed/found
+                    "attachment_details": json.dumps(processed_attachments_metadata), # Details of successfully processed/found
                     "generated_tags": json.dumps(generated_tags),
-                    "ingested_at_utc": ingested_dt_utc
+                    "ingested_at_utc": datetime.now(timezone.utc),
+                    "body_text": raw_text_content, # Only parent body text
+                    "granularity": "full_message", # ADDED: Indicate parent row
+                    "quoted_raw_text": None,
+                    "quoted_depth": 0, # Parent is depth 0
                 }
-                
-                # MODIFIED: Append Iceberg record
-                facts_for_iceberg.append(email_fact_record)
-                processed_email_count += 1
-                logger.debug(f"[Op:{operation_id}] Prepared Iceberg record for email_id: {email_id}. Sender: {sender_address}")
+                all_email_rows.append(parent_email_data)
 
-            except Exception as fetch_err: # Catch errors during individual email processing
+                # --- Prepare Quote Rows ---
+                for idx, quote_data in enumerate(quote_data_list):
+                    quote_row_id = f"{parent_row_id}_quote_{idx+1}" # Synthetic ID for quote row
+                    quote_email_data = {
+                        "message_id": quote_row_id, 
+                        "row_id": quote_row_id, # Keep this for now, though potentially redundant
+                        "job_id": str(ingestion_job_id) if ingestion_job_id else None,
+                        "owner_email": owner_email,
+                        "sender": email_content.sender_email, # Corrected: Inherit parent sender email
+                        "sender_name": email_content.sender, # Corrected: Inherit parent sender name
+                        "recipients": json.dumps([]), # Quotes likely don't have distinct recipients
+                        "cc_recipients": json.dumps([]),
+                        "bcc_recipients": json.dumps([]),
+                        "subject": email_content.subject, # Inherit parent subject
+                        "received_datetime_utc": ensure_utc(email_content.received_date, operation_id, email_id), # Corrected: Inherit parent received time
+                        "sent_datetime_utc": ensure_utc(email_content.sent_date, operation_id, email_id), # Corrected: Inherit parent sent time
+                        "folder_id": filter_criteria.folder_id, # Inherit parent folder
+                        "conversation_id": email_content.conversation_id, # Inherit parent conversation ID
+                        "has_attachments": False, # Quotes don't have attachments themselves
+                        "attachment_count": 0,
+                        "attachment_details": json.dumps([]),
+                        "generated_tags": json.dumps([]), # Tags apply to parent message usually
+                        "ingested_at_utc": datetime.now(timezone.utc),
+                        "body_text": None, # Body text belongs to parent
+                        "granularity": "quoted_message", # ADDED: Indicate quote row
+                        # New fields for flattened schema (values for quote row):
+                        "quoted_raw_text": quote_data.get("quoted_raw_text"),
+                        "quoted_depth": quote_data.get("quoted_depth", 1), # Default depth 1 if missing
+                    }
+                    all_email_rows.append(quote_email_data)
+
+                # ADDED: Log total rows generated for this email before extending
+                logger.debug(f"[Op:{operation_id}] Email {email_id}: Generated {len(all_email_rows)} total rows (parent + quotes). Extending facts_for_iceberg.")
+
+                # Add the list of dictionaries (parent + quotes) to the main list for Celery
+                facts_for_iceberg.extend(all_email_rows)
+
+                # Update progress using the callback
+                processed_email_count += 1
+                if update_state_func:
+                    # Corrected call structure to match expected signature (state, meta)
+                    # Pass detailed counts in the meta dictionary
+                    update_meta = {
+                        'progress': progress_percent,  # Keep updating overall progress percentage
+                        'status': f'Processed email {i+1}/{total_emails_found}',  # Update status message
+                        'processed_email_count': processed_email_count,
+                        'failed_email_count': failed_email_count,
+                        'processed_attachment_count': processed_attachment_count,
+                        'failed_attachment_count': failed_attachment_count,
+                        'total_emails_found': total_emails_found
+                    }
+                    update_state_func(state='PROGRESS', meta=update_meta)
+
+                # Log progress periodically
+                if processed_email_count % 10 == 0:
+                    logger.info(f"[Op:{operation_id}] Processed {processed_email_count}/{total_emails_found} emails...")
+
+            except Exception as process_err:
+                logger.error(f"[Op:{operation_id}] Failed to process email_id {email_id}: {process_err}", exc_info=True)
                 failed_email_count += 1
-                logger.error(f"[Op:{operation_id}] Failed during processing loop for email_id {email_id}: {str(fetch_err)}", exc_info=True)
-        # --- End Email Content Processing Loop ---
+                # Optionally update state for this specific email failure
 
     except Exception as outer_loop_err:
         logger.error(f"[Op:{operation_id}] Error during main processing setup/loop: {str(outer_loop_err)}", exc_info=True)
+        # Update state to reflect a more serious failure if needed
+        if update_state_func:
+            update_state_func(state='FAILURE', meta={'error': f'Outer loop error: {str(outer_loop_err)}'})
 
-    logger.info(f"[Op:{operation_id}] Email processing loop finished. Processed: {processed_email_count}, Failed: {failed_email_count}. Attachments Processed: {processed_attachment_count}, Attachments Failed: {failed_attachment_count}. Records for Iceberg: {len(facts_for_iceberg)}")
-    # MODIFIED: Return the list of fact dictionaries for Iceberg, plus attachment counts
+    logger.info(f"[Op:{operation_id}] Email processing loop finished. Emails Processed: {processed_email_count}, Emails Failed: {failed_email_count}. Attachments Found/Processed: {processed_attachment_count}, Attachments Failed: {failed_attachment_count}. Total Records for Iceberg: {len(facts_for_iceberg)}")
+    # MODIFIED: Return the list of fact dictionaries for Iceberg, plus global attachment counts
     return processed_email_count, failed_email_count, processed_attachment_count, failed_attachment_count, facts_for_iceberg
+
+# Helper function to ensure datetime is UTC
+# MODIFIED: Added context parameters for logging
+def ensure_utc(dt_obj: datetime | str | None, operation_id: str = "UNKNOWN_OP", email_id: str = "UNKNOWN_EMAIL") -> datetime | None:
+    if dt_obj is None: return None
+
+    # Handle string input (common from APIs)
+    if isinstance(dt_obj, str):
+        try:
+            # Attempt ISO 8601 parsing, common format
+            dt_obj = datetime.fromisoformat(dt_obj.replace('Z', '+00:00'))
+        except ValueError:
+             logger.error(f"[Op:{operation_id}] Email {email_id}: ensure_utc received unparseable string: {dt_obj}. Cannot process.")
+             return None
+
+    # Ensure input is now a datetime object
+    if not isinstance(dt_obj, datetime):
+         logger.error(f"[Op:{operation_id}] Email {email_id}: ensure_utc received non-datetime/non-string object: {type(dt_obj)}. Cannot process.")
+         return None
+
+    if dt_obj.tzinfo is None:
+        logger.warning(f"[Op:{operation_id}] Email {email_id}: Making naive datetime {dt_obj} UTC-aware.")
+        return dt_obj.replace(tzinfo=timezone.utc)
+    elif dt_obj.tzinfo != timezone.utc:
+        logger.debug(f"[Op:{operation_id}] Email {email_id}: Converting timezone-aware datetime {dt_obj} to UTC.")
+        return dt_obj.astimezone(timezone.utc)
+    else:
+        # Already UTC and timezone-aware
+        return dt_obj
+
+def get_email_address(recipient_obj) -> str | None:
+    """Safely extracts email address string from Outlook recipient object."""
+    if recipient_obj and hasattr(recipient_obj, 'emailAddress') and recipient_obj.emailAddress:
+        return getattr(recipient_obj.emailAddress, 'address', None)
+    return None

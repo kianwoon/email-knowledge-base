@@ -88,6 +88,7 @@ class EmailContent(BaseModel):
     """Model for full email content"""
     id: str
     internet_message_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     subject: str
     sender: str
     sender_email: Optional[str] = None

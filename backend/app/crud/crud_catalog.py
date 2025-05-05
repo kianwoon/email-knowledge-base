@@ -186,7 +186,7 @@ async def search_catalog_items(
                 query_lower = query.lower()
                 # Create a combined filter across all text columns
                 mask = pd.Series(False, index=df.index)
-                search_columns = ["subject", "body_text", "sender", "sender_name", "content_preview"]
+                search_columns = ["subject", "body_text", "sender", "sender_name", "content_preview", "quoted_raw_text"]
                 
                 for col in search_columns:
                     if col in df.columns:
