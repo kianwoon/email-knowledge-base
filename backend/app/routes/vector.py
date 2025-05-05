@@ -549,12 +549,12 @@ async def save_filtered_emails_to_knowledge_base(
                 pass # Or handle as needed
 
         logger.info(f"[Op:{operation_id}] Dispatching Celery task 'process_user_emails' for user {owner_email}.")
-        # Call the task with individual arguments
+        # Call the task with individual arguments, explicitly checking from_date
         task = process_user_emails.delay(
             user_id=user_id_for_task,
             user_email=user_email_for_task,
             folder_id=folder_id_for_task,
-            from_date=from_date_for_task
+            from_date=from_date_for_task # Keep as is, task likely handles None
         )
         logger.info(f"[Op:{operation_id}] Task dispatched with ID: {task.id}")
 
