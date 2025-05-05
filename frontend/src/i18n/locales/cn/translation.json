@@ -1062,7 +1062,12 @@
       "templateError": {
         "title": "模板错误",
         "description": "请输入模板名称"
-      }
+      },
+      "knowledgeBaseSaveSubmitted": {
+        "title": "知识库更新已启动",
+        "description": "正在处理所选邮件以更新知识库。任务 ID: {{taskId}}"
+      },
+      "noEmailsToProcess": "没有找到或选择邮件进行处理。"
     },
     "quickFilters": {
       "title": "快速筛选",
