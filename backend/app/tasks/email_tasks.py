@@ -148,7 +148,9 @@ class EmailProcessingTask(Task):
             # --- Use Upsert with Batching --- 
             logger.info(f"Task {job_id}: Performing BATCHED UPSERT into Iceberg table '{table_name}' for owner '{owner_email_for_batch}' using identifier field ID {table.schema().identifier_field_ids}.")
             
-            batch_size = getattr(settings, 'ICEBERG_WRITE_BATCH_SIZE', 500) # Default batch size
+            # Convert settings value to int
+            batch_size = int(settings.ICEBERG_WRITE_BATCH_SIZE)
+            
             total_rows = arrow_table.num_rows
             num_batches = (total_rows + batch_size - 1) // batch_size # Calculate number of batches
             
