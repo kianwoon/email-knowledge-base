@@ -1049,6 +1049,7 @@
     "showMore": "Show More",
     "showLess": "Show Less",
     "status": "Status",
+    "statusLabel": "Status:",
     "back": "Back",
     "next": "Next",
     "submit": "Submit",
@@ -2130,6 +2131,13 @@
     "toast": {
       "noMilvusResultsTitle": "No Milvus Results",
       "noMilvusResultsDesc": "Milvus query returned no results based on token permissions."
+    }
+  },
+  "kbGeneration": {
+    "successDetails": "Email processing completed. Emails: {{processed}} processed, {{failed}} failed. Attachments: {{attProcessed}} processed, {{attFailed}} failed.",
+    "successGeneric": "Task completed successfully.",
+    "tooltips": {
+        "running": "Knowledge base generation in progress..."
     }
   }
 }

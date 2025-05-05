@@ -680,6 +680,73 @@ const FilterSetup: React.FC = () => {
     }
   };
 
+  // Helper function to properly translate task status for all locales including Chinese
+  const getTranslatedTaskStatus = useCallback((status: string | null): string => {
+    if (!status) return t('common.notAvailable', { defaultValue: 'N/A' });
+    
+    // Use statusMessages namespace for translating task statuses
+    try {
+      // First try with statusMessages namespace which has direct translations
+      const translated = t(`statusMessages.${status.toLowerCase()}`, { defaultValue: status });
+      
+      // Check if translated is an object (occurs with some i18next configurations/warnings)
+      if (typeof translated === 'object') {
+        // Log warning but don't display to user
+        console.warn(`[FilterSetup] Translation returned an object for status key: statusMessages.${status.toLowerCase()}. Falling back to status string.`);
+        // Return the original status string as a safe fallback.
+        return status;
+      }
+      
+      // If translated is a string, return it.
+      return translated;
+    } catch (error) {
+      // Log error but don't display to user
+      console.warn(`[FilterSetup] Translation error for status: ${status}`, error);
+      // Return the status string directly without error message
+      return status;
+    }
+  }, [t]);
+
+  // Helper function to format task details for display
+  const formatTaskDetails = useCallback((details: any): string => {
+    if (!details) return '';
+    
+    if (typeof details === 'string') {
+      return details;
+    }
+    
+    // Try to extract useful information if it's an object
+    if (typeof details === 'object') {
+      // If there's a final_message, use that
+      if (details.final_message && typeof details.final_message === 'string') {
+        return details.final_message;
+      }
+      
+      // If we have processing stats, format them
+      const { emails_processed, emails_failed, attachments_processed, attachments_failed } = details;
+      if ([emails_processed, emails_failed, attachments_processed, attachments_failed].some(count => typeof count === 'number')) {
+        return t('kbGeneration.successDetails', 
+          {
+            processed: emails_processed ?? 0,
+            failed: emails_failed ?? 0,
+            attProcessed: attachments_processed ?? 0,
+            attFailed: attachments_failed ?? 0
+          }
+        );
+      }
+      
+      // Last resort: stringify the object
+      try {
+        return JSON.stringify(details);
+      } catch (err) {
+        console.error('[FilterSetup] Error stringifying task details:', err);
+        return t('common.error', 'Error formatting details');
+      }
+    }
+    
+    return String(details);
+  }, [t]);
+
   // --- Polling Logic (Defined inside component scope) --- 
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
@@ -708,41 +775,43 @@ const FilterSetup: React.FC = () => {
         setIsKbGenerationRunning(false); // Task finished, allow button clicks again
         setActiveTaskId(null); // Clear active task ID
         
-        // --- Improved Success Toast Logic --- 
-        let successDescription = t('common.taskCompleted'); // Default success message
-        if (statusResult.details && typeof statusResult.details === 'object') {
-            // Check for specific counts provided by the backend task
-            const { 
-                emails_processed,
-                emails_failed,
-                attachments_processed,
-                attachments_failed
-            } = statusResult.details;
-
-            // Check if at least one count is a number (to avoid formatting if details is just {} or unrelated object)
-            if ([emails_processed, emails_failed, attachments_processed, attachments_failed].some(count => typeof count === 'number')) {
-                 successDescription = t('kbGeneration.successDetails', 
-                    'Email processing completed. Emails: {{processed}} processed, {{failed}} failed. Attachments: {{attProcessed}} processed, {{attFailed}} failed.',
-                    {
-                        processed: emails_processed ?? 0,
-                        failed: emails_failed ?? 0,
-                        attProcessed: attachments_processed ?? 0,
-                        attFailed: attachments_failed ?? 0
-                    }
-                );
-            } else if (typeof statusResult.details.final_message === 'string') {
-                 // Fallback to using the 'final_message' if counts aren't present but message is
-                 successDescription = statusResult.details.final_message;
+        // --- Determine Toast Description --- 
+        let description = '';
+        if (statusResult.status === 'SUCCESS') {
+            // Check if details object has the expected counts
+            const details = statusResult.details;
+            if (typeof details === 'object' && details !== null && 
+                (['emails_processed', 'emails_failed', 'attachments_processed', 'attachments_failed']
+                .some(key => typeof details[key] === 'number'))
+            ) {
+                // Use counts from details for translation
+                description = t('kbGeneration.successDetails', {
+                    processed: details.emails_processed ?? 0,
+                    failed: details.emails_failed ?? 0,
+                    attProcessed: details.attachments_processed ?? 0,
+                    attFailed: details.attachments_failed ?? 0
+                });
+            } else {
+                // Details is a string or missing counts, use generic translated success message
+                description = t('kbGeneration.successGeneric'); // <-- Use the new generic key
+                // Optionally, log if details was unexpected string or object
+                if (typeof details === 'string') {
+                    console.warn(`[Polling] SUCCESS task ${taskId} returned details as a string: "${details}". Using generic translated message.`);
+                } else if (details && typeof details === 'object') { // Check if details is an object but not the expected one
+                    console.warn(`[Polling] SUCCESS task ${taskId} returned details in unexpected object format:`, details, ". Using generic translated message.");
+                } else if (details) { // Handle other unexpected types
+                     console.warn(`[Polling] SUCCESS task ${taskId} returned details in unexpected format (type: ${typeof details}):`, details, ". Using generic translated message.");
+                }
             }
-        } else if (typeof statusResult.details === 'string') {
-             // Fallback if details is just a string (older format or different task)
-             successDescription = statusResult.details;
+        } else { // status is FAILURE
+            // For failure, attempt to format whatever details were provided
+            description = formatTaskDetails(statusResult.details); 
         }
-        // --- End Improved Success Toast Logic ---
+        // --- End Determine Toast Description --- 
         
         toast({
           title: statusResult.status === 'SUCCESS' ? t('common.success') : t('common.error'),
-          description: successDescription, // Use the determined description
+          description: description, // Use the determined description
           status: statusResult.status === 'SUCCESS' ? 'success' : 'error',
           duration: 7000,
           isClosable: true,
@@ -763,7 +832,7 @@ const FilterSetup: React.FC = () => {
           duration: 7000,
         });
     }
-  }, [stopPolling, toast, t, taskProgress]); // Include dependencies
+  }, [stopPolling, toast, t, taskProgress, formatTaskDetails]); // Added formatTaskDetails to dependencies
 
   const startPolling = useCallback((taskId: string) => {
     stopPolling(); // Ensure no previous interval is running
@@ -810,7 +879,7 @@ const FilterSetup: React.FC = () => {
       setTaskDetails(`Task ${response.task_id} submitted. Waiting for progress...`);
       toast({
         title: t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.title'),
-        description: `${t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.description')} Task ID: ${response.task_id}`,
+        description: t('emailProcessing.notifications.knowledgeBaseSaveSubmitted.description', { taskId: response.task_id }), // Pass taskId for interpolation
         status: 'info', // Use info for submission, success comes later
         duration: 5000,
       });
@@ -1527,47 +1596,7 @@ const FilterSetup: React.FC = () => {
                    )}
                  </Box>
                  
-                 {/* Add pagination controls (Update isDisabled for Previous button) */}
-                 {previews.length > 0 && (
-                   <Flex justify="space-between" align="center" mt={4}>
-                     {/* <Select 
-                       width="120px" 
-                       size="sm" 
-                       value={itemsPerPage}
-                       onChange={(e) => handleItemsPerPageChange(e.target.value)}
-                     >
-                       {pageSizeOptions.map(size => (
-                         <option key={size} value={size}>
-                           {t('emailProcessing.results.showPerPage', { count: size })}
-                         </option>
-                       ))}
-                     </Select> */} 
-                     {/* Empty Box to push pagination to the right if Select is hidden */}
-                     <Box width="120px"></Box> 
-                     
-                     <ButtonGroup size="sm">
-                       <IconButton
-                         aria-label={t('common.previousPage')}
-                         icon={<ChevronLeftIcon />}
-                         onClick={() => handlePageChange(currentPage - 1)}
-                         // Disable Previous primarily if on page 1
-                         isDisabled={currentPage === 1} // Simplified check
-                         variant="outline"
-                       />
-                       <Button variant="outline" isDisabled>
-                         {t('emailProcessing.results.page', { currentPage: currentPage, totalPages: totalEmails === -1 ? '?' : totalPages })}
-                       </Button>
-                       <IconButton
-                         aria-label={t('common.nextPage')}
-                         icon={<ChevronRightIconSolid />}
-                         onClick={() => handlePageChange(currentPage + 1)}
-                         // Disable Next if nextLink is missing OR if on last page (when total is known)
-                         isDisabled={totalEmails === -1 ? !nextLink : currentPage >= totalPages}
-                         variant="outline"
-                       />
-                     </ButtonGroup>
-                   </Flex>
-                 )}
+                 {/* Pagination controls have been moved to the card header for better UX */}
                </CardBody>
              </Card>
           )}
@@ -1583,7 +1612,7 @@ const FilterSetup: React.FC = () => {
                   {/* Show Job ID and Status derived from state */} 
                   {analysisJobId && (
                     <Tag ml={2} colorScheme={analysisError ? "red" : (analysisData ? "green" : "blue")}>
-                      Job ID: {analysisJobId} - {analysisError ? "Error" : (analysisData ? "Complete" : "Processing")}
+                      {t('common.taskID', { defaultValue: 'Task ID:' })} {analysisJobId} - {analysisError ? getTranslatedTaskStatus('FAILURE') : (analysisData ? getTranslatedTaskStatus('SUCCESS') : getTranslatedTaskStatus('PROGRESS'))}
                     </Tag>
                   )}
                 </Heading>
@@ -1591,7 +1620,7 @@ const FilterSetup: React.FC = () => {
               <CardBody>
                 {/* Display Error */} 
                 {analysisError && (
-                  <Text color="red.500">Error: {analysisError}</Text>
+                  <Text color="red.500">{t('common.error', 'Error')}: {analysisError}</Text>
                 )}
                 {/* Display Chart if data exists and no error */} 
                 {!analysisError && analysisData && transformedChartData && (
@@ -1599,7 +1628,7 @@ const FilterSetup: React.FC = () => {
                 )}
                 {/* Display message if analysis complete but no chart data */} 
                 {!analysisError && analysisData && !transformedChartData && (
-                  <Text>Analysis complete, but no data suitable for charting.</Text>
+                  <Text>{t('emailProcessing.analysis.noData', 'Analysis complete, but no data suitable for charting.')}</Text>
                 )}
                 {/* Display loading spinner if processing (isAnalyzing is true) and no error/data yet */} 
                 {isAnalyzing && !analysisData && !analysisError && (
@@ -1623,9 +1652,9 @@ const FilterSetup: React.FC = () => {
               </CardHeader>
               <CardBody pt={2}>
                 <VStack spacing={3} align="stretch">
-                  <Text fontSize="sm"><strong>{t('common.taskID', 'Task ID:')}</strong> {activeTaskId}</Text>
+                  <Text fontSize="sm"><strong>{t('common.taskID', { defaultValue: 'Task ID:' })}</strong> {activeTaskId}</Text>
                   <Text fontSize="sm">
-                    <strong>{t('common.status', 'Status:')}</strong> 
+                    <strong>{t('common.statusLabel', { defaultValue: 'Status:' })}</strong> 
                     <Badge 
                       ml={2} 
                       colorScheme={
@@ -1634,7 +1663,7 @@ const FilterSetup: React.FC = () => {
                         taskStatus === 'PROGRESS' ? 'blue' : 'gray'
                       }
                     >
-                        {taskStatus || 'Initializing...'}
+                      {getTranslatedTaskStatus(taskStatus) || t('statusMessages.submitting', { defaultValue: 'Initializing...' })}
                     </Badge>
                   </Text>
                   {taskProgress !== null && (
@@ -1652,7 +1681,7 @@ const FilterSetup: React.FC = () => {
                   )}
                   {taskDetails && (
                       <Text fontSize="xs" color="gray.500" mt={1}>
-                        {typeof taskDetails === 'string' ? taskDetails : JSON.stringify(taskDetails)}
+                        {formatTaskDetails(taskDetails)}
                       </Text>
                   )}
                 </VStack>

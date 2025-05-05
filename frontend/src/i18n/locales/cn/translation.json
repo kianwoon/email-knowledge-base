@@ -29,6 +29,7 @@
         "error": "错误",
         "queued": "已排队"
     },
+    "statusLabel": "状态：",
     "taskCompleted": "任务成功完成。",
     "taskFailed": "任务失败。",
     "taskID": "任务ID:",
@@ -1065,7 +1066,7 @@
       },
       "knowledgeBaseSaveSubmitted": {
         "title": "知识库更新已启动",
-        "description": "正在处理所选邮件以更新知识库。任务 ID: {{taskId}}"
+        "description": "正在处理所选邮件以更新知识库。任务ID： {{taskId}}"
       },
       "noEmailsToProcess": "没有找到或选择邮件进行处理。"
     },
@@ -1786,7 +1787,7 @@
     "syncListEmptyDesc": "请先添加要同步的项目",
     "syncAlreadyInProgress": "同步操作正在进行中",
     "syncProcessStartedTitle": "同步处理已启动",
-    "syncProcessStartedDesc": "正在处理同步列表项目。任务 ID: {{taskId}}",
+    "syncProcessStartedDesc": "正在处理同步列表项目。任务 ID:",
     "tabs": {
       "browseSites": "浏览站点",
       "quickAccess": "快速访问",
@@ -2001,7 +2002,8 @@
   },
   "kbGeneration": {
     "progressTitle": "知识库生成进度",
-    "successDetails": "邮件处理完成。邮件：{{processed}} 已处理，{{failed}} 失败。附件：{{attProcessed}} 已处理，{{attFailed}} 失败。",
+    "successDetails": "邮件处理完成。处理邮件：{{processed}} 封，失败：{{failed}} 封。处理附件：{{attProcessed}} 个，失败：{{attFailed}} 个。",
+    "successGeneric": "任务成功完成。",
     "tooltips": {
         "running": "知识库生成正在进行中..."
     }
@@ -2017,6 +2019,12 @@
     "failure": "失败",
     "polling_error": "轮询错误",
     "failed_submission": "提交失败",
-    "unknown": "未知状态"
+    "unknown": "未知状态",
+    "completed": "已完成",
+    "failed": "失败",
+    "running": "运行中",
+    "received": "已接收",
+    "retry": "重试中",
+    "revoked": "已取消"
   }
 }
