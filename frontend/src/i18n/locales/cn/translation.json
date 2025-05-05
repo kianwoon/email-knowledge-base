@@ -2005,5 +2005,18 @@
     "tooltips": {
         "running": "知识库生成正在进行中..."
     }
+  },
+  "statusMessages": {
+    "submitting": "正在提交任务...",
+    "pending": "待处理",
+    "started": "已启动",
+    "progress": "进行中",
+    "saving_email_facts": "正在保存电子邮件事实...",
+    "processed_email": "已处理邮件 {{count}}",
+    "success": "成功",
+    "failure": "失败",
+    "polling_error": "轮询错误",
+    "failed_submission": "提交失败",
+    "unknown": "未知状态"
   }
 }
