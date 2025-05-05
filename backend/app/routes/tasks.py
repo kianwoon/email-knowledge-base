@@ -5,6 +5,7 @@ from typing import Any, Optional, Dict
 
 from app.celery_app import celery_app
 from celery.result import AsyncResult
+from celery.backends.base import KeyValueStoreBackend  # Import for type checking
 
 # Import user dependency if needed for authorization (e.g., only allow user to check their own tasks)
 from app.dependencies.auth import get_current_active_user
@@ -32,26 +33,59 @@ async def get_task_status(task_id: str):
         
         task_result = AsyncResult(task_id_str, app=celery_app)
         
-        status = task_result.state
+        # Safely get the state without accessing properties that might fail
+        try:
+            status = task_result.state
+        except (ValueError, KeyError) as e:
+            # This can happen with the "Exception information must include the exception type" error or missing key
+            logger.warning(f"Error getting task state for {task_id_str}: {str(e)}")
+            status = "UNKNOWN"
+            
         details = None
         progress = None
 
-        if task_result.info:
-            if isinstance(task_result.info, dict):
-                details = task_result.info.get('status', 'Processing...') 
-                progress = task_result.info.get('progress')
-                # If the result is stored in info upon success/failure
-                if status in ['SUCCESS', 'FAILURE'] and 'result' in task_result.info:
-                    details = task_result.info['result']
-            elif isinstance(task_result.info, Exception):
-                details = str(task_result.info)
-                status = 'FAILURE' # Ensure status reflects failure
+        # Safely try to get task info
+        try:
+            if task_result.info:
+                if isinstance(task_result.info, dict):
+                    details = task_result.info.get('status', 'Processing...') 
+                    progress = task_result.info.get('progress')
+                    # If the result is stored in info upon success/failure
+                    if status in ['SUCCESS', 'FAILURE'] and 'result' in task_result.info:
+                        details = task_result.info['result']
+                elif isinstance(task_result.info, Exception):
+                    details = str(task_result.info)
+                    status = 'FAILURE' # Ensure status reflects failure
+                else:
+                    details = str(task_result.info) # Fallback for other types
+        except ValueError as e:
+            # Handle the "Exception information must include the exception type" error
+            if "Exception information must include the exception type" in str(e):
+                logger.warning(f"Task {task_id_str} has invalid exception format: {str(e)}")
+                details = f"Task failed with invalid exception format. The task may need to be re-run."
+                status = "FAILURE"  # Mark as failed
+            elif "returned an object instead of string" in str(e):
+                # Handle internationalized error messages returning objects instead of strings
+                logger.warning(f"Task {task_id_str} has invalid error format: {str(e)}")
+                details = f"Task failed with localized error format issue. The task may need to be re-run."
+                status = "FAILURE"  # Mark as failed
             else:
-                details = str(task_result.info) # Fallback for other types
+                # Re-raise unexpected ValueError
+                raise
 
-        # If task failed but info wasn't an Exception dict, result might hold exception
-        if status == 'FAILURE' and details is None and task_result.result:
-             details = f"Task failed: {str(task_result.result)}" # Include failure context
+        # Handle corrupted task results that don't fit the expected structure
+        if status == "FAILURE" and details is None:
+            try:
+                # Try to get the result, but handle ValueErrors from backend.exception_to_python
+                result = task_result.result
+                details = f"Task failed: {str(result)}"
+            except ValueError as ve:
+                if "Exception information must include the exception type" in str(ve):
+                    # This is the specific error we're handling
+                    details = "Task failed with corrupted exception data. The task may need to be re-run."
+                else:
+                    # Other ValueError, still provide a message
+                    details = f"Task failed with error: {str(ve)}"
         elif status == 'SUCCESS' and details is None:
              # Don't return the raw result, just confirm success.
              # If specific result info is needed, extract serializable parts carefully.
@@ -90,7 +124,12 @@ async def get_my_latest_kb_task_status(
         
         try:
             task_result = AsyncResult(task_id, app=celery_app)
-            status = task_result.state
+            try:
+                status = task_result.state
+            except (ValueError, KeyError) as e:
+                # Handle the "Exception information must include the exception type" error or missing key
+                logger.warning(f"Error getting task state for {task_id}: {str(e)}")
+                return None  # If we can't get the state, assume it's not active
         except Exception as task_error:
             logger.error(f"Error retrieving task result for task_id {task_id}: {str(task_error)}")
             # If we can't get the task status, assume it's no longer active
@@ -111,6 +150,17 @@ async def get_my_latest_kb_task_status(
                         progress = task_result.info.get('progress')
                     else:
                         details = str(task_result.info) # Fallback
+            except ValueError as ve:
+                # Handle the specific error we're seeing
+                if "Exception information must include the exception type" in str(ve):
+                    logger.warning(f"Task {task_id} has invalid exception format: {str(ve)}")
+                    details = "Processing with invalid exception format"
+                elif "returned an object instead of string" in str(ve):
+                    logger.warning(f"Task {task_id} has invalid error format: {str(ve)}")
+                    details = "Processing with localized error format issue"
+                else:
+                    logger.warning(f"Error retrieving task info for task_id {task_id}: {str(ve)}")
+                    details = "Processing..."
             except Exception as info_error:
                 logger.warning(f"Error retrieving task info for task_id {task_id}: {str(info_error)}")
                 details = "Processing..."
