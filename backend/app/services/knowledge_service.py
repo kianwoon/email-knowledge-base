@@ -23,8 +23,9 @@ from app.services.outlook import OutlookService
 from app.services import s3 as s3_service
 from app.services import r2_service
 from app.models.email import EmailFilter
+from app.models.user import UserDB as User
 from app.config import settings
-from app.crud import crud_processed_file
+from app.crud import crud_processed_file, user_crud
 from app.db.models.processed_file import ProcessedFile
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,54 @@ def generate_email_attachment_r2_key(email_id: str, attachment_id: str, attachme
     original_extension = "".join(pathlib.Path(attachment_name).suffixes)
     # Structure: provider/deterministic_id/filename.ext
     return f"email_attachment/{deterministic_id}{original_extension}"
+
+# Helper function to extract domain from email
+def _extract_domain(email_address: str) -> Optional[str]:
+    if not email_address or '@' not in email_address:
+        return None
+    try:
+        # Basic split, lowercased for comparison
+        return email_address.split('@')[1].lower()
+    except IndexError:
+        # Handle cases like 'user@' which are invalid but might occur
+        return None
+
+# Helper function to find sender email within quoted text
+# This is a best-effort extraction using regex
+def _extract_sender_from_quote(quoted_text: str) -> Optional[str]:
+    if not quoted_text:
+        return None
+    
+    # Look for "From:" line, capturing content after it. Limited lines for performance/accuracy.
+    lines_to_check = quoted_text.splitlines()[:10] # Check first 10 lines reasonably likely to contain headers
+    from_line_content = None
+    # Regex specifically looking for "From:" at the start of a line (ignoring leading whitespace)
+    from_pattern = re.compile(r"^\s*From:\s*(.*)", re.IGNORECASE) 
+    
+    for line in lines_to_check:
+        match = from_pattern.match(line)
+        if match:
+            from_line_content = match.group(1)
+            logger.debug(f"Found 'From:' line content in quote: {from_line_content}")
+            break # Found the first From line, assume it's the relevant one
+
+    if not from_line_content:
+        logger.debug("No 'From:' line found in the first 10 lines of the quote.")
+        return None
+
+    # Look for an email address within the "From:" line content using a robust regex
+    # Handles common formats like <email@domain.com> or just email@domain.com
+    email_pattern = re.compile(r'[\w\.\-+%]+@[\w\.-]+\.[a-zA-Z]{2,}') 
+    email_match = email_pattern.search(from_line_content)
+    
+    if email_match:
+        extracted_email = email_match.group(0)
+        logger.debug(f"Extracted email from 'From:' line: {extracted_email}")
+        return extracted_email
+    else:
+        logger.debug(f"Could not extract email address from 'From:' line content: {from_line_content}")
+        
+    return None # Email address not found in the From line
 
 async def _process_and_store_emails(
     operation_id: str,
@@ -59,6 +108,9 @@ async def _process_and_store_emails(
     Fetches emails, generates tags via OpenAI, extracts structured facts (flattened),
     uploads attachments to R2, and prepares a list of dictionaries matching the 
     flattened Iceberg 'email_facts' table schema.
+    
+    MODIFIED: Now only saves quote rows if the quote sender is an "outsider" 
+    based on user's outlook_sync_config.
     """
     facts_for_iceberg: List[Dict[str, Any]] = [] 
     processed_email_count = 0
@@ -78,6 +130,85 @@ async def _process_and_store_emails(
 
     if update_state_func:
         update_state_func(state='PROGRESS', meta={'progress': 25, 'status': 'Fetching email IDs...'})
+
+    # --- Get User and Sync Config for Outsider Detection ---
+    db_user: Optional[User] = None
+    primary_domain: Optional[str] = None
+    alliance_domains_set: set[str] = set()
+    sync_config_source = "None" # Track source for logging
+
+    if db_session:
+        db_user = user_crud.get_user_full_instance(db=db_session, email=owner_email)
+        if not db_user:
+             logger.error(f"[Op:{operation_id}] User {owner_email} not found in DB. Cannot proceed or check sync config.")
+             # Fallback logic will run below if primary_domain remains None
+        else:
+            try:
+                sync_config = db_user.outlook_sync_config
+                parsed_config: Optional[Dict] = None
+
+                if isinstance(sync_config, dict):
+                    parsed_config = sync_config
+                    sync_config_source = "DB (dict/JSONB)"
+                elif isinstance(sync_config, str):
+                    try:
+                        parsed_config = json.loads(sync_config)
+                        sync_config_source = "DB (string parsed)"
+                    except json.JSONDecodeError as json_err:
+                        logger.warning(f"[Op:{operation_id}] Failed to parse outlook_sync_config string for user {owner_email}: {json_err}. Will attempt fallback.")
+                else:
+                     logger.warning(f"[Op:{operation_id}] User {owner_email} outlook_sync_config is not a dict or string: {type(sync_config)}. Will attempt fallback.")
+
+                if parsed_config:
+                    # Try to get primaryDomain from the parsed config
+                    primary_domain = parsed_config.get("primaryDomain", "").strip().lower() or None
+                    if primary_domain:
+                        sync_config_source += " - primaryDomain found"
+                    else:
+                        # Explicitly log if key exists but value is empty/null
+                        if "primaryDomain" in parsed_config:
+                             logger.info(f"[Op:{operation_id}] 'primaryDomain' key found in config but is empty/null.")
+                        else:
+                             logger.info(f"[Op:{operation_id}] 'primaryDomain' key not found in config.")
+                    
+                    # Get allianceDomains from the parsed config
+                    alliance_domains = parsed_config.get("allianceDomains", [])
+                    if isinstance(alliance_domains, list):
+                         alliance_domains_set = {str(domain).strip().lower() for domain in alliance_domains if isinstance(domain, str) and domain.strip()}
+                    else:
+                        logger.warning(f"[Op:{operation_id}] allianceDomains in config is not a list: {type(alliance_domains)}. Ignoring.")
+
+            except (TypeError, AttributeError, KeyError) as cfg_err:
+                # Catch errors accessing/parsing config fields after initial type check/load
+                logger.error(f"[Op:{operation_id}] Error processing outlook_sync_config fields for user {owner_email}: {cfg_err}. Will attempt fallback.")
+                primary_domain = None # Reset on error to ensure fallback logic runs
+                alliance_domains_set = set()
+
+        # *** Fallback Logic: If primary_domain wasn't found in config or user wasn't found, use owner_email's domain ***
+        if not primary_domain:
+            logger.info(f"[Op:{operation_id}] primaryDomain not found/invalid/user missing (Source: {sync_config_source}). Attempting fallback using owner_email: {owner_email}")
+            primary_domain = _extract_domain(owner_email)
+            if primary_domain:
+                logger.info(f"[Op:{operation_id}] Using owner's email domain as primary reference: '{primary_domain}'")
+                sync_config_source = "Owner Email Fallback" # Update source indicator
+            else:
+                 # This should be rare if owner_email is valid
+                 logger.error(f"[Op:{operation_id}] Could not extract domain from owner_email '{owner_email}'. Cannot determine primary domain.")
+                 sync_config_source = "Fallback Failed"
+
+    else:
+        logger.warning(f"[Op:{operation_id}] No DB session provided. Cannot fetch user or sync config. Attempting fallback using owner_email.")
+        # Fallback directly if no DB session
+        primary_domain = _extract_domain(owner_email)
+        if primary_domain:
+             logger.info(f"[Op:{operation_id}] Using owner's email domain as primary reference (no DB session): '{primary_domain}'")
+             sync_config_source = "Owner Email Fallback (No DB)"
+        else:
+            logger.error(f"[Op:{operation_id}] Could not extract domain from owner_email '{owner_email}' (no DB session). Cannot determine primary domain.")
+            sync_config_source = "Fallback Failed (No DB)"
+
+    # Log final settings being used
+    logger.info(f"[Op:{operation_id}] Final domains for outsider check -> Primary ('{primary_domain}' Source: {sync_config_source}), Alliance: {alliance_domains_set}")
 
     try:
         # --- Email ID Fetching Loop (unchanged) ---
@@ -136,7 +267,9 @@ async def _process_and_store_emails(
                         response = await openai_client.chat.completions.create(
                             model=settings.OPENAI_MODEL_NAME,
                             messages=[{"role": "user", "content": prompt}],
-                            temperature=0.2, max_tokens=50, response_format={"type": "json_object"}
+                            temperature=0.2, 
+                            max_tokens=150, # Increased max_tokens from 50
+                            response_format={"type": "json_object"}
                         )
                         if response.choices and response.choices[0].message and response.choices[0].message.content:
                             try:
@@ -449,39 +582,98 @@ async def _process_and_store_emails(
                 }
                 all_email_rows.append(parent_email_data)
 
-                # --- Prepare Quote Rows ---
+                # --- Prepare Quote Rows (Conditional based on Outsider Status) ---
+                outsider_quotes_saved_count = 0 # Counter for logging
                 for idx, quote_data in enumerate(quote_data_list):
-                    quote_row_id = f"{parent_row_id}_quote_{idx+1}" # Synthetic ID for quote row
-                    quote_email_data = {
-                        "message_id": quote_row_id, 
-                        "row_id": quote_row_id, # Keep this for now, though potentially redundant
-                        "job_id": str(ingestion_job_id) if ingestion_job_id else None,
-                        "owner_email": owner_email,
-                        "sender": email_content.sender_email, # Corrected: Inherit parent sender email
-                        "sender_name": email_content.sender, # Corrected: Inherit parent sender name
-                        "recipients": json.dumps([]), # Quotes likely don't have distinct recipients
-                        "cc_recipients": json.dumps([]),
-                        "bcc_recipients": json.dumps([]),
-                        "subject": email_content.subject, # Inherit parent subject
-                        "received_datetime_utc": ensure_utc(email_content.received_date, operation_id, email_id), # Corrected: Inherit parent received time
-                        "sent_datetime_utc": ensure_utc(email_content.sent_date, operation_id, email_id), # Corrected: Inherit parent sent time
-                        "folder_id": filter_criteria.folder_id, # Inherit parent folder
-                        "conversation_id": email_content.conversation_id, # Inherit parent conversation ID
-                        "has_attachments": False, # Quotes don't have attachments themselves
-                        "attachment_count": 0,
-                        "attachment_details": json.dumps([]),
-                        "generated_tags": json.dumps([]), # Tags apply to parent message usually
-                        "ingested_at_utc": datetime.now(timezone.utc),
-                        "body_text": None, # Body text belongs to parent
-                        "granularity": "quoted_message", # ADDED: Indicate quote row
-                        # New fields for flattened schema (values for quote row):
-                        "quoted_raw_text": quote_data.get("quoted_raw_text"),
-                        "quoted_depth": quote_data.get("quoted_depth", 1), # Default depth 1 if missing
-                    }
-                    all_email_rows.append(quote_email_data)
+                    is_outsider = False # Default to False (insider/unknown)
+                    quoted_sender_email = None
+                    quoted_sender_domain = None
+
+                    # Only check if we have domains defined to compare against
+                    # If primary_domain is None and alliance_domains_set is empty, is_outsider remains False
+                    can_check_outsider = bool(primary_domain or alliance_domains_set)
+                    
+                    if can_check_outsider:
+                        raw_quote_text = quote_data.get("quoted_raw_text")
+                        # Use the helper function to attempt sender extraction
+                        quoted_sender_email = _extract_sender_from_quote(raw_quote_text) 
+
+                        if quoted_sender_email:
+                            # Use the helper function to attempt domain extraction
+                            quoted_sender_domain = _extract_domain(quoted_sender_email) 
+                            if quoted_sender_domain:
+                                # *** Outsider Logic ***
+                                # Check 1: Is primary_domain defined AND matches? -> Insider
+                                if primary_domain and quoted_sender_domain == primary_domain:
+                                    is_outsider = False
+                                # Check 2: Is domain in alliance_domains_set? -> Insider
+                                elif quoted_sender_domain in alliance_domains_set:
+                                    is_outsider = False
+                                # Check 3: If neither of the above, it's an outsider
+                                else:
+                                    is_outsider = True
+                                    logger.debug(f"[Op:{operation_id}] Email {email_id}, Quote {idx+1}: Found OUTSIDER sender '{quoted_sender_email}' (domain '{quoted_sender_domain}').")
+                                
+                                if not is_outsider:
+                                    logger.debug(f"[Op:{operation_id}] Email {email_id}, Quote {idx+1}: Found INSIDER sender '{quoted_sender_email}' (domain '{quoted_sender_domain}'). Skipping save.")
+                            else:
+                                 # Could not extract domain from the found email
+                                 logger.debug(f"[Op:{operation_id}] Email {email_id}, Quote {idx+1}: Found sender email '{quoted_sender_email}' but could not extract domain. Treating as insider (skipping save).")
+                                 is_outsider = False # Treat as insider if domain extraction fails
+                        else:
+                            # Could not extract sender email from the quote text
+                            logger.debug(f"[Op:{operation_id}] Email {email_id}, Quote {idx+1}: Could not extract sender email from quote text. Treating as insider (skipping save).")
+                            is_outsider = False # Treat as insider if sender extraction fails
+                    else:
+                        # If no primary/alliance domains configured, cannot determine outsider status.
+                        # Defaulting to NOT saving any quotes in this case.
+                         logger.debug(f"[Op:{operation_id}] Email {email_id}, Quote {idx+1}: Skipping quote save as primary/alliance domains not configured or parsed.")
+                         is_outsider = False # Ensure is_outsider is False
+
+                    # *** Only proceed if the quote is determined to be from an outsider ***
+                    if is_outsider:
+                        outsider_quotes_saved_count += 1
+                        quote_row_id = f"{parent_row_id}_quote_{idx+1}" # Synthetic ID for quote row
+                        quote_email_data = {
+                            "message_id": quote_row_id, 
+                            "row_id": quote_row_id, # Keep this for now, though potentially redundant
+                            "job_id": str(ingestion_job_id) if ingestion_job_id else None,
+                            "owner_email": owner_email,
+                            # Still inherit parent details as fallback/context, sender fields ideally would be the parsed ones if needed later
+                            "sender": email_content.sender_email, # Inherited parent sender email
+                            "sender_name": email_content.sender, # Inherited parent sender name
+                            "recipients": json.dumps([]), # Quotes likely don't have distinct recipients
+                            "cc_recipients": json.dumps([]),
+                            "bcc_recipients": json.dumps([]),
+                            "subject": email_content.subject, # Inherit parent subject
+                            "received_datetime_utc": ensure_utc(email_content.received_date, operation_id, email_id), # Inherit parent received time
+                            "sent_datetime_utc": ensure_utc(email_content.sent_date, operation_id, email_id), # Inherit parent sent time
+                            "folder_id": filter_criteria.folder_id, # Inherit parent folder
+                            "conversation_id": email_content.conversation_id, # Inherit parent conversation ID
+                            "has_attachments": False, # Quotes don't have attachments themselves
+                            "attachment_count": 0,
+                            "attachment_details": json.dumps([]),
+                            "generated_tags": json.dumps([]), # Tags apply to parent message usually
+                            "ingested_at_utc": datetime.now(timezone.utc),
+                            "body_text": None, # Body text belongs to parent
+                            "granularity": "quoted_message", # Indicate quote row
+                            # Quote-specific fields:
+                            "quoted_raw_text": quote_data.get("quoted_raw_text"),
+                            "quoted_depth": quote_data.get("quoted_depth", 1), # Default depth 1 if missing
+                            # Optional: Add the extracted info if schema allows/needs it
+                            # "quoted_sender_email": quoted_sender_email, 
+                            # "quoted_sender_domain": quoted_sender_domain,
+                            # "is_quoted_sender_outsider": True 
+                        }
+                        all_email_rows.append(quote_email_data)
+
+                # ADDED: Log count of *saved* outsider quotes
+                logger.debug(f"[Op:{operation_id}] Email {email_id}: Found {len(quote_data_list)} total quote blocks. Saved {outsider_quotes_saved_count} outsider quote rows.")
+                
+                # --- End Conditional Quote Row Preparation ---
 
                 # ADDED: Log total rows generated for this email before extending
-                logger.debug(f"[Op:{operation_id}] Email {email_id}: Generated {len(all_email_rows)} total rows (parent + quotes). Extending facts_for_iceberg.")
+                logger.debug(f"[Op:{operation_id}] Email {email_id}: Generated {len(all_email_rows)} total rows (parent + saved quotes). Extending facts_for_iceberg.")
 
                 # Add the list of dictionaries (parent + quotes) to the main list for Celery
                 facts_for_iceberg.extend(all_email_rows)

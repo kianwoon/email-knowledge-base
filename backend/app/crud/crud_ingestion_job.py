@@ -2,6 +2,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Any, Dict, Optional, List
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models.ingestion_job import IngestionJob # Assuming model path
 from app.schemas.ingestion_job import IngestionJobCreate, IngestionJobUpdate # Schemas TBD
@@ -55,10 +56,12 @@ def update_job_status(
     job_id: int,
     status: str,
     error_message: Optional[str] = None,
-    celery_task_id: Optional[str] = None
+    celery_task_id: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None
 ) -> Optional[IngestionJob]:
     """
-    Updates the status, error message, and optionally Celery task ID of an ingestion job by ID IN THE SESSION.
+    Updates the status, error message, optionally Celery task ID, and optionally job details
+    of an ingestion job by ID IN THE SESSION.
     COMMIT MUST BE CALLED SEPARATELY by the calling function.
     """
     try:
@@ -82,6 +85,17 @@ def update_job_status(
                  db_obj.error_message = None
             elif error_message is not None:
                 db_obj.error_message = error_message
+
+        # ADD: Update job_details if details are provided
+        if details is not None:
+            # Ensure job_details exists and is a dict before updating
+            if not isinstance(db_obj.job_details, dict):
+                db_obj.job_details = {} # Initialize if None or wrong type
+            # Merge/update existing details with new details
+            db_obj.job_details.update(details)
+            # Mark the JSONB field as modified (important for SQLAlchemy to detect change)
+            flag_modified(db_obj, "job_details")
+            logger.debug(f"Updated job_details for IngestionJob ID {job_id}")
 
         db.add(db_obj) # Add the modified object back to the session
         # db.commit() # COMMIT REMOVED

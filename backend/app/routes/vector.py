@@ -547,6 +547,16 @@ async def save_filtered_emails_to_knowledge_base(
                 # Optionally raise an error or proceed without a start date
                 # raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD.")
                 pass # Or handle as needed
+        
+        # Ensure end_date is a datetime object or None
+        end_date_for_task = None
+        if filter_input.end_date:
+            try:
+                end_date_for_task = datetime.fromisoformat(filter_input.end_date)
+            except ValueError:
+                logger.error(f"[Op:{operation_id}] Invalid end_date format: {filter_input.end_date}. Cannot parse.")
+                # Optionally raise error or proceed without end date
+                pass
 
         logger.info(f"[Op:{operation_id}] Dispatching Celery task 'process_user_emails' for user {owner_email}.")
         # Call the task with individual arguments, explicitly checking from_date
@@ -554,7 +564,8 @@ async def save_filtered_emails_to_knowledge_base(
             user_id=user_id_for_task,
             user_email=user_email_for_task,
             folder_id=folder_id_for_task,
-            from_date=from_date_for_task # Keep as is, task likely handles None
+            from_date=from_date_for_task, # Keep as is, task likely handles None
+            end_date=end_date_for_task # ADD: Pass the end_date
         )
         logger.info(f"[Op:{operation_id}] Task dispatched with ID: {task.id}")
 

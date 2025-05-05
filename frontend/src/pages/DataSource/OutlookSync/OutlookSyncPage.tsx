@@ -45,9 +45,15 @@ import {
   ModalFooter,
   ModalBody,
   ModalCloseButton,
-  useDisclosure
+  useDisclosure,
+  Wrap,
+  WrapItem,
+  Tag,
+  TagLabel,
+  TagCloseButton,
+  IconButton
 } from '@chakra-ui/react';
-import { FaSync, FaCalendarAlt, FaEnvelope, FaFilter, FaClock, FaCheck, FaExclamationTriangle, FaFolder } from 'react-icons/fa';
+import { FaSync, FaCalendarAlt, FaEnvelope, FaFilter, FaClock, FaCheck, FaExclamationTriangle, FaFolder, FaPlus } from 'react-icons/fa';
 import apiClient from '@/api/apiClient';
 import { useTranslation } from 'react-i18next';
 
@@ -99,6 +105,9 @@ const OutlookSyncPage: React.FC = () => {
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [startDate, setStartDate] = useState<string>('');
   const [lastSyncInfo, setLastSyncInfo] = useState<LastSyncInfo | null>(null);
+  const [primaryDomain, setPrimaryDomain] = useState<string>('');
+  const [allianceDomains, setAllianceDomains] = useState<string[]>([]);
+  const [newAllianceDomain, setNewAllianceDomain] = useState<string>('');
   
   // For confirmation modal
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -204,6 +213,8 @@ const OutlookSyncPage: React.FC = () => {
         setSyncFrequency(syncConfigResponse.data.frequency || 'daily');
         setEnableAutomation(syncConfigResponse.data.enabled || false);
         setStartDate(syncConfigResponse.data.startDate || '');
+        setPrimaryDomain(syncConfigResponse.data.primaryDomain || '');
+        setAllianceDomains(syncConfigResponse.data.allianceDomains || []);
       }
       
       // Fetch the last sync info from database
@@ -337,13 +348,15 @@ const OutlookSyncPage: React.FC = () => {
         enabled: enableAutomation,
         frequency: syncFrequency,
         folders: selectedFolders,
-        startDate: startDate || undefined
+        startDate: startDate || undefined,
+        primaryDomain: primaryDomain.trim() || undefined,
+        allianceDomains: allianceDomains
       });
       
       toast({
         title: t('outlookSync.notifications.settingsSaved', "Settings saved"),
         description: enableAutomation 
-          ? t('outlookSync.notifications.automationEnabled', "Automated sync has been enabled")
+          ? t('outlookSync.notifications.automationScheduled', "Automated sync scheduled {{frequency}}", { frequency: syncFrequency })
           : t('outlookSync.notifications.automationDisabled', "Automated sync has been disabled"),
         status: "success",
         duration: 5000,
@@ -418,6 +431,19 @@ const OutlookSyncPage: React.FC = () => {
       }
     });
   };
+  
+  // ---- START: Alliance Domain Handlers ----
+  const handleAddAllianceDomain = () => {
+    if (newAllianceDomain && !allianceDomains.includes(newAllianceDomain.trim().toLowerCase())) {
+      setAllianceDomains([...allianceDomains, newAllianceDomain.trim().toLowerCase()]);
+      setNewAllianceDomain(''); // Clear input after adding
+    }
+  };
+
+  const handleRemoveAllianceDomain = (domainToRemove: string) => {
+    setAllianceDomains(allianceDomains.filter(domain => domain !== domainToRemove));
+  };
+  // ---- END: Alliance Domain Handlers ----
   
   // Render status badge
   const renderStatusBadge = (status: 'idle' | 'syncing' | 'completed' | 'error') => {
@@ -557,6 +583,52 @@ const OutlookSyncPage: React.FC = () => {
                     {t('outlookSync.controls.startingDateHelp', "Only emails after this date will be synchronized. If not specified, defaults to one month ago.")}
                   </Text>
                 </FormControl>
+
+                {/* --- START: Outsider Detection Config --- */}
+                <Divider pt={2} />
+                <Heading size="sm" pt={2}>{t('outlookSync.outsiderDetectionTitle', "Outsider Quote Filtering")}</Heading>
+                <Text fontSize="sm" color="gray.500">
+                  {t('outlookSync.outsiderDetectionHelp', "Configure domains to identify emails from insiders. Only quoted sections from senders outside these domains will be saved. If Primary Domain is empty, your login email domain is used.")}
+                </Text>
+
+                <FormControl isDisabled={syncActive}>
+                  <FormLabel>{t('outlookSync.controls.primaryDomain', "Primary Domain")}</FormLabel>
+                  <Input
+                    placeholder={t('outlookSync.controls.primaryDomainPlaceholder', "e.g., yourcompany.com")}
+                    value={primaryDomain}
+                    onChange={(e) => setPrimaryDomain(e.target.value)}
+                  />
+                </FormControl>
+
+                <FormControl isDisabled={syncActive}>
+                  <FormLabel>{t('outlookSync.controls.allianceDomains', "Alliance Domains")}</FormLabel>
+                  <HStack>
+                    <Input
+                      placeholder={t('outlookSync.controls.allianceDomainsPlaceholder', "e.g., partner.com")}
+                      value={newAllianceDomain}
+                      onChange={(e) => setNewAllianceDomain(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddAllianceDomain(); }}
+                    />
+                    <IconButton
+                      aria-label={t('outlookSync.controls.addAllianceDomain', "Add domain")}
+                      icon={<FaPlus />}
+                      onClick={handleAddAllianceDomain}
+                      isDisabled={!newAllianceDomain}
+                    />
+                  </HStack>
+                  <Wrap spacing={2} mt={2}>
+                    {allianceDomains.map((domain) => (
+                      <WrapItem key={domain}>
+                        <Tag size="md" borderRadius="full" variant="solid" colorScheme="blue">
+                          <TagLabel>{domain}</TagLabel>
+                          <TagCloseButton onClick={() => handleRemoveAllianceDomain(domain)} isDisabled={syncActive} />
+                        </Tag>
+                      </WrapItem>
+                    ))}
+                  </Wrap>
+                </FormControl>
+                {/* --- END: Outsider Detection Config --- */}
+
               </VStack>
             </CardBody>
             <CardFooter>

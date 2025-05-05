@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 import uuid
+import json
 
 from app.db.session import get_db
 from app.dependencies.auth import get_current_active_user
@@ -25,6 +26,9 @@ class SyncConfig(BaseModel):
     frequency: str  # 'hourly', 'daily', or 'weekly'
     folders: List[str]
     startDate: Optional[str] = None
+    # Add fields for domain configuration
+    primaryDomain: Optional[str] = None
+    allianceDomains: Optional[List[str]] = None
 
 
 class SyncStatus(BaseModel):
@@ -65,10 +69,52 @@ async def get_sync_config(
         user_db = db.query(UserDB).filter(UserDB.email == current_user.email).first()
         
         if not user_db or not user_db.outlook_sync_config:
+            logger.warning(f"User {current_user.email} not found or has no outlook_sync_config.")
             return None
             
-        # Return the sync configuration
-        return SyncConfig.parse_raw(user_db.outlook_sync_config)
+        # Log the raw config string from DB
+        raw_config_str = user_db.outlook_sync_config
+        logger.info(f"Raw outlook_sync_config from DB for {current_user.email}: {raw_config_str}")
+            
+        # Parse the stored JSON string
+        try:
+            config_dict = json.loads(raw_config_str)
+            logger.info(f"Parsed config_dict: {config_dict}")
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse outlook_sync_config JSON for user {current_user.email}")
+            return None 
+            
+        # Extract values with logging, checking both camelCase and snake_case as a fallback
+        enabled = config_dict.get('enabled', False)
+        frequency = config_dict.get('frequency', 'daily')
+        folders = config_dict.get('folders', [])
+        startDate = config_dict.get('startDate')
+        
+        # Prioritize camelCase, fallback to snake_case
+        primaryDomain = config_dict.get('primaryDomain')
+        if primaryDomain is None:
+            primaryDomain = config_dict.get('primary_domain') # Check snake_case
+            
+        allianceDomains = config_dict.get('allianceDomains')
+        if allianceDomains is None:
+            allianceDomains = config_dict.get('alliance_domains') # Check snake_case
+        
+        logger.info(f"Extracted primaryDomain (after checking variations): {primaryDomain}")
+        logger.info(f"Extracted allianceDomains (after checking variations): {allianceDomains}")
+            
+        # Create a SyncConfig instance from the parsed dictionary,
+        # including the new domain fields. Pydantic handles missing keys gracefully.
+        response_obj = SyncConfig(
+            enabled=enabled,
+            frequency=frequency,
+            folders=folders,
+            startDate=startDate,
+            primaryDomain=primaryDomain,
+            allianceDomains=allianceDomains
+        )
+        
+        logger.info(f"Returning SyncConfig object: {response_obj.dict()}")
+        return response_obj
     except Exception as e:
         logger.error(f"Error getting sync config: {e}")
         raise HTTPException(
@@ -94,20 +140,48 @@ async def save_sync_config(
                 detail="User not found"
             )
             
-        # Save the sync configuration as JSON string
-        user_db.outlook_sync_config = sync_config.json()
-        db.commit()
+        # Explicitly create the dictionary to be saved
+        config_to_save = {
+            "enabled": sync_config.enabled,
+            "frequency": sync_config.frequency,
+            "folders": sync_config.folders,
+            "startDate": sync_config.startDate,
+            "primaryDomain": sync_config.primaryDomain, 
+            "allianceDomains": sync_config.allianceDomains
+        }
+        logger.info(f"Dictionary constructed for saving: {config_to_save}")
         
+        # Serialize using json.dumps
+        try:
+            config_json_to_save = json.dumps(config_to_save)
+            logger.info(f"JSON string generated for saving: {config_json_to_save}")
+        except Exception as json_err:
+            logger.error(f"Error serializing config dictionary to JSON: {json_err}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to prepare sync configuration for saving."
+            )
+
+        # Save the generated JSON string
+        user_db.outlook_sync_config = config_json_to_save
+        
+        # Commit with specific error handling
+        try:
+            logger.info(f"Attempting to commit sync config for user {current_user.email}")
+            db.commit()
+            logger.info(f"Successfully committed sync config for user {current_user.email}")
+        except Exception as commit_err:
+            db.rollback()
+            logger.error(f"Database commit failed when saving sync config: {commit_err}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save sync configuration to database."
+            )
+            
+        # Return the original Pydantic model as the response
         return sync_config
     except HTTPException:
         raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error saving sync config: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save sync configuration"
-        )
 
 
 async def process_folder_sync(user_email: str, folder_id: str, task_id: str, start_date: Optional[str] = None):

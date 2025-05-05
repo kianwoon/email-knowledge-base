@@ -7,9 +7,10 @@ from fastapi.concurrency import run_in_threadpool # Import run_in_threadpool
 import pandas as pd
 import pyarrow as pa
 from pyiceberg.io.pyarrow import schema_to_pyarrow
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 from datetime import datetime
 import json
+import sqlalchemy.exc
 
 # Remove Qdrant Imports
 # from qdrant_client import QdrantClient, models
@@ -261,7 +262,8 @@ def process_user_emails(
     user_id: str, 
     user_email: str, 
     folder_id: str, 
-    from_date: datetime
+    from_date: Optional[datetime],
+    end_date: Optional[datetime] = None
 ) -> int:
     """
     Celery task to fetch, process (generate tags), and store emails based on criteria.
@@ -272,18 +274,20 @@ def process_user_emails(
         user_email (str): The email address of the user.
         folder_id (str): The ID of the folder to process.
         from_date (datetime): Process emails from this date onward.
+        end_date (datetime, optional): Process emails up to this date (inclusive).
         
     Returns:
         int: Number of emails processed
     """
     task_id = self.request.id
-    logger.info(f"Starting email processing task {task_id} for user '{user_id}' with folder: {folder_id}, from_date: {from_date}")
+    logger.info(f"Starting email processing task {task_id} for user '{user_id}' with folder: {folder_id}, from_date: {from_date}, end_date: {end_date}")
     self.update_state(state='STARTED', meta={'user_email': user_email, 'progress': 0, 'status': 'Initializing...'})
     
     # Convert the parameters to the filter_criteria_dict format expected by the rest of the function
     filter_criteria_dict = {
         "folder_id": folder_id,
-        "start_date": from_date.strftime("%Y-%m-%d") if from_date else None
+        "start_date": from_date.strftime("%Y-%m-%d") if from_date else None,
+        "end_date": end_date.strftime("%Y-%m-%d") if end_date else None
     }
     
     db = None # Initialize db to None
@@ -559,12 +563,77 @@ def process_user_emails(
             'attachments_processed': att_processed,
             'attachments_failed': att_failed
             })
+        
+        # +++ Store final status in DB before closing the potentially stale session +++
+        final_job_status_to_db = 'completed' if final_status in ['SUCCESS', 'PARTIAL_SUCCESS'] else 'failed'
+        final_job_details = {
+            'emails_processed': processed_count, 
+            'emails_failed': failed_count,
+            'attachments_processed': att_processed,
+            'attachments_failed': att_failed,
+            'final_message': final_message
+        }
+        try:
+            with SessionLocal() as final_db:
+                # Use the correct function name and pass details
+                crud_ingestion_job.update_job_status(
+                    db=final_db, 
+                    job_id=ingestion_job_db_id, 
+                    status=final_job_status_to_db, 
+                    details=final_job_details # Pass the details dict
+                )
+                final_db.commit()
+                logger.info(f"Task {task_id}: Successfully updated final job status ({final_job_status_to_db}) and details in DB for job ID {ingestion_job_db_id}.")
+        except Exception as final_update_err:
+            logger.error(f"Task {task_id}: CRITICAL - Failed to update final job status in DB for job ID {ingestion_job_db_id}: {final_update_err}", exc_info=True)
+            # Even if DB update fails, allow Celery status to reflect processing outcome
+            # Potentially add retry logic here if critical
+        # --- End final status update ---
+        
         return processed_count
 
     except Exception as e:
-        logger.error(f"Error processing emails: {str(e)}")
-        return processed_count
+        # --- Update Job Status on Failure ---
+        error_message = f"Task failed: {str(e)}"
+        logger.error(f"Task {task_id}: Error during processing: {error_message}", exc_info=True)
+        # Ensure Celery state reflects failure
+        self.update_state(state='FAILURE', meta={'user_email': user_email, 'status': error_message})
+        
+        # Attempt to update DB job status to failed
+        if 'ingestion_job_db_id' in locals() and ingestion_job_db_id is not None:
+            try:
+                 with SessionLocal() as fail_db:
+                    # Use the correct function name and pass error message
+                    crud_ingestion_job.update_job_status(
+                        db=fail_db, 
+                        job_id=ingestion_job_db_id, 
+                        status='failed', 
+                        error_message=error_message # Pass error message
+                        # No details needed here, just the error
+                    )
+                    fail_db.commit()
+                    logger.info(f"Task {task_id}: Successfully updated job status to 'failed' in DB for job ID {ingestion_job_db_id}.")
+            except Exception as fail_update_err:
+                 logger.error(f"Task {task_id}: Failed to update job status to 'failed' in DB for job ID {ingestion_job_db_id}: {fail_update_err}", exc_info=True)
+        # --- End Update Job Status on Failure ---
+
+        # The original exception 'e' will be re-raised by Celery automatically if not caught here.
+        # We return the count accumulated so far, though the task ultimately failed.
+        return processed_count # Or raise e if Celery should retry based on the exception type
+
     finally:
         if db:
-            db.close()
+            try:
+                db.close()
+                logger.debug(f"Task {task_id}: Original database session closed successfully.")
+            except sqlalchemy.exc.OperationalError as op_err:
+                # Log specifically if the connection was likely closed already
+                if "closed unexpectedly" in str(op_err) or "server closed the connection unexpectedly" in str(op_err):
+                    logger.warning(f"Task {task_id}: OperationalError during db.close(), likely due to timed-out/closed connection. Ignoring as main processing likely finished. Error: {op_err}")
+                else:
+                    # Log other operational errors more prominently
+                    logger.error(f"Task {task_id}: Unexpected OperationalError during db.close(): {op_err}", exc_info=True)
+            except Exception as close_err:
+                # Catch any other unexpected errors during close
+                logger.error(f"Task {task_id}: Unexpected error during db.close(): {close_err}", exc_info=True)
         # Milvus client closing might not be needed if managed elsewhere 
