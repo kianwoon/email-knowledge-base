@@ -11,6 +11,7 @@ import requests
 import asyncio
 from starlette.concurrency import run_in_threadpool
 import bcrypt
+import uuid
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -137,56 +138,83 @@ async def get_current_user(
 # REVISED get_current_active_user_or_token_owner signature
 async def get_current_active_user_or_token_owner(
     request: Request,
-    response: Response,
     db: Session = Depends(get_db),
-    api_key_header: Optional[str] = Depends(api_key_header_scheme) 
+    # Inject the reusable dependencies
+    current_user_dep: Optional[User] = Depends(get_current_user), # Try user auth first
+    api_key_dep: Optional[str] = Depends(api_key_header_scheme) # Try API key if user fails
 ) -> User:
-    # Pass request and response to get_current_user
-    session_user: Optional[User] = await get_current_user(request=request, response=response, db=db)
-    
-    # 1. Check session user resolved by get_current_user
-    if session_user:
-        logger.debug(f"Authenticated via session: {session_user.email}")
-        # Add is_active check here (moved from deprecated get_current_active_user)
-        if not session_user.is_active:
-             logger.warning(f"Inactive user authenticated via session: {session_user.email}")
-             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
-        return session_user
+    """Dependency that tries user auth first, then API key auth.
+       If API key is used, returns a synthetic User object representing the token owner.
+    """
+    if current_user_dep:
+        logger.debug(f"User authenticated via standard method: {current_user_dep.email}")
+        return current_user_dep
 
-    # 2. Check for Authorization: Bearer <token> header
-    if api_key_header and api_key_header.lower().startswith("bearer "):
-        token_value = api_key_header.split(" ", 1)[1]
-        logger.debug(f"Attempting authentication via Bearer token.")
+    if api_key_dep:
+        logger.debug("Standard user auth failed or not attempted, trying API Key lookup...")
+        token_value = api_key_dep
         
-        # Use the explicitly injected db session here
-        db_token: Optional[TokenDB] = token_crud.get_token_by_value(db, token_value)
+        # --- CORRECTED TOKEN VALIDATION --- 
+        # 1. Extract prefix and secret part from the provided token
+        if '_' not in token_value:
+            logger.warning("API key format invalid (missing underscore separator).")
+            raise credentials_exception # Or a specific invalid format exception
         
-        if db_token:
+        prefix, secret_part = token_value.split('_', 1)
+
+        # 2. Fetch token from DB using the prefix
+        # Use the correct function: get_token_by_prefix
+        db_token: Optional[TokenDB] = token_crud.get_token_by_prefix(db, token_prefix=prefix)
+
+        # 3. Validate the token and the secret
+        if db_token and db_token.hashed_secret and db_token.is_active:
+            # Check expiry
             now = datetime.now(timezone.utc)
             is_expired = db_token.expiry is not None and db_token.expiry <= now
-            if db_token.is_active and not is_expired:
-                 # Use the explicitly injected db session here
-                token_owner_db: Optional[UserDB] = user_crud.get_user_full_instance(db, email=db_token.owner_email)
-                if token_owner_db:
-                    logger.info(f"Authenticated via valid API token owned by: {token_owner_db.email}")
-                    # Convert UserDB to Pydantic User before returning
-                    pydantic_token_owner = User.model_validate(token_owner_db)
-                    return pydantic_token_owner
-                else:
-                    logger.error(f"Valid API token {db_token.id} found, but owner '{db_token.owner_email}' does not exist in user DB!", exc_info=True)
-                    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Token owner configuration error.")
-            else:
-                 logger.warning(f"Authentication failed: API token {db_token.id} is inactive or expired.")
-        else:
-            logger.warning("Authentication failed: Invalid Bearer token provided.")
+            if is_expired:
+                 logger.warning(f"API key with prefix {prefix} has expired.")
+                 raise credentials_exception # Token expired
+
+            # Check hashed secret using bcrypt
+            provided_secret_bytes = secret_part.encode('utf-8')
+            hashed_secret_bytes = db_token.hashed_secret.encode('utf-8')
             
-    # 3. If neither session nor valid bearer token, raise 401
-    logger.warning("Authentication failed: No valid session or API token found.")
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+            if bcrypt.checkpw(provided_secret_bytes, hashed_secret_bytes):
+                # Token is valid!
+                logger.info(f"API key authentication successful for prefix {prefix} (Owner: {db_token.owner_email})")
+                
+                # Update last used timestamp (consider making this optional or less frequent)
+                db_token.last_used = now
+                try:
+                    db.commit()
+                except Exception as commit_err:
+                    logger.error(f"Failed to update last_used for token {db_token.id}: {commit_err}")
+                    db.rollback()
+
+                # Return a synthetic User object representing the token owner
+                # Fetch user details if needed, or just use email
+                # Ensure the User model can be instantiated like this
+                return User(
+                    id=uuid.uuid4(), # Generate a placeholder UUID or fetch actual user ID if needed
+                    email=db_token.owner_email,
+                    name=f"API User ({db_token.owner_email})", # Placeholder name
+                    roles=["api_token_user"], # Assign a specific role
+                    is_active=True,
+                    provider_keys=[] # Avoid recursion/unnecessary loading
+                )
+            else:
+                # Password (secret part) check failed
+                logger.warning(f"API key secret mismatch for prefix {prefix}.")
+                raise credentials_exception
+        else:
+            # Token not found by prefix, inactive, or hash missing
+            logger.warning(f"API key lookup failed for prefix {prefix} (not found, inactive, or hash missing).")
+            raise credentials_exception
+        # --- END CORRECTED TOKEN VALIDATION --- 
+
+    # If neither user nor API key authenticated successfully
+    logger.warning("No valid authentication method found (User or API Key).")
+    raise credentials_exception
 
 # REVISED get_current_active_user signature
 async def get_current_active_user(
