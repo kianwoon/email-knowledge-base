@@ -218,11 +218,11 @@ class AuthService:
         Returns:
             Tuple containing the JWT token and its expiry datetime
         """
-        # Create JWT payload with the MS access token
+        # Create JWT payload WITHOUT the MS access token
         jwt_payload = {
             "sub": user_id,
             "email": email,
-            "ms_token": ms_token
+            # "ms_token": ms_token # DO NOT embed the MS token in the JWT
         }
         
         # Add scopes if provided
