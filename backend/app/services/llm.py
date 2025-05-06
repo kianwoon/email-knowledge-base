@@ -759,20 +759,22 @@ async def get_rate_card_response_advanced(
         per_q = int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3))
         # -- BEGIN: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
         # Temporarily disable filename_terms filtering to surface the MAS rate card document
-        filename_terms = []
+        # filename_terms = [] # KEEPING THIS COMMENTED TO USE THE ACTUAL FILENAME TERMS
+        logger.info(f"RateCardRAG: Filename terms for query: {filename_terms}")
         # Increase number of candidates fetched
-        per_q = max(per_q, int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3)) * 2)
+        # per_q = max(per_q, int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3)) * 2) # KEEPING THIS COMMENTED
         # -- END: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
         raw_results = []
-        for vec, q in zip(embeddings, queries):
+        for vec, q_text in zip(embeddings, queries): # Renamed q to q_text to avoid conflict
             hits = await search_milvus_knowledge_hybrid(
-                query_text=q,
+                query_text=q_text, # Use q_text
                 collection_name=collection,
                 limit=per_q,
                 filename_terms=filename_terms,
                 dense_params={"metric_type":"COSINE","params":{"ef":128},"search_data_override":vec}
             )
             raw_results.extend(hits)
+        logger.info(f"RateCardRAG: Total raw results from Milvus (across all HyDE queries): {len(raw_results)}")
 
         # Fallback: if hybrid search yields no results, use dense-only search
         if not raw_results:
@@ -790,8 +792,12 @@ async def get_rate_card_response_advanced(
                 logger.error(f"RateCardRAG: Dense fallback search failed: {e_dense}", exc_info=True)
 
         # 9. Dedupe & rerank
-        unique = {r["id"]: r for r in raw_results}.values()
+        unique_results_dict = {r["id"]: r for r in raw_results} # Keep the dict for a moment
+        unique = list(unique_results_dict.values()) # Convert to list for reranking
+        logger.info(f"RateCardRAG: Number of unique results after deduplication: {len(unique)}")
+
         reranked = await rerank_results(query=message, results=list(unique))
+        logger.info(f"RateCardRAG: Number of results after reranking: {len(reranked)}")
 
         # PRIORITIZE MAS DOCUMENT if present
         prioritized = []
@@ -804,22 +810,35 @@ async def get_rate_card_response_advanced(
             reranked = [doc for doc in reranked if doc not in prioritized]
             reranked = prioritized + reranked
             logger.info(f"RateCardRAG: Prioritized {len(prioritized)} MAS-related documents in final context order.")
+            for i, doc in enumerate(prioritized):
+                logger.debug(f"RateCardRAG: Prioritized MAS Doc {i+1}: ID={doc.get('id')}, Filename={doc.get('metadata', {}).get('original_filename', 'N/A')}, Score={doc.get('rerank_score', doc.get('score', 'N/A'))}")
 
         # 10. Format top‐K context
         k = int(getattr(settings, "RATE_CARD_FINAL_CONTEXT_LIMIT", 5))
         chosen = reranked[:k]
+        logger.info(f"RateCardRAG: Selected top {len(chosen)} documents for context (limit was {k}).")
+
         if not chosen:
             doc_context = "No rate card documents matched your query."
         else:
             parts = []
-            for d in chosen:
-                txt = d.get("content","")
-                limit = int(getattr(settings,"RATE_CARD_MAX_CHARS_PER_DOC",4000))
-                txt = txt[:limit] + ("...[TRUNC]" if len(txt)>limit else "")
+            logger.info("RateCardRAG: Details of chosen documents for context:")
+            for i, d in enumerate(chosen):
+                content_full = d.get("content","")
+                content_len = len(content_full)
                 fname = d.get("metadata",{}).get("original_filename","Unknown")
-                score = d.get("rerank_score",d.get("score","N/A"))
-                parts.append(f"Source: {fname} (Score:{score})\n{txt}")
-            doc_context = "<Rate Card Context>\n" + "\n\n---\n\n".join(parts) + "\n</Rate Card Context>"
+                score_val = d.get("rerank_score", d.get("score","N/A")) # Use score_val
+
+                logger.info(f"RateCardRAG: Chosen Doc {i+1}: Filename='{fname}', Score={score_val}, FullContentLength={content_len}")
+                logger.debug(f"RateCardRAG: Chosen Doc {i+1} Content Start (first 500 chars):\\n{content_full[:500]}")
+                logger.debug(f"RateCardRAG: Chosen Doc {i+1} Content End (last 200 chars):\\n{content_full[-200:]}")
+
+                # Apply per-document character limit for rate card pipeline
+                doc_char_limit = int(getattr(settings,"RATE_CARD_MAX_CHARS_PER_DOC", 4000))
+                txt = content_full[:doc_char_limit] + ("...[TRUNC_PER_DOC]" if content_len > doc_char_limit else "")
+                
+                parts.append(f"Source: {fname} (Score:{score_val})\\n{txt}") # Use score_val
+            doc_context = "<Rate Card Context>\\n" + "\\n\\n---\\n\\n".join(parts) + "\\n</Rate Card Context>"
 
         # 11. Token‐budgeting & final prompt
         MAX_TOK = int(getattr(settings, "MODEL_MAX_TOKENS", 16384))
@@ -830,18 +849,25 @@ async def get_rate_card_response_advanced(
         used = (
             count_tokens(system_prompt.replace("<RATE_CARD_CONTEXT>",""), chat_model) +
             count_tokens(hist, chat_model) +
-            count_tokens(message, chat_model) +
+            count_tokens(message, chat_model) + # Use message instead of q
             BUF
         )
         remain = MAX_TOK - used
+        logger.info(f"RateCardRAG: Token budget: MAX_TOTAL_TOKENS={MAX_TOK}, SystemBaseTokens={count_tokens(system_prompt.replace('<RATE_CARD_CONTEXT>',''), chat_model)}, HistoryTokens={count_tokens(hist, chat_model)}, QueryTokens={count_tokens(message, chat_model)}, BufferTokens={BUF} => Remaining for RAG context: {remain}") # Use message
+
         if remain <= 0:
             rag_ctx = "Context omitted due to token limits."
+            logger.warning(f"RateCardRAG: No tokens remaining for RAG context (remain={remain}). Context will be omitted.")
         else:
-            needed = count_tokens(doc_context, chat_model)
-            if needed <= remain:
+            doc_context_tokens_before_trunc = count_tokens(doc_context, chat_model)
+            logger.info(f"RateCardRAG: RAG context ('doc_context') token count before final truncation: {doc_context_tokens_before_trunc}. Budget available: {remain}")
+            if doc_context_tokens_before_trunc <= remain:
                 rag_ctx = doc_context
+                logger.info(f"RateCardRAG: Entire 'doc_context' ({doc_context_tokens_before_trunc} tokens) fits within budget.")
             else:
                 rag_ctx = truncate_text_by_tokens(doc_context, chat_model, remain)
+                rag_ctx_tokens_after_trunc = count_tokens(rag_ctx, chat_model)
+                logger.warning(f"RateCardRAG: 'doc_context' was truncated from {doc_context_tokens_before_trunc} to {rag_ctx_tokens_after_trunc} tokens to fit budget {remain}.")
 
         final_sys = system_prompt.replace("<RATE_CARD_CONTEXT>", rag_ctx)
         messages_out = [{"role":"system","content":final_sys}]
@@ -849,15 +875,33 @@ async def get_rate_card_response_advanced(
             messages_out.append({"role":"user","content":f"History:\n{hist}"})
         messages_out.append({"role":"user","content":message})
 
-        # 12. Final LLM call
-        resp = await user_client.chat.completions.create(
-            model=chat_model,
-            messages=messages_out,
-            temperature=float(getattr(settings,"OPENAI_TEMPERATURE",0.1)),
-            max_tokens=BUF
-        )
-        content = resp.choices[0].message.content.strip()
-        return _format_rate_card_response(content)
+        # --- Final LLM Call ---
+        logger.info(f"Making final LLM call to {provider}/{chat_model} with {len(messages_out)} messages.") # CORRECTED: messages_out
+        # Log total tokens being sent to LLM for debugging
+        total_final_prompt_tokens = sum(count_tokens(msg["content"], chat_model) for msg in messages_out) # CORRECTED: chat_model for tokenizer_model, messages_out
+        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} (Max allowed: {MAX_TOK})", extra={'provider': provider, 'model': chat_model}) # CORRECTED: MAX_TOK
+        if total_final_prompt_tokens > MAX_TOK: # CORRECTED: MAX_TOK
+            logger.error(f"CRITICAL: Final prompt token count ({total_final_prompt_tokens}) EXCEEDS model max tokens ({MAX_TOK}). LLM call will likely fail.")
+            # This indicates a flaw in budgeting logic if it happens.
+
+        try:
+            llm_response = await user_client.chat.completions.create(
+                model=chat_model,
+                messages=messages_out,
+                temperature=float(getattr(settings, 'OPENAI_TEMPERATURE', 0.1)), # Make temperature configurable
+                max_tokens=BUF  # CORRECTED: Ensure LLM has enough buffer to respond, using the local variable BUF
+            )
+            response_content = llm_response.choices[0].message.content.strip()
+            logger.info(f"RAG response generated successfully by {chat_model}.")
+            logger.debug(f"LLM Response (first 100 chars): {response_content[:100]}...")
+            return response_content
+        except RateLimitError as rle:
+            logger.error(f"OpenAI Rate Limit Error during RAG generation: {rle}", exc_info=True)
+            # Consider more specific user feedback for rate limits
+            return "I'm currently experiencing high demand. Please try again in a few moments."
+        except Exception as llm_call_err:
+            logger.error(f"Error during final LLM call for RAG: {llm_call_err}", exc_info=True)
+            return fallback_response # Return fallback for LLM call errors
 
     except HTTPException:
         raise
