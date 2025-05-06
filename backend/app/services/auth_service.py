@@ -202,16 +202,16 @@ class AuthService:
             return None
     
     @staticmethod
-    def create_user_jwt(user_id: str, email: str, ms_token: str, 
+    def create_user_jwt(user_id: str, email: str, 
                       scopes: List[str] = None, 
                       expires_delta: Optional[timedelta] = None) -> Tuple[str, datetime]:
         """
-        Creates a JWT token for a user with the Microsoft access token embedded.
+        Creates a JWT token for a user.
+        NOTE: Does NOT embed the MS token anymore.
         
         Args:
-            user_id: The user's ID
+            user_id: The user's internal UUID
             email: The user's email
-            ms_token: Microsoft access token
             scopes: Optional list of scopes
             expires_delta: Optional timedelta for token expiration
             
@@ -364,7 +364,6 @@ class AuthService:
         new_internal_token, expires_at = AuthService.create_user_jwt(
             user_id=user_id,
             email=email,
-            ms_token=new_ms_access_token,
             scopes=resource_scopes
         )
         

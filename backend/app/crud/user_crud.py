@@ -3,8 +3,10 @@ from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session, load_only # Import load_only
 from sqlalchemy import select, exists, update, text # Import exists, update, and text
 import sqlalchemy.exc
-from datetime import datetime # Ensure datetime is imported
+from datetime import datetime, timezone # Ensure datetime is imported
 import uuid
+from sqlalchemy import func
+from fastapi import HTTPException
 
 # Import BOTH the Pydantic User and the SQLAlchemy UserDB models
 from ..models.user import User, UserDB 
@@ -254,6 +256,72 @@ def get_user_by_id(db: Session, user_id: uuid.UUID) -> UserDB | None:
         logger.error(f"Error fetching user by ID {user_id}: {e}", exc_info=True)
         raise e
 # --- End NEW Function ---
+
+def get_or_create_user_from_ms_graph(
+    db: Session, 
+    email: str, 
+    ms_id: str, 
+    display_name: str,
+    organization: Optional[str],
+    photo_url: Optional[str]
+) -> UserDB:
+    """
+    Finds a user by email. If found, updates details. 
+    If not found, creates a new user with a generated internal UUID 
+    and stores the Microsoft Graph ID.
+    Commits the changes and returns the UserDB object.
+    """
+    try:
+        logger.debug(f"Attempting to get/create user from MS Graph info for email: {email}")
+        
+        # Try to fetch the user by email (case-insensitive if DB supports it)
+        user = db.query(UserDB).filter(func.lower(UserDB.email) == email.lower()).first()
+
+        now = datetime.now(timezone.utc)
+
+        if user:
+            # User exists, update details
+            logger.info(f"Found existing user: {email}. Updating details.")
+            user.display_name = display_name
+            user.organization = organization
+            user.photo_url = photo_url
+            user.last_login = now
+            # Add logic here to update microsoft_id if you add that field to UserDB
+            # user.microsoft_id = ms_id 
+            
+        else:
+            # User does not exist, create new one
+            logger.info(f"Creating new user: {email}")
+            new_internal_uuid = uuid.uuid4() # Generate internal UUID
+            user = UserDB(
+                email=email,
+                id=new_internal_uuid, # Assign internal UUID
+                # microsoft_id=ms_id, # Store MS Graph ID if field exists
+                display_name=display_name,
+                organization=organization,
+                photo_url=photo_url,
+                created_at=now,
+                last_login=now,
+                is_active=True,
+                json_preferences={} # Initialize preferences
+            )
+            db.add(user)
+            
+        # Commit changes (for both update and create)
+        db.commit()
+        db.refresh(user) # Ensure the session has the latest state
+        logger.info(f"User {email} successfully processed (created or updated). Internal ID: {user.id}")
+        return user
+
+    except sqlalchemy.exc.IntegrityError as ie:
+        db.rollback()
+        logger.error(f"Database integrity error processing user {email}: {ie}", exc_info=True)
+        # This might happen if email constraint fails despite initial check (rare race condition)
+        raise HTTPException(status_code=500, detail="Database error processing user.") from ie
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in get_or_create_user_from_ms_graph for {email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error processing user information.") from e
 
 # Add other user CRUD functions here as needed (e.g., create_user, update_user)
 # These functions would typically take Pydantic models as input (e.g., UserCreate)

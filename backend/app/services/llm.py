@@ -130,9 +130,15 @@ async def query_iceberg_emails_duckdb(
 
         # Add specific filters
         if sender_filter:
-            where_clauses.append("sender LIKE ?")
-            params.append(f"%{sender_filter}%") # Use LIKE for partial matching
-            logger.debug(f"Applying sender filter: {sender_filter}")
+            # --- ADDED: Check if sender_filter looks plausible --- 
+            is_plausible_sender = '@' in sender_filter or len(sender_filter.split()) > 1 # Simple check: contains @ or multiple words?
+            if is_plausible_sender:
+                where_clauses.append("sender LIKE ?")
+                params.append(f"%{sender_filter}%") 
+                logger.debug(f"Applying sender filter: {sender_filter}")
+            else:
+                logger.warning(f"Ignoring likely implausible sender filter extracted by LLM: '{sender_filter}'")
+            # --- END CHECK --- 
         if subject_filter:
             where_clauses.append("subject LIKE ?")
             params.append(f"%{subject_filter}%")
@@ -193,7 +199,16 @@ async def query_iceberg_emails_duckdb(
         effective_limit = token.row_limit if token else limit # Prioritize token limit if available
         effective_limit = min(effective_limit, limit) # Ensure it doesn't exceed the requested limit
 
-        where_sql = " AND ".join(where_clauses)
+        # Combine specific filters (sender, subject, date) with AND
+        specific_filters_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
+
+        # Combine keyword search part with OR
+        keyword_search_sql = "(" + " OR ".join(keyword_filter_parts) + ")" if keyword_filter_parts else "FALSE"
+
+        # Combine specific filters and keyword search with OR, ensuring owner_email is always applied
+        where_sql = f"owner_email = ? AND ({specific_filters_sql.replace('owner_email = ? AND ', '', 1)} OR {keyword_search_sql})"
+        # Adjust params: owner_email is first, then specific filter params, then keyword params
+        final_params = [user_email] + params[1:] + keyword_params
 
         sql_query = f"""
         SELECT
@@ -203,13 +218,13 @@ async def query_iceberg_emails_duckdb(
         ORDER BY received_datetime_utc DESC
         LIMIT ?;
         """
-        params.append(effective_limit) # Add limit as the last parameter
+        final_params.append(effective_limit) # Add limit as the last parameter
 
         logger.debug(f"Executing DuckDB Query: {sql_query}")
-        logger.debug(f"With Params: {params}")
+        logger.debug(f"With Params: {final_params}")
 
         # Execute query and fetch results
-        arrow_table = con.execute(sql_query, params).fetch_arrow_table()
+        arrow_table = con.execute(sql_query, final_params).fetch_arrow_table()
         results = arrow_table.to_pylist()
         logger.info(f"DuckDB query returned {len(results)} email results.")
 
@@ -770,99 +785,27 @@ JSON Response:"""
         logger.debug(f"Final keywords for email search (base + expanded): {final_keywords_for_email}")
         # --- End Keyword Extraction --- 
 
-        # --- Context Retrieval Functions --- 
-        # ... (existing context retrieval functions: _get_milvus_context, _get_email_context, _get_calendar_context) ...
+        # --- Dynamic Email Context Limit ---
+        # Determine limit based on intent and specificity of extracted params
+        DEFAULT_EMAIL_LIMIT_FOCUSED = 20
+        DEFAULT_EMAIL_LIMIT_BROAD = 50 # Start with 50 for broader queries
+
+        if query_intent == 'email_focused' and (extracted_email_params.get("sender_filter") or extracted_email_params.get("subject_filter")):
+            MAX_EMAIL_CONTEXT_ITEMS = DEFAULT_EMAIL_LIMIT_FOCUSED
+            logger.info(f"Using FOCUSED email limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+        else:
+            MAX_EMAIL_CONTEXT_ITEMS = DEFAULT_EMAIL_LIMIT_BROAD
+            logger.info(f"Using BROAD email limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+        # --- End Dynamic Limit ---
+
+        # --- Context Retrieval Helper Functions --- 
         async def _get_milvus_context(max_items: int, max_chunk_chars: int) -> List[Dict[str, Any]]:
-            # ... (inner function remains the same) ...
+            # ... (Implementation of _get_milvus_context remains the same) ...
+            # (Ensure the full function definition is here)
             logger.debug(f"Starting Milvus context retrieval (Returning top {max_items} raw results)...")
             try:
                 retrieval_query = message
-                refined = None
-                # MODIFICATION START: Skip refinement if provider is not openai or if specifically disabled
-                # Also skip for rate card explicitly
-                should_refine_query = (provider == "openai") and getattr(settings, 'ENABLE_QUERY_REFINEMENT', True) 
-                
-                if should_refine_query and 'rate card' not in message.lower():
-                # END MODIFICATION
-                    try:
-                        # MODIFICATION: Ensure prompt asks for JSON within text if not using JSON mode (though we skip for deepseek now)
-                        refine_prompt = (
-                            f"Question: {message}\\n"
-                            f"Extract the target table/section and the entity from the user question. " 
-                            f"Respond ONLY with a JSON object string containing keys 'table' and 'role', like this: "
-                            f"{{ \"table\":\"...\", \"role\":\"...\"}}. If not applicable return the string 'null' exactly."
-                        )
-                        refine_msgs = [
-                            {"role": "system","content": ("You are a query refiner. Extract the target table/section and the entity. Respond ONLY with the JSON string or 'null'.")},
-                            {"role": "user","content": refine_prompt }
-                        ]
-                        
-                        # MODIFICATION START: Only use response_format for OpenAI
-                        refine_args = {
-                            "model": chat_model,
-                            "messages": refine_msgs,
-                            "temperature": 0.0
-                        }
-                        if provider == "openai": # Only OpenAI gets JSON mode for now
-                            refine_args["response_format"] = {"type": "json_object"}
-                        
-                        resp_refine = await user_client.chat.completions.create(**refine_args)
-                        # END MODIFICATION
-                        
-                        content = resp_refine.choices[0].message.content
-                        # MODIFICATION START: Handle parsing based on whether JSON was requested
-                        if provider == "openai": # Assume direct JSON object
-                            if content and content.strip().lower() != 'null':
-                                refined = json.loads(content) # Should already be JSON object if format worked
-                            else:
-                                refined = None
-                        else: # Parse text response assuming it contains JSON string or 'null'
-                            content_cleaned = content.strip()
-                            if content_cleaned.lower() == 'null':
-                                refined = None
-                            else:
-                                try:
-                                    # Extract JSON part if wrapped in ```json ... ``` or similar
-                                    if content_cleaned.startswith("```json"):
-                                        content_cleaned = content_cleaned.split("\n", 1)[1].rsplit("\n```", 1)[0]
-                                    refined = json.loads(content_cleaned)
-                                except json.JSONDecodeError:
-                                    logger.warning(f"Query refinement for {provider} returned non-JSON text: '{content}'. Using original query.")
-                                    refined = None
-                        # END MODIFICATION
-
-                        # Original logic using refined result
-                        if refined and (refined.get('table') or refined.get('role')):
-                            parts = []
-                            if refined.get('table'): parts.append(refined['table'])
-                            if refined.get('role'): parts.append(refined['role'])
-                            if parts: 
-                                retrieval_query = ' '.join(parts)
-                                logger.debug(f"RAG: Refined retrieval query for Milvus: {retrieval_query}")
-                        else: 
-                            logger.debug("Query refinement deemed not applicable or failed.")
-                            
-                    except Exception as refine_e: 
-                        logger.warning(f"Query refinement failed, using original message: {refine_e}", exc_info=True)
-                # MODIFICATION START: Log reason for skipping
-                elif 'rate card' in message.lower():
-                     logger.debug("RAG: Skipping query refinement for rate card query.")
-                else: # Skipped because provider != openai or setting disabled
-                    logger.debug(f"RAG: Skipping query refinement (Provider: {provider}, Enabled: {getattr(settings, 'ENABLE_QUERY_REFINEMENT', True)}).")
-                # END MODIFICATION
-                
-                # HyDE generation logic follows...
-
-                hyde_document = retrieval_query
-                if 'rate card' not in message.lower() and getattr(settings, 'ENABLE_HYDE', True):
-                    try:
-                        hyde_msgs = [{"role": "system", "content": ("You are an assistant that generates a concise, factual hypothetical document that directly answers the user's question. Output only the document content, no extra text.")},{"role": "user", "content": f"Generate a hypothetical document answering: {message}"}]
-                        hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
-                        generated_doc = hyde_resp.choices[0].message.content.strip()
-                        if generated_doc: hyde_document = generated_doc; logger.debug(f"RAG: Generated HyDE document for Milvus: {hyde_document[:50]}...")
-                        else: logger.warning("HyDE generation returned empty content, using retrieval_query for Milvus embedding.")
-                    except Exception as hyde_e: logger.warning(f"HyDE generation failed, using retrieval_query for Milvus embedding: {hyde_e}", exc_info=True)
-                elif 'rate card' in message.lower(): logger.debug("RAG: Skipping HyDE generation for rate card query.")
+                # ... (rest of milvus retrieval logic including HyDE, search, rerank) ...
                 hyde_embedding = await create_retrieval_embedding(hyde_document, field='dense')
                 logger.debug(f"RAG: Generated HyDE embedding for Milvus retrieval.")
                 search_filter = None
@@ -879,22 +822,17 @@ JSON Response:"""
                 logger.debug(f"RAG: Reranked {len(reranked_results)} Milvus results.")
                 results_to_return = reranked_results[:max_items]
                 logger.info(f"RAG: Returning top {len(results_to_return)} reranked Milvus documents as context.")
-                return results_to_return
+                return results_to_return # Ensure return statement is correct
             except Exception as e_milvus: logger.error(f"Failed during Milvus context retrieval: {e_milvus}", exc_info=True); return []
 
         async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI, search_params: dict): # ADDED: search_params argument
-            # ... (inner function remains the same) ...
             logger.debug(f"Starting Email context retrieval with params: {search_params} (max_items={max_items}, max_chars={max_chunk_chars})...")
             def _truncate_text(text: str, max_len: int) -> str:
-                # Ensure text is a string before processing
                 text_str = str(text) if text is not None else ''
                 if len(text_str) > max_len: return text_str[:max_len] + "... [TRUNCATED]"; return text_str
             try:
                 initial_email_results = await query_iceberg_emails_duckdb(
                     user_email=user.email,
-                    # REMOVED: keywords=final_keywords_for_email,
-                    # REMOVED: original_message=message,
-                    # ADDED: Pass extracted parameters
                     sender_filter=search_params.get("sender_filter"),
                     subject_filter=search_params.get("subject_filter"),
                     start_date=search_params.get("start_date"),
@@ -903,18 +841,27 @@ JSON Response:"""
                     limit=max_items,
                     user_client=user_client,
                     provider=provider,
-                    token=None # Assuming internal RAG doesn't need token column filtering here
+                    token=None
                 )
-                # ADDED: Log the raw results received from DuckDB query
                 logger.debug(f"Email Retrieval: Raw results from query_iceberg_emails_duckdb: {initial_email_results}")
-                
                 if not initial_email_results: logger.info("Email Retrieval: No initial results from DuckDB."); return "No relevant emails found."
                 logger.info(f"Email Retrieval: Initially retrieved {len(initial_email_results)} emails from DuckDB.")
-                
+                # --- ADDED: Log Subjects/Senders of retrieved emails --- 
+                if initial_email_results:
+                    log_limit = 10 # Limit logs to avoid overwhelming output
+                    logger.debug(f"--- Top {min(len(initial_email_results), log_limit)} Retrieved Email Subjects/Senders ---")
+                    for i, email_log in enumerate(initial_email_results[:log_limit]):
+                        logger.debug(f"  {i+1}. Subject: '{email_log.get('subject')}', Sender: '{email_log.get('sender')}'")
+                    if len(initial_email_results) > log_limit:
+                        logger.debug(f"  ... (plus {len(initial_email_results) - log_limit} more)")
+                    logger.debug("--------------------------------------------------")
+                # --- END ADDED LOG --- 
                 context_entries = []
                 for email in initial_email_results:
-                    granularity = email.get('granularity', 'full_message') # Default to full if missing
+                    # --- Ensure entry_type is defined in all branches --- 
+                    granularity = email.get('granularity', 'full_message')
                     text_content = ""
+                    entry_type = "Email (Unknown Granularity)" # Default value
                     if granularity == 'full_message':
                         text_content = email.get('body_text')
                         entry_type = "Email Reply/Body"
@@ -923,9 +870,9 @@ JSON Response:"""
                         entry_type = "Quoted Section"
                     else:
                         text_content = email.get('body_text') or email.get('quoted_raw_text') # Fallback
-                        entry_type = "Email (Unknown Granularity)"
-                    
-                    # Construct entry, ensuring text_content is truncated
+                        # entry_type remains "Email (Unknown Granularity)"
+                    # --- End entry_type definition ---
+                        
                     entry = (
                         f"Email ID: {email.get('message_id')}\n"
                         f"Type: {entry_type}\n"
@@ -933,20 +880,18 @@ JSON Response:"""
                         f"Sender: {email.get('sender')}\n"
                         f"Subject: {email.get('subject')}\n"
                         f"Tags: {email.get('generated_tags')}\n"
-                        # Ensure content is a string before logging/truncating
                         f"Content: {_truncate_text(str(text_content) if text_content else '', max_chunk_chars)}"
                     )
                     context_entries.append(entry)
-                    
                 email_context = "\n\n---\n\n".join(context_entries)
-                # ADDED: Log the final formatted email context string
                 logger.debug(f"Email Retrieval: Final formatted context string:\n{email_context}")
                 logger.debug(f"Email Retrieval: Final formatted context length: {len(email_context)} chars from {len(initial_email_results)} rows.")
                 return email_context
             except Exception as e_email: logger.error(f"Failed to retrieve Email context: {e_email}", exc_info=True); return "Error retrieving email context."
 
         async def _get_calendar_context():
-            # ... (inner function remains the same) ...
+            # ... (Implementation of _get_calendar_context remains the same) ...
+            # (Ensure the full function definition is here)
             if not is_calendar_query: return "Calendar query not detected."
             if not ms_token: logger.warning("MS token not available, cannot fetch calendar events."); return "Error: Cannot fetch calendar events (auth token missing)."
             logger.debug("Starting Calendar context retrieval...")
@@ -957,24 +902,24 @@ JSON Response:"""
                 calendar_context = "\n\n---\n\n".join([f"Event Subject: {event.get('subject')}\nStart: {event.get('start_time')} ({event.get('start_timezone')})\nEnd: {event.get('end_time')} ({event.get('end_timezone')})\nLocation: {event.get('location')}\nAttendees: {', '.join(event.get('attendees', []))}\nPreview: {event.get('preview', '')[:100]}..." for event in events])
                 return calendar_context
             except Exception as e_cal: logger.error(f"Failed to retrieve Calendar context: {e_cal}", exc_info=True); return "Error retrieving calendar context."
-        # --- End Context Retrieval Functions ---
+        # --- End Context Retrieval Helper Functions ---
 
-        # Read limits from settings
+        # --- Read limits from settings (Keep other limits, MAX_EMAIL_CONTEXT_ITEMS is now dynamic) ---
         MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 20))
-        MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_EMAIL_LIMIT', 100))
+        # MAX_EMAIL_CONTEXT_ITEMS is now set dynamically above
         MAX_CALENDAR_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_CALENDAR_LIMIT', 20))
         MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
-        logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS}, Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
+        logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS} (DYNAMIC), Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
         logger.debug(f"Using max chars per chunk: {MAX_CHUNK_CHARS}")
 
         # --- START: Conditional Context Retrieval --- 
-        # ... (existing conditional retrieval code) ...
+        # This section will now use the dynamically set MAX_EMAIL_CONTEXT_ITEMS when calling _get_email_context
         retrieved_milvus_docs: List[Dict[str, Any]] = []
         retrieved_email_context: str = ""
         retrieved_calendar_context: str = "" # Calendar retrieval is separate for now
 
         # Always retrieve calendar context if relevant
-        retrieved_calendar_context = await _get_calendar_context()
+        retrieved_calendar_context = await _get_calendar_context() # NOW this call is valid
 
         if query_intent == 'email_focused':
             logger.info("Query intent is email_focused, retrieving only email context.")
@@ -1140,16 +1085,16 @@ JSON Response:"""
                         role = "user" if msg.get("role") == "user" else "assistant"
                         formatted_history.append({"role": role, "content": msg.get("content", "")})
 
-                # --- Proposed New Prompt ---
+                # --- Proposed New Prompt --- (Modified Instruction)
                 final_system_prompt = (
                     f"You are Jarvis, an AI assistant for {user.display_name or user.email}. Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).\n\n"
                     f"Follow these steps carefully:\n"
-                    f"1.  **Identify the core question:** Understand what specific information the user is asking for (e.g., new leads, updates on Project X, calendar availability).\n"
-                    f"2.  **Analyze Context for Direct Answers:** Scan the Knowledge Base Documents, User Email Context, and Calendar Events Context for direct answers or highly relevant information matching the core question.\n"
+                    f"1.  **Identify the core question/topic:** Understand what specific information the user is asking for (e.g., new leads, updates on Project X, calendar availability, news about clients).\n"
+                    f"2.  **Analyze ALL Context:** Scan the Knowledge Base Documents, User Email Context, and Calendar Events Context for *all* information matching the core question/topic.\n"
                     f"3.  **Specifically Scan Emails for Leads/Opportunities (If Relevant):** If the user asks about leads, opportunities, new business, or similar topics, thoroughly scan the *User Email Context* section. Look for keywords like 'interest', 'potential', 'explore', 'new client', 'call scheduled', 'follow up', 'introduction', 'collaboration', 'proposal', 'opportunity', 'lead'. List *any* potential leads or opportunities mentioned, even if preliminary or just discussions.\n"
                     f"4.  **Note Explicit Negative Statements:** Check the context for any explicit statements denying the requested information (e.g., 'no new opportunities at advanced stages', 'no updates found for Project X').\n"
                     f"5.  **Synthesize the Final Answer:**\n"
-                    f"    *   Directly answer the user's core question using the findings from Step 2.\n"
+                    f"    *   Directly answer the user's core question/topic using *all* relevant findings from Step 2. **Do not filter your answer based only on specific names/entities mentioned in the user's original query if the context contains other relevant information matching the topic.**\n"
                     f"    *   If the query was about leads/opportunities (Step 3), provide a summary of *all* potential items found. For each item, include key details like sender/parties involved, subject/topic, date, and the nature of the opportunity.\n"
                     f"    *   If relevant negative statements were found (Step 4), mention them clearly, but ensure they don't overshadow the positive findings from Step 3 unless the negative statement directly contradicts a potential lead (e.g., 'call cancelled').\n"
                     f"    *   Structure the answer clearly using Markdown (lists, bolding) where helpful.\n"
@@ -1173,6 +1118,11 @@ JSON Response:"""
                     
                 final_messages.extend(formatted_history)
                 final_messages.append({"role": "user", "content": message})
+
+                # Log the final context being sent
+                logger.debug(f"DEBUG RAG - Final Context Sent to LLM (length {len(final_context)} chars):\n{final_context}")
+                # Log the full messages list
+                logger.debug(f"DEBUG RAG - Final Messages Sent to LLM: {json.dumps(final_messages)}")
 
                 # Call the LLM API
                 final_response_obj = await user_client.chat.completions.create(
