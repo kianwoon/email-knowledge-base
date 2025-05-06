@@ -211,8 +211,14 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
                     from_date=from_date
                 ).apply() # Apply synchronously
                 
-                # The result of apply() is an EagerResult, get the actual return value
-                processed_count = processed_count_result.get() if processed_count_result.successful() else 0
+                # The result of apply() is an EagerResult, try accessing .result directly
+                processed_count = 0 # Default to 0
+                if processed_count_result.successful():
+                   processed_count = processed_count_result.result # Use .result instead of .get()
+                
+                # Ensure processed_count is an integer, default to 0 if None or other type
+                if not isinstance(processed_count, int):
+                    processed_count = 0
 
                 if processed_count > 0:
                     emails_processed = True
