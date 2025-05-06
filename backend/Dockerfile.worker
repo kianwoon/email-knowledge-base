@@ -19,7 +19,7 @@ ENV PYTHONPATH="/app"
 COPY backend/requirements.txt /app/requirements.txt
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3-dev supervisor redis-tools \
+    && apt-get install -y --no-install-recommends build-essential python3-dev supervisor redis-tools netcat-openbsd \
     && pip install --upgrade pip setuptools wheel cython \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential python3-dev \
@@ -54,6 +54,7 @@ RUN chown -R celery:celery /app /etc/supervisor /home/celery
 # Switch to non-root user
 USER celery
 
-# Command to start worker and beat directly, bypassing Supervisor
-# Use sh -c to handle the '&' backgrounding. Add 'wait' to keep the container alive.
-CMD ["/bin/sh", "-c", "celery -A app.celery_app worker --pool=threads --loglevel=info & celery -A app.celery_app beat -l info & wait"]
+ENTRYPOINT ["bash","-c","\
+  while true; do echo -e 'HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n' | nc -l -p ${HEALTH_PORT:-8080}; done & \
+  exec celery -A app.celery_app worker --pool=threads --loglevel=info\
+"]
