@@ -13,7 +13,7 @@ WORKDIR /app
 # Install dependencies and build tools, install python packages, then clean up
 COPY backend/requirements.txt /app/requirements.txt
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends build-essential netcat-openbsd \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential \
@@ -25,6 +25,9 @@ COPY backend/ /app/
 # Expose the port the app runs on
 EXPOSE 8000
 
-# Command to run the Uvicorn server
-# Assumes your main FastAPI app instance is named 'app' in 'app/main.py'
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Copy health-check netcat server and start Celery
+COPY backend/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+# CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
