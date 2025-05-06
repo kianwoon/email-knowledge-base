@@ -42,7 +42,9 @@ from app.routes import (
     jarvis_settings,
     # Add the new router import
     shared_knowledge_catalog,
-    outlook_sync
+    outlook_sync,
+    # Import the websockets router
+    websockets
 )
 # Import the new shared_knowledge router
 # from app.routes import shared_knowledge 
@@ -197,6 +199,9 @@ app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Ja
 # Include the new router
 app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge Catalog"])
 app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}", tags=["Outlook Sync"])
+
+# Include the websockets router
+app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])
 
 # --- Log Registered Routes --- #
 logger.info("--- Registered Routes --- DUMP START ---")

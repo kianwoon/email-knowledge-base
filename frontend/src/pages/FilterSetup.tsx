@@ -988,7 +988,7 @@ const FilterSetup: React.FC = () => {
         ws.close();
       }
     };
-  }, [analysisJobId, toast, t]);
+  }, [toast, t]);
 
   // Restore transformedChartData useMemo hook
   const transformedChartData = useMemo(() => {
