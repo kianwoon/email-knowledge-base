@@ -202,14 +202,18 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
                 
                 logger.info(f"Syncing emails for user {user_email}, folder {folder_id} from {from_date}")
                 
-                # Process emails for this folder
-                processed_count = process_user_emails(
+                # Process emails for this folder by calling it as a synchronous subtask
+                # This ensures it runs in a Celery context and self.request.id is available in process_user_emails
+                processed_count_result = process_user_emails.s(
                     user_id=str(user.id),
                     user_email=user_email,
                     folder_id=folder_id,
                     from_date=from_date
-                )
+                ).apply() # Apply synchronously
                 
+                # The result of apply() is an EagerResult, get the actual return value
+                processed_count = processed_count_result.get() if processed_count_result.successful() else 0
+
                 if processed_count > 0:
                     emails_processed = True
                     logger.info(f"Processed {processed_count} emails for user {user_email}, folder {folder_id}")
