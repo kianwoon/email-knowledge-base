@@ -764,8 +764,13 @@ const FilterSetup: React.FC = () => {
       
       // Update state based on response
       setTaskStatus(statusResult.status);
-      // Use optional chaining and nullish coalescing for safer updates
-      setTaskProgress(statusResult.progress ?? taskProgress); 
+      
+      // Ensure progress is calculated as 0-100, rounded up, and capped
+      const newProgressValue = statusResult.progress !== undefined && statusResult.progress !== null
+        ? Math.ceil(Math.min(Math.max(statusResult.progress * 100, 0), 100)) // Multiply, clamp 0-100, THEN round up
+        : taskProgress; // Keep existing progress if API doesn't provide it
+      setTaskProgress(newProgressValue);
+      
       setTaskDetails(statusResult.details ?? 'No details provided.');
 
       // Check for final states
@@ -1673,8 +1678,8 @@ const FilterSetup: React.FC = () => {
                         value={taskProgress} 
                         size="sm" 
                         colorScheme={taskStatus === 'FAILURE' || taskStatus === 'POLLING_ERROR' ? 'red' : 'blue'} 
-                        hasStripe={taskStatus === 'PROGRESS' || taskStatus === 'STARTED' || taskStatus === 'PENDING'}
-                        isAnimated={taskStatus === 'PROGRESS' || taskStatus === 'STARTED' || taskStatus === 'PENDING'}
+                        hasStripe={['PROGRESS', 'STARTED', 'PENDING'].includes(taskStatus || '')} // Keep stripe for all non-final states
+                        isAnimated={taskStatus === 'PROGRESS'} // Animate only when actively progressing
                         borderRadius="md"
                       />
                     </Box>
