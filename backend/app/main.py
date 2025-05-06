@@ -84,6 +84,12 @@ log_level = logging.DEBUG if settings.DEBUG else logging.INFO
 logging.basicConfig(level=log_level, stream=sys.stdout, 
                     format='%(levelname)s:%(name)s:%(lineno)d - %(message)s') # Slightly adjusted format for more detail
 
+# Set specific loggers to WARNING to reduce verbosity
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.error").setLevel(logging.WARNING) # Also affects WebSocket connection open/closed msgs
+logging.getLogger("app.routes.websockets").setLevel(logging.WARNING)
+logging.getLogger("app.websocket").setLevel(logging.WARNING)
+
 # Optionally set specific loggers to different levels if needed
 # logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
