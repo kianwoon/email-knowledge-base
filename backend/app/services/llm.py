@@ -359,87 +359,638 @@ def count_tokens(text: str, model: str = "gpt-4") -> int:
         return 0 # Return 0 on error
 
 def truncate_text_by_tokens(text: str, model: str, max_tokens: int) -> str:
-    """Truncates text to a maximum number of tokens."""
+    """Truncates text to fit within a specified token limit."""
+    if not text:
+        return ""
+    
     if not isinstance(text, str):
         logger.warning(f"Attempted to truncate non-string type: {type(text)}. Returning empty string.")
         return ""
-        
-    if model not in _token_encoders:
-        try:
-            _token_encoders[model] = tiktoken.encoding_for_model(model)
-        except KeyError:
-            logger.warning(f"Model {model} not found for truncation. Using cl100k_base encoding.")
-            _token_encoders[model] = tiktoken.get_encoding("cl100k_base")
-            
+    
+    current_tokens = count_tokens(text, model)
+    if current_tokens <= max_tokens:
+        return text  # No truncation needed
+    
     try:
+        # Get the encoder for the model
+        if model not in _token_encoders:
+            try:
+                _token_encoders[model] = tiktoken.encoding_for_model(model)
+            except KeyError:
+                logger.warning(f"Model {model} not found in tiktoken. Using cl100k_base encoding.")
+                _token_encoders[model] = tiktoken.get_encoding("cl100k_base")
+        
         encoder = _token_encoders[model]
+        
+        # Encode the text to tokens
         tokens = encoder.encode(text)
-        if len(tokens) <= max_tokens:
-            return text
+        
+        # Truncate to max_tokens
         truncated_tokens = tokens[:max_tokens]
-        # Use decode with error handling
-        return encoder.decode(truncated_tokens, errors='replace') + "...[TRUNCATED BY TOKEN LIMIT]"
+        
+        # Decode back to text
+        truncated_text = encoder.decode(truncated_tokens)
+        
+        # Add truncation indicator
+        if len(truncated_text) < len(text):
+            truncated_text += " [...truncated...]"
+        
+        return truncated_text
     except Exception as e:
         logger.error(f"Error truncating text by tokens: {e}", exc_info=True)
-        # Fallback to character truncation if tokenization fails
-        fallback_chars = max_tokens * 3 # Rough estimate
-        return text[:fallback_chars] + "...[TRUNCATED BY CHAR LIMIT DUE TO ERROR]"
+        # Fallback to simple character-based truncation if token-based fails
+        approx_chars_per_token = 4  # Very rough approximation
+        approx_chars = max_tokens * approx_chars_per_token
+        fallback_text = text[:approx_chars] + " [...truncated due to error...]"
+        return fallback_text
+
 # --- End Helper ---
 
-# CORRECTED Function Definition
+# --- START: Email Batch Summarization Helper Function ---
+async def _summarize_email_batch(
+    email_batch: List[Dict[str, Any]], 
+    original_query: str,
+    batch_llm_client: AsyncOpenAI, # Use the configured client
+    batch_model_name: str,         # Use the configured model
+    max_chars_per_email: int = 1000 # Limit context per email within batch
+) -> str:
+    """Summarizes a batch of emails focusing on relevance to the original query."""
+    logger.debug(f"Starting summary for batch of {len(email_batch)} emails.")
+    if not email_batch: return "" # Return empty string if batch is empty
+
+    # Helper to truncate email body within the batch context
+    def _truncate_email_body(text: str, max_len: int) -> str:
+        text_str = str(text) if text is not None else ''
+        if len(text_str) > max_len: return text_str[:max_len] + "... [TRUNCATED FOR SUMMARY]"; return text_str
+
+    # Format the batch context
+    batch_context_parts = []
+    for i, email in enumerate(email_batch): 
+        # Extract only essential fields for summarization
+        sender = email.get('sender', 'Unknown Sender')
+        subject = email.get('subject', 'No Subject')
+        received_date = email.get('received_datetime_utc', 'Unknown Date')
+        body_text = email.get('body_text', '')
+        quoted_text = email.get('quoted_raw_text', '') 
+        full_body = f"{body_text}\n\n--- Quoted Text ---\n{quoted_text}".strip()
+        truncated_body = _truncate_email_body(full_body, max_chars_per_email)
+
+        # Build the entry string incrementally
+        entry_str = f"--- Email {i+1} ---\n"
+        entry_str += f"From: {sender}\n"
+        entry_str += f"Subject: {subject}\n"
+        entry_str += f"Date: {received_date}\n"
+        entry_str += f"Body:\n{truncated_body}\n"
+        entry_str += f"--- End Email {i+1} ---"
+        batch_context_parts.append(entry_str)
+    batch_context_str = "\n\n".join(batch_context_parts)
+
+    # Define the summarization prompt
+    summary_system_prompt = (
+        f"You are an expert summarizer. Your task is to read the following batch of emails and extract the key information, updates, developments, action items, or news that are **directly relevant** to the user's original query: \"{original_query}\".\n" \
+        f"Focus ONLY on information related to that query. Ignore irrelevant details.\n" \
+        f"Produce a concise summary of the relevant points found within this email batch. If no relevant information is found, state that clearly.\n" \
+        f"Present the summary clearly, perhaps using bullet points for distinct items."
+    )
+    
+    summary_user_prompt = f"Email Batch Context:\n{batch_context_str}"
+
+    try:
+        # Call the LLM for summarization
+        response = await batch_llm_client.chat.completions.create(
+            model=batch_model_name,
+            messages=[
+                {"role": "system", "content": summary_system_prompt},
+                {"role": "user", "content": summary_user_prompt}
+            ],
+            temperature=0.1, # Lower temperature for factual summary
+            max_tokens=1024 # Adjust max tokens for summary length as needed
+        )
+        summary = response.choices[0].message.content.strip()
+        logger.debug(f"Batch summary generated (length {len(summary)}): {summary[:100]}...")
+        return summary
+    except Exception as e:
+        logger.error(f"Error during email batch summarization LLM call: {e}", exc_info=True)
+        return "Error summarizing this email batch." # Return error message
+# --- END Email Batch Summarization Helper ---
+
+
+# --- START: Email Context Retrieval Helper ---
+async def _get_email_context(
+    max_items: int, 
+    max_chunk_chars: int, # Note: max_chunk_chars isn't directly used by query_iceberg, but kept for consistency
+    user_client: AsyncOpenAI, 
+    search_params: dict, 
+    user_email: str
+) -> List[Dict[str, Any]]:
+    """Retrieves email context by calling query_iceberg_emails_duckdb."""
+    logger.debug(f"_get_email_context called with params: {search_params}, limit: {max_items}")
+    try:
+        # Determine provider based on client type or add as parameter if needed
+        # This assumes user_client is configured for a specific provider (OpenAI/Deepseek)
+        # A more robust way might involve passing the provider string explicitly
+        provider = "openai" # Default assumption, adjust if necessary
+        if hasattr(user_client, 'base_url') and 'deepseek' in str(user_client.base_url):
+            provider = "deepseek"
+            
+        email_results = await query_iceberg_emails_duckdb(
+            user_email=user_email,
+            sender_filter=search_params.get("sender_filter"),
+            subject_filter=search_params.get("subject_filter"),
+            start_date=search_params.get("start_date"),
+            end_date=search_params.get("end_date"),
+            search_terms=search_params.get("search_terms"),
+            limit=max_items, # Pass the calculated limit
+            user_client=user_client, # Pass the client
+            provider=provider, # Pass determined provider
+            token=None # Pass token if applicable/available
+        )
+        logger.info(f"_get_email_context retrieved {len(email_results)} emails.")
+        return email_results
+    except Exception as e_iceberg:
+        logger.error(f"Error calling query_iceberg_emails_duckdb within _get_email_context: {e_iceberg}", exc_info=True)
+        return [] # Return empty list on error
+# --- END: Email Context Retrieval Helper ---
+
+
+# --- START: Milvus Context Retrieval Helper ---
+async def _get_milvus_context(
+    max_items: int, 
+    max_chunk_chars: int,
+    query: str,
+    user_email: str
+) -> List[Dict[str, Any]]:
+    """Retrieves document context from Milvus using the search_milvus_knowledge_hybrid function."""
+    logger.debug(f"_get_milvus_context called with query: '{query[:50]}...', limit: {max_items}")
+    try:
+        # Create collection name using the user's email
+        sanitized_email = user_email.replace('@', '_').replace('.', '_')
+        collection_name = f"{sanitized_email}_knowledge_base_bm"
+        
+        # Call the hybrid search function from embedder.py
+        document_results = await search_milvus_knowledge_hybrid(
+            query_text=query,
+            collection_name=collection_name,
+            limit=max_items
+        )
+        
+        # Rerank if more than 1 result is returned for improved relevance
+        if len(document_results) > 1:
+            document_results = await rerank_results(
+                query=query,
+                results=document_results
+            )
+            # Apply final limit after reranking
+            document_results = document_results[:max_items]
+            
+        logger.info(f"_get_milvus_context retrieved {len(document_results)} documents.")
+        return document_results
+    except Exception as e_milvus:
+        logger.error(f"Error during Milvus document retrieval in _get_milvus_context: {e_milvus}", exc_info=True)
+        return [] # Return empty list on error
+# --- END: Milvus Context Retrieval Helper ---
+
+
+# --- START: Helper function to build the system prompt ---
+def _build_system_prompt() -> str:
+    # This is a basic system prompt. You can customize it further.
+    return "You are a helpful AI assistant. Your user is asking a question.\n" \
+           "You have been provided with some context information (RAG Context) that might be relevant to the user's query.\n" \
+           "Please use this context to answer the user's question accurately and concisely.\n" \
+           "If the context doesn't provide enough information, state that you couldn't find the answer in the provided documents or emails.\n" \
+           "Do not make up information.\n\n" \
+           "<RAG_CONTEXT_PLACEHOLDER>"
+# --- END: Helper function to build the system prompt ---
+
+# --- START: Helper function to format chat history ---
+def _format_chat_history(
+    chat_history: List[Dict[str, str]], 
+    model: str = "gpt-4", # Default model for token counting
+    max_tokens: Optional[int] = None
+) -> str:
+    """Formats chat history into a string, optionally truncating by tokens."""
+    if not chat_history:
+        return ""
+
+    formatted_history_parts = []
+    for entry in chat_history:
+        role = entry.get("role", "user") # Default to user if role is missing
+        content = entry.get("content", "")
+        formatted_history_parts.append(f"{role.capitalize()}: {content}")
+    
+    full_history_str = "\n".join(formatted_history_parts)
+
+    if max_tokens is not None:
+        current_tokens = count_tokens(full_history_str, model)
+        if current_tokens > max_tokens:
+            logger.warning(f"Chat history ({current_tokens} tokens) exceeds max_tokens ({max_tokens}). Truncating.")
+            # For simplicity, this example truncates from the beginning of the history.
+            # More sophisticated truncation (e.g., keeping recent messages) might be needed.
+            truncated_history = truncate_text_by_tokens(full_history_str, model, max_tokens)
+            return truncated_history
+            
+    return full_history_str
+# --- END: Helper function to format chat history ---
+
+
+async def get_rate_card_response_advanced(
+    message: str,
+    chat_history: List[Dict[str, str]],  # ADDED: chat_history parameter
+    user: "User",
+    db: "Session",
+    model_id: Optional[str] = None,      # Add model_id parameter
+    ms_token: Optional[str] = None       # Add ms_token parameter
+) -> str:
+    logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
+    fallback_response = (
+        "I apologize, but I encountered an unexpected error while "
+        "processing your rate card query. Our team has been notified of this issue."
+    )
+    try:
+        # 1. Determine model & provider
+        chat_model = model_id or settings.OPENAI_MODEL_NAME
+        if not chat_model:
+            logger.error(
+                "RateCardRAG: LLM model name not configured "
+                "(model_id missing and OPENAI_MODEL_NAME not set)."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="LLM model name not configured for rate card search."
+            )
+
+        provider = "deepseek" if chat_model.lower().startswith("deepseek") else "openai"
+        logger.debug(
+            f"RateCardRAG: Using LLM model: {chat_model} via provider {provider}"
+        )
+
+        # 2. Fetch & decrypt API key
+        db_api_key = api_key_crud.get_api_key(db, user.email, provider)
+        if not db_api_key:
+            logger.warning(
+                f"User {user.email} missing active {provider} key for Rate Card RAG."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{provider.capitalize()} API key required."
+            )
+        user_api_key = decrypt_token(db_api_key.encrypted_key)
+        if not user_api_key:
+            logger.error(
+                f"Failed to decrypt {provider} key for user {user.email}. Key ID: {db_api_key.id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Could not decrypt stored {provider.capitalize()} API key."
+            )
+
+        # 3. Initialize client
+        default_timeout = settings.DEFAULT_LLM_TIMEOUT_SECONDS
+        if provider == "deepseek":
+            provider_timeout = float(
+                settings.DEEPSEEK_TIMEOUT_SECONDS or default_timeout
+            )
+        else:
+            provider_timeout = float(
+                settings.OPENAI_TIMEOUT_SECONDS or default_timeout
+            )
+
+        client_kwargs = {"api_key": user_api_key, "timeout": provider_timeout}
+        if db_api_key.model_base_url:
+            client_kwargs["base_url"] = db_api_key.model_base_url
+        elif provider == "deepseek":
+            client_kwargs["base_url"] = "https://api.deepseek.com/v1"
+
+        user_client = AsyncOpenAI(**client_kwargs)
+
+        # 4. Extract query features via LLM
+        logger.debug("RateCardRAG: Analyzing query for key features...")
+        analysis_system = (
+            "You extract key features from user queries for rate card lookup. "
+            "Return ONLY a JSON object with fields: "
+            "'role', 'experience', 'skills' (list), 'location', 'amount' (integer), "
+            "'document_type'. Use null for missing."
+        )
+        analysis_user = (
+            f"Analyze this query: '{message}' and extract:\n"
+            "1. role (main subject/entity)\n"
+            "2. experience level (if any)\n"
+            "3. skills list\n"
+            "4. location\n"
+            "5. dollar amount\n"
+            "6. document_type (e.g., 'rate card', 'SOW', etc.)\n\n"
+            "Respond with JSON only.\n\n"
+            "Examples:\n"
+            "  Query: Show the MAS rate card\n"
+            "  Output: {\"role\":\"MAS\",\"experience\":null,\"skills\":[],"
+            "\"location\":null,\"amount\":null,\"document_type\":\"rate card\"}\n"
+            "  Query: Rate for a senior GIC developer?\n"
+            "  Output: {\"role\":\"GIC developer\",\"experience\":\"senior\",\"skills\":[],"
+            "\"location\":null,\"amount\":null,\"document_type\":\"rate card\"}"
+        )
+        analysis_args = {
+            "model": chat_model,
+            "messages": [
+                {"role": "system", "content": analysis_system},
+                {"role": "user", "content": analysis_user}
+            ],
+            "temperature": 0.0,
+            "response_format": {"type": "json_object"} if provider == "openai" else None
+        }
+        analysis_response = await user_client.chat.completions.create(**analysis_args)
+        raw = analysis_response.choices[0].message.content
+        try:
+            query_features = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error(f"RateCardRAG: Failed to parse JSON: {raw}")
+            query_features = {}
+
+        # Normalize document_type
+        doc_type = query_features.get("document_type")
+        if doc_type == "unknown":
+            doc_type = None
+
+        # 5. Build filename_terms_for_search
+        filename_terms = []
+        m = re.search(r"original_filename\s*(?:is|=)\s*['\"]?([^.'\"]+)['\"]?", message, re.IGNORECASE)
+        if m:
+            part = m.group(1).strip()
+            filename_terms = [
+                t for t in re.split(r"[\s_-]+", part)
+                if len(t) > 1 and t.lower() not in {"and","the","of","for","a","to","v"}
+            ]
+        if not filename_terms:
+            # fallback to role & doc_type tokens
+            role = query_features.get("role")
+            if role:
+                filename_terms += [t for t in re.split(r"[\s_-]+", role) if t]
+            if doc_type:
+                filename_terms += [t for t in re.split(r"[\s_-]+", doc_type) if t]
+            if "rate card" in message.lower() or doc_type == "rate card":
+                filename_terms += ["rate","card"]
+        filename_terms = list({t for t in filename_terms if t})
+
+        # 6. Build retrieval queries
+        base_parts = [query_features.get(f) for f in ("role","experience","location") if query_features.get(f)]
+        if skills := query_features.get("skills"):
+            base_parts += skills
+        if doc_type:
+            base_parts.append(doc_type)
+        queries = list({ " ".join([p for p in base_parts if p]) or message })
+
+        # 7. HyDE & embeddings
+        embeddings = []
+        for q in queries:
+            hyde = q
+            try:
+                hyde_resp = await user_client.chat.completions.create(
+                    model=chat_model,
+                    messages=[{"role":"user","content":f"Generate a brief rate-card snippet for: '{q}'"}],
+                    temperature=0.0
+                )
+                hyde = hyde_resp.choices[0].message.content.strip() or q
+            except Exception:
+                pass
+            embeddings.append(await create_retrieval_embedding(hyde, field="dense"))
+
+        # 8. Hybrid search in Milvus
+        sanitized = user.email.replace("@","_").replace(".","_")
+        collection = f"{sanitized}_knowledge_base_bm"
+        per_q = int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3))
+        # -- BEGIN: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
+        # Temporarily disable filename_terms filtering to surface the MAS rate card document
+        filename_terms = []
+        # Increase number of candidates fetched
+        per_q = max(per_q, int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3)) * 2)
+        # -- END: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
+        raw_results = []
+        for vec, q in zip(embeddings, queries):
+            hits = await search_milvus_knowledge_hybrid(
+                query_text=q,
+                collection_name=collection,
+                limit=per_q,
+                filename_terms=filename_terms,
+                dense_params={"metric_type":"COSINE","params":{"ef":128},"search_data_override":vec}
+            )
+            raw_results.extend(hits)
+
+        # Fallback: if hybrid search yields no results, use dense-only search
+        if not raw_results:
+            logger.info("RateCardRAG: Hybrid search returned no results; falling back to dense search without filename filter.")
+            try:
+                dense_results = await search_milvus_knowledge(
+                    query_text=message,
+                    collection_name=collection,
+                    limit=per_q
+                )
+                if dense_results:
+                    logger.info(f"RateCardRAG: Dense search returned {len(dense_results)} results.")
+                    raw_results = dense_results
+            except Exception as e_dense:
+                logger.error(f"RateCardRAG: Dense fallback search failed: {e_dense}", exc_info=True)
+
+        # 9. Dedupe & rerank
+        unique = {r["id"]: r for r in raw_results}.values()
+        reranked = await rerank_results(query=message, results=list(unique))
+
+        # PRIORITIZE MAS DOCUMENT if present
+        prioritized = []
+        for doc in reranked:
+            fname = doc.get('metadata', {}).get('original_filename', '').lower()
+            if 'mas' in fname:
+                prioritized.append(doc)
+        # Remove prioritized docs from reranked and prepend them
+        if prioritized:
+            reranked = [doc for doc in reranked if doc not in prioritized]
+            reranked = prioritized + reranked
+            logger.info(f"RateCardRAG: Prioritized {len(prioritized)} MAS-related documents in final context order.")
+
+        # 10. Format top‐K context
+        k = int(getattr(settings, "RATE_CARD_FINAL_CONTEXT_LIMIT", 5))
+        chosen = reranked[:k]
+        if not chosen:
+            doc_context = "No rate card documents matched your query."
+        else:
+            parts = []
+            for d in chosen:
+                txt = d.get("content","")
+                limit = int(getattr(settings,"RATE_CARD_MAX_CHARS_PER_DOC",4000))
+                txt = txt[:limit] + ("...[TRUNC]" if len(txt)>limit else "")
+                fname = d.get("metadata",{}).get("original_filename","Unknown")
+                score = d.get("rerank_score",d.get("score","N/A"))
+                parts.append(f"Source: {fname} (Score:{score})\n{txt}")
+            doc_context = "<Rate Card Context>\n" + "\n\n---\n\n".join(parts) + "\n</Rate Card Context>"
+
+        # 11. Token‐budgeting & final prompt
+        MAX_TOK = int(getattr(settings, "MODEL_MAX_TOKENS", 16384))
+        BUF = int(getattr(settings, "RESPONSE_BUFFER_TOKENS", 4096))
+        HST = int(getattr(settings, "MAX_CHAT_HISTORY_TOKENS", 2000))
+        system_prompt = _build_rate_card_system_prompt()
+        hist = _format_chat_history(chat_history, model=chat_model, max_tokens=HST)
+        used = (
+            count_tokens(system_prompt.replace("<RATE_CARD_CONTEXT>",""), chat_model) +
+            count_tokens(hist, chat_model) +
+            count_tokens(message, chat_model) +
+            BUF
+        )
+        remain = MAX_TOK - used
+        if remain <= 0:
+            rag_ctx = "Context omitted due to token limits."
+        else:
+            needed = count_tokens(doc_context, chat_model)
+            if needed <= remain:
+                rag_ctx = doc_context
+            else:
+                rag_ctx = truncate_text_by_tokens(doc_context, chat_model, remain)
+
+        final_sys = system_prompt.replace("<RATE_CARD_CONTEXT>", rag_ctx)
+        messages_out = [{"role":"system","content":final_sys}]
+        if hist:
+            messages_out.append({"role":"user","content":f"History:\n{hist}"})
+        messages_out.append({"role":"user","content":message})
+
+        # 12. Final LLM call
+        resp = await user_client.chat.completions.create(
+            model=chat_model,
+            messages=messages_out,
+            temperature=float(getattr(settings,"OPENAI_TEMPERATURE",0.1)),
+            max_tokens=BUF
+        )
+        content = resp.choices[0].message.content.strip()
+        return _format_rate_card_response(content)
+
+    except HTTPException:
+        raise
+    except RateLimitError:
+        return "I'm experiencing high demand—please try again shortly."
+    except Exception as e:
+        logger.error(f"Unexpected error in RateCardRAG: {e}", exc_info=True)
+        return fallback_response
+
+    # Defensive fallback
+    return fallback_response
+
+# --- Helper function to build rate card system prompt ---
+def _build_rate_card_system_prompt() -> str:
+    """Builds a specialized system prompt for rate card queries."""
+    return "You are a helpful AI assistant specializing in rate card information. Your user is asking about pricing, costs, or rates.\n" \
+           "You have been provided with rate card context that might be relevant to the user's query.\n" \
+           "When responding to rate card questions:\n" \
+           "1. Be precise and specific about pricing, using exact figures when available.\n" \
+           "2. Clearly state any conditions, terms, or qualifications that apply to the rates.\n" \
+           "3. Organize information in a clear, structured format when presenting multiple options.\n" \
+           "4. If the context doesn't provide specific rate information for the user's query, state that clearly.\n" \
+           "5. Do not make up or estimate prices if they are not in the provided context.\n\n" \
+           "<RATE_CARD_CONTEXT>"
+
+# --- Rate card parameter extraction helper ---
+async def _extract_rate_card_parameters(message: str, user_client: AsyncOpenAI, model: str) -> Dict[str, Any]:
+    """Extracts rate card specific parameters from the user's message."""
+    try:
+        extraction_prompt = f"""Extract key rate card parameters from this query: "{message}"
+Please identify the following:
+1. Service or product the user is asking about
+2. Specific region or location (if mentioned)
+3. Time period or duration (if mentioned)
+4. Any specific pricing tier or level (if mentioned)
+5. Any specific client or customer type (if mentioned)
+
+Respond with a JSON object containing these fields (null if not found):
+{{
+  "service": string or null,
+  "region": string or null,
+  "time_period": string or null,
+  "tier": string or null,
+  "client_type": string or null
+}}"""
+
+        response = await user_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": "Extract rate card parameters from the user query."},
+                      {"role": "user", "content": extraction_prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        
+        params = json.loads(response.choices[0].message.content)
+        return params
+    except Exception as e:
+        logger.error(f"Error extracting rate card parameters: {e}", exc_info=True)
+        return {
+            "service": None,
+            "region": None,
+            "time_period": None,
+            "tier": None,
+            "client_type": None
+        }
+
+# --- Rate card response formatting helper ---
+def _format_rate_card_response(response: str) -> str:
+    """Post-processes rate card responses to format currency and numbers consistently."""
+    try:
+        # Format dollar amounts consistently (e.g., $1,000 instead of $1000)
+        dollar_pattern = r'\$(\d+)(?![\d,])'
+        response = re.sub(dollar_pattern, lambda m: f"${int(m.group(1)):,}", response)
+        
+        return response
+    except Exception as e:
+        logger.error(f"Error formatting rate card response: {e}", exc_info=True)
+        return response
+
 async def generate_openai_rag_response(
     message: str,
     chat_history: List[Dict[str, str]],
     user: User,
-    db: Session, # Database session
-    model_id: Optional[str] = None,  # Override the default LLM model
-    ms_token: Optional[str] = None # ADDED: Pass validated MS token if available
+    db: Session,
+    model_id: Optional[str] = None,
+    ms_token: Optional[str] = None
 ) -> str:
-    """
-    Generates a chat response using RAG with context from Milvus and Iceberg (emails),
+    """Generates a chat response using RAG with context from Milvus and Iceberg (emails),
     using an LLM to select/synthesize the most relevant context.
-    Fails if the user has not provided their OpenAI API key.
-    """
+    Fails if the user has not provided their OpenAI API key."""
     logger.error(f"DEBUG RAG - Function Entry: generate_openai_rag_response for user {user.email} - Message: '{message[:50]}...'")
+    logger.critical("!!! RAG function execution STARTED !!!") # ADDED DEBUG LOG
     fallback_response = "I apologize, but I encountered an unexpected error while processing your request. Our team has been notified of this issue."
     
-    # --- Initial Setup Try --- 
-    try: 
-        # Determine model and user-specific client
-        chat_model = model_id or settings.OPENAI_MODEL_NAME
-        # Determine provider based on model name
-        if chat_model.lower().startswith("deepseek"):
-            provider = "deepseek"
-        else:
-            provider = "openai" # Default to openai if not specified
-        logger.error(f"DEBUG RAG - Using model: {chat_model} via provider: {provider}")
+    # Define necessary constants from settings or defaults
+    MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
+    MAX_TOTAL_TOKENS = int(getattr(settings, 'MODEL_MAX_TOKENS', 16384))
+    RESPONSE_BUFFER_TOKENS = int(getattr(settings, 'RESPONSE_BUFFER_TOKENS', 4096))
+    MAX_CHAT_HISTORY_TOKENS = int(getattr(settings, 'MAX_CHAT_HISTORY_TOKENS', 2000))
+    MULTI_STAGE_EMAIL_TOKEN_THRESHOLD = int(getattr(settings, 'MULTI_STAGE_EMAIL_TOKEN_THRESHOLD', 8000))
+    EMAIL_SUMMARY_BATCH_SIZE = int(getattr(settings, 'EMAIL_SUMMARY_BATCH_SIZE', 10))
+    MAX_DOCUMENT_CONTEXT_CHARS = int(getattr(settings, 'RAG_DOCUMENT_MAX_CHARS_PER_ITEM', 3000)) # Max chars per document in context
 
-        # Fetch and decrypt API key
+    # Initial Setup
+    try:
+        chat_model = model_id or settings.OPENAI_MODEL_NAME
+        provider = "deepseek" if chat_model.lower().startswith("deepseek") else "openai"
         db_api_key = api_key_crud.get_api_key(db, user.email, provider)
         if not db_api_key:
-            logger.warning(f"User {user.email} missing active {provider} key.")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{provider.capitalize()} API key required.")
         user_api_key = decrypt_token(db_api_key.encrypted_key)
         if not user_api_key:
-            logger.error(f"Failed to decrypt stored {provider} key for user {user.email}. Key ID: {db_api_key.id}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not decrypt stored {provider.capitalize()} API key.")
-        user_base_url = db_api_key.model_base_url
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not decrypt API key.")
 
         # Configure client
-        default_timeout = settings.DEFAULT_LLM_TIMEOUT_SECONDS 
-        provider_timeout = default_timeout
-        if provider == "deepseek":
-            provider_timeout = float(settings.DEEPSEEK_TIMEOUT_SECONDS or settings.DEFAULT_DEEPSEEK_TIMEOUT_SECONDS)
+        default_timeout_setting = settings.DEFAULT_LLM_TIMEOUT_SECONDS
+        provider_timeout_setting = getattr(settings, f"{provider.upper()}_TIMEOUT_SECONDS", default_timeout_setting)
+
+        # Ensure we have a valid value before converting to float
+        if provider_timeout_setting is None:
+            logger.warning(f"Timeout setting for {provider.upper()} or DEFAULT is None. Using hardcoded default: 30.0s")
+            provider_timeout = 30.0 # Hardcoded safe default
         else:
-             provider_timeout = float(settings.OPENAI_TIMEOUT_SECONDS or default_timeout)
+            try:
+                provider_timeout = float(provider_timeout_setting)
+            except (ValueError, TypeError):
+                logger.error(f"Invalid timeout setting value: {provider_timeout_setting}. Using hardcoded default: 30.0s")
+                provider_timeout = 30.0 # Hardcoded safe default on conversion error
+
         client_kwargs = {"api_key": user_api_key, "timeout": provider_timeout}
-        if user_base_url:
-            client_kwargs["base_url"] = user_base_url
-        else:
-            if provider == "deepseek":
-                client_kwargs["base_url"] = "https://api.deepseek.com/v1"
+        if db_api_key.model_base_url:
+            client_kwargs["base_url"] = db_api_key.model_base_url
         user_client = AsyncOpenAI(**client_kwargs)
-        
     except HTTPException as http_setup_exc:
         logger.error(f"RAG: Caught HTTPException during setup, re-raising: {http_setup_exc.detail}")
         raise http_setup_exc # Re-raise HTTP exceptions directly
@@ -448,1087 +999,378 @@ async def generate_openai_rag_response(
         return fallback_response # Return fallback for setup errors
     # --- End Initial Setup Try ---
 
-    # --- Main Logic Try --- 
+    # Main Logic
     try:
-        # --- START: Intent Detection --- 
-        # ... (existing intent detection code) ...
-        async def _detect_query_intent(user_query: str, client: AsyncOpenAI) -> str:
-            # ... (inner function remains the same) ...
-            logger.debug(f"Detecting intent for query: '{user_query}'")
-            # Use a cheaper/faster model for classification
-            # MODIFICATION START: Select model based on provider
-            intent_model = chat_model # Default to the main chat model
-            if provider == "openai":
-                 # Use specific cheaper model for OpenAI if defined
-                 intent_model = getattr(settings, 'INTENT_DETECTION_MODEL', 'gpt-4.1-mini') 
-            # MODIFICATION END
-            
-            # MODIFICATION START: Adjust prompt for non-JSON mode if needed
-            prompt_instruction = "Respond ONLY with the chosen category ('email_focused' or 'general_or_mixed')."
-            system_content = f"You are an intent classifier. {prompt_instruction}"
-            # Keep original prompt structure
-            prompt = (
-                f"Analyze the user's query and classify its primary information need. Choose ONE category:\\n"
-                f"- 'email_focused': The query asks for specific information likely found only in recent emails (e.g., summaries of recent emails, specific email content, counts/lists based on recent communications like 'who left last week', 'emails from X yesterday').\\n"
-                f"- 'general_or_mixed': The query asks for general knowledge, policies, procedures, or information that might exist in documents OR emails, or requires combining both (e.g., 'what is the policy on X?', 'explain concept Y', 'rate card for role Z', 'project status update').\\n\\n"
-                f"User Query: \\\"{user_query}\\\"\\n\\n"
-                f"{prompt_instruction}"
-            )
-            # MODIFICATION END
+        tokenizer_model = chat_model
 
-            try:
-                 # MODIFICATION START: Conditional response_format
-                 completion_args = {
-                     "model": intent_model,
-                     "messages": [
-                         {"role": "system", "content": system_content},
-                         {"role": "user", "content": prompt}
-                     ],
-                     "temperature": 0.0,
-                     "max_tokens": 15 # Slightly increase for potential variability
-                 }
-                 # Only add response_format if provider is OpenAI (assuming DeepSeek might not support it)
-                 if provider == "openai":
-                      # Check if the selected intent_model for OpenAI supports JSON mode
-                      # We'll assume gpt-4o-mini does, but ideally, this needs model-specific checks
-                      logger.debug(f"Requesting JSON format for intent detection with OpenAI model {intent_model}")
-                      # completion_args["response_format"] = {"type": "json_object"} # Temporarily disabled JSON for testing simpler text parsing first
-                      pass # Keep parsing text response for now even for OpenAI
-
-                 # MODIFICATION END
-                 
-                 # Always expect text response for now
-                 response = await client.chat.completions.create(**completion_args)
-                 
-                 # Parse the text response directly
-                 detected_intent = response.choices[0].message.content.strip().lower()
-                 # Clean up potential extra text or quotes
-                 if 'email_focused' in detected_intent:
-                     detected_intent = 'email_focused'
-                 elif 'general_or_mixed' in detected_intent:
-                     detected_intent = 'general_or_mixed'
-                 else: # Handle unexpected responses
-                    logger.warning(f"Intent detection returned unexpected text: '{response.choices[0].message.content}'. Attempting basic extraction.")
-                    # Simple fallback check
-                    if 'email' in detected_intent: detected_intent = 'email_focused'
-                    else: detected_intent = 'general_or_mixed' # Default if still unclear
-
-                 logger.info(f"Detected query intent: {detected_intent}")
-                 # Check remains the same
-                 if detected_intent in ['email_focused', 'general_or_mixed']:
-                     return detected_intent
-                 else:
-                     # This path should ideally not be hit with the cleanup above, but kept as safeguard
-                     logger.warning(f"Intent detection failed after cleanup: '{detected_intent}'. Defaulting to 'general_or_mixed'.")
-                     return "general_or_mixed"
-                 
-            except Exception as intent_err:
-                logger.error(f"Intent detection LLM call failed: {intent_err}", exc_info=True)
-                logger.warning("Defaulting to 'general_or_mixed' due to intent detection error.")
-                return "general_or_mixed"
-        # --- END Intent Detection ---
-
-        # --- START: Source Prediction Helper --- 
-        # ... (existing source prediction code) ...
-        async def _predict_primary_source(user_query: str, client: AsyncOpenAI) -> str:
-            # ... (inner function remains the same) ...
-            logger.debug(f"Predicting primary source for general/mixed query: '{user_query}'")
-            # Use a model suitable for this classification
-            prediction_model = chat_model # Default to main chat model
-            if provider == "openai":
-                prediction_model = getattr(settings, 'SOURCE_PREDICTION_MODEL', 'gpt-4.1-mini')
-            
-            # Prompt to classify the *type* of information needed
-            prediction_prompt = (
-                f"Analyze the user's query and determine the most likely primary source for the answer:\\n"
-                f"- Choose 'kb_source' if the query asks for general knowledge, definitions, policies, procedures, concepts, or information likely found in static documents or a knowledge base.\\n"
-                f"- Choose 'email_source' if the query asks for recent updates, specific communications, discussions, meeting details, project status from communication trails, opportunities, leads, or operational information likely found in recent emails.\\n\\n"
-                f"User Query: \\\"{user_query}\\\"\\n\\n"
-                f"Respond ONLY with 'kb_source' or 'email_source'."
-            )
-
-            try:
-                completion_args = {
-                    "model": prediction_model,
-                    "messages": [
-                        {"role": "system", "content": "You are a source predictor. Respond ONLY with 'kb_source' or 'email_source'."},
-                        {"role": "user", "content": prediction_prompt}
-                    ],
-                    "temperature": 0.0,
-                    "max_tokens": 10
-                }
-                response = await client.chat.completions.create(**completion_args)
-                predicted_source = response.choices[0].message.content.strip().lower()
-
-                if predicted_source in ['kb_source', 'email_source']:
-                    logger.info(f"Predicted primary source: {predicted_source}")
-                    return predicted_source
-                else:
-                    logger.warning(f"Source prediction returned unexpected value: '{predicted_source}'. Defaulting to 'kb_source'.")
-                    return 'kb_source' # Default preference if unsure
-            except Exception as prediction_err:
-                logger.error(f"Source prediction LLM call failed: {prediction_err}", exc_info=True)
-                logger.warning("Defaulting primary source to 'kb_source' due to prediction error.")
-                return 'kb_source'
-        # --- END Source Prediction Helper ---
-        
-        # Detect intent and predict source
-        query_intent = await _detect_query_intent(message, user_client)
-        predicted_source = None
-        if query_intent == 'general_or_mixed':
-            predicted_source = await _predict_primary_source(message, user_client)
-
-        # --- START: LLM-based Parameter Extraction for Email Search ---
-        # ... (existing parameter extraction code) ...
+        # Intent & Param Extraction
         extracted_email_params = {}
-        # Extract parameters IF the intent is email-focused OR predicted source is email
-        if query_intent == 'email_focused' or predicted_source == 'email_source':
-            logger.debug(f"Attempting LLM parameter extraction for email search query: '{message}'")
-            # --- Parameter Extraction Logic Block Start ---
-            try:
-                now_utc_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            # (Keep your calculate_past_date and LLM extraction logic here)
+            def calculate_past_date(days, now_iso, start_of_day=False, end_of_day=False):
+                try:
+                    now = datetime.fromisoformat(now_iso.replace('Z', '+00:00'))
+                    target_dt = now - timedelta(days=days)
+                    if start_of_day:
+                        target_dt = target_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                    elif end_of_day:
+                        target_dt = target_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    return target_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+                except Exception as date_calc_err:
+                    logger.error(f"Error in calculate_past_date: {date_calc_err}")
+                    return "[date error]"
 
-                # Define helper function BEFORE using it in the prompt
-                def calculate_past_date(days, now_iso, start_of_day=False, end_of_day=False):
-                    try:
-                        now = datetime.fromisoformat(now_iso.replace('Z', '+00:00'))
-                        target_dt = now - timedelta(days=days)
-                        if start_of_day:
-                            target_dt = target_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                        elif end_of_day:
-                            target_dt = target_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-                        return target_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-                    except Exception as date_calc_err:
-                        logger.error(f"Error in calculate_past_date helper: {date_calc_err}")
-                        return "[date calculation error]"
-            except Exception as e:
-                logger.error(f"Error initializing datetime objects: {e}", exc_info=True)
-                now_utc_iso = datetime.now(timezone.utc).isoformat()  # Default fallback
-                
+            now_utc_iso = datetime.now(timezone.utc).isoformat()
             try:
-                # Calculate example dates beforehand
                 example_1_start_date = calculate_past_date(days=7, now_iso=now_utc_iso)
                 example_2_start_date = calculate_past_date(days=1, now_iso=now_utc_iso, start_of_day=True)
                 example_2_end_date = calculate_past_date(days=1, now_iso=now_utc_iso, end_of_day=True)
             except Exception as e:
                 logger.error(f"Error calculating example dates: {e}", exc_info=True)
-                # Fallback to string placeholders
-                example_1_start_date = "[7_days_ago]"
-                example_2_start_date = "[yesterday_start]"
-                example_2_end_date = "[yesterday_end]"
+                example_1_start_date = "[7_days_ago_error]"
+                example_2_start_date = "[yesterday_start_error]"
+                example_2_end_date = "[yesterday_end_error]"
 
-            # Use placeholders in the prompt template - Define as REGULAR string, not f-string
-            extraction_prompt_template = """Analyze the user's message to extract parameters for searching emails. The current UTC time is {now_utc_iso}.
-
-User Message: \"{message}\"
-
-Extract the following details if mentioned:
-- \"sender\": Specific sender email address or name.
-- \"subject\": Keywords or phrases from the subject line.
-- \"start_date_utc\": The beginning of the relevant date range (ISO 8601 UTC format: \"YYYY-MM-DDTHH:MM:SSZ\"). **Accurately calculate this based on relative terms like \"today\", \"yesterday\", \"last N days\", \"last week\" (meaning the previous 7 days from current time), \"this week\" (start from Monday), \"last month\", \"this month\".**
-- \"end_date_utc\": The end of the relevant date range (ISO 8601 UTC format: \"YYYY-MM-DDTHH:MM:SSZ\"). **Use the current time as the end date for relative ranges ending now (like \"last week\"). For ranges like \"yesterday\", the end date should be the end of that day (23:59:59Z).**
-- \"search_terms\": General keywords or phrases from the message body or topic not covered by sender/subject (e.g., 'opportunity', 'sales lead', 'invoice').
-
-Respond ONLY with a JSON object containing these keys. Use null if a parameter is not mentioned or cannot be determined.
-
-Example for \"emails from jeff last week about the UOB project\" (Current time: {now_utc_iso}):
-{{\"sender\": \"jeff\", \"subject\": \"UOB project\", \"start_date_utc\": \"{example_1_start_date}\", \"end_date_utc\": \"{now_utc_iso}\", \"search_terms\": [\"UOB project\"]}}
-
-Example for \"show me onboarding emails from yesterday\" (Current time: {now_utc_iso}):
-{{\"sender\": null, \"subject\": \"onboarding\", \"start_date_utc\": \"{example_2_start_date}\", \"end_date_utc\": \"{example_2_end_date}\", \"search_terms\": [\"onboarding\"]}}
-
-JSON Response:"""
-
+            extraction_prompt_template = "Analyze the user's message to extract parameters for searching emails. Current UTC time: {now_utc_iso}.\n" \
+                "User Message: \"{message}\"\n" \
+                "Extract: sender, subject, start_date_utc (ISO 8601 UTC, calc from relative terms like 'last week'='past 7 days'), end_date_utc (ISO 8601 UTC), search_terms (list).\n" \
+                "Respond ONLY with a JSON object. Null if not found.\n" \
+                "Example 1: \"emails from jeff last week about the UOB project\" (Time: {now_utc_iso}) -> {{\"sender\": \"jeff\", \"subject\": \"UOB project\", \"start_date_utc\": \"{example_1_start_date}\", \"end_date_utc\": \"{now_utc_iso}\", \"search_terms\": [\"UOB project\"]}}\n" \
+                "Example 2: \"onboarding emails from yesterday\" (Time: {now_utc_iso}) -> {{\"sender\": null, \"subject\": \"onboarding\", \"start_date_utc\": \"{example_2_start_date}\", \"end_date_utc\": \"{example_2_end_date}\", \"search_terms\": [\"onboarding\"]}}\n" \
+                "JSON Response:"
             extraction_prompt = extraction_prompt_template.format(
-                message=message,
-                now_utc_iso=now_utc_iso,
-                example_1_start_date=example_1_start_date,
-                example_2_start_date=example_2_start_date,
-                example_2_end_date=example_2_end_date
+                message=message, now_utc_iso=now_utc_iso, example_1_start_date=example_1_start_date,
+                example_2_start_date=example_2_start_date, example_2_end_date=example_2_end_date
             )
-
-            extraction_model = getattr(settings, 'EMAIL_PARAM_EXTRACTION_MODEL', 'gpt-4.1-mini') # Use a potentially specific model
-            if provider == "deepseek":
-                 extraction_model = "deepseek-chat" # Or appropriate model
-                 logger.debug(f"Using Deepseek model ({extraction_model}) for email param extraction.")
-            else:
-                 logger.debug(f"Using OpenAI model ({extraction_model}) for email param extraction.")
-
-            try:
-                response = await user_client.chat.completions.create(
-                    model=extraction_model,
-                    messages=[
-                        {"role": "system", "content": "You are an expert email search parameter extractor. Respond only with the specified JSON format. Accurately calculate date ranges based on relative terms."},
-                        {"role": "user", "content": extraction_prompt}
-                    ],
-                    temperature=0.0,
-                    response_format={"type": "json_object"}
-                )
-                param_result_json = response.choices[0].message.content
-                logger.debug(f"LLM Email Parameter Extraction Response: {param_result_json}")
-
-                raw_params = json.loads(param_result_json)
-
-                # Parse dates and clean up params
-                start_date_obj = None
-                end_date_obj = None
-                raw_start = raw_params.get("start_date_utc")
-                raw_end = raw_params.get("end_date_utc")
-
-                if raw_start:
-                    try:
-                        start_date_obj = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
-                    except ValueError: 
-                        logger.warning(f"Invalid start date format from LLM: {raw_start}")
-                if raw_end:
-                    try:
-                        end_date_obj = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
-                    except ValueError: 
-                        logger.warning(f"Invalid end date format from LLM: {raw_end}")
-                        start_date_obj = None # Invalidate start if end is bad
-
-                # Basic validation
-                if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
-                    logger.warning(f"LLM returned start date after end date. Ignoring dates.")
-                    start_date_obj = None
-                    end_date_obj = None
-
-                extracted_email_params = {
-                    "sender_filter": raw_params.get("sender"),
-                    "subject_filter": raw_params.get("subject"),
-                    "start_date": start_date_obj,
-                    "end_date": end_date_obj,
-                    "search_terms": raw_params.get("search_terms") if isinstance(raw_params.get("search_terms"), list) else None
-                }
-                # Remove None values to avoid passing them
-                extracted_email_params = {k: v for k, v in extracted_email_params.items() if v is not None}
-                logger.info(f"Extracted email search parameters: {extracted_email_params}")
-
-            except Exception as param_err:
-                logger.error(f"Error during LLM email parameter extraction: {param_err}", exc_info=True)
-                extracted_email_params = {}  # Fallback to empty params on error
-            # --- Parameter Extraction Logic Block End ---
-        # --- END: LLM-based Parameter Extraction ---
-
-        # --- START: Simple Intent Detection for Calendar ---
-        # ... (existing calendar detection code) ...
-        calendar_keywords = ["meeting", "calendar", "event", "appointment", "schedule", "upcoming"]
-        is_calendar_query = any(keyword in message.lower() for keyword in calendar_keywords)
-        logger.debug(f"Is calendar query detected: {is_calendar_query}")
-        # --- END: Simple Intent Detection ---
-
-        # --- Keyword extraction logic --- 
-        # ... (existing keyword extraction code) ...
-        basic_keywords = [word for word in re.findall(r'\b\w{3,}\b', message.lower()) 
-                          if word not in ['the', 'a', 'is', 'and', 'or', 'find', 'search', 'email', 'emails', 'how', 'many', 'last', 'weeks']]
-        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        extracted_emails = re.findall(email_pattern, message)
-        base_keywords_for_email = list(set(basic_keywords + extracted_emails))
-        base_keywords_for_email = [kw for kw in base_keywords_for_email if kw]
-
-        # 1b. Expand Keywords using LLM
-        async def _get_expanded_keywords(user_query: str, client: AsyncOpenAI, base_keywords: List[str]) -> List[str]:
-            # ... (inner function remains the same) ...
-            logger.debug(f"Attempting LLM keyword expansion for query: '{user_query}'")
-            # Use a cheaper/faster model
-            # MODIFICATION START: Select model based on provider
-            expansion_model = chat_model # Default to the main chat model
-            if provider == "openai":
-                # Use specific cheaper model for OpenAI if defined
-                expansion_model = getattr(settings, 'KEYWORD_EXPANSION_MODEL', 'gpt-4.1-mini')
-            # MODIFICATION END
-            
-            # Create a context string from base keywords if available
-            base_kw_context = ", ".join(base_keywords)
-            if base_kw_context:
-                base_kw_context = f"Initial keywords extracted were: {base_kw_context}. "
-            else:
-                base_kw_context = ""
-
-            # Fixed prompt f-string - ensure triple quotes close it
-            prompt = (
-                f"Analyze the user's query and generate a list of related keywords and synonyms that are likely to appear in relevant emails. Focus on variations and related concepts.\n"
-                f"User Query: '{user_query}'\n"
-                f"{base_kw_context}\n"
-                f"Consider terms related to the core intent. For example, if the query is about departures, include terms like resignation, leaving, offboarding, contract end, non-renewal, replacement, terminated, last day, etc.\n"
-                f"\n"
-                f"Respond ONLY with a comma-separated list of 5-10 relevant keywords/phrases. Do not include the original query keywords unless they are highly relevant variations.\n"
-                f"\n"
-                f"Comma-separated keywords:"
+            extraction_model = chat_model
+            response = await user_client.chat.completions.create(
+                model=extraction_model,
+                messages=[
+                    {"role": "system", "content": "Extract email search parameters accurately into JSON. Calculate relative dates based on current time."},
+                    {"role": "user", "content": extraction_prompt}
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"}
             )
-            try:
-                response = await client.chat.completions.create(
-                    model=expansion_model,
-                    messages=[
-                        {"role": "system", "content": "You are a keyword generator for email search. Respond ONLY with a comma-separated list."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.2,
-                    max_tokens=100 
-                )
-                expanded_keywords_str = response.choices[0].message.content.strip()
-                expanded_list = [kw.strip() for kw in expanded_keywords_str.split(',') if kw.strip()]
-                logger.info(f"LLM Expansion generated {len(expanded_list)} keywords: {expanded_list}")
-                return expanded_list
-            except Exception as expansion_err:
-                logger.error(f"LLM keyword expansion failed: {expansion_err}", exc_info=True)
-                return [] # Return empty list on error
+            raw_params = json.loads(response.choices[0].message.content)
+            start_date_obj, end_date_obj = None, None
+            raw_start = raw_params.get("start_date_utc")
+            raw_end = raw_params.get("end_date_utc")
+            if raw_start:
+                try:
+                    start_date_obj = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid start date format from LLM: {raw_start}")
+            if raw_end:
+                try:
+                    end_date_obj = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid end date format from LLM: {raw_end}")
+            if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
+                logger.warning(f"LLM returned start date {start_date_obj} after end date {end_date_obj}. Ignoring dates.")
+                start_date_obj, end_date_obj = None, None
+            extracted_email_params = {k: v for k, v in {
+                "sender_filter": raw_params.get("sender"),
+                "subject_filter": raw_params.get("subject"),
+                "start_date": start_date_obj,
+                "end_date": end_date_obj,
+                "search_terms": raw_params.get("search_terms") if isinstance(raw_params.get("search_terms"), list) else None
+            }.items() if v is not None}
+        except Exception:
+            extracted_email_params = {}
 
-        # Combine base + expanded, ensure uniqueness
-        final_keywords_for_email = base_keywords_for_email # Start with base
-        try:
-            expanded_keywords = await _get_expanded_keywords(message, user_client, base_keywords_for_email)
-            final_keywords_for_email = list(set(base_keywords_for_email + expanded_keywords))
-        except Exception as expansion_call_err:
-            logger.error(f"Failed to call keyword expansion: {expansion_call_err}", exc_info=True)
-
-        logger.debug(f"Final keywords for email search (base + expanded): {final_keywords_for_email}")
-        # --- End Keyword Extraction --- 
-
-        # --- Dynamic Email Context Limit ---
-        # Determine limit based on intent and specificity of extracted params
-        DEFAULT_EMAIL_LIMIT_FOCUSED = 20
-        DEFAULT_EMAIL_LIMIT_BROAD = 50 # Start with 50 for broader queries
-
-        if query_intent == 'email_focused' and (extracted_email_params.get("sender_filter") or extracted_email_params.get("subject_filter")):
-            MAX_EMAIL_CONTEXT_ITEMS = DEFAULT_EMAIL_LIMIT_FOCUSED
-            logger.info(f"Using FOCUSED email limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+        # Determine query type
+        if extracted_email_params.get("sender_filter") or extracted_email_params.get("subject_filter") or extracted_email_params.get("start_date"):
+            source_target = "email_focused"
         else:
-            MAX_EMAIL_CONTEXT_ITEMS = DEFAULT_EMAIL_LIMIT_BROAD
-            logger.info(f"Using BROAD email limit: {MAX_EMAIL_CONTEXT_ITEMS}")
-        # --- End Dynamic Limit ---
-
-        # --- Context Retrieval Helper Functions --- 
-        async def _get_milvus_context(max_items: int, max_chunk_chars: int) -> List[Dict[str, Any]]:
-            # ... (Implementation of _get_milvus_context remains the same) ...
-            # (Ensure the full function definition is here)
-            logger.debug(f"Starting Milvus context retrieval (Returning top {max_items} raw results)...")
-            try:
-                retrieval_query = message
-                # ... (rest of milvus retrieval logic including HyDE, search, rerank) ...
-                hyde_embedding = await create_retrieval_embedding(hyde_document, field='dense')
-                logger.debug(f"RAG: Generated HyDE embedding for Milvus retrieval.")
-                search_filter = None
-                k_dense = int(getattr(settings, 'RAG_DENSE_RESULTS', max_items))
-                k_sparse = int(getattr(settings, 'RAG_SPARSE_RESULTS', max_items))
-                sanitized_email = user.email.replace('@', '_').replace('.', '_')
-                target_collection_name = f"{sanitized_email}_knowledge_base_bm"
-                logger.info(f"RAG: Initial retrieval from: {target_collection_name} with limit {max_items}")
-                dense_search_result_list = await search_milvus_knowledge(collection_name=target_collection_name, query_texts=[hyde_document], limit=k_dense, filter_expr=search_filter)
-                dense_search_results = dense_search_result_list[0] if dense_search_result_list else []
-                if not dense_search_results: logger.warning(f"RAG: Initial Milvus dense search returned no results for collection '{target_collection_name}'."); return []
-                logger.info(f"RAG: Initial dense search found {len(dense_search_results)} results. Reranking...")
-                reranked_results = await rerank_results(query=message, results=dense_search_results)
-                logger.debug(f"RAG: Reranked {len(reranked_results)} Milvus results.")
-                results_to_return = reranked_results[:max_items]
-                logger.info(f"RAG: Returning top {len(results_to_return)} reranked Milvus documents as context.")
-                return results_to_return # Ensure return statement is correct
-            except Exception as e_milvus: logger.error(f"Failed during Milvus context retrieval: {e_milvus}", exc_info=True); return []
-
-        async def _get_email_context(max_items: int, max_chunk_chars: int, user_client: AsyncOpenAI, search_params: dict): # ADDED: search_params argument
-            logger.debug(f"Starting Email context retrieval with params: {search_params} (max_items={max_items}, max_chars={max_chunk_chars})...")
-            def _truncate_text(text: str, max_len: int) -> str:
-                text_str = str(text) if text is not None else ''
-                if len(text_str) > max_len: return text_str[:max_len] + "... [TRUNCATED]"; return text_str
-            try:
-                initial_email_results = await query_iceberg_emails_duckdb(
-                    user_email=user.email,
-                    sender_filter=search_params.get("sender_filter"),
-                    subject_filter=search_params.get("subject_filter"),
-                    start_date=search_params.get("start_date"),
-                    end_date=search_params.get("end_date"),
-                    search_terms=search_params.get("search_terms"),
-                    limit=max_items,
-                    user_client=user_client,
-                    provider=provider,
-                    token=None
-                )
-                logger.debug(f"Email Retrieval: Raw results from query_iceberg_emails_duckdb: {initial_email_results}")
-                if not initial_email_results: logger.info("Email Retrieval: No initial results from DuckDB."); return "No relevant emails found."
-                logger.info(f"Email Retrieval: Initially retrieved {len(initial_email_results)} emails from DuckDB.")
-                # --- ADDED: Log Subjects/Senders of retrieved emails --- 
-                if initial_email_results:
-                    log_limit = 10 # Limit logs to avoid overwhelming output
-                    logger.debug(f"--- Top {min(len(initial_email_results), log_limit)} Retrieved Email Subjects/Senders ---")
-                    for i, email_log in enumerate(initial_email_results[:log_limit]):
-                        logger.debug(f"  {i+1}. Subject: '{email_log.get('subject')}', Sender: '{email_log.get('sender')}'")
-                    if len(initial_email_results) > log_limit:
-                        logger.debug(f"  ... (plus {len(initial_email_results) - log_limit} more)")
-                    logger.debug("--------------------------------------------------")
-                # --- END ADDED LOG --- 
-                context_entries = []
-                for email in initial_email_results:
-                    # --- Ensure entry_type is defined in all branches --- 
-                    granularity = email.get('granularity', 'full_message')
-                    text_content = ""
-                    entry_type = "Email (Unknown Granularity)" # Default value
-                    if granularity == 'full_message':
-                        text_content = email.get('body_text')
-                        entry_type = "Email Reply/Body"
-                    elif granularity == 'quoted_message':
-                        text_content = email.get('quoted_raw_text')
-                        entry_type = "Quoted Section"
-                    else:
-                        text_content = email.get('body_text') or email.get('quoted_raw_text') # Fallback
-                        # entry_type remains "Email (Unknown Granularity)"
-                    # --- End entry_type definition ---
-                        
-                    entry = (
-                        f"Email ID: {email.get('message_id')}\n"
-                        f"Type: {entry_type}\n"
-                        f"Received: {email.get('received_datetime_utc')}\n"
-                        f"Sender: {email.get('sender')}\n"
-                        f"Subject: {email.get('subject')}\n"
-                        f"Tags: {email.get('generated_tags')}\n"
-                        f"Content: {_truncate_text(str(text_content) if text_content else '', max_chunk_chars)}"
-                    )
-                    context_entries.append(entry)
-                email_context = "\n\n---\n\n".join(context_entries)
-                logger.debug(f"Email Retrieval: Final formatted context string:\n{email_context}")
-                logger.debug(f"Email Retrieval: Final formatted context length: {len(email_context)} chars from {len(initial_email_results)} rows.")
-                return email_context
-            except Exception as e_email: logger.error(f"Failed to retrieve Email context: {e_email}", exc_info=True); return "Error retrieving email context."
-
-        async def _get_calendar_context():
-            # ... (Implementation of _get_calendar_context remains the same) ...
-            # (Ensure the full function definition is here)
-            if not is_calendar_query: return "Calendar query not detected."
-            if not ms_token: logger.warning("MS token not available, cannot fetch calendar events."); return "Error: Cannot fetch calendar events (auth token missing)."
-            logger.debug("Starting Calendar context retrieval...")
-            try:
-                outlook_service = OutlookService(access_token=ms_token)
-                events = await outlook_service.get_upcoming_events()
-                if not events: return "No upcoming calendar events found in the next 7 days."
-                calendar_context = "\n\n---\n\n".join([f"Event Subject: {event.get('subject')}\nStart: {event.get('start_time')} ({event.get('start_timezone')})\nEnd: {event.get('end_time')} ({event.get('end_timezone')})\nLocation: {event.get('location')}\nAttendees: {', '.join(event.get('attendees', []))}\nPreview: {event.get('preview', '')[:100]}..." for event in events])
-                return calendar_context
-            except Exception as e_cal: logger.error(f"Failed to retrieve Calendar context: {e_cal}", exc_info=True); return "Error retrieving calendar context."
-        # --- End Context Retrieval Helper Functions ---
-
-        # --- Read limits from settings (Keep other limits, MAX_EMAIL_CONTEXT_ITEMS is now dynamic) ---
-        MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 20))
-        # MAX_EMAIL_CONTEXT_ITEMS is now set dynamically above
-        MAX_CALENDAR_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_CALENDAR_LIMIT', 20))
-        MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
-        logger.debug(f"Using LLM context limits - Milvus: {MAX_MILVUS_CONTEXT_ITEMS}, Email: {MAX_EMAIL_CONTEXT_ITEMS} (DYNAMIC), Calendar: {MAX_CALENDAR_CONTEXT_ITEMS}")
-        logger.debug(f"Using max chars per chunk: {MAX_CHUNK_CHARS}")
-
-        # --- START: Conditional Context Retrieval --- 
-        # This section will now use the dynamically set MAX_EMAIL_CONTEXT_ITEMS when calling _get_email_context
-        retrieved_milvus_docs: List[Dict[str, Any]] = []
-        retrieved_email_context: str = ""
-        retrieved_calendar_context: str = "" # Calendar retrieval is separate for now
-
-        # Always retrieve calendar context if relevant
-        retrieved_calendar_context = await _get_calendar_context() # NOW this call is valid
-
-        if query_intent == 'email_focused':
-            logger.info("Query intent is email_focused, retrieving only email context.")
-            retrieved_email_context = await _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client, search_params=extracted_email_params)
-            retrieved_milvus_docs = [] # Ensure Milvus context is empty
-
-        elif predicted_source == 'email_source':
-            logger.info("Predicted source is email, retrieving email context first.")
-            retrieved_email_context = await _get_email_context(max_items=MAX_EMAIL_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS, user_client=user_client, search_params=extracted_email_params)
-            # Optional: Add secondary KB search if needed/budget allows (can be added later)
-            # retrieved_milvus_docs = await _get_milvus_context(...) 
-            retrieved_milvus_docs = [] # Keep it simple for now
-            logger.info("Skipping knowledge base retrieval (email source predicted).")
-
-        elif predicted_source == 'kb_source':
-            logger.info("Predicted source is KB, retrieving Milvus context first.")
-            retrieved_milvus_docs = await _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS)
-            # Optional: Add secondary email search if needed/budget allows
-            # if not retrieved_milvus_docs:
-            #     retrieved_email_context = await _get_email_context(...)
-            retrieved_email_context = "Email search skipped (KB source predicted)." # Keep it simple for now
-            logger.info("Skipping email retrieval (KB source predicted).")
-        else: # Fallback / Should not happen if prediction defaults
-            logger.warning("Unexpected state: No clear intent or predicted source. Defaulting to KB search.")
-            retrieved_milvus_docs = await _get_milvus_context(max_items=MAX_MILVUS_CONTEXT_ITEMS, max_chunk_chars=MAX_CHUNK_CHARS)
-            retrieved_email_context = "Email search skipped (default KB path)."
-        # --- END: Conditional Context Retrieval --- 
-
-        # --- Token Budgeting Setup --- 
-        # ... (existing token budgeting code) ...
-        # Use the actual model name determined earlier
-        tokenizer_model = chat_model 
-        # Define max context tokens, leaving room for response generation (e.g., ~4k)
-        MODEL_MAX_TOKENS = getattr(settings, 'MODEL_MAX_TOKENS', 128000) # Example for gpt-4-turbo
-        RESPONSE_BUFFER_TOKENS = getattr(settings, 'RESPONSE_BUFFER_TOKENS', 4096)
-        MAX_CONTEXT_TOKENS = MODEL_MAX_TOKENS - RESPONSE_BUFFER_TOKENS
-        logger.debug(f"Token budgeting: Model={tokenizer_model}, Max Context Tokens={MAX_CONTEXT_TOKENS}")
-
-        # Estimate tokens for base prompt components (system, history, user message)
-        # Build temporary messages list *without* the large context for estimation
-        temp_system_prompt_structure = (
-            f"You are Jarvis, an AI assistant.\n"
-            f"You are chatting with {user.display_name or user.email}.\n"
-            f"Your task is to answer the user's question based *only* on the information presented in the context sections below...\n"
-            f"**Crucially, when you use information from a specific Knowledge Base Document, you MUST cite...**\n"
-            f"Do not add information not present in the context...\n"
-            f"Context Provided:\n"
-            f"<CONTEXT_PLACEHOLDER>"
-        ) # Simplified structure for estimation
-        base_tokens = count_tokens(temp_system_prompt_structure, tokenizer_model)
-        base_tokens += count_tokens(message, tokenizer_model) 
-        for msg in chat_history:
-            base_tokens += count_tokens(msg.get("content", ""), tokenizer_model)
-        
-        remaining_token_budget = MAX_CONTEXT_TOKENS - base_tokens
-        logger.debug(f"Token budgeting: Base prompt tokens={base_tokens}, Remaining budget for context={remaining_token_budget}")
-
-        if remaining_token_budget <= 0:
-            logger.warning("Token budget exceeded by base prompt and history alone. Cannot add context.")
-            # Handle this case - maybe return an error or a response without context?
-            raise HTTPException(status_code=400, detail="Query and history are too long to process.")
-        # --- End Token Budgeting Setup ---
-
-        # --- START: Construct Final Context --- 
-        # ... (existing context construction code) ...
-        final_context_parts = []
-
-        # 1. Format Milvus Documents
-        if retrieved_milvus_docs:
-            milvus_context_str = "<Knowledge Base Documents>\n"
-            def _truncate_context_text(text: str, max_len: int) -> str: # Define helper here
-                return text[:max_len] + "...[TRUNCATED]" if len(text) > max_len else text
-                
-            # Estimate tokens used by boilerplate text for each doc
-            doc_boilerplate_template = "--- Document {idx} (Source: {src}, ID: {id}, Score: {score:.4f}) ---\n{content}\n--- End Document {idx} ---\n"
-            estimated_boilerplate_tokens_per_doc = count_tokens(doc_boilerplate_template.format(idx=1, src="a.pdf", id="x", score=1.0, content=""), tokenizer_model)
-
-            for idx, doc in enumerate(retrieved_milvus_docs):
-                doc_content = doc.get("content", "")
-                doc_id = doc.get("id", "N/A")
-                doc_score = doc.get("rerank_score", doc.get("score", "N/A")) 
-                doc_metadata = doc.get("metadata") 
-                source_filename = "Unknown Source"
-                if isinstance(doc_metadata, dict): source_filename = doc_metadata.get('original_filename', 'Unknown Source')
-                elif isinstance(doc_metadata, str):
-                    try: meta_dict = json.loads(doc_metadata); source_filename = meta_dict.get('original_filename', 'Unknown Source')
-                    except json.JSONDecodeError: source_filename = "Metadata Parse Error"
-                truncated_content = _truncate_context_text(doc_content, MAX_CHUNK_CHARS) 
-                
-                # Token-based truncation for Milvus docs
-                current_doc_tokens = count_tokens(doc_content, tokenizer_model)
-                max_allowed_tokens_for_this_doc = max(0, remaining_token_budget - estimated_boilerplate_tokens_per_doc) # Ensure non-negative
-                
-                if current_doc_tokens > max_allowed_tokens_for_this_doc:
-                    logger.warning(f"Truncating Milvus doc {doc_id} (Source: {source_filename}) from {current_doc_tokens} tokens to fit budget {max_allowed_tokens_for_this_doc}.")
-                    truncated_content = truncate_text_by_tokens(doc_content, tokenizer_model, max_allowed_tokens_for_this_doc)
-                else:
-                    truncated_content = doc_content # Use original if it fits
-
-                # Add the (potentially truncated) content to the context string
-                milvus_context_str += (f"--- Document {idx+1} (Source: {source_filename}, ID: {doc_id}, Score: {doc_score:.4f}) ---\n"
-                                     f"{truncated_content}\n"
-                                     f"--- End Document {idx+1} ---\n")
-                # Update remaining budget
-                tokens_added = count_tokens(milvus_context_str.split("--- Document {idx+1}")[-1], tokenizer_model) # Count tokens for the added part
-                remaining_token_budget -= tokens_added
-                if remaining_token_budget <= 0:
-                    logger.warning("Token budget exhausted while adding Milvus documents. Stopping context addition.")
-                    break # Stop adding more docs if budget is gone
-
-            milvus_context_str += "</Knowledge Base Documents>"
-            final_context_parts.append(milvus_context_str)
-        else:
-             if query_intent == 'email_focused': final_context_parts.append("<Knowledge Base Documents>\nSearch skipped (email-focused query).\n</Knowledge Base Documents>")
-             else: final_context_parts.append("<Knowledge Base Documents>\nNo relevant documents found in the knowledge base.\n</Knowledge Base Documents>")
-
-        # 2. Format Email Context
-        if retrieved_email_context and remaining_token_budget > 0:
-            email_boilerplate_tokens = count_tokens("<User Email Context>\n\n</User Email Context>", tokenizer_model)
-            allowed_email_tokens = max(0, remaining_token_budget - email_boilerplate_tokens)
-            current_email_tokens = count_tokens(retrieved_email_context, tokenizer_model)
+            # More robust keyword checking for document focus
+            doc_keywords = ['policy', 'procedure', 'document', 'rate card', 'sow', 'loa', 'guideline', 'report', 'agreement', 'contract', 'spec', 'manual']
+            message_lower = message.lower()
+            source_target = "document_focused" if any(k in message_lower for k in doc_keywords) else "mixed"
             
-            if current_email_tokens > allowed_email_tokens:
-                logger.warning(f"Truncating Email context from {current_email_tokens} tokens to fit budget {allowed_email_tokens}.")
-                truncated_email_context = truncate_text_by_tokens(retrieved_email_context, tokenizer_model, allowed_email_tokens)
-            else:
-                truncated_email_context = retrieved_email_context
-                
-            final_context_parts.append(f"<User Email Context>\n{truncated_email_context}\n</User Email Context>")
-            remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
-        else: final_context_parts.append("<User Email Context>\nNo relevant emails found or search skipped.\n</User Email Context>")
-
-        # 3. Format Calendar Context
-        if retrieved_calendar_context and remaining_token_budget > 0:
-            calendar_header = "\n<Calendar Events Context>\n"
-            calendar_footer = "\n</Calendar Events Context>"
-            estimated_calendar_boilerplate = count_tokens(calendar_header + calendar_footer, tokenizer_model)
-            max_allowed_tokens_calendar = max(0, remaining_token_budget - estimated_calendar_boilerplate)
-
-            if count_tokens(retrieved_calendar_context, tokenizer_model) > max_allowed_tokens_calendar:
-                logger.warning(f"Truncating Calendar context to fit budget {max_allowed_tokens_calendar}.")
-                truncated_calendar_context = truncate_text_by_tokens(retrieved_calendar_context, tokenizer_model, max_allowed_tokens_calendar)
-            else:
-                truncated_calendar_context = retrieved_calendar_context
-
-            final_context_parts.append(calendar_header + truncated_calendar_context + calendar_footer)
-            remaining_token_budget -= count_tokens(final_context_parts[-1], tokenizer_model) # Update budget
-
-        final_context = "\n\n".join(final_context_parts).strip()
-        logger.debug(f"Final combined context length (chars): {len(final_context)}")
-        # --- END: Construct Final Context --- 
-
-        # --- Final LLM Generation Try/Retry Block --- 
-        max_retries = 2
-        retry_delay = 5 # seconds
-        for attempt in range(max_retries + 1):
-            try:
-                logger.error(f"DEBUG RAG - Attempt {attempt+1}: Calling LLM API with {chat_model}")
-                # Prepare messages for the final LLM call
-                formatted_history = []
-                if chat_history:
-                    for msg in chat_history:
-                        role = "user" if msg.get("role") == "user" else "assistant"
-                        formatted_history.append({"role": role, "content": msg.get("content", "")})
-
-                # --- Proposed New Prompt --- (Modified Instruction)
-                final_system_prompt = (
-                    f"You are Jarvis, an AI assistant for {user.display_name or user.email}. Your task is to answer the user's question based *only* on the information presented in the context sections below (Knowledge Base Documents, User Email Context, Calendar Events Context).\n\n"
-                    f"Follow these steps carefully:\n"
-                    f"1.  **Identify the core question/topic:** Understand what specific information the user is asking for (e.g., new leads, updates on Project X, calendar availability, news about clients).\n"
-                    f"2.  **Analyze ALL Context:** Scan the Knowledge Base Documents, User Email Context, and Calendar Events Context for *all* information matching the core question/topic.\n"
-                    f"3.  **Specifically Scan Emails for Leads/Opportunities (If Relevant):** If the user asks about leads, opportunities, new business, or similar topics, thoroughly scan the *User Email Context* section. Look for keywords like 'interest', 'potential', 'explore', 'new client', 'call scheduled', 'follow up', 'introduction', 'collaboration', 'proposal', 'opportunity', 'lead'. List *any* potential leads or opportunities mentioned, even if preliminary or just discussions.\n"
-                    f"4.  **Note Explicit Negative Statements:** Check the context for any explicit statements denying the requested information (e.g., 'no new opportunities at advanced stages', 'no updates found for Project X').\n"
-                    f"5.  **Synthesize the Final Answer:**\n"
-                    f"    *   Directly answer the user's core question/topic using *all* relevant findings from Step 2. **Do not filter your answer based only on specific names/entities mentioned in the user's original query if the context contains other relevant information matching the topic.**\n"
-                    f"    *   If the query was about leads/opportunities (Step 3), provide a summary of *all* potential items found. For each item, include key details like sender/parties involved, subject/topic, date, and the nature of the opportunity.\n"
-                    f"    *   If relevant negative statements were found (Step 4), mention them clearly, but ensure they don't overshadow the positive findings from Step 3 unless the negative statement directly contradicts a potential lead (e.g., 'call cancelled').\n"
-                    f"    *   Structure the answer clearly using Markdown (lists, bolding) where helpful.\n"
-                    f"    *   **Cite Sources:** When using information from a Knowledge Base Document, cite its source filename like this: (Source: filename.ext). Citations are generally not needed for email context unless specifically requested or useful for disambiguation.\n"
-                    f"    *   **Stick to the Context:** Do *not* add information not present in the provided context. If no relevant information is found for any part of the query, state that politely.\n\n"
-                    f"Context Provided:\n"
-                    f"{final_context}"
-                )
-                # --- End Proposed New Prompt ---
-                final_messages = [ {"role": "system", "content": final_system_prompt} ]
-                
-                needs_dummy_user_message = (
-                    provider == "deepseek" and 
-                    formatted_history and 
-                    formatted_history[0].get("role") == "assistant"
-                )
-                
-                if needs_dummy_user_message:
-                    logger.debug("Prepending dummy user message for DeepSeek history requirement.")
-                    final_messages.append({"role": "user", "content": "Okay."})
-                    
-                final_messages.extend(formatted_history)
-                final_messages.append({"role": "user", "content": message})
-
-                # Log the final context being sent
-                logger.debug(f"DEBUG RAG - Final Context Sent to LLM (length {len(final_context)} chars):\n{final_context}")
-                # Log the full messages list
-                logger.debug(f"DEBUG RAG - Final Messages Sent to LLM: {json.dumps(final_messages)}")
-
-                # Call the LLM API
-                final_response_obj = await user_client.chat.completions.create(
-                    model=chat_model,
-                    messages=final_messages,
-                    temperature=settings.OPENAI_TEMPERATURE
-                )
-                logger.error(f"DEBUG RAG - API call returned. Response type: {type(final_response_obj)}")
-                
-                # Check response structure before accessing content
-                if not final_response_obj or not final_response_obj.choices:
-                    logger.error(f"RAG: Received invalid or empty choices from {chat_model}. Response object: {final_response_obj}")
-                    return "Error: Failed to get a valid response from the language model." # Return error string
-
-                choice = final_response_obj.choices[0]
-                if not choice.message:
-                    logger.error(f"RAG: Received choice with no message from {chat_model}. Choice object: {choice}")
-                    return "Error: Response from language model is incomplete." # Return error string
-
-                final_response = choice.message.content
-                if final_response is None:
-                    logger.error(f"RAG: Received None content from {chat_model}. Message object: {choice.message}. Returning empty response.")
-                    return "Error: The language model returned empty content." # Return error string
-                
-                logger.error(f"DEBUG RAG - Final response successfully extracted: type={type(final_response)}, length={len(final_response if final_response else '')}")
-                
-                return final_response # Success!
-            except RateLimitError as rle:
-                logger.warning(f"OpenAI Rate Limit Error (Attempt {attempt+1}/{max_retries+1}): {rle}")
-                if attempt < max_retries:
-                    logger.info(f"Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2 # Exponential backoff
-                else:
-                    logger.error("Max retries reached for OpenAI rate limit error.")
-                    return "I'm sorry, but the service is currently experiencing high demand. Please try again in a few moments." # Return message instead of raising
-            except Exception as final_call_err:
-                logger.error(f"Error during final OpenAI API call: {final_call_err}", exc_info=True)
-                return "I apologize, but there was an error communicating with the language model service. Please try again later." # Return message instead of raising
-        
-        # Fallback if retry loop finishes without success
-        logger.error("RAG: Falling through retry loop without returning.")
-        return "I'm sorry, but I couldn't complete the request after retries. Please try again later." 
-
-    # --- Catch Errors in Main Logic --- 
-    except HTTPException as http_main_exc:
-        logger.error(f"RAG: Caught HTTPException during main logic, re-raising: {http_main_exc.detail}")
-        raise http_main_exc # Re-raise specific HTTP exceptions
-    except Exception as main_err:
-        logger.error(f"Error during main RAG logic execution: {main_err}", exc_info=True)
-        return fallback_response # Return fallback for general errors in main logic
-
-# --- Helper function for cosine similarity ---
-import numpy as np
-
-def cos_sim(a, b):
-    # ... (cos_sim logic) ...
-    if not isinstance(a, (list, tuple, np.ndarray)) or not isinstance(b, (list, tuple, np.ndarray)): logger.warning(f"Invalid input types for cosine similarity: {type(a)}, {type(b)}"); return 0.0
-    if not all(isinstance(x, (int, float)) for x in a) or not all(isinstance(x, (int, float)) for x in b): logger.warning("Non-numeric elements found in embeddings for cosine similarity."); return 0.0
-    a = np.array(a); b = np.array(b)
-    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0 or a.shape != b.shape: logger.warning("Invalid vectors for cosine similarity (zero vector or shape mismatch)."); return 0.0
-    similarity = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    return similarity
-# --- End Helper ---
-
-# --- START: ADVANCED RAG FOR RATE CARDS ---
-async def get_rate_card_response_advanced(
-    message: str,
-    user: User,
-    db: Session,
-    model_id: Optional[str] = None # Add model_id parameter
-) -> str:
-    logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
-    try:
-        # Determine model and provider using passed model_id or fallback
-        chat_model = model_id or settings.OPENAI_MODEL_NAME 
-        if not chat_model:
-             logger.error("RateCardRAG: LLM model name not configured (model_id missing and OPENAI_MODEL_NAME setting not set).")
-             raise HTTPException(status_code=500, detail="LLM model name not configured for rate card search.")
-             
-        # Determine provider based on the model name
-        if chat_model.lower().startswith("deepseek"):
-            provider = "deepseek"
-        # Add other providers here if needed
-        else:
-            provider = "openai" # Default to openai
-        logger.debug(f"RateCardRAG: Using LLM model: {chat_model} (from model_id: {model_id}) via provider {provider}")
-
-        # Fetch API key and base URL dynamically based on provider
-        db_api_key = api_key_crud.get_api_key(db, user.email, provider)
-        if not db_api_key:
-            logger.warning(f"User {user.email} missing active {provider} key for Rate Card RAG.")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{provider.capitalize()} API key required.")
-        user_api_key = decrypt_token(db_api_key.encrypted_key)
-        if not user_api_key:
-            logger.error(f"Failed to decrypt stored {provider} key for user {user.email} (Rate Card RAG). Key ID: {db_api_key.id}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Could not decrypt stored {provider.capitalize()} API key.")
-        user_base_url = db_api_key.model_base_url
-
-        # Initialize client dynamically
-        # --- START: Provider-specific timeout --- 
-        # Use default timeout from settings
-        default_timeout = settings.DEFAULT_LLM_TIMEOUT_SECONDS
-        provider_timeout = default_timeout # Default
-        if provider == "deepseek":
-            # Use specific Deepseek setting OR the Deepseek default setting
-            provider_timeout = float(settings.DEEPSEEK_TIMEOUT_SECONDS or settings.DEFAULT_DEEPSEEK_TIMEOUT_SECONDS)
-            logger.info(f"RateCardRAG: Using specific timeout for Deepseek: {provider_timeout} seconds")
-        else:
-             # Use specific OpenAI setting OR the general default setting
-             provider_timeout = float(settings.OPENAI_TIMEOUT_SECONDS or default_timeout)
-        # --- END: Provider-specific timeout ---
-
-        client_kwargs = {
-            "api_key": user_api_key,
-            "timeout": provider_timeout # Use provider-specific timeout
-        }
-        if user_base_url:
-            logger.info(f"RateCardRAG: Using custom base URL for {provider} for user {user.email}: {user_base_url}")
-            client_kwargs["base_url"] = user_base_url
-        else:
-            logger.info(f"RateCardRAG: Using default base URL for {provider} for user {user.email}")
-            # --- START: Add default base URL for Deepseek --- 
-            if provider == "deepseek":
-                deepseek_default_base_url = "https://api.deepseek.com/v1"
-                logger.warning(f"RateCardRAG: No custom base URL found for Deepseek for user {user.email}. Defaulting to {deepseek_default_base_url}")
-                client_kwargs["base_url"] = deepseek_default_base_url
-            # --- END: Add default base URL for Deepseek --- 
-            
-        user_client = AsyncOpenAI(**client_kwargs)
-        # --- End Dynamic Client Init ---
-        
-        logger.debug("RateCardRAG: Analyzing query for key features...")
-        # MODIFIED: Updated analysis prompt for better entity extraction
-        # MODIFICATION: Prompt adjusted slightly to request JSON within text if JSON mode fails
-        analysis_prompt_instruction = ("Return ONLY a JSON object string with keys: 'role', 'experience', 'skills' (list), 'location', 'amount' (integer), 'document_type'. "
-                                     "Prioritize identifying the 'role' (main subject/entity) accurately. "
-                                     "If a feature is not mentioned or unclear, use null or an empty list/string or 'unknown' for document_type.")
-        analysis_system_content = ("You accurately extract key features (especially the main subject/role and document type) from user queries according to instructions. " + analysis_prompt_instruction)
-        analysis_user_content = (
-            f"Analyze the user query: '{message}'. "
-            "Your goal is to extract key details to find the correct document and information within it. "
-            "Identify:\n"
-            "1. The **main subject** or **entity** the query is about (e.g., a client name like 'MAS' or 'GIC', a specific project, or a general role). This will be the 'role' field.\n"
-            "2. Any specified **experience level** (e.g., junior, senior).\n"
-            "3. Any specific **skills** mentioned.\n"
-            "4. Any specified **location** or region.\n"
-            "5. Any specific **dollar amount** mentioned.\n"
-            "6. The **type of document** likely requested (e.g., 'rate card', 'SOW', 'LOA', 'general info', 'unknown').\n\n"
-            f"{analysis_prompt_instruction}\n"
-            "\nExample 1:\nQuery: Show the MAS rate card\nOutput: {\"role\": \"MAS\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
-            "Example 2:\nQuery: What is the rate for a senior GIC developer?\nOutput: {\"role\": \"GIC developer\", \"experience\": \"senior\", \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"rate card\"}\n"
-            "Example 3:\nQuery: Tell me about the Beyondsoft SOW\nOutput: {\"role\": \"Beyondsoft\", \"experience\": null, \"skills\": [], \"location\": null, \"amount\": null, \"document_type\": \"SOW\"}"
+        is_email_focused = source_target == "email_focused"
+        # Broad email query is one that is email_focused BUT lacks specific filters (sender, subject, date)
+        # and might also imply no specific search_terms were extracted or they are very generic.
+        # For now, stick to the definition of email_focused lacking sender/subject/date.
+        is_broad_email_query = is_email_focused and not any(
+            extracted_email_params.get(k) for k in ["sender_filter", "subject_filter", "start_date"]
         )
-        
-        # MODIFICATION START: Conditional JSON format request
-        analysis_args = {
-            "model": chat_model,
-            "messages": [
-                {"role": "system", "content": analysis_system_content},
-                {"role": "user", "content": analysis_user_content}
-            ],
-            "temperature": 0.0
-        }
-        # Assume only OpenAI supports JSON mode reliably for now
-        request_json_mode = (provider == "openai")
-        if request_json_mode:
-            analysis_args["response_format"] = {"type": "json_object"}
-        # END MODIFICATION
+        logger.info(f"Query Intent Analysis - Source Target: {source_target}, Is Email Focused: {is_email_focused}, Is Broad Email Query: {is_broad_email_query}")
+        logger.debug(f"Extracted Email Params: {extracted_email_params}")
 
-        analysis_response = await user_client.chat.completions.create(**analysis_args)
-        
-        # MODIFICATION START: Parse response based on whether JSON mode was requested
-        content = analysis_response.choices[0].message.content
-        query_features = None
-        try:
-            if request_json_mode: # Expect direct JSON object
-                query_features = json.loads(content)
-            else: # Parse text response, expecting JSON string
-                content_cleaned = content.strip()
-                # Attempt to extract JSON from potential markdown code blocks
-                if content_cleaned.startswith("```json"):
-                     content_cleaned = content_cleaned.split("\n", 1)[1].rsplit("\n```", 1)[0]
-                elif content_cleaned.startswith("`{") and content_cleaned.endswith("`"):
-                     content_cleaned = content_cleaned[1:-1] # Handle single backticks
-                elif content_cleaned.startswith("{") and content_cleaned.endswith("}"): 
-                     pass # Looks like JSON already
-                else:
-                     logger.warning(f"RateCardRAG: Query analysis for {provider} returned unexpected format: '{content}'. Attempting direct parse.")
-                     # Attempt direct parse anyway, might work
-                query_features = json.loads(content_cleaned) 
-        except json.JSONDecodeError as json_err:
-            logger.error(f"RateCardRAG: Failed to parse query feature analysis response ({provider}, JSON mode={request_json_mode}): {json_err}. Response: '{content}'", exc_info=True)
-            # Raise or fallback? Fallback might be better UX.
-            # raise HTTPException(status_code=500, detail="Failed to analyze query features for rate card search.") from json_err
-            query_features = {} # Fallback to empty dict
-        except Exception as parse_err: # Catch other unexpected errors
-             logger.error(f"RateCardRAG: Error processing query feature analysis response: {parse_err}. Response: '{content}'", exc_info=True)
-             query_features = {} # Fallback
-        # END MODIFICATION
-        
-        # Ensure query_features is a dict even after fallback
-        if query_features is None: query_features = {}
+        # --- END: Intent Analysis & Parameter Extraction ---
 
-        logger.debug(f"RateCardRAG: Extracted query features: {query_features}")
-        
-        # Extract requested document type
-        requested_doc_type = query_features.get('document_type')
-        if requested_doc_type == 'unknown': requested_doc_type = None # Treat unknown as None
 
-        # 3. Construct Multi-Vector Retrieval Queries
-        retrieval_queries = []
-        # MODIFIED: Construct base query including document type
-        base_query_parts = [query_features.get(k) for k in ['role', 'experience', 'location'] if query_features.get(k)]
-        if query_features.get('skills'):
-            base_query_parts.extend(query_features['skills'])
-        # Add the document type if identified and not None/empty
-        if requested_doc_type:
-            base_query_parts.append(requested_doc_type)
-            
-        # Filter out None or empty strings before joining
-        filtered_parts = [part for part in base_query_parts if part]
-        base_query = " ".join(filtered_parts) if filtered_parts else message # Fallback to original message if no parts
-        retrieval_queries.append(base_query)
-        logger.debug(f"RateCardRAG: Refined base retrieval query: {base_query}")
-        
-        # Additional queries (e.g., focusing only on role and experience)
-        # Consider if these should also include doc_type?
-        if query_features.get('role') and query_features.get('experience'):
-            role_exp_query = f"{query_features['role']} {query_features['experience']}"
-            # Optionally add doc_type here too? 
-            # if requested_doc_type: role_exp_query += f" {requested_doc_type}"
-            retrieval_queries.append(role_exp_query)
-            logger.debug(f"RateCardRAG: Role/Experience query: {role_exp_query}")
-        # Consider adding queries focusing only on skills if present
-        if query_features.get('skills'):
-            skills_query = " ".join(query_features['skills'])
-            # Optionally add doc_type here too?
-            # if requested_doc_type: skills_query += f" {requested_doc_type}"
-            retrieval_queries.append(skills_query)
-            logger.debug(f"RateCardRAG: Skills query: {skills_query}")
-            
-        # Deduplicate retrieval queries
-        retrieval_queries = list(set(retrieval_queries))
-        logger.debug(f"RateCardRAG: Final unique retrieval queries: {retrieval_queries}")
+        # --- START: Conditional Context Retrieval (SEQUENTIAL) ---
+        retrieved_document_dicts: List[Dict[str, Any]] = [] 
+        retrieved_email_dicts: List[Dict[str, Any]] = []
 
-        # 4. Generate Embeddings (potentially HyDE for each query)
-        query_vectors = []
-        hyde_docs = {}
-        for q in retrieval_queries:
-            # Optional: Generate HyDE doc for each retrieval query
-            hyde_doc = q # Default if HyDE fails
+        # Determine dynamic MAX_EMAIL_CONTEXT_ITEMS based on query type
+        if is_broad_email_query:
+            MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'MAX_EMAIL_CONTEXT_ITEMS_BROAD', 50))
+            logger.info(f"Using BROAD email context limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+        else:
+            MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'MAX_EMAIL_CONTEXT_ITEMS_FOCUSED', 20))
+            logger.info(f"Using FOCUSED email context limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+
+        logger.info("Starting SEQUENTIAL context retrieval...")
+
+        # Retrieve Documents (if needed)
+        if source_target in ["mixed", "document_focused"]:
+            logger.debug("Retrieving document context sequentially...")
             try:
-                # MODIFIED: Adjust HyDE prompt based on document type if available
-                hyde_system_prompt = "Generate a concise, factual hypothetical document answering the query."
-                if requested_doc_type and requested_doc_type != 'general info':
-                    hyde_system_prompt = f"Generate a concise, factual hypothetical **{requested_doc_type}** document snippet answering the query."
-                    
-                hyde_msgs = [
-                    {"role": "system", "content": hyde_system_prompt}, 
-                    {"role": "user", "content": q}
+                 MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 20))
+                 retrieved_document_dicts = await _get_milvus_context(
+                     max_items=MAX_MILVUS_CONTEXT_ITEMS,
+                     max_chunk_chars=MAX_CHUNK_CHARS,
+                     query=message,
+                     user_email=user.email
+                 )
+                 logger.debug(f"Sequential document retrieval finished. Retrieved {len(retrieved_document_dicts)} documents.")
+            except Exception as doc_err:
+                 logger.error(f"Error during sequential document retrieval: {doc_err}", exc_info=True)
+                 retrieved_document_dicts = [] # Ensure it's empty on error
+                 # Add a log if RAG was supposed to get documents but failed
+                 if source_target in ["mixed", "document_focused"]:
+                     logger.warning("Document retrieval was expected but failed. Proceeding without document context.")
+
+        # Retrieve Emails (if needed)
+        if source_target in ["mixed", "email_focused"]:
+            logger.debug("Retrieving email context sequentially...")
+            try:
+                 retrieved_email_dicts = await _get_email_context(
+                     max_items=MAX_EMAIL_CONTEXT_ITEMS,
+                     max_chunk_chars=MAX_CHUNK_CHARS,
+                     user_client=user_client,
+                     search_params=extracted_email_params,
+                     user_email=user.email
+                 )
+                 logger.debug(f"Sequential email retrieval finished. Retrieved {len(retrieved_email_dicts)} emails.")
+            except Exception as email_err:
+                 logger.error(f"Error during sequential email retrieval: {email_err}", exc_info=True)
+                 retrieved_email_dicts = [] # Ensure it's empty on error
+                 # Add a log if RAG was supposed to get emails but failed
+                 if source_target in ["mixed", "email_focused"]:
+                     logger.warning("Email retrieval was expected but failed. Proceeding without email context.")
+
+        logger.info("Finished SEQUENTIAL context retrieval.")
+        # --- END: Conditional Context Retrieval (SEQUENTIAL) ---
+
+        logger.critical("!!! POINTER: Right before Process Email Context block !!!") # ADDED
+
+        # --- START: Process Email Context ---
+        final_email_context_str = "No relevant emails found or search skipped."
+
+        if retrieved_email_dicts:
+            # REMOVED DEBUG LOG: logger.critical("!!! POINTER: Entered 'if retrieved_email_dicts:' block !!!")
+            
+            logger.debug(f"Processing {len(retrieved_email_dicts)} retrieved email dictionaries.") # Keep standard debug log
+            # Helper to format a single email dictionary
+            def _format_single_email(email: Dict[str, Any], max_len: int) -> str:
+                def _truncate_text(text: str, max_l: int) -> str:
+                    text_str = str(text) if text is not None else ''
+                    if len(text_str) > max_l: return text_str[:max_l] + "... [TRUNCATED]"; return text_str
+
+                granularity = email.get('granularity', 'full_message')
+                text_content = ""
+                entry_type = "Email (Unknown Granularity)"
+                if granularity == 'full_message':
+                    text_content = email.get('body_text')
+                    entry_type = "Email Reply/Body"
+                elif granularity == 'quoted_message':
+                    text_content = email.get('quoted_raw_text')
+                    entry_type = "Quoted Section"
+                else:
+                    text_content = email.get('body_text') or email.get('quoted_raw_text')
+
+                # Safely access keys with defaults
+                return (
+                    f"Email ID: {email.get('message_id', 'N/A')}\n"
+                    f"Type: {entry_type}\n"
+                    f"Received: {email.get('received_datetime_utc', 'N/A')}\n"
+                    f"Sender: {email.get('sender', 'N/A')}\n"
+                    f"Subject: {email.get('subject', 'N/A')}\n"
+                    f"Tags: {email.get('generated_tags', 'N/A')}\n"
+                    f"Content: {_truncate_text(str(text_content) if text_content else '', max_len)}"
+                )
+
+            # Estimate tokens for the *full* potential context if NOT summarized
+            # --- RESTORED --- 
+            full_potential_email_context = "\n\n---\n\n".join([_format_single_email(email, MAX_CHUNK_CHARS) for email in retrieved_email_dicts])
+            full_email_tokens = count_tokens(full_potential_email_context, tokenizer_model)
+            logger.info(f"Estimated tokens for full email context ({len(retrieved_email_dicts)} emails): {full_email_tokens}")
+            # REMOVED Dummy value & warning log
+            # full_email_tokens = 0 
+            # logger.warning("DEBUG: Bypassing initial token count for email context.")
+            # --- END RESTORED ---
+
+            # Check if multi-stage summarization is needed
+            # --- RESTORED --- 
+            trigger_summarization = is_broad_email_query and full_email_tokens > MULTI_STAGE_EMAIL_TOKEN_THRESHOLD
+            # REMOVED forced False & warning log
+            # trigger_summarization = False 
+            # logger.warning(f"DEBUG: Forcing trigger_summarization={trigger_summarization}")
+            # --- END RESTORED ---
+
+            if trigger_summarization:
+                # This block should now execute if conditions are met
+                # REMOVED pass statement
+                logger.warning(f"Multi-stage email summarization triggered. Token count {full_email_tokens} > threshold {MULTI_STAGE_EMAIL_TOKEN_THRESHOLD}. Query: '{message}'")
+
+                # Split emails into batches
+                email_batches = [
+                    retrieved_email_dicts[i:i + EMAIL_SUMMARY_BATCH_SIZE]
+                    for i in range(0, len(retrieved_email_dicts), EMAIL_SUMMARY_BATCH_SIZE)
                 ]
-                hyde_resp = await user_client.chat.completions.create(model=chat_model, messages=hyde_msgs, temperature=0.0)
-                gen_doc = hyde_resp.choices[0].message.content.strip()
-                if gen_doc: hyde_doc = gen_doc
-            except Exception: pass # Ignore HyDE failure for individual queries
+                logger.info(f"Created {len(email_batches)} email batches for summarization (batch size: {EMAIL_SUMMARY_BATCH_SIZE}).")
+
+                # Run summarization tasks concurrently
+                summary_tasks = [
+                    _summarize_email_batch(batch, message, user_client, chat_model, max_chars_per_email=1000)
+                    for batch in email_batches
+                ]
+                try:
+                    batch_summaries = await asyncio.gather(*summary_tasks)
+                    combined_summaries = "\n\n---\n\n".join(filter(None, batch_summaries))
+                    final_email_context_str = f"<Summarized Email Context (Multiple Batches, {len(retrieved_email_dicts)} emails total)>\n{combined_summaries}\n</Summarized Email Context>"
+                    logger.info(f"Multi-stage summarization completed. Final summary token count: {count_tokens(final_email_context_str, tokenizer_model)}")
+                except Exception as e_summary:
+                    logger.error(f"Error during concurrent email batch summarization: {e_summary}", exc_info=True)
+                    final_email_context_str = "<Error during multi-stage email summarization>"
+            else:
+                # Removed the verbose loop logging, keep the main info log
+                logger.info(f"Using direct email context (Limit: {len(retrieved_email_dicts)} items). Summarization not triggered (Broad Query={is_broad_email_query}, Tokens={full_email_tokens}, Threshold={MULTI_STAGE_EMAIL_TOKEN_THRESHOLD}).")
+                direct_context_entries = [_format_single_email(email, MAX_CHUNK_CHARS) for email in retrieved_email_dicts]
+                final_email_context_str = "<User Email Context>\n" + "\n\n---\n\n".join(direct_context_entries) + "\n</User Email Context>"
+                # Removed redundant token counting/logging here, it happens later in budgeting
+        else: # If retrieved_email_dicts is empty
+            final_email_context_str = "No email context was retrieved or searched for."
+            logger.info("No email dictionaries were retrieved to process for context.")
+
+
+        # --- START: Process Document Context ---
+        final_document_context_str = "No document context was retrieved or searched for."
+        if retrieved_document_dicts:
+            logger.debug(f"Processing {len(retrieved_document_dicts)} retrieved document dictionaries for context.")
+            document_context_parts = []
+            for i, doc in enumerate(retrieved_document_dicts):
+                content = doc.get('content', '') # Assuming 'content' key holds the text
+                truncated_content = truncate_text_by_tokens(content, tokenizer_model, MAX_DOCUMENT_CONTEXT_CHARS // 3) # Rough token to char conversion
+                # Alternative: truncate by characters directly if MAX_DOCUMENT_CONTEXT_CHARS is char based
+                # truncated_content = content[:MAX_DOCUMENT_CONTEXT_CHARS] + ("...[TRUNCATED]" if len(content) > MAX_DOCUMENT_CONTEXT_CHARS else "")
+
+                source_info = doc.get('metadata', {}).get('source', f"Document {i+1}") # Example: get source from metadata
+                score = doc.get('score', 'N/A')
+                doc_entry = f"Source: {source_info} (Score: {score})\nContent:\n{truncated_content}"
+                document_context_parts.append(doc_entry)
             
-            # Create embedding using the HyDE document (or original query if HyDE failed)
-            embedding = await create_retrieval_embedding(hyde_doc, field='dense')
-            query_vectors.append(embedding)
-            # MODIFIED: Log the actual text used for embedding (HyDE or query)
-            logger.debug(f"RateCardRAG: Generated embedding for query: '{q}' (using text: {hyde_doc[:50]}...)")
+            if document_context_parts:
+                final_document_context_str = "<Retrieved Document Context>\n" + "\n\n---\n\n".join(document_context_parts) + "\n</Retrieved Document Context>"
+            else:
+                final_document_context_str = "Retrieved documents had no content to process."
+                logger.info("Retrieved document dictionaries were empty or had no processable content.")
+        else:
+            logger.info("No document dictionaries were retrieved to process for context.")
+        # --- END: Process Document Context ---
 
-        # 5. Perform Multi-Vector Search in Milvus
-        k_per_query = int(getattr(settings, 'RATE_CARD_RESULTS_PER_QUERY', 3))
-        all_search_results = []
-        # Build filename filter requiring all key terms
-        terms = ['rate', 'card']
-        role_term = query_features.get('role')
-        if role_term:
-            terms.insert(0, role_term)
-        logger.debug(f"RateCardRAG: Using filename terms for pre-filtering: {terms}")
 
-        # MODIFIED: Call the new hybrid search function for each query vector
-        for i, q in enumerate(retrieval_queries):
-            logger.debug(f"RateCardRAG: Performing HYBRID search for query: '{q}'")
-            # Determine target collection name (RAG collection)
-            sanitized_email = user.email.replace('@', '_').replace('.', '_')
-            target_collection_name = f"{sanitized_email}_knowledge_base_bm"
+        # Token Budgeting & Context Construction
+        logger.info("Starting token budgeting and context construction...")
+        system_prompt_template = _build_system_prompt() # Get the template which includes placeholder
+        # Format chat history, applying token limit
+        formatted_history = _format_chat_history(chat_history, model=tokenizer_model, max_tokens=MAX_CHAT_HISTORY_TOKENS)
+        
+        base_prompt_tokens = count_tokens(system_prompt_template.replace("<RAG_CONTEXT_PLACEHOLDER>", ""), tokenizer_model)
+        history_tokens = count_tokens(formatted_history, tokenizer_model)
+        query_tokens = count_tokens(message, tokenizer_model)
+        
+        # Calculate remaining tokens for RAG context
+        remaining_tokens_for_rag = MAX_TOTAL_TOKENS - (base_prompt_tokens + history_tokens + query_tokens + RESPONSE_BUFFER_TOKENS)
+        logger.info(f"Token budget: Total={MAX_TOTAL_TOKENS}, BasePrompt={base_prompt_tokens}, History={history_tokens}, Query={query_tokens}, ResponseBuffer={RESPONSE_BUFFER_TOKENS} => Remaining for RAG: {remaining_tokens_for_rag}")
 
-            # Call the hybrid function with the filename terms list
-            hybrid_results = await search_milvus_knowledge_hybrid(
-                query_text=q,  # Pass the actual query text
-                collection_name=target_collection_name,
-                limit=k_per_query,
-                # Pass the list of terms directly
-                filename_terms=terms 
-            )
-            # The hybrid function returns a single list of fused results for the query
-            all_search_results.extend(hybrid_results)
-            logger.debug(f"RateCardRAG: Found {len(hybrid_results)} fused results for query '{q}'.")
-            
-        logger.info(f"RateCardRAG: Total raw results from hybrid searches: {len(all_search_results)}")
-
-        # 6. Deduplicate and Re-rank Results (No change needed here, works on the combined list)
-        unique_results = {res['id']: res for res in all_search_results} 
-
-        # 7. Context Selection & Formatting (Select top N re-ranked results)
-        # This part now uses the results reranked by the cross-encoder
-        final_context_limit = int(getattr(settings, 'RATE_CARD_FINAL_CONTEXT_LIMIT', 5))
         context_parts = []
-        for res in unique_results.values():
-            doc_id = res.get('id', 'N/A')
-            # Use 'content' field directly as returned by search_milvus_knowledge
-            doc_content = res.get('content', '') 
-            # Extract metadata and filename safely
-            doc_metadata = res.get("metadata") 
-            source_filename = "Unknown Source"
-            if isinstance(doc_metadata, dict): 
-                source_filename = doc_metadata.get('original_filename', 'Unknown Source')
-            elif isinstance(doc_metadata, str):
-                try: 
-                    meta_dict = json.loads(doc_metadata)
-                    source_filename = meta_dict.get('original_filename', 'Unknown Source')
-                except json.JSONDecodeError:
-                    source_filename = "Metadata Parse Error"
-            # Format string including source
-            context_parts.append(f"--- Document ID: {doc_id} (Source: {source_filename}) ---\nContent: {doc_content}")
-        
-        context = "\n\n".join(context_parts)
-        # context = "\n\n---\n\n".join([f"Document ID: {res['id']}\nContent: {json.dumps(res.get('content'))}" for res in ranked_results[:final_context_limit]]) # Original line
-        logger.debug(f"RateCardRAG: Formatted final context (top {len(unique_results.values())}):\n{context[:500]}...")
+        current_rag_tokens = 0
 
-        # 8. Generate Final Response using LLM
-        # MODIFIED: Update system prompt to instruct citation
-        system_prompt = (
-            "You are Jarvis, an AI assistant specializing in providing rate card information. "
-            f"You are chatting with {user.display_name or user.email}. "
-            "Use the provided context containing relevant rate card entries to answer the user's query accurately. "
-            "Directly quote rates and associated details (like role, experience, skills, location) from the context. "
-            "**When using information from a document, cite its source filename like this: (Source: filename.ext).** "
-            "If the context doesn't contain a precise match, state that clearly but offer the closest information available in the context. "
-            "Do not make up rates or information not present in the context."
-            "Structure your answer clearly, perhaps listing relevant entries found."
-            f"\n\nContext:\n{context}"
-        )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message}
-        ]
-        logger.debug(f"RateCardRAG: Sending final prompt to {chat_model}...")
-        response = await user_client.chat.completions.create(model=chat_model,messages=messages,temperature=0.0)
-        final_response = response.choices[0].message.content
-        logger.info("RateCardRAG: Generated final response.")
-        return final_response
-    except HTTPException as http_exc: raise http_exc
-    except Exception as e: logger.error(f"Error during advanced rate card RAG for user {user.email}: {e}", exc_info=True); raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,detail="An error occurred while processing your rate card request.")
-# --- END: ADVANCED RAG FOR RATE CARDS --- 
+        # Add Document Context First (often more general, can be prioritized or ordered based on strategy)
+        if remaining_tokens_for_rag > 0 and final_document_context_str and final_document_context_str != "No document context was retrieved or searched for." and final_document_context_str != "Retrieved documents had no content to process.":
+            doc_tokens = count_tokens(final_document_context_str, tokenizer_model)
+            if doc_tokens <= remaining_tokens_for_rag:
+                context_parts.append(final_document_context_str)
+                current_rag_tokens += doc_tokens
+                remaining_tokens_for_rag -= doc_tokens
+                logger.info(f"Added document context ({doc_tokens} tokens). Remaining for RAG: {remaining_tokens_for_rag}")
+            else:
+                truncated_doc_context = truncate_text_by_tokens(final_document_context_str, tokenizer_model, remaining_tokens_for_rag)
+                context_parts.append(truncated_doc_context)
+                truncated_doc_tokens = count_tokens(truncated_doc_context, tokenizer_model)
+                current_rag_tokens += truncated_doc_tokens
+                remaining_tokens_for_rag -= truncated_doc_tokens
+                logger.warning(f"Truncated document context from {doc_tokens} to {truncated_doc_tokens} tokens due to budget. Remaining for RAG: {remaining_tokens_for_rag}")
+        
+        # Add Email Context
+        if remaining_tokens_for_rag > 0 and final_email_context_str and final_email_context_str != "No email context was retrieved or searched for.":
+            email_tokens = count_tokens(final_email_context_str, tokenizer_model)
+            if email_tokens <= remaining_tokens_for_rag:
+                context_parts.append(final_email_context_str)
+                current_rag_tokens += email_tokens
+                # remaining_tokens_for_rag -= email_tokens # Not strictly needed to track beyond here for this var
+                logger.info(f"Added email context ({email_tokens} tokens).")
+            else:
+                truncated_email_context = truncate_text_by_tokens(final_email_context_str, tokenizer_model, remaining_tokens_for_rag)
+                context_parts.append(truncated_email_context)
+                truncated_email_tokens = count_tokens(truncated_email_context, tokenizer_model)
+                current_rag_tokens += truncated_email_tokens
+                logger.warning(f"Truncated email context from {email_tokens} to {truncated_email_tokens} tokens due to budget.")
 
-# --- New debug wrapper for generate_openai_rag_response ---
-async def debug_generate_openai_rag_response(
-    message: str,
-    chat_history: List[Dict[str, str]],
-    user: User,
-    db: Session,
-    model_id: Optional[str] = None,
-    ms_token: Optional[str] = None
-) -> str:
-    """
-    Debug wrapper for generate_openai_rag_response that ensures proper logging and 
-    guarantees a string response under all circumstances.
-    """
-    fallback_response = "I apologize, but I encountered a technical issue while processing your request. Please try again later."
-    
-    try:
-        print(f"DEBUG WRAPPER - Starting RAG function for user {user.email}")
-        logger.error(f"DEBUG WRAPPER - Starting RAG function for user {user.email}")
+        rag_context_str = "\n\n".join(context_parts) if context_parts else "No context could be provided within token limits."
+        if not context_parts:
+             logger.warning("No RAG context could be assembled within token limits or none was retrieved.")
         
-        # Call the actual RAG function
-        result = await generate_openai_rag_response(
-            message=message,
-            chat_history=chat_history,
-            user=user,
-            db=db,
-            model_id=model_id,
-            ms_token=ms_token
-        )
+        final_system_prompt = system_prompt_template.replace("<RAG_CONTEXT_PLACEHOLDER>", rag_context_str)
         
-        # Check the result
-        if result is None:
-            print(f"DEBUG WRAPPER - RAG function returned None!")
-            logger.error(f"DEBUG WRAPPER - RAG function returned None!")
-            return fallback_response
-            
-        print(f"DEBUG WRAPPER - RAG function returned a result of type: {type(result)}")
-        logger.error(f"DEBUG WRAPPER - RAG function returned a result of type: {type(result)}")
-        
-        # Ensure we're returning a string
-        if not isinstance(result, str):
-            print(f"DEBUG WRAPPER - RAG function returned non-string: {result}")
-            logger.error(f"DEBUG WRAPPER - RAG function returned non-string: {result}")
-            return f"Error: Unexpected response type: {type(result)}"
-            
-        return result
-    except Exception as e:
-        print(f"DEBUG WRAPPER - Caught exception from RAG function: {str(e)}")
-        logger.error(f"DEBUG WRAPPER - Caught exception from RAG function: {str(e)}", exc_info=True)
-        return fallback_response
-# --- End debug wrapper ---
+        logger.debug(f"Final System Prompt (excluding history/query, first 200 chars):\n{final_system_prompt[:200]}...")
+        final_prompt_messages = [{"role": "system", "content": final_system_prompt}]
+        if formatted_history: # Add history if it exists
+            final_prompt_messages.append({"role": "user", "content": f"Previous conversation history:\n{formatted_history}"}) # Simplistic history injection
+            # A more robust approach would interleave user/assistant turns correctly.
+            # For now, just prepend it.
+        final_prompt_messages.append({"role": "user", "content": message}) # Current user message
+
+        # --- Final LLM Call ---
+        logger.info(f"Making final LLM call to {provider}/{chat_model} with {len(final_prompt_messages)} messages.")
+        # Log total tokens being sent to LLM for debugging
+        total_final_prompt_tokens = sum(count_tokens(msg["content"], tokenizer_model) for msg in final_prompt_messages)
+        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} (Max allowed: {MAX_TOTAL_TOKENS})")
+        if total_final_prompt_tokens > MAX_TOTAL_TOKENS:
+            logger.error(f"CRITICAL: Final prompt token count ({total_final_prompt_tokens}) EXCEEDS model max tokens ({MAX_TOTAL_TOKENS}). LLM call will likely fail.")
+            # This indicates a flaw in budgeting logic if it happens.
+
+        try:
+            llm_response = await user_client.chat.completions.create(
+                model=chat_model,
+                messages=final_prompt_messages,
+                temperature=float(getattr(settings, 'OPENAI_TEMPERATURE', 0.1)), # Make temperature configurable
+                max_tokens=RESPONSE_BUFFER_TOKENS  # Ensure LLM has enough buffer to respond
+            )
+            response_content = llm_response.choices[0].message.content.strip()
+            logger.info(f"RAG response generated successfully by {chat_model}.")
+            logger.debug(f"LLM Response (first 100 chars): {response_content[:100]}...")
+            return response_content
+        except RateLimitError as rle:
+            logger.error(f"OpenAI Rate Limit Error during RAG generation: {rle}", exc_info=True)
+            # Consider more specific user feedback for rate limits
+            return "I'm currently experiencing high demand. Please try again in a few moments."
+        except Exception as llm_call_err:
+            logger.error(f"Error during final LLM call for RAG: {llm_call_err}", exc_info=True)
+            return fallback_response # Return fallback for LLM call errors
+
+    except HTTPException as http_exc: # Catch HTTPExceptions from setup or elsewhere
+        logger.error(f"RAG: Caught HTTPException, re-raising: {http_exc.detail}", exc_info=True)
+        raise http_exc # Re-raise to be handled by FastAPI
+    except Exception as e: # General catch-all for unexpected errors in the main logic
+        logger.error(f"Unexpected error in generate_openai_rag_response: {e}", exc_info=True)
+        return fallback_response # Return fallback for any other unhandled error
+    # Ensure a string is always returned (though covered by above, defensive)
+    # This line should ideally not be reached if logic is correct.
+    logger.error("RAG function reached unexpected end. Returning fallback.")
+    return fallback_response

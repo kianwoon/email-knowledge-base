@@ -155,6 +155,7 @@ async def chat_endpoint(
             logger.info("Routing to Advanced Rate Card RAG pipeline...")
             response_content = await get_rate_card_response_advanced(
                 message=message_for_rag, # Use potentially modified message
+                chat_history=chat_message.chat_history or [],  # Add the missing chat_history parameter
                 user=current_user,
                 db=db,
                 model_id=chat_message.model_id
@@ -181,7 +182,10 @@ async def chat_endpoint(
         return ChatResponse(reply=response_content)
 
     except HTTPException as http_exc:
+        # Reraise specific HTTP exceptions directly
         raise http_exc
     except Exception as e:
-        logger.error(f"Error processing chat request for user {current_user.email}: {e}", exc_info=True)
+        # Log the specific exception from the RAG function *before* raising a generic HTTP 500
+        logger.error(f"Caught exception during RAG call for user {current_user.email}. Original error: {e}", exc_info=True)
+        # Now raise the generic HTTP error for the client
         raise HTTPException(status_code=500, detail="An internal error occurred while processing your request.") 

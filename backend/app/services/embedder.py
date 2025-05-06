@@ -211,11 +211,19 @@ async def search_milvus_knowledge_hybrid(
 
     # --- Dense Vector Preparation ---
     try:
-        query_dense_embedding = await create_embedding(query_text)
-        if hasattr(query_dense_embedding, 'tolist'):
-            query_dense_vector = query_dense_embedding.tolist()
+        # Check if a custom embedding was provided in dense_params
+        custom_embedding = None
+        if dense_params and 'search_data_override' in dense_params:
+            custom_embedding = dense_params.pop('search_data_override')  # Remove from params to avoid confusion
+            logger.debug("Using custom embedding provided via search_data_override")
+            query_dense_vector = custom_embedding
         else:
-            query_dense_vector = query_dense_embedding
+            # Generate embedding normally if no override provided
+            query_dense_embedding = await create_embedding(query_text)
+            if hasattr(query_dense_embedding, 'tolist'):
+                query_dense_vector = query_dense_embedding.tolist()
+            else:
+                query_dense_vector = query_dense_embedding
     except Exception as e:
         logger.error(f"Failed to create dense embedding for hybrid search: {e}", exc_info=True)
         # Cannot proceed without dense vector
