@@ -227,14 +227,31 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
                 logger.error(f"Error processing folder {folder_id} for user {user_email}: {str(e)}")
                 # Continue with the next folder even if this one fails
         
-        # Update last sync time only if we actually processed emails
+        # Update last sync time even if no new emails were found
+        # This ensures the frontend always shows the latest sync attempt
+        current_time = datetime.now(timezone.utc)
+        user.last_outlook_sync = current_time
+        db.commit()
+        
         if emails_processed:
-            # Update the last sync time to the current time
-            user.last_outlook_sync = datetime.now(timezone.utc)
-            db.commit()
-            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync}")
+            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync} (processed {processed_count} emails)")
         else:
-            logger.info(f"No emails processed for user {user_email}, not updating last_outlook_sync")
+            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync} (no new emails found)")
+        
+        # In either case, we should update the active_sync_tasks in memory with the latest info
+        try:
+            # Find and update the sync status in active_sync_tasks
+            for task_id_key, task_info in active_sync_tasks.items():
+                if task_info['user_email'] == user_email:
+                    for current_folder_id, status in task_info['statuses'].items():
+                        if current_folder_id == folder_id:
+                            status['lastSync'] = current_time.isoformat()
+                            status['status'] = 'completed'
+                            logger.info(f"Updated in-memory sync status for folder {folder_id}")
+                            break
+        except Exception as e:
+            logger.error(f"Error updating in-memory sync status: {e}")
+            # Don't let this error prevent the function from completing
     
     except Exception as e:
         logger.error(f"Error in Outlook sync task for user {user_id}: {str(e)}")
