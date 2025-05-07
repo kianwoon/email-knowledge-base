@@ -506,6 +506,28 @@ const OutlookSyncPage: React.FC = () => {
   };
   // ---- END: Alliance Domain Handlers ----
   
+  // Determine folder status based on multiple sources of truth
+  const determineFolderStatus = useCallback((folderId: string) => {
+    // First check if the folder is specifically the one in the last sync info
+    if (lastSyncInfo?.folder === folderId && lastSyncInfo?.last_sync) {
+      return 'completed';
+    }
+    
+    // Then check if folder has a non-idle status in syncStatuses
+    const folderStatus = syncStatuses.find(s => s.folderId === folderId)?.status;
+    if (folderStatus && folderStatus !== 'idle') {
+      return folderStatus;
+    }
+    
+    // Next check if folder is selected and we have successful last sync
+    if (selectedFolders.includes(folderId) && lastSyncInfo?.last_sync) {
+      return 'completed';
+    }
+    
+    // Finally return idle or whatever status is in syncStatuses
+    return folderStatus || 'idle';
+  }, [lastSyncInfo, selectedFolders, syncStatuses]);
+  
   // Render status badge
   const renderStatusBadge = (status: 'idle' | 'syncing' | 'completed' | 'error') => {
     switch (status) {
@@ -574,12 +596,7 @@ const OutlookSyncPage: React.FC = () => {
                       <Td>{folder.displayName}</Td>
                       <Td isNumeric>{folder.children?.length || 0}</Td>
                       <Td>
-                        {renderStatusBadge(
-                          // Enhanced status logic for displaying folder status
-                          selectedFolders.includes(folder.id) && lastSyncInfo?.last_sync
-                            ? 'completed'  // Show completed if folder is selected and we have last sync data
-                            : syncStatuses.find(s => s.folderId === folder.id)?.status || 'idle'
-                        )}
+                        {renderStatusBadge(determineFolderStatus(folder.id))}
                       </Td>
                     </Tr>
                   ))}
@@ -766,7 +783,11 @@ const OutlookSyncPage: React.FC = () => {
                 {/* Show the database last sync info */}
                 {lastSyncInfo && lastSyncInfo.last_sync ? (
                   <Stat>
-                    <StatLabel>{t('outlookSync.lastSyncFolder', 'Inbox')}</StatLabel> {/* Placeholder for actual folder */}
+                    <StatLabel>
+                      {lastSyncInfo.folder 
+                        ? flatFolders.find(f => f.id === lastSyncInfo.folder)?.displayName || t('outlookSync.lastSyncFolder', 'Inbox')
+                        : t('outlookSync.lastSyncFolder', 'Inbox')}
+                    </StatLabel>
                     <StatNumber>
                       <HStack>
                         <Icon as={FaCheck} color="green.500" />
@@ -776,7 +797,7 @@ const OutlookSyncPage: React.FC = () => {
                     <StatHelpText>
                       {lastSyncInfo.items_processed 
                         ? t('outlookSync.lastSyncItemsProcessed', '{{count}} items processed', { count: lastSyncInfo.items_processed }) 
-                        : t('outlookSync.lastSyncItemsProcessedDefault', '576 items processed')} {/* Consider making default dynamic or removing */}
+                        : t('outlookSync.lastSyncItemsProcessedDefault', '576 items processed')}
                     </StatHelpText>
                   </Stat>
                 ) : (
