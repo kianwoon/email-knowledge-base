@@ -231,32 +231,32 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
         # This ensures the frontend always shows the latest sync attempt
         current_time = datetime.now(timezone.utc)
         user.last_outlook_sync = current_time
-        db.commit()
         
-        if emails_processed:
-            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync} (processed {processed_count} emails)")
-        else:
-            logger.info(f"Updated last_outlook_sync for user {user_email} to {user.last_outlook_sync} (no new emails found)")
-        
-        # In either case, we should update the active_sync_tasks in memory with the latest info
         try:
-            # Find and update the sync status in active_sync_tasks
-            for task_id_key, task_info in active_sync_tasks.items():
-                if task_info['user_email'] == user_email:
-                    for current_folder_id, status in task_info['statuses'].items():
-                        if current_folder_id == folder_id:
-                            status['lastSync'] = current_time.isoformat()
-                            status['status'] = 'completed'
-                            logger.info(f"Updated in-memory sync status for folder {folder_id}")
-                            break
-        except Exception as e:
-            logger.error(f"Error updating in-memory sync status: {e}")
-            # Don't let this error prevent the function from completing
-    
+            db.commit()
+            logger.info(f"Successfully committed last_outlook_sync for user {user_email} to {user.last_outlook_sync}")
+        except Exception as commit_error:
+            db.rollback()
+            logger.error(f"DATABASE COMMIT FAILED for last_outlook_sync for user {user_email}: {commit_error}", exc_info=True)
+            # Depending on the error, you might want to re-raise or handle differently
+            # For now, we log and the task will end, but the last_outlook_sync in DB will be stale.
+
+        # Logging based on whether emails were processed (commit success is logged above)
+        if emails_processed:
+            # Note: processed_count here will be from the last folder processed in the loop, not a total.
+            # This logging detail might need refinement if a total across all folders is desired.
+            logger.info(f"User {user_email} sync complete. Timestamp: {user.last_outlook_sync}. Processed emails in the last folder: {processed_count}")
+        else:
+            logger.info(f"User {user_email} sync complete. Timestamp: {user.last_outlook_sync}. No new emails found in any processed folder.")
+        
+        # REMOVED: Flawed attempt to update in-memory active_sync_tasks from Celery worker
+        # This dictionary lives in the FastAPI app's memory space, not Celery worker's.
+        # A shared data store (e.g., Redis, DB) would be needed for reliable cross-process updates.
+
     except Exception as e:
-        logger.error(f"Error in Outlook sync task for user {user_id}: {str(e)}")
+        logger.error(f"Error in Outlook sync task for user {user_id}: {str(e)}", exc_info=True)
     finally:
-        if 'db' in locals():
+        if 'db' in locals() and db.is_active:
             db.close()
 
 
