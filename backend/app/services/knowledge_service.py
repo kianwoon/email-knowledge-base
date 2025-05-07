@@ -733,8 +733,9 @@ def ensure_utc(dt_obj: datetime | str | None, operation_id: str = "UNKNOWN_OP", 
          return None
 
     if dt_obj.tzinfo is None:
-        logger.warning(f"[Op:{operation_id}] Email {email_id}: Making naive datetime {dt_obj} UTC-aware.")
-        return dt_obj.replace(tzinfo=timezone.utc)
+        # *** MODIFIED BEHAVIOR: Log error and return None for naive datetimes ***
+        logger.error(f"[Op:{operation_id}] Email {email_id}: ensure_utc received NAIVE datetime {dt_obj}. Cannot assume timezone. Returning None.")
+        return None # Do not assume UTC for naive datetimes
     elif dt_obj.tzinfo != timezone.utc:
         logger.debug(f"[Op:{operation_id}] Email {email_id}: Converting timezone-aware datetime {dt_obj} to UTC.")
         return dt_obj.astimezone(timezone.utc)
