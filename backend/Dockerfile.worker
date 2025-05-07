@@ -54,7 +54,11 @@ RUN chown -R celery:celery /app /etc/supervisor /home/celery
 # Switch to non-root user
 USER celery
 
-ENTRYPOINT ["bash","-c","\
-  while true; do echo -e 'HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n' | nc -l -p ${HEALTH_PORT:-8080}; done & \
-  exec celery -A app.celery_app worker --pool=threads --loglevel=info\
-"]
+# Old ENTRYPOINT - comment out or remove
+# ENTRYPOINT ["bash","-c","\\
+#   while true; do echo -e 'HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n' | nc -l -p ${HEALTH_PORT:-8080}; done & \\
+#   exec celery -A app.celery_app worker --pool=threads --loglevel=info\\
+# "]
+
+# New ENTRYPOINT to use supervisord via start.sh
+ENTRYPOINT ["/app/start.sh"]
