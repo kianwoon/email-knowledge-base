@@ -16,6 +16,9 @@ from collections import Counter
 import json
 import asyncio
 import copy # <-- ADD IMPORT FOR DEEPCOPY
+import hashlib
+import difflib
+import numpy as np
 
 def text_to_term_freq(text: str) -> Dict[str, int]:
     tokens = re.findall(r"\w+", text.lower())
@@ -756,3 +759,105 @@ async def create_retrieval_embedding(text: str, field: str) -> List[float]:
         logger.debug(f"ColBERT vector resized from {original_dim} to {len(final_vector)} dimensions.")
         return final_vector # Return the resized vector
     return vector
+
+# --- NEW: Content-based Deduplication Function ---
+async def deduplicate_results(results: List[Dict[str, Any]], 
+                             similarity_threshold: float = 0.85,
+                             max_document_chars: int = 300) -> List[Dict[str, Any]]:
+    """
+    Remove semantically duplicate results based on content similarity.
+    
+    This function improves token efficiency by:
+    1. Removing exact duplicates using content hashing
+    2. Detecting near-duplicates using text similarity matching
+    3. Preserving the highest scoring similar document from each cluster
+    
+    The deduplication process has two stages:
+    - First pass: Exact match detection using MD5 hashing
+    - Second pass: Semantic similarity detection using text comparison
+    
+    Args:
+        results: List of result dictionaries from Milvus/vector search
+        similarity_threshold: Similarity threshold (0.0-1.0) to consider documents as duplicates
+        max_document_chars: Maximum characters to consider for similarity comparison (for performance)
+        
+    Returns:
+        List of deduplicated results
+    """
+    if not results or len(results) <= 1:
+        return results  # No need to deduplicate if 0 or 1 result
+    
+    logger.debug(f"Deduplicating {len(results)} results with similarity threshold {similarity_threshold}")
+    
+    # First pass: exact content hash deduplication
+    content_hashes = {}
+    hash_deduplicated = []
+    
+    for result in results:
+        content = result.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            # Always keep items with no valid content (they'll be filtered elsewhere)
+            hash_deduplicated.append(result)
+            continue
+            
+        # Create a hash of the content
+        content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
+        
+        if content_hash not in content_hashes:
+            content_hashes[content_hash] = result
+            hash_deduplicated.append(result)
+        else:
+            # Document is an exact duplicate
+            logger.debug(f"Found exact duplicate content for doc ID: {result.get('id')}")
+    
+    # If we have 0 or 1 result after hash deduplication, return immediately
+    if len(hash_deduplicated) <= 1:
+        logger.info(f"After exact hash deduplication: {len(hash_deduplicated)} results")
+        return hash_deduplicated
+    
+    # Second pass: semantic similarity deduplication for non-exact matches
+    similarity_deduplicated = []
+    used_indices = set()
+    
+    # Sort by score if available to prioritize higher scoring documents
+    hash_deduplicated.sort(
+        key=lambda x: x.get("rerank_score", x.get("score", 0.0)), 
+        reverse=True
+    )
+    
+    # Normalize content for comparison
+    normalized_contents = []
+    for result in hash_deduplicated:
+        content = result.get("content", "")
+        if not isinstance(content, str):
+            content = ""
+        # Truncate for faster comparison
+        normalized = content[:max_document_chars].lower().strip()
+        normalized_contents.append(normalized)
+    
+    # Find similar documents
+    for i in range(len(hash_deduplicated)):
+        if i in used_indices:
+            continue
+            
+        similarity_deduplicated.append(hash_deduplicated[i])
+        used_indices.add(i)
+        
+        # Compare this document to all remaining ones
+        for j in range(i + 1, len(hash_deduplicated)):
+            if j in used_indices:
+                continue
+                
+            # Use SequenceMatcher for fuzzy matching - faster than embeddings for small text
+            similarity = difflib.SequenceMatcher(
+                None, 
+                normalized_contents[i],
+                normalized_contents[j]
+            ).ratio()
+            
+            if similarity >= similarity_threshold:
+                used_indices.add(j)
+                logger.debug(f"Found similar content ({similarity:.2f}) between docs {hash_deduplicated[i].get('id')} and {hash_deduplicated[j].get('id')}")
+    
+    logger.info(f"Deduplication complete: {len(results)} → {len(hash_deduplicated)} → {len(similarity_deduplicated)} results")
+    return similarity_deduplicated

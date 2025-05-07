@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     # --- Rate Card RAG Settings --- 
     RATE_CARD_RESULTS_PER_QUERY: Optional[int] = int(os.getenv("RATE_CARD_RESULTS_PER_QUERY", "3"))
     RATE_CARD_FINAL_CONTEXT_LIMIT: Optional[int] = int(os.getenv("RATE_CARD_FINAL_CONTEXT_LIMIT", "5"))
+    RATE_CARD_MAX_CHARS_PER_DOC: Optional[int] = int(os.getenv("RATE_CARD_MAX_CHARS_PER_DOC", "4000"))
+    
+    # Entity variations for rate card and general queries - JSON string mapping entity keys to lists of variations
+    # Format: {"entity_key": ["variation1", "variation2", ...], ...}
+    # Example: {"gic": ["global innovation center", "gic"], "mas": ["managed application services", "mas"]}
+    ENTITY_VARIATIONS: Optional[str] = os.getenv("ENTITY_VARIATIONS", "")
 
     # Composite scoring metadata filter settings
     ENABLE_METADATA_FILTER: bool = os.getenv("ENABLE_METADATA_FILTER", "False") == "True"

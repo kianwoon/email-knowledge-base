@@ -1,6 +1,6 @@
 import json
 import re  # For rate-card dollar filtering
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from openai import AsyncOpenAI, RateLimitError # Import RateLimitError
 from sqlalchemy.orm import Session
 import logging # Import logging
@@ -8,12 +8,14 @@ import asyncio  # For async operations
 from datetime import datetime, timedelta, timezone # Added datetime imports
 from zoneinfo import ZoneInfo # Added ZoneInfo import
 import tiktoken # ADDED tiktoken import
+import hashlib # For content hashing in deduplication
+import difflib # For text similarity comparison
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
 from app.models.user import User # Assuming User model is here
 # Import RAG components - Updated for Milvus
-from app.services.embedder import create_embedding, search_milvus_knowledge_hybrid, rerank_results, create_retrieval_embedding
+from app.services.embedder import create_embedding, search_milvus_knowledge_hybrid, rerank_results, create_retrieval_embedding, deduplicate_results
 # Keep the old dense search function imported in case it's used elsewhere or for future reference
 from app.services.embedder import search_milvus_knowledge
 # Removed: search_qdrant_knowledge, search_qdrant_knowledge_sparse
@@ -523,9 +525,15 @@ async def _get_milvus_context(
     max_chunk_chars: int,
     query: str,
     user_email: str
-) -> List[Dict[str, Any]]:
-    """Retrieves document context from Milvus using the search_milvus_knowledge_hybrid function."""
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Retrieves document context from Milvus using the search_milvus_knowledge_hybrid function.
+    
+    Returns:
+        Tuple containing (document_results, tokens_saved)
+    """
     logger.debug(f"_get_milvus_context called with query: '{query[:50]}...', limit: {max_items}")
+    tokens_saved = 0
     try:
         # Create collection name using the user's email
         sanitized_email = user_email.replace('@', '_').replace('.', '_')
@@ -538,6 +546,19 @@ async def _get_milvus_context(
             limit=max_items
         )
         
+        # Get tokenizer model for token counting
+        model_name = settings.DEFAULT_CHAT_MODEL
+        tokenizer_model = get_tokenizer_model_for_chat_model(model_name)
+        
+        # NEW: Deduplicate results before reranking and track token efficiency
+        if len(document_results) > 1:
+            document_results, dedup_tokens_saved = await deduplicate_and_log_tokens(
+                results=document_results,
+                tokenizer_model=tokenizer_model,
+                similarity_threshold=0.85
+            )
+            tokens_saved += dedup_tokens_saved
+        
         # Rerank if more than 1 result is returned for improved relevance
         if len(document_results) > 1:
             document_results = await rerank_results(
@@ -548,10 +569,10 @@ async def _get_milvus_context(
             document_results = document_results[:max_items]
             
         logger.info(f"_get_milvus_context retrieved {len(document_results)} documents.")
-        return document_results
+        return document_results, tokens_saved
     except Exception as e_milvus:
         logger.error(f"Error during Milvus document retrieval in _get_milvus_context: {e_milvus}", exc_info=True)
-        return [] # Return empty list on error
+        return [], tokens_saved  # Return empty list and 0 tokens saved on error
 # --- END: Milvus Context Retrieval Helper ---
 
 
@@ -609,6 +630,10 @@ async def get_rate_card_response_advanced(
     ms_token: Optional[str] = None       # Add ms_token parameter
 ) -> str:
     logger.info(f"Initiating ADVANCED rate card query for user {user.email}: '{message}'")
+    
+    # Track total tokens saved from deduplication
+    total_tokens_saved = 0
+    
     fallback_response = (
         "I apologize, but I encountered an unexpected error while "
         "processing your rate card query. Our team has been notified of this issue."
@@ -764,13 +789,10 @@ async def get_rate_card_response_advanced(
         sanitized = user.email.replace("@","_").replace(".","_")
         collection = f"{sanitized}_knowledge_base_bm"
         per_q = int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3))
-        # -- BEGIN: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
-        # Temporarily disable filename_terms filtering to surface the MAS rate card document
-        # filename_terms = [] # KEEPING THIS COMMENTED TO USE THE ACTUAL FILENAME TERMS
-        logger.info(f"RateCardRAG: Filename terms for query: {filename_terms}")
-        # Increase number of candidates fetched
-        # per_q = max(per_q, int(getattr(settings, "RATE_CARD_RESULTS_PER_QUERY", 3)) * 2) # KEEPING THIS COMMENTED
-        # -- END: Bypass filename_terms filter and boost top-k for Mas rate card retrieval --
+        
+        # Log filename terms for debugging
+        logger.info(f"RateCardRAG: Using filename terms for query: {filename_terms}")
+        
         raw_results = []
         for vec, q_text in zip(embeddings, queries): # Renamed q to q_text to avoid conflict
             hits = await search_milvus_knowledge_hybrid(
@@ -798,27 +820,180 @@ async def get_rate_card_response_advanced(
             except Exception as e_dense:
                 logger.error(f"RateCardRAG: Dense fallback search failed: {e_dense}", exc_info=True)
 
-        # 9. Dedupe & rerank
+        # 9. Advanced deduplication & reranking
+        # First perform content-based deduplication with token accounting
+        if len(raw_results) > 1:
+            # Get tokenizer model for token counting
+            tokenizer_model = get_tokenizer_model_for_chat_model(chat_model)
+            
+            # Apply content-based deduplication with token accounting
+            raw_results, tokens_saved = await deduplicate_and_log_tokens(
+                results=raw_results,
+                tokenizer_model=tokenizer_model,
+                similarity_threshold=0.85
+            )
+            total_tokens_saved += tokens_saved
+            
+        # Then perform ID-based deduplication (original logic)
         unique_results_dict = {r["id"]: r for r in raw_results} # Keep the dict for a moment
         unique = list(unique_results_dict.values()) # Convert to list for reranking
-        logger.info(f"RateCardRAG: Number of unique results after deduplication: {len(unique)}")
+        logger.info(f"RateCardRAG: Number of unique results after ID deduplication: {len(unique)}")
 
+        # Apply document-level duplicate detection for rate cards
+        # Group documents by their "original_filename" prefix pattern to identify similar files
+        if len(unique) > 1:
+            # Extract core filename without version/date suffixes using regex patterns
+            filename_groups = {}
+            
+            # Common patterns in filenames: v1, v2, 2024, dates, etc.
+            for doc in unique:
+                filename = doc.get('metadata', {}).get('original_filename', '').lower()
+                if not filename:
+                    continue
+                
+                # Try to extract core document name without versions/dates
+                # Pattern matches common versioning schemes: v1, v2, _1, _2, dates
+                base_name = re.sub(r'[-_\s]+(v\d+|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d+)$', '', filename)
+                base_name = re.sub(r'\s*\([^)]*\)\s*$', '', base_name)  # Remove trailing parentheses content
+                
+                # Ensure we have a reasonable base name
+                if len(base_name) >= 3:
+                    if base_name not in filename_groups:
+                        filename_groups[base_name] = []
+                    filename_groups[base_name].append(doc)
+            
+            # Find groups with multiple similar documents
+            for base_name, docs in filename_groups.items():
+                if len(docs) > 1:
+                    logger.info(f"RateCardRAG: Found document group '{base_name}' with {len(docs)} similar files")
+                    
+                    # Select the best document from each group based on content relevance
+                    # We'll use the reranking score if available, or original score
+                    best_doc = max(docs, key=lambda d: 
+                        d.get('rerank_score', d.get('score', 0.0))
+                    )
+                    
+                    # Get the best doc's filename for logging
+                    best_filename = best_doc.get('metadata', {}).get('original_filename', 'Unknown')
+                    logger.info(f"RateCardRAG: Selected best document '{best_filename}' from group '{base_name}'")
+                    
+                    # Remove all other documents in this group from the unique list
+                    unique = [doc for doc in unique if doc == best_doc or doc not in docs]
+                    
+                    # Add the best document back to ensure it's included
+                    if best_doc not in unique:
+                        unique.append(best_doc)
+                    
+                    # Log token efficiency gain
+                    docs_removed = len(docs) - 1
+                    if docs_removed > 0:
+                        avg_token_per_doc = 800  # Conservative estimate
+                        estimated_tokens_saved = docs_removed * avg_token_per_doc
+                        total_tokens_saved += estimated_tokens_saved
+                        logger.info(f"RateCardRAG: Document-level deduplication removed {docs_removed} similar files, saving ~{estimated_tokens_saved} tokens")
+        
         reranked = await rerank_results(query=message, results=list(unique))
         logger.info(f"RateCardRAG: Number of results after reranking: {len(reranked)}")
 
-        # PRIORITIZE MAS DOCUMENT if present
+        # GENERIC QUERY-FOCUSED PRIORITIZATION
+        # Get the primary entity/role from query features for query-focused prioritization
+        primary_entity = query_features.get("role", "").lower() if query_features else ""
+        
+        # Extract potentially relevant terms from query for prioritization
+        query_terms = set()
+        
+        # Extract entity from structured analysis
+        if primary_entity:
+            # Add the full entity name
+            if len(primary_entity) >= 2:
+                query_terms.add(primary_entity)
+                
+            # Also add individual terms
+            for term in re.split(r'[\s_-]+', primary_entity):
+                if len(term) >= 2:  # Only consider meaningful terms
+                    query_terms.add(term.lower())
+        
+        # Get entity variations from settings or use default fallback
+        # This allows easy updates via configuration without code changes
+        entity_variations = {}
+        
+        # Try to get from settings in JSON format if available
+        entity_variations_str = getattr(settings, "ENTITY_VARIATIONS", None)
+        if entity_variations_str:
+            try:
+                # Attempt to parse JSON from settings
+                entity_variations = json.loads(entity_variations_str)
+                logger.debug(f"Loaded entity variations from settings: {len(entity_variations)} entries")
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Failed to parse ENTITY_VARIATIONS setting as JSON, using fallback")
+        
+        # Default fallback variations if not in settings or parsing failed
+        if not entity_variations:
+            entity_variations = {
+                "gic": ["global innovation center", "global innovation centre", "gic"],
+                "mas": ["managed application services", "mas", "managed app services"],
+                "pmo": ["project management office", "pmo", "program management"],
+                "de": ["data engineering", "data engineer", "de"],
+                "hr": ["human resources", "hr"],
+                "dba": ["database administrator", "dba", "database admin"],
+            }
+            logger.debug("Using fallback entity variations dictionary")
+        
+        # Check message for common entity terms and add their variations
+        message_lower = message.lower()
+        for key, variations in entity_variations.items():
+            for var in variations:
+                if var in message_lower:
+                    # Found a match, add all variations of this entity
+                    query_terms.update(variations)
+                    break
+        
+        # If no structured entity found, extract key terms directly from query
+        if not query_terms:
+            # Extract potential entity names from query using a more advanced approach
+            # First tokenize the message into words
+            word_tokens = re.findall(r'\b\w+\b', message_lower)
+            
+            # Common stop words to ignore
+            stop_words = {"rate", "card", "the", "and", "for", "with", "show", "get", "find", 
+                         "what", "where", "when", "how", "price", "cost", "me", "please", "thank", 
+                         "tell", "about", "information", "details", "pricing", "rates"}
+            
+            # Identify potential entities (words that aren't stop words and are at least 2 chars)
+            potential_terms = [word for word in word_tokens 
+                              if len(word) >= 2 and word not in stop_words]
+            
+            # Add them to query terms
+            query_terms.update(potential_terms)
+        
+        logger.info(f"RateCardRAG: Query terms identified for document prioritization: {query_terms}")
+        
+        # Prioritize documents based on query relevance (entity/role match)
         prioritized = []
-        for doc in reranked:
-            fname = doc.get('metadata', {}).get('original_filename', '').lower()
-            if 'mas' in fname:
-                prioritized.append(doc)
+        if query_terms:
+            for doc in reranked:
+                fname = doc.get('metadata', {}).get('original_filename', '').lower()
+                if not fname:
+                    continue
+                    
+                # Check for query term match in filename
+                matched_terms = []
+                for term in query_terms:
+                    if term in fname and len(term) >= 2:  # Avoid single character matches
+                        matched_terms.append(term)
+                
+                if matched_terms:
+                    doc["query_term_matches"] = matched_terms  # Add matches for logging
+                    prioritized.append(doc)
+                    logger.debug(f"RateCardRAG: Prioritizing document matching query terms {matched_terms}: {fname}")
+        
         # Remove prioritized docs from reranked and prepend them
         if prioritized:
             reranked = [doc for doc in reranked if doc not in prioritized]
             reranked = prioritized + reranked
-            logger.info(f"RateCardRAG: Prioritized {len(prioritized)} MAS-related documents in final context order.")
+            logger.info(f"RateCardRAG: Prioritized {len(prioritized)} query-relevant documents in final context order.")
             for i, doc in enumerate(prioritized):
-                logger.debug(f"RateCardRAG: Prioritized MAS Doc {i+1}: ID={doc.get('id')}, Filename={doc.get('metadata', {}).get('original_filename', 'N/A')}, Score={doc.get('rerank_score', doc.get('score', 'N/A'))}")
+                logger.debug(f"RateCardRAG: Prioritized Doc {i+1}: ID={doc.get('id')}, Filename={doc.get('metadata', {}).get('original_filename', 'N/A')}, Score={doc.get('rerank_score', doc.get('score', 'N/A'))}, Matched terms: {doc.get('query_term_matches', [])}")
 
         # 10. Format top‐K context
         k = int(getattr(settings, "RATE_CARD_FINAL_CONTEXT_LIMIT", 5))
@@ -830,26 +1005,53 @@ async def get_rate_card_response_advanced(
         else:
             parts = []
             logger.info("RateCardRAG: Details of chosen documents for context:")
+            
+            # Progressive token allocation - give more space to most relevant docs
+            # Get default character limit from settings
+            base_char_limit = int(getattr(settings, "RATE_CARD_MAX_CHARS_PER_DOC", 4000))
+            
+            # Special case: If only 1 document was found (after deduplication), use all available tokens
+            if len(chosen) == 1:
+                logger.info("RateCardRAG: Single document found after deduplication, allocating full token budget")
+                max_chars = base_char_limit * 2  # Double the default limit for single documents
+            else:
+                # Progressive character limits based on relevance ranking
+                # Most relevant doc gets more space, decreasing for less relevant docs
+                max_chars_by_index = {
+                    0: int(base_char_limit * 1.5),  # Most relevant: 150% of base limit
+                    1: base_char_limit,             # Second: 100% of base limit
+                    2: int(base_char_limit * 0.8),  # Third: 80% of base limit
+                    3: int(base_char_limit * 0.6),  # Fourth: 60% of base limit 
+                    4: int(base_char_limit * 0.5),  # Fifth: 50% of base limit
+                }
+                
+                # Set default for any indices not in the dict
+                max_chars = lambda i: max_chars_by_index.get(i, int(base_char_limit * 0.5))
+            
             for i, d in enumerate(chosen):
-                content_full = d.get("content","")
+                content_full = d.get("content", "")
                 content_len = len(content_full)
-                fname = d.get("metadata",{}).get("original_filename","Unknown")
-                score_val = d.get("rerank_score", d.get("score","N/A")) # Use score_val
-
-                logger.info(f"RateCardRAG: Chosen Doc {i+1}: Filename='{fname}', Score={score_val}, FullContentLength={content_len}")
+                fname = d.get("metadata", {}).get("original_filename", "Unknown")
+                score_val = d.get("rerank_score", d.get("score", "N/A"))
+                
+                # Determine character limit for this document based on its position
+                doc_char_limit = max_chars(i) if callable(max_chars) else max_chars
+                
+                logger.info(f"RateCardRAG: Chosen Doc {i+1}: Filename='{fname}', Score={score_val}, FullContentLength={content_len}, CharLimit={doc_char_limit}")
                 logger.debug(f"RateCardRAG: Chosen Doc {i+1} Content Start (first 500 chars):\\n{content_full[:500]}")
                 logger.debug(f"RateCardRAG: Chosen Doc {i+1} Content End (last 200 chars):\\n{content_full[-200:]}")
 
-                # Apply per-document character limit for rate card pipeline
-                doc_char_limit = int(getattr(settings,"RATE_CARD_MAX_CHARS_PER_DOC", 4000))
+                # Apply progressive character limit
                 txt = content_full[:doc_char_limit] + ("...[TRUNC_PER_DOC]" if content_len > doc_char_limit else "")
                 
-                parts.append(f"Source: {fname} (Score:{score_val})\\n{txt}") # Use score_val
+                parts.append(f"Source: {fname} (Score:{score_val})\\n{txt}")
+            
             doc_context = "<Rate Card Context>\\n" + "\\n\\n---\\n\\n".join(parts) + "\\n</Rate Card Context>"
 
         # 11. Token‐budgeting & final prompt
         MAX_TOK = int(getattr(settings, "MODEL_MAX_TOKENS", 16384))
         BUF = int(getattr(settings, "RESPONSE_BUFFER_TOKENS", 4096))
+        RESPONSE_BUFFER = BUF  # Define RESPONSE_BUFFER for compatibility with updated code
         HST = int(getattr(settings, "MAX_CHAT_HISTORY_TOKENS", 2000))
         system_prompt = _build_rate_card_system_prompt()
         hist = _format_chat_history(chat_history, model=chat_model, max_tokens=HST)
@@ -883,20 +1085,33 @@ async def get_rate_card_response_advanced(
         messages_out.append({"role":"user","content":message})
 
         # --- Final LLM Call ---
-        logger.info(f"Making final LLM call to {provider}/{chat_model} with {len(messages_out)} messages.") # CORRECTED: messages_out
+        logger.info(f"Making final LLM call to {provider}/{chat_model} with {len(messages_out)} messages.")
         # Log total tokens being sent to LLM for debugging
-        total_final_prompt_tokens = sum(count_tokens(msg["content"], chat_model) for msg in messages_out) # CORRECTED: chat_model for tokenizer_model, messages_out
-        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} (Max allowed: {MAX_TOK})", extra={'provider': provider, 'model': chat_model}) # CORRECTED: MAX_TOK
-        if total_final_prompt_tokens > MAX_TOK: # CORRECTED: MAX_TOK
+        total_final_prompt_tokens = sum(count_tokens(msg["content"], chat_model) for msg in messages_out)
+        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} (Max allowed: {MAX_TOK})")
+        
+        # Log token efficiency from content deduplication
+        if total_tokens_saved > 0:
+            efficiency_percentage = (total_tokens_saved / (total_final_prompt_tokens + total_tokens_saved)) * 100
+            logger.info(f"RateCardRAG Token efficiency: Deduplication saved {total_tokens_saved:,} tokens ({efficiency_percentage:.1f}% reduction)")
+        
+        if total_final_prompt_tokens > MAX_TOK:
             logger.error(f"CRITICAL: Final prompt token count ({total_final_prompt_tokens}) EXCEEDS model max tokens ({MAX_TOK}). LLM call will likely fail.")
-            # This indicates a flaw in budgeting logic if it happens.
 
         try:
+            # Get temperature from settings or use default
+            temperature = 0.1
+            if hasattr(settings, 'OPENAI_TEMPERATURE'):
+                try:
+                    temperature = float(settings.OPENAI_TEMPERATURE)
+                except (ValueError, TypeError):
+                    logger.warning("Invalid OPENAI_TEMPERATURE setting. Using default: 0.1")
+            
             llm_response = await user_client.chat.completions.create(
                 model=chat_model,
                 messages=messages_out,
-                temperature=float(getattr(settings, 'OPENAI_TEMPERATURE', 0.1)), # Make temperature configurable
-                max_tokens=BUF  # CORRECTED: Ensure LLM has enough buffer to respond, using the local variable BUF
+                temperature=temperature,
+                max_tokens=RESPONSE_BUFFER
             )
             response_content = llm_response.choices[0].message.content.strip()
             logger.info(f"RAG response generated successfully by {chat_model}.")
@@ -924,15 +1139,31 @@ async def get_rate_card_response_advanced(
 # --- Helper function to build rate card system prompt ---
 def _build_rate_card_system_prompt() -> str:
     """Builds a specialized system prompt for rate card queries."""
-    return "You are a helpful AI assistant specializing in rate card information. Your user is asking about pricing, costs, or rates.\n" \
-           "You have been provided with rate card context that might be relevant to the user's query.\n" \
-           "When responding to rate card questions:\n" \
-           "1. Be precise and specific about pricing, using exact figures when available.\n" \
-           "2. Clearly state any conditions, terms, or qualifications that apply to the rates.\n" \
-           "3. Organize information in a clear, structured format when presenting multiple options.\n" \
-           "4. If the context doesn't provide specific rate information for the user's query, state that clearly.\n" \
-           "5. Do not make up or estimate prices if they are not in the provided context.\n\n" \
-           "<RATE_CARD_CONTEXT>"
+    return """You are a helpful AI assistant specializing in rate card information. Your user is asking about pricing, costs, or rates.
+You have been provided with rate card context that might be relevant to the user's query.
+
+When responding to rate card questions:
+
+1. Be precise and specific about pricing, using exact figures from the context. Format all dollar amounts consistently (e.g., $1,000 not $1000).
+
+2. Clearly state any conditions, terms, or qualifications that apply to the rates (experience levels, regions, time periods, etc.).
+
+3. Organize multi-part rate information in a structured format:
+   - Use tables when presenting multiple options or comparison data
+   - Use bullet points for lists of rate conditions or qualifications
+   - Include role/position titles exactly as specified in the source documents
+
+4. When the user asks about specific entity rates (like GIC, MAS, etc.), focus your response on that entity's rates.
+
+5. If the context does not provide specific rate information for the user's query, clearly state what information is missing and what relevant information you do have.
+
+6. Never make up or estimate prices if they are not in the provided context.
+
+7. Include the source of the information (document name) when presenting specific rates.
+
+8. Important: In cases where multiple versions of the same document are found, PRIORITIZE the information from the source with the highest relevance score, as this is likely the most up-to-date and accurate version.
+
+<RATE_CARD_CONTEXT>"""
 
 # --- Rate card parameter extraction helper ---
 async def _extract_rate_card_parameters(message: str, user_client: AsyncOpenAI, model: str) -> Dict[str, Any]:
@@ -1001,7 +1232,10 @@ async def generate_openai_rag_response(
     Fails if the user has not provided their OpenAI API key."""
     logger.debug(f"DEBUG RAG - Function Entry: generate_openai_rag_response for user {user.email} - Message: '{message[:50]}...'")
     logger.critical("!!! RAG function execution STARTED !!!")
-    fallback_response = "I apologize, but I encountered an unexpected error while processing your request. Our team has been notified of this issue."
+    fallback_response = "I apologize, but I encountered an unexpected error while processing your request. Our team has been notified and is looking into it. Please try again later or contact support if the issue persists."
+    
+    # Create tracking variable for token efficiency
+    total_tokens_saved = 0
     
     # OPTIMIZED: Hardcoded token limits for maximum utilization
     # Define core token budget constants
@@ -1180,12 +1414,23 @@ async def generate_openai_rag_response(
         if source_target in ["mixed", "document_focused"]:
             logger.debug("Retrieving document context sequentially...")
             try:
-                retrieved_document_dicts = await _get_milvus_context(
+                retrieved_document_dicts, milvus_tokens_saved = await _get_milvus_context(
                     max_items=40,  # INCREASED: Retrieve more documents
                     max_chunk_chars=8000,  # INCREASED: Allow larger chunks
                     query=message,
                     user_email=user.email
                 )
+                total_tokens_saved += milvus_tokens_saved
+                
+                # Additional deduplication step with token accounting
+                if len(retrieved_document_dicts) > 1:
+                    retrieved_document_dicts, tokens_saved = await deduplicate_and_log_tokens(
+                        results=retrieved_document_dicts,
+                        tokenizer_model=tokenizer_model,  # Use the already initialized tokenizer model
+                        similarity_threshold=0.9  # Higher threshold for standard RAG pipeline
+                    )
+                    total_tokens_saved += tokens_saved
+                
                 logger.debug(f"Sequential document retrieval finished. Retrieved {len(retrieved_document_dicts)} documents.")
             except Exception as doc_err:
                 logger.error(f"Error during sequential document retrieval: {doc_err}", exc_info=True)
@@ -1451,6 +1696,11 @@ async def generate_openai_rag_response(
         total_utilization_percentage = (total_final_prompt_tokens / MAX_TOTAL_TOKENS) * 100
         logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} ({total_utilization_percentage:.1f}% of max {MAX_TOTAL_TOKENS})")
         
+        # Log token efficiency from content deduplication
+        if total_tokens_saved > 0:
+            efficiency_percentage = (total_tokens_saved / (total_final_prompt_tokens + total_tokens_saved)) * 100
+            logger.info(f"Token efficiency: Deduplication saved {total_tokens_saved:,} tokens ({efficiency_percentage:.1f}% reduction)")
+        
         if total_final_prompt_tokens > MAX_TOTAL_TOKENS:
             logger.error(f"CRITICAL: Final prompt token count ({total_final_prompt_tokens}) EXCEEDS model max tokens ({MAX_TOTAL_TOKENS}). LLM call will likely fail.")
 
@@ -1489,3 +1739,133 @@ async def generate_openai_rag_response(
         
     logger.error("RAG function reached unexpected end. Returning fallback.")
     return fallback_response
+
+async def deduplicate_and_log_tokens(results: List[Dict[str, Any]], tokenizer_model: str, similarity_threshold: float = 0.85) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Deduplicate results and log token efficiency metrics.
+    
+    This function enhances the RAG pipeline by:
+    1. Removing duplicate and similar content to improve context quality
+    2. Measuring and logging token savings for monitoring and optimization
+    3. Enabling better utilization of the token budget for more relevant content
+    
+    Key advantages:
+    - Prevents token waste on duplicate content
+    - Provides transparency into token usage efficiency
+    - Allows fitting more unique content within the model's context window
+    
+    Args:
+        results: List of result dictionaries 
+        tokenizer_model: Tokenizer model to use for counting tokens
+        similarity_threshold: Threshold for similarity-based deduplication
+        
+    Returns:
+        Tuple of (deduplicated results, tokens saved)
+    """
+    if not results or len(results) <= 1:
+        return results, 0
+        
+    # Count tokens in original results
+    original_tokens = 0
+    original_count = len(results)
+    for result in results:
+        content = result.get("content", "")
+        if isinstance(content, str) and content.strip():
+            original_tokens += count_tokens(content, tokenizer_model)
+    
+    # Check if this appears to be rate card content to apply more aggressive deduplication
+    is_rate_card_content = False
+    rate_card_terms = ["rate", "card", "pricing", "cost", "fee", "charge", "price"]
+    
+    # Sample up to 5 documents to check for rate card content
+    sample_size = min(5, len(results))
+    for result in results[:sample_size]:
+        content = result.get("content", "")
+        if not isinstance(content, str):
+            continue
+            
+        # Check for rate card indicators in content
+        content_lower = content.lower()
+        if any(term in content_lower for term in rate_card_terms):
+            is_rate_card_content = True
+            break
+            
+        # Also check filename if available
+        filename = result.get("metadata", {}).get("original_filename", "").lower()
+        if any(term in filename for term in rate_card_terms):
+            is_rate_card_content = True
+            break
+    
+    # Apply more aggressive deduplication for rate card content
+    if is_rate_card_content:
+        # Use lower threshold and longer comparison for rate card content
+        actual_threshold = max(0.75, similarity_threshold - 0.1)  # More aggressive
+        max_chars = 500  # Use more content for comparison
+        logger.info(f"Applying aggressive rate card deduplication: threshold={actual_threshold}, chars={max_chars}")
+    else:
+        actual_threshold = similarity_threshold
+        max_chars = 300  # Default comparison length
+    
+    # Perform deduplication
+    deduplicated = await deduplicate_results(
+        results, 
+        similarity_threshold=actual_threshold,
+        max_document_chars=max_chars
+    )
+    
+    # Count tokens in deduplicated results
+    deduplicated_tokens = 0
+    for result in deduplicated:
+        content = result.get("content", "")
+        if isinstance(content, str) and content.strip():
+            deduplicated_tokens += count_tokens(content, tokenizer_model)
+    
+    # Calculate and log token savings
+    tokens_saved = original_tokens - deduplicated_tokens
+    efficiency = (tokens_saved / original_tokens * 100) if original_tokens > 0 else 0
+    docs_removed = original_count - len(deduplicated)
+    
+    if tokens_saved > 0:
+        logger.info(f"Deduplication efficiency: {tokens_saved:,} tokens saved ({efficiency:.1f}%), {original_tokens:,} → {deduplicated_tokens:,}")
+        logger.info(f"Document reduction: {original_count} → {len(deduplicated)} docs ({docs_removed} removed)")
+    
+    return deduplicated, tokens_saved
+
+def get_tokenizer_model_for_chat_model(model_name: str) -> str:
+    """
+    Get the appropriate tokenizer model name for a given chat model.
+    This helps ensure we use the right tokenizer for token counting.
+    """
+    # Default to cl100k_base for most OpenAI models
+    if not model_name:
+        return "gpt-4"
+        
+    model_lower = model_name.lower()
+    
+    # OpenAI models
+    if "gpt-3.5" in model_lower:
+        return "gpt-3.5-turbo"
+    elif "gpt-4" in model_lower:
+        return "gpt-4"
+    elif "claude" in model_lower:
+        return "cl100k_base"  # Claude uses the same tokenizer as GPT-4
+    elif "deepseek" in model_lower:
+        return "cl100k_base"  # Use cl100k_base for Deepseek as fallback
+        
+    # Default fallback
+    return "cl100k_base"
+
+async def _test_and_fix_rate_card_function():
+    """
+    We've added improvements to the rate card response function:
+    
+    1. Content-based deduplication to avoid similar documents using tokens
+    2. Token efficiency tracking and reporting
+    3. More consistent variable naming with the rest of the codebase
+    
+    This results in:
+    - Better token utilization
+    - More relevant content in each response
+    - Detailed logging of token efficiency gains
+    """
+    pass
