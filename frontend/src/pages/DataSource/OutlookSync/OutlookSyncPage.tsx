@@ -116,12 +116,19 @@ const OutlookSyncPage: React.FC = () => {
   const fetchLastSyncInfo = useCallback(async () => {
     try {
       const response = await apiClient.get('/v1/email/sync/last-sync');
+      console.debug("Last sync API response:", response.data);
+      
+      // Store the last sync info
       setLastSyncInfo(response.data);
       
       // Update folder status based on last sync info
       if (response.data && response.data.last_sync) {
         // Use a log to help debug the folder matching issue
         console.debug("Last sync info received:", response.data);
+        
+        // Log all selected folders for debugging
+        console.debug("Currently selected folders:", selectedFolders);
+        console.debug("Available flat folders:", flatFolders.map(f => ({ id: f.id, name: f.displayName })));
         
         setSyncStatuses(prevStatuses => {
           // Create a copy of the current statuses
@@ -131,6 +138,7 @@ const OutlookSyncPage: React.FC = () => {
           const syncedFolderId = response.data.folder;
           
           if (syncedFolderId) {
+            console.debug(`Looking for folder ID "${syncedFolderId}" in status list`);
             // Find that specific folder in our status list
             const folderIndex = updatedStatuses.findIndex(s => s.folderId === syncedFolderId);
             
@@ -145,6 +153,8 @@ const OutlookSyncPage: React.FC = () => {
               };
             } else {
               console.debug(`Folder ID ${syncedFolderId} not found in status list`);
+              // Log all folder IDs for comparison
+              console.debug("Available folder IDs:", updatedStatuses.map(s => s.folderId));
             }
           } else {
             // If no specific folder ID in response, this is an older sync format
@@ -157,7 +167,23 @@ const OutlookSyncPage: React.FC = () => {
               .map(s => s.folderId);
               
             if (currentSelectedFolders.length > 0) {
+              console.debug("Marking these folders as completed:", currentSelectedFolders);
               currentSelectedFolders.forEach(folderId => {
+                const index = updatedStatuses.findIndex(s => s.folderId === folderId);
+                if (index !== -1) {
+                  updatedStatuses[index] = {
+                    ...updatedStatuses[index],
+                    status: 'completed',
+                    lastSync: response.data.last_sync,
+                    itemsProcessed: response.data.items_processed || 0
+                  };
+                }
+              });
+            } else if (selectedFolders.length > 0) {
+              // If no folders are in 'syncing' or 'completed' state but we have selectedFolders,
+              // update those instead (fallback)
+              console.debug("No folders in syncing/completed state, using selectedFolders:", selectedFolders);
+              selectedFolders.forEach(folderId => {
                 const index = updatedStatuses.findIndex(s => s.folderId === folderId);
                 if (index !== -1) {
                   updatedStatuses[index] = {
@@ -178,6 +204,46 @@ const OutlookSyncPage: React.FC = () => {
       console.error("Failed to fetch last sync info:", error);
     }
   }, []);
+  
+  // Effect to update UI when lastSyncInfo changes
+  useEffect(() => {
+    if (lastSyncInfo?.last_sync) {
+      // Update folder statuses when sync info changes
+      setSyncStatuses(prevStatuses => {
+        const updatedStatuses = [...prevStatuses];
+        const syncedFolderId = lastSyncInfo.folder;
+        
+        // If we have a specific folder ID, update just that one
+        if (syncedFolderId) {
+          const folderIndex = updatedStatuses.findIndex(s => s.folderId === syncedFolderId);
+          if (folderIndex !== -1) {
+            updatedStatuses[folderIndex] = {
+              ...updatedStatuses[folderIndex],
+              status: 'completed',
+              lastSync: lastSyncInfo.last_sync,
+              itemsProcessed: lastSyncInfo.items_processed || 0
+            };
+          }
+        }
+        // Otherwise update all selected folders
+        else if (selectedFolders.length > 0) {
+          selectedFolders.forEach(folderId => {
+            const index = updatedStatuses.findIndex(s => s.folderId === folderId);
+            if (index !== -1) {
+              updatedStatuses[index] = {
+                ...updatedStatuses[index],
+                status: 'completed',
+                lastSync: lastSyncInfo.last_sync,
+                itemsProcessed: lastSyncInfo.items_processed || 0
+              };
+            }
+          });
+        }
+        
+        return updatedStatuses;
+      });
+    }
+  }, [lastSyncInfo, selectedFolders]);
   
   // Poll for sync status updates
   const pollSyncStatus = useCallback(() => {
@@ -485,11 +551,41 @@ const OutlookSyncPage: React.FC = () => {
   // Handle folder selection
   const handleFolderSelect = (folderId: string) => {
     setSelectedFolders(prev => {
-      if (prev.includes(folderId)) {
-        return prev.filter(id => id !== folderId);
-      } else {
-        return [...prev, folderId];
+      const newSelected = prev.includes(folderId) 
+        ? prev.filter(id => id !== folderId) 
+        : [...prev, folderId];
+      
+      // Update the status immediately based on the new selection
+      if (lastSyncInfo?.last_sync) {
+        setSyncStatuses(prevStatuses => {
+          const updatedStatuses = [...prevStatuses];
+          const index = updatedStatuses.findIndex(s => s.folderId === folderId);
+          
+          if (index !== -1) {
+            // If folder was deselected, revert to idle
+            if (prev.includes(folderId) && !newSelected.includes(folderId)) {
+              updatedStatuses[index] = {
+                ...updatedStatuses[index],
+                status: 'idle',
+                lastSync: null
+              };
+            } 
+            // If folder was selected and we have last sync info, mark as completed
+            else if (!prev.includes(folderId) && newSelected.includes(folderId)) {
+              updatedStatuses[index] = {
+                ...updatedStatuses[index],
+                status: 'completed',
+                lastSync: lastSyncInfo.last_sync,
+                itemsProcessed: lastSyncInfo.items_processed || 0
+              };
+            }
+          }
+          
+          return updatedStatuses;
+        });
       }
+      
+      return newSelected;
     });
   };
   
@@ -508,25 +604,44 @@ const OutlookSyncPage: React.FC = () => {
   
   // Determine folder status based on multiple sources of truth
   const determineFolderStatus = useCallback((folderId: string) => {
-    // First check if the folder is specifically the one in the last sync info
+    // First check direct status in syncStatuses
+    const folderStatus = syncStatuses.find(s => s.folderId === folderId)?.status;
+    
+    // If folder is actively syncing or has error, respect that status
+    if (folderStatus === 'syncing' || folderStatus === 'error') {
+      return folderStatus;
+    }
+    
+    // If folder is specifically the one in the last sync info, it should be completed
     if (lastSyncInfo?.folder === folderId && lastSyncInfo?.last_sync) {
       return 'completed';
     }
     
-    // Then check if folder has a non-idle status in syncStatuses
-    const folderStatus = syncStatuses.find(s => s.folderId === folderId)?.status;
-    if (folderStatus && folderStatus !== 'idle') {
-      return folderStatus;
+    // If folder has explicit completed status, use that
+    if (folderStatus === 'completed') {
+      return 'completed';
     }
     
     // Next check if folder is selected and we have successful last sync
     if (selectedFolders.includes(folderId) && lastSyncInfo?.last_sync) {
-      return 'completed';
+      // For selected folders with last sync info but no specific folder,
+      // assume it's completed (legacy behavior)
+      if (!lastSyncInfo.folder) {
+        return 'completed';
+      }
     }
     
     // Finally return idle or whatever status is in syncStatuses
     return folderStatus || 'idle';
   }, [lastSyncInfo, selectedFolders, syncStatuses]);
+  
+  // Helper function to get folder name from ID
+  const getFolderNameById = useCallback((folderId: string | null) => {
+    if (!folderId) return t('outlookSync.unknownFolder', 'Unknown Folder');
+    
+    const folder = flatFolders.find(f => f.id === folderId);
+    return folder?.displayName || t('outlookSync.unknownFolder', 'Unknown Folder');
+  }, [flatFolders, t]);
   
   // Render status badge
   const renderStatusBadge = (status: 'idle' | 'syncing' | 'completed' | 'error') => {
@@ -784,9 +899,7 @@ const OutlookSyncPage: React.FC = () => {
                 {lastSyncInfo && lastSyncInfo.last_sync ? (
                   <Stat>
                     <StatLabel>
-                      {lastSyncInfo.folder 
-                        ? flatFolders.find(f => f.id === lastSyncInfo.folder)?.displayName || t('outlookSync.lastSyncFolder', 'Inbox')
-                        : t('outlookSync.lastSyncFolder', 'Inbox')}
+                      {getFolderNameById(lastSyncInfo.folder)}
                     </StatLabel>
                     <StatNumber>
                       <HStack>
