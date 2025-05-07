@@ -117,6 +117,63 @@ const OutlookSyncPage: React.FC = () => {
     try {
       const response = await apiClient.get('/v1/email/sync/last-sync');
       setLastSyncInfo(response.data);
+      
+      // Update folder status based on last sync info
+      if (response.data && response.data.last_sync) {
+        // Use a log to help debug the folder matching issue
+        console.debug("Last sync info received:", response.data);
+        
+        setSyncStatuses(prevStatuses => {
+          // Create a copy of the current statuses
+          const updatedStatuses = [...prevStatuses];
+          
+          // Get the folder that was actually synced (if available)
+          const syncedFolderId = response.data.folder;
+          
+          if (syncedFolderId) {
+            // Find that specific folder in our status list
+            const folderIndex = updatedStatuses.findIndex(s => s.folderId === syncedFolderId);
+            
+            if (folderIndex !== -1) {
+              console.debug(`Updating status for folder ID ${syncedFolderId} to 'completed'`);
+              // Update only that folder's status
+              updatedStatuses[folderIndex] = {
+                ...updatedStatuses[folderIndex],
+                status: 'completed',
+                lastSync: response.data.last_sync,
+                itemsProcessed: response.data.items_processed || 0
+              };
+            } else {
+              console.debug(`Folder ID ${syncedFolderId} not found in status list`);
+            }
+          } else {
+            // If no specific folder ID in response, this is an older sync format
+            // Set all folders with checkboxes checked to completed
+            console.debug("No specific folder ID in last sync data, updating all checked folders");
+            
+            // We'll get the selected folder IDs from the current state to avoid dependencies
+            const currentSelectedFolders = prevStatuses
+              .filter(s => s.status === 'syncing' || s.status === 'completed')
+              .map(s => s.folderId);
+              
+            if (currentSelectedFolders.length > 0) {
+              currentSelectedFolders.forEach(folderId => {
+                const index = updatedStatuses.findIndex(s => s.folderId === folderId);
+                if (index !== -1) {
+                  updatedStatuses[index] = {
+                    ...updatedStatuses[index],
+                    status: 'completed',
+                    lastSync: response.data.last_sync,
+                    itemsProcessed: response.data.items_processed || 0
+                  };
+                }
+              });
+            }
+          }
+          
+          return updatedStatuses;
+        });
+      }
     } catch (error) {
       console.error("Failed to fetch last sync info:", error);
     }
@@ -209,16 +266,20 @@ const OutlookSyncPage: React.FC = () => {
       // Get previously configured sync settings
       const syncConfigResponse = await apiClient.get('/v1/email/sync/config');
       if (syncConfigResponse.data) {
-        setSelectedFolders(syncConfigResponse.data.folders || []);
-        setSyncFrequency(syncConfigResponse.data.frequency || 'daily');
-        setEnableAutomation(syncConfigResponse.data.enabled || false);
-        setStartDate(syncConfigResponse.data.startDate || '');
-        setPrimaryDomain(syncConfigResponse.data.primaryDomain || '');
-        setAllianceDomains(syncConfigResponse.data.allianceDomains || []);
+        const config = syncConfigResponse.data;
+        setSelectedFolders(config.folders || []);
+        setSyncFrequency(config.frequency || 'daily');
+        setEnableAutomation(config.enabled || false);
+        setStartDate(config.startDate || '');
+        setPrimaryDomain(config.primaryDomain || '');
+        setAllianceDomains(config.allianceDomains || []);
+        
+        // If we have the last sync info, update the status of selected folders
+        if (config.folders && config.folders.length > 0) {
+          // Fetch the last sync info right away
+          await fetchLastSyncInfo();
+        }
       }
-      
-      // Fetch the last sync info from database
-      await fetchLastSyncInfo();
       
       // Get current sync status if any syncs are active
       const syncStatusResponse = await apiClient.get('/v1/email/sync/status');
@@ -513,7 +574,12 @@ const OutlookSyncPage: React.FC = () => {
                       <Td>{folder.displayName}</Td>
                       <Td isNumeric>{folder.children?.length || 0}</Td>
                       <Td>
-                        {renderStatusBadge(syncStatuses.find(s => s.folderId === folder.id)?.status || 'idle')}
+                        {renderStatusBadge(
+                          // Enhanced status logic for displaying folder status
+                          selectedFolders.includes(folder.id) && lastSyncInfo?.last_sync
+                            ? 'completed'  // Show completed if folder is selected and we have last sync data
+                            : syncStatuses.find(s => s.folderId === folder.id)?.status || 'idle'
+                        )}
                       </Td>
                     </Tr>
                   ))}
