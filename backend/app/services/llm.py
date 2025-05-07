@@ -1317,10 +1317,14 @@ async def generate_openai_rag_response(
 
             now_utc_iso = datetime.now(timezone.utc).isoformat()
             try:
-                example_1_start_date = calculate_past_date(days=7, now_iso=now_utc_iso)
-                example_2_start_date = calculate_past_date(days=1, now_iso=now_utc_iso, start_of_day=True)
-                example_2_end_date = calculate_past_date(days=1, now_iso=now_utc_iso, end_of_day=True)
+                example_1_start_date = calculate_past_date(days=7, now_iso=now_utc_iso) # "last week"
+                example_2_start_date = calculate_past_date(days=1, now_iso=now_utc_iso, start_of_day=True) # "yesterday start"
+                example_2_end_date = calculate_past_date(days=1, now_iso=now_utc_iso, end_of_day=True) # "yesterday end"
                 
+                # NEW: Calculate dates for "past week" and "last fortnight"
+                example_past_week_start_date = calculate_past_date(days=7, now_iso=now_utc_iso) # Equivalent to last week
+                example_last_fortnight_start_date = calculate_past_date(days=14, now_iso=now_utc_iso)
+
                 # Add explicit logging for "last week" calculation
                 now_dt = datetime.fromisoformat(now_utc_iso.replace('Z', '+00:00'))
                 week_ago_dt = now_dt - timedelta(days=7)
@@ -1330,20 +1334,30 @@ async def generate_openai_rag_response(
                 example_1_start_date = "[7_days_ago_error]"
                 example_2_start_date = "[yesterday_start_error]"
                 example_2_end_date = "[yesterday_end_error]"
+                # NEW: Handle potential errors for new example dates
+                example_past_week_start_date = "[past_week_error]"
+                example_last_fortnight_start_date = "[last_fortnight_error]"
 
             extraction_prompt_template = (
-                f"Analyze the user's message to extract parameters for searching emails. Current UTC time: {{now_utc_iso}}.\n"
-                f"User Message: {{message}}\n"
-                f"Extract: sender, subject, start_date_utc (ISO 8601 UTC, calc from relative terms like 'last week'='past 7 days'), end_date_utc (ISO 8601 UTC), search_terms (list).\n"
-                f"Respond ONLY with a JSON object. Null if not found.\n"
-                f"Example 1: \"emails from jeff last week about the UOB project\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": \"jeff\", \"subject\": \"UOB project\", \"start_date_utc\": \"{{example_1_start_date}}\", \"end_date_utc\": \"{{now_utc_iso}}\", \"search_terms\": [\"UOB project\"]}}}}\n"
-                f"Example 2: \"onboarding emails from yesterday\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": null, \"subject\": \"onboarding\", \"start_date_utc\": \"{{example_2_start_date}}\", \"end_date_utc\": \"{{example_2_end_date}}\", \"search_terms\": [\"onboarding\"]}}}}\n"
-                f"Example 3: \"upcoming meetings from Derick\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": \"Derick\", \"subject\": \"meeting\", \"start_date_utc\": \"{{now_utc_iso}}\", \"end_date_utc\": null, \"search_terms\": [\"meeting\"]}}}}\n"
+                f"Analyze the user's message to extract parameters for searching emails. Current UTC time: {{now_utc_iso}}.\\n"
+                f"User Message: {{message}}\\n"
+                f"Extract: sender, subject, start_date_utc (ISO 8601 UTC), end_date_utc (ISO 8601 UTC), search_terms (list).\\n"
+                f"Calculate start_date_utc and end_date_utc from relative terms like 'last week' (past 7 days from current time), 'past week' (same as last week), 'yesterday', 'last fortnight' (past 14 days from current time), 'upcoming' (from current time to no specific end). Use null if a date is not applicable or not found.\\n"
+                f"Respond ONLY with a JSON object. Null if not found.\\n"
+                f"Example 1: \\\"emails from jeff last week about the UOB project\\\" (Time: {{now_utc_iso}}) -> {{{{ \\\"sender\\\": \\\"jeff\\\", \\\"subject\\\": \\\"UOB project\\\", \\\"start_date_utc\\\": \\\"{{example_1_start_date}}\\\", \\\"end_date_utc\\\": \\\"{{now_utc_iso}}\\\", \\\"search_terms\\\": [\\\"UOB project\\\"]}}}}\\n"
+                f"Example 2: \\\"onboarding emails from yesterday\\\" (Time: {{now_utc_iso}}) -> {{{{ \\\"sender\\\": null, \\\"subject\\\": \\\"onboarding\\\", \\\"start_date_utc\\\": \\\"{{example_2_start_date}}\\\", \\\"end_date_utc\\\": \\\"{{example_2_end_date}}\\\", \\\"search_terms\\\": [\\\"onboarding\\\"]}}}}\\n"
+                f"Example 3: \\\"upcoming meetings from Derick\\\" (Time: {{now_utc_iso}}) -> {{{{ \\\"sender\\\": \\\"Derick\\\", \\\"subject\\\": \\\"meeting\\\", \\\"start_date_utc\\\": \\\"{{now_utc_iso}}\\\", \\\"end_date_utc\\\": null, \\\"search_terms\\\": [\\\"meeting\\\"]}}}}\\n"
+                f"Example 4: \\\"show me emails from the past week regarding customer feedback\\\" (Time: {{now_utc_iso}}) -> {{{{ \\\"sender\\\": null, \\\"subject\\\": \\\"customer feedback\\\", \\\"start_date_utc\\\": \\\"{{example_past_week_start_date}}\\\", \\\"end_date_utc\\\": \\\"{{now_utc_iso}}\\\", \\\"search_terms\\\": [\\\"customer feedback\\\"]}}}}\\n"
+                f"Example 5: \\\"what were the key updates in the last fortnight?\\\" (Time: {{now_utc_iso}}) -> {{{{ \\\"sender\\\": null, \\\"subject\\\": null, \\\"start_date_utc\\\": \\\"{{example_last_fortnight_start_date}}\\\", \\\"end_date_utc\\\": \\\"{{now_utc_iso}}\\\", \\\"search_terms\\\": [\\\"key updates\\\"]}}}}\\n"
                 f"JSON Response:"
             )
             extraction_prompt = extraction_prompt_template.format(
-                message=message, now_utc_iso=now_utc_iso, example_1_start_date=example_1_start_date,
-                example_2_start_date=example_2_start_date, example_2_end_date=example_2_end_date
+                message=message, now_utc_iso=now_utc_iso, 
+                example_1_start_date=example_1_start_date,
+                example_2_start_date=example_2_start_date, example_2_end_date=example_2_end_date,
+                # NEW: Add new example dates to format call
+                example_past_week_start_date=example_past_week_start_date,
+                example_last_fortnight_start_date=example_last_fortnight_start_date
             )
             
             response = await user_client.chat.completions.create(
