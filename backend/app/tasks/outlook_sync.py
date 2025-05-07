@@ -165,99 +165,116 @@ def process_user_outlook_sync(user_id: str, folders: List[str], start_date: Opti
     This function is decorated with @with_lock to prevent concurrent executions for the same user.
     """
     logger.info(f"Processing Outlook sync for user {user_id}, folders: {folders}")
-    task_id = process_user_outlook_sync.request.id
+    # Note: self.request.id would give Celery's internal task ID if needed, 
+    # but we are using the @with_lock decorator ID generation currently.
+    
+    initial_db = None
+    user_email = None # Store user email for logging outside session scope
+    initial_last_sync = None # Store initial value for comparison later
     
     try:
-        # Create a database session directly since we're not in an async context
-        session_local = get_db()
-        db = next(session_local)
-        
-        # Get user
-        user = db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
+        # Step 1: Get initial user info and potentially the last sync time
+        initial_db = next(get_db())
+        user = initial_db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
         if not user:
-            logger.error(f"User {user_id} not found")
-            return
+            logger.error(f"User {user_id} not found during initial fetch")
+            return # Cannot proceed without user
         
-        user_email = user.email
+        user_email = user.email # Store for later use
+        initial_last_sync = user.last_outlook_sync # Get last sync time to determine processing range
+        logger.info(f"User {user_email} found. Initial last_outlook_sync: {initial_last_sync}")
         
-        # Initialize the update flag to track if we actually processed any emails
-        emails_processed = False
-        
-        # Process each folder
-        for folder_id in folders:
-            try:
-                # Only process emails from the last sync date if available, otherwise use the start_date
-                from_date = None
-                if user.last_outlook_sync:
-                    from_date = user.last_outlook_sync
-                elif start_date:
-                    try:
-                        from_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    except ValueError:
-                        logger.error(f"Invalid start date format: {start_date}")
-                
-                if not from_date:
-                    # Default to one month ago if no date is specified
-                    from_date = datetime.now(timezone.utc) - timedelta(days=30)
-                
-                logger.info(f"Syncing emails for user {user_email}, folder {folder_id} from {from_date}")
-                
-                # Process emails for this folder by calling it as a synchronous subtask
-                # This ensures it runs in a Celery context and self.request.id is available in process_user_emails
-                processed_count_result = process_user_emails.s(
-                    user_id=str(user.id),
-                    user_email=user_email,
-                    folder_id=folder_id,
-                    from_date=from_date
-                ).apply() # Apply synchronously
-                
-                # The result of apply() is an EagerResult, try accessing .result directly
-                processed_count = 0 # Default to 0
-                if processed_count_result.successful():
-                   processed_count = processed_count_result.result # Use .result instead of .get()
-                
-                # Ensure processed_count is an integer, default to 0 if None or other type
-                if not isinstance(processed_count, int):
-                    processed_count = 0
+    except Exception as initial_fetch_err:
+        logger.error(f"Error fetching initial user data for {user_id}: {initial_fetch_err}", exc_info=True)
+        return # Cannot proceed
+    finally:
+        if initial_db:
+            initial_db.close() # Close the initial session
+            logger.debug(f"Initial DB session closed for user {user_email}")
+            
+    # Ensure user_email was retrieved
+    if not user_email:
+        logger.error(f"Could not retrieve email for user {user_id}, aborting sync.")
+        return
 
-                if processed_count > 0:
-                    emails_processed = True
-                    logger.info(f"Processed {processed_count} emails for user {user_email}, folder {folder_id}")
-            except Exception as e:
-                logger.error(f"Error processing folder {folder_id} for user {user_email}: {str(e)}")
-                # Continue with the next folder even if this one fails
-        
-        # Update last sync time even if no new emails were found
-        # This ensures the frontend always shows the latest sync attempt
+    # Step 2: Process folders (long-running part)
+    emails_processed_in_any_folder = False
+    last_processed_count = 0 # Keep track of count from last processed folder
+
+    for folder_id in folders:
+        try:
+            # Determine the date range for the sub-task
+            from_date = None
+            if initial_last_sync: # Use the value fetched with the initial session
+                from_date = initial_last_sync
+            elif start_date:
+                try:
+                    from_date = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    logger.error(f"Invalid start date format: {start_date} for user {user_email}")
+            
+            if not from_date:
+                from_date = datetime.now(timezone.utc) - timedelta(days=30)
+            
+            logger.info(f"Syncing emails for user {user_email}, folder {folder_id} from {from_date}")
+            
+            # Call the email processing task synchronously
+            processed_count_result = process_user_emails.s(
+                user_id=user_id, # Pass user_id as string
+                user_email=user_email,
+                folder_id=folder_id,
+                from_date=from_date
+            ).apply() 
+            
+            processed_count = 0
+            if processed_count_result.successful():
+               processed_count = processed_count_result.result
+               if not isinstance(processed_count, int): processed_count = 0 # Ensure int
+            
+            last_processed_count = processed_count # Store count from this folder
+            if processed_count > 0:
+                emails_processed_in_any_folder = True
+                logger.info(f"Processed {processed_count} emails for user {user_email}, folder {folder_id}")
+                
+        except Exception as e:
+            logger.error(f"Error processing folder {folder_id} for user {user_email}: {str(e)}", exc_info=True)
+            # Continue with the next folder even if this one fails
+
+    # Step 3: Update the last_outlook_sync timestamp using a NEW session
+    update_db = None
+    try:
         current_time = datetime.now(timezone.utc)
-        user.last_outlook_sync = current_time
+        update_db = next(get_db())
+        
+        # Re-fetch the user within the new session
+        user_to_update = update_db.query(UserDB).filter(UserDB.id == UUID(user_id)).first()
+        
+        if not user_to_update:
+            logger.error(f"User {user_id} not found during final update fetch! Cannot update timestamp.")
+            return
+            
+        user_to_update.last_outlook_sync = current_time
         
         try:
-            db.commit()
-            logger.info(f"Successfully committed last_outlook_sync for user {user_email} to {user.last_outlook_sync}")
+            update_db.commit()
+            logger.info(f"Successfully committed last_outlook_sync for user {user_email} to {current_time}")
         except Exception as commit_error:
-            db.rollback()
+            update_db.rollback()
             logger.error(f"DATABASE COMMIT FAILED for last_outlook_sync for user {user_email}: {commit_error}", exc_info=True)
-            # Depending on the error, you might want to re-raise or handle differently
-            # For now, we log and the task will end, but the last_outlook_sync in DB will be stale.
+            # Log the failure but don't necessarily stop the whole task flow
 
-        # Logging based on whether emails were processed (commit success is logged above)
-        if emails_processed:
-            # Note: processed_count here will be from the last folder processed in the loop, not a total.
-            # This logging detail might need refinement if a total across all folders is desired.
-            logger.info(f"User {user_email} sync complete. Timestamp: {user.last_outlook_sync}. Processed emails in the last folder: {processed_count}")
+        # Final logging based on processing status
+        if emails_processed_in_any_folder:
+            logger.info(f"User {user_email} sync complete. Timestamp: {current_time}. Processed emails in the last folder: {last_processed_count}")
         else:
-            logger.info(f"User {user_email} sync complete. Timestamp: {user.last_outlook_sync}. No new emails found in any processed folder.")
-        
-        # REMOVED: Flawed attempt to update in-memory active_sync_tasks from Celery worker
-        # This dictionary lives in the FastAPI app's memory space, not Celery worker's.
-        # A shared data store (e.g., Redis, DB) would be needed for reliable cross-process updates.
+            logger.info(f"User {user_email} sync complete. Timestamp: {current_time}. No new emails found in any processed folder.")
 
-    except Exception as e:
-        logger.error(f"Error in Outlook sync task for user {user_id}: {str(e)}", exc_info=True)
+    except Exception as update_err:
+        logger.error(f"Error during final update of last_outlook_sync for user {user_email}: {update_err}", exc_info=True)
     finally:
-        if 'db' in locals() and db.is_active:
-            db.close()
+        if update_db:
+            update_db.close()
+            logger.debug(f"Final update DB session closed for user {user_email}")
 
 
 def cancel_user_sync_tasks(user_id: str) -> bool:
