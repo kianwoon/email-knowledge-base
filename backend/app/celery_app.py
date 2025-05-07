@@ -20,30 +20,41 @@ logger = logging.getLogger(__name__)
 broker_url = settings.CELERY_BROKER_URL
 backend_url = settings.CELERY_RESULT_BACKEND
 
-logger.info(f"Initializing Celery with Broker: {broker_url}")
-logger.info(f"Initializing Celery with Backend: {backend_url}")
+logger.info(f"Celery App Definition: Using Broker URL: {broker_url}")
+logger.info(f"Celery App Definition: Using Backend URL: {backend_url}")
 
 if not broker_url:
     logger.error("CELERY_BROKER_URL is not set. Celery cannot start.")
-    raise ValueError("CELERY_BROKER_URL environment variable not set.")
+    # Optional: raise error or exit if critical
+    # raise ValueError("CELERY_BROKER_URL environment variable not set.")
 if not backend_url:
-    logger.warning("CELERY_RESULT_BACKEND is not set. Task results will not be stored.")
+    logger.warning("CELERY_RESULT_BACKEND is not set. Task results may not be stored reliably.")
+
+# Define the include list separately for logging
+include_modules = [
+    'app.tasks.email_tasks',
+    'app.tasks.sharepoint_tasks',
+    'app.tasks.s3_tasks',
+    'app.tasks.azure_tasks',
+    'app.tasks.export_tasks',
+    'app.tasks.outlook_sync'
+]
+logger.info(f"Celery App Definition: Including modules: {include_modules}")
 
 # Define the Celery application instance
 celery_app = Celery(
-    'app', # Main name matches the directory
+    'app',  # Main name matches the directory
     broker=broker_url,
     backend=backend_url,
-    # Include only the modules that actually exist
-    include=[
-        'app.tasks.email_tasks', 
-        'app.tasks.sharepoint_tasks', 
-        'app.tasks.s3_tasks', 
-        'app.tasks.azure_tasks',
-        'app.tasks.export_tasks', 
-        'app.tasks.outlook_sync'
-    ]
+    include=include_modules
 )
+
+# Log registered tasks *after* Celery app object might have processed includes
+# Note: Task discovery often happens lazily, this might not show all tasks immediately
+try:
+    logger.info(f"Celery App Definition: Initial registered tasks (may be incomplete): {list(celery_app.tasks.keys())}")
+except Exception as e:
+    logger.error(f"Celery App Definition: Error listing initial tasks: {e}")
 
 # Restore Celery configuration updates
 celery_app.conf.update(
@@ -56,15 +67,19 @@ celery_app.conf.update(
     # Restore beat schedule configuration
     beat_schedule={
         'outlook-sync-dispatcher': {
-            'task': 'tasks.outlook_sync.dispatch_sync_tasks', # Keep task name without 'app.' prefix as per Celery convention for beat schedule
-            # Keep potentially corrected lowercase setting name for now
-            'schedule': settings.outlook_sync_dispatch_interval_seconds, 
+            'task': 'tasks.outlook_sync.dispatch_sync_tasks',
+            # Use getattr for safer access to settings, assuming uppercase env var
+            'schedule': float(getattr(settings, 'OUTLOOK_SYNC_DISPATCH_INTERVAL_SECONDS', 900.0)), # Default 15 mins
         },
         # Add other beat schedules here if needed
     },
 )
 
+# Log the final effective beat schedule
+logger.info(f"Celery App Definition: Effective beat_schedule: {celery_app.conf.beat_schedule}")
+
 if __name__ == '__main__':
-    logger.info("Starting Celery worker from __main__ context.")
+    # This part is typically only for running worker directly, not usually hit in FastAPI context
+    logger.info("Starting Celery worker from __main__ context (celery_app.py).")
     celery_app.start() 
 # --- End Original Code Reinstated --- 
