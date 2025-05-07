@@ -146,11 +146,11 @@ async def query_iceberg_emails_duckdb(
         if start_date:
             where_clauses.append("received_datetime_utc >= ?")
             params.append(start_date)
-            logger.debug(f"Applying start_date filter: {start_date.isoformat()}")
+            logger.info(f"Applying start_date filter: {start_date.isoformat()} (Year: {start_date.year})")
         if end_date:
             where_clauses.append("received_datetime_utc <= ?")
             params.append(end_date)
-            logger.debug(f"Applying end_date filter: {end_date.isoformat()}")
+            logger.info(f"Applying end_date filter: {end_date.isoformat()} (Year: {end_date.year})")
 
         # Add general search terms filter (like original keyword logic)
         keyword_params = []
@@ -412,10 +412,11 @@ async def _summarize_email_batch(
     original_query: str,
     batch_llm_client: AsyncOpenAI, # Use the configured client
     batch_model_name: str,         # Use the configured model
-    max_chars_per_email: int = 1000 # Limit context per email within batch
+    max_chars_per_email: int = 1000, # Limit context per email within batch
+    batch_max_tokens_for_llm: int = 1024 # New parameter for LLM call's max_tokens
 ) -> str:
     """Summarizes a batch of emails focusing on relevance to the original query."""
-    logger.debug(f"Starting summary for batch of {len(email_batch)} emails.")
+    logger.debug(f"Starting summary for batch of {len(email_batch)} emails, LLM max_tokens: {batch_max_tokens_for_llm}.")
     if not email_batch: return "" # Return empty string if batch is empty
 
     # Helper to truncate email body within the batch context
@@ -447,10 +448,13 @@ async def _summarize_email_batch(
 
     # Define the summarization prompt
     summary_system_prompt = (
-        f"You are an expert summarizer. Your task is to read the following batch of emails and extract the key information, updates, developments, action items, or news that are **directly relevant** to the user's original query: \"{original_query}\".\n" \
-        f"Focus ONLY on information related to that query. Ignore irrelevant details.\n" \
-        f"Produce a concise summary of the relevant points found within this email batch. If no relevant information is found, state that clearly.\n" \
-        f"Present the summary clearly, perhaps using bullet points for distinct items."
+        f"You are an expert summarizer. Your task is to read the following batch of emails and extract ALL key information, specific details, updates, developments, decisions, action items, figures, names, dates, or news that are **directly relevant** to the user's original query: \"{original_query}\".\n" \
+        f"Your primary goal is to be **extremely thorough and detailed** for the given query. Do not omit any potentially relevant piece of information, even if it seems minor. Capture the nuances and specifics from the emails.\n" \
+        f"Produce an **expansive and highly detailed summary** of all relevant points. Aim to utilize a significant portion of the available token limit for your response if the source material contains sufficient relevant detail. If the batch is rich in relevant information, your summary should reflect that richness in length and detail.\n" \
+        f"IMPORTANT: When referencing dates, ALWAYS maintain the EXACT years as they appear in the source emails. Do NOT change years or assume current year. If an email from 2023 is referenced, use '2023' not the current year or any other year.\n" \
+        f"For relative time expressions like 'last week', use the actual date range with correct years from the retrieved emails.\n" \
+        f"If, and only if, no relevant information is found, state that clearly. Otherwise, be exhaustive.\n" \
+        f"Present the summary clearly. For multiple points, use detailed bullet points or paragraphs. Ensure all key facts, figures, and statements from the emails that pertain to the query are retained in your summary."
     )
     
     summary_user_prompt = f"Email Batch Context:\n{batch_context_str}"
@@ -463,8 +467,8 @@ async def _summarize_email_batch(
                 {"role": "system", "content": summary_system_prompt},
                 {"role": "user", "content": summary_user_prompt}
             ],
-            temperature=0.1, # Lower temperature for factual summary
-            max_tokens=1024 # Adjust max tokens for summary length as needed
+            temperature=0.4, # Increased temperature for potentially more detailed summaries
+            max_tokens=batch_max_tokens_for_llm # Use the new parameter
         )
         summary = response.choices[0].message.content.strip()
         logger.debug(f"Batch summary generated (length {len(summary)}): {summary[:100]}...")
@@ -556,7 +560,10 @@ def _build_system_prompt() -> str:
     # This is a basic system prompt. You can customize it further.
     return "You are a helpful AI assistant. Your user is asking a question.\n" \
            "You have been provided with some context information (RAG Context) that might be relevant to the user's query.\n" \
-           "Please use this context to answer the user's question accurately and concisely.\n" \
+           "Please use this context to answer the user's question accurately and comprehensively, including relevant details from the context.\n" \
+           "When referencing dates from emails or documents, always maintain the EXACT years as they appear in the source material.\n" \
+           "Do NOT change years or assume current year. For example, if an email from 2023 is referenced, use '2023' not the current year.\n" \
+           "For relative time expressions like 'last week', use the actual date range with correct years from the retrieved information.\n" \
            "If the context doesn't provide enough information, state that you couldn't find the answer in the provided documents or emails.\n" \
            "Do not make up information.\n\n" \
            "<RAG_CONTEXT_PLACEHOLDER>"
@@ -992,19 +999,22 @@ async def generate_openai_rag_response(
     """Generates a chat response using RAG with context from Milvus and Iceberg (emails),
     using an LLM to select/synthesize the most relevant context.
     Fails if the user has not provided their OpenAI API key."""
-    logger.error(f"DEBUG RAG - Function Entry: generate_openai_rag_response for user {user.email} - Message: '{message[:50]}...'")
-    logger.critical("!!! RAG function execution STARTED !!!") # ADDED DEBUG LOG
+    logger.debug(f"DEBUG RAG - Function Entry: generate_openai_rag_response for user {user.email} - Message: '{message[:50]}...'")
+    logger.critical("!!! RAG function execution STARTED !!!")
     fallback_response = "I apologize, but I encountered an unexpected error while processing your request. Our team has been notified of this issue."
     
-    # Define necessary constants from settings or defaults
-    MAX_CHUNK_CHARS = int(getattr(settings, 'RAG_CHUNK_MAX_CHARS', 5000))
-    MAX_TOTAL_TOKENS = int(getattr(settings, 'MODEL_MAX_TOKENS', 16384))
-    RESPONSE_BUFFER_TOKENS = int(getattr(settings, 'RESPONSE_BUFFER_TOKENS', 4096))
-    MAX_CHAT_HISTORY_TOKENS = int(getattr(settings, 'MAX_CHAT_HISTORY_TOKENS', 2000))
-    MULTI_STAGE_EMAIL_TOKEN_THRESHOLD = int(getattr(settings, 'MULTI_STAGE_EMAIL_TOKEN_THRESHOLD', 8000))
-    EMAIL_SUMMARY_BATCH_SIZE = int(getattr(settings, 'EMAIL_SUMMARY_BATCH_SIZE', 10))
-    MAX_DOCUMENT_CONTEXT_CHARS = int(getattr(settings, 'RAG_DOCUMENT_MAX_CHARS_PER_ITEM', 3000)) # Max chars per document in context
-
+    # OPTIMIZED: Hardcoded token limits for maximum utilization
+    # Define core token budget constants
+    MAX_TOTAL_TOKENS = 16384  # Max tokens for model context
+    RESPONSE_BUFFER = 4096    # Buffer for model response
+    MAX_HISTORY_TOKENS = 2000 # Max tokens for chat history
+    
+    # Optimized email processing constants
+    EMAIL_BATCH_SIZE = 50     # INCREASED: Number of emails per batch
+    EMAIL_TOKEN_THRESHOLD = 20000  # INCREASED: When to trigger summarization
+    MAX_EMAIL_CONTEXT_ITEMS = 100  # INCREASED: Max emails to retrieve in focused queries
+    MIN_TOKENS_PER_BATCH = 512  # INCREASED: Minimum tokens per batch summary
+    
     # Initial Setup
     try:
         chat_model = model_id or settings.OPENAI_MODEL_NAME
@@ -1016,20 +1026,13 @@ async def generate_openai_rag_response(
         if not user_api_key:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not decrypt API key.")
 
-        # Configure client
-        default_timeout_setting = settings.DEFAULT_LLM_TIMEOUT_SECONDS
-        provider_timeout_setting = getattr(settings, f"{provider.upper()}_TIMEOUT_SECONDS", default_timeout_setting)
-
-        # Ensure we have a valid value before converting to float
-        if provider_timeout_setting is None:
-            logger.warning(f"Timeout setting for {provider.upper()} or DEFAULT is None. Using hardcoded default: 30.0s")
-            provider_timeout = 30.0 # Hardcoded safe default
-        else:
+        # Configure client with simplified timeout handling
+        provider_timeout = 30.0  # Default timeout in seconds
+        if hasattr(settings, f"{provider.upper()}_TIMEOUT_SECONDS") and getattr(settings, f"{provider.upper()}_TIMEOUT_SECONDS"):
             try:
-                provider_timeout = float(provider_timeout_setting)
+                provider_timeout = float(getattr(settings, f"{provider.upper()}_TIMEOUT_SECONDS"))
             except (ValueError, TypeError):
-                logger.error(f"Invalid timeout setting value: {provider_timeout_setting}. Using hardcoded default: 30.0s")
-                provider_timeout = 30.0 # Hardcoded safe default on conversion error
+                logger.warning(f"Invalid timeout value for {provider.upper()}_TIMEOUT_SECONDS. Using default: 30.0s")
 
         client_kwargs = {"api_key": user_api_key, "timeout": provider_timeout}
         if db_api_key.model_base_url:
@@ -1037,20 +1040,34 @@ async def generate_openai_rag_response(
         user_client = AsyncOpenAI(**client_kwargs)
     except HTTPException as http_setup_exc:
         logger.error(f"RAG: Caught HTTPException during setup, re-raising: {http_setup_exc.detail}")
-        raise http_setup_exc # Re-raise HTTP exceptions directly
+        raise http_setup_exc
     except Exception as setup_err:
         logger.error(f"Error during RAG setup (model/key/client): {setup_err}", exc_info=True)
-        return fallback_response # Return fallback for setup errors
-    # --- End Initial Setup Try ---
+        return fallback_response
 
     # Main Logic
     try:
         tokenizer_model = chat_model
 
+        # --- Preliminary RAG Budget Calculation ---
+        system_prompt_base = _build_system_prompt().replace("<RAG_CONTEXT_PLACEHOLDER>", "")
+        base_prompt_tokens = count_tokens(system_prompt_base, tokenizer_model)
+        
+        formatted_history = _format_chat_history(chat_history, model=tokenizer_model, max_tokens=MAX_HISTORY_TOKENS)
+        history_tokens = count_tokens(formatted_history, tokenizer_model)
+        
+        query_tokens = count_tokens(message, tokenizer_model)
+        
+        # Overall budget calculation - TARGET AT LEAST 70% UTILIZATION
+        rag_budget = MAX_TOTAL_TOKENS - (base_prompt_tokens + history_tokens + query_tokens + RESPONSE_BUFFER)
+        rag_budget = max(0, rag_budget)  # Ensure non-negative
+        target_utilization = int(MAX_TOTAL_TOKENS * 0.7)  # Target 70% of total tokens
+        logger.info(f"Preliminary Overall RAG Budget calculated: {rag_budget} tokens (Total Model Tokens: {MAX_TOTAL_TOKENS}, Target Utilization: {target_utilization})")
+
         # Intent & Param Extraction
         extracted_email_params = {}
         try:
-            # (Keep your calculate_past_date and LLM extraction logic here)
+            # Calculate reference dates
             def calculate_past_date(days, now_iso, start_of_day=False, end_of_day=False):
                 try:
                     now = datetime.fromisoformat(now_iso.replace('Z', '+00:00'))
@@ -1069,6 +1086,11 @@ async def generate_openai_rag_response(
                 example_1_start_date = calculate_past_date(days=7, now_iso=now_utc_iso)
                 example_2_start_date = calculate_past_date(days=1, now_iso=now_utc_iso, start_of_day=True)
                 example_2_end_date = calculate_past_date(days=1, now_iso=now_utc_iso, end_of_day=True)
+                
+                # Add explicit logging for "last week" calculation
+                now_dt = datetime.fromisoformat(now_utc_iso.replace('Z', '+00:00'))
+                week_ago_dt = now_dt - timedelta(days=7)
+                logger.info(f"Current date: {now_dt.strftime('%Y-%m-%d')}, 'Last week' would be from: {week_ago_dt.strftime('%Y-%m-%d')} to {now_dt.strftime('%Y-%m-%d')}")
             except Exception as e:
                 logger.error(f"Error calculating example dates: {e}", exc_info=True)
                 example_1_start_date = "[7_days_ago_error]"
@@ -1086,9 +1108,9 @@ async def generate_openai_rag_response(
                 message=message, now_utc_iso=now_utc_iso, example_1_start_date=example_1_start_date,
                 example_2_start_date=example_2_start_date, example_2_end_date=example_2_end_date
             )
-            extraction_model = chat_model
+            
             response = await user_client.chat.completions.create(
-                model=extraction_model,
+                model=chat_model,
                 messages=[
                     {"role": "system", "content": "Extract email search parameters accurately into JSON. Calculate relative dates based on current time."},
                     {"role": "user", "content": extraction_prompt}
@@ -1096,23 +1118,31 @@ async def generate_openai_rag_response(
                 temperature=0.0,
                 response_format={"type": "json_object"}
             )
+            
             raw_params = json.loads(response.choices[0].message.content)
             start_date_obj, end_date_obj = None, None
             raw_start = raw_params.get("start_date_utc")
             raw_end = raw_params.get("end_date_utc")
+            
+            logger.info(f"LLM extracted date parameters - Raw start_date: '{raw_start}', Raw end_date: '{raw_end}'")
+            
             if raw_start:
                 try:
                     start_date_obj = datetime.fromisoformat(raw_start.replace('Z', '+00:00'))
+                    logger.info(f"Parsed start_date: {start_date_obj.isoformat()} (Year: {start_date_obj.year})")
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid start date format from LLM: {raw_start}")
             if raw_end:
                 try:
                     end_date_obj = datetime.fromisoformat(raw_end.replace('Z', '+00:00'))
+                    logger.info(f"Parsed end_date: {end_date_obj.isoformat()} (Year: {end_date_obj.year})")
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid end date format from LLM: {raw_end}")
+                    
             if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
                 logger.warning(f"LLM returned start date {start_date_obj} after end date {end_date_obj}. Ignoring dates.")
                 start_date_obj, end_date_obj = None, None
+                
             extracted_email_params = {k: v for k, v in {
                 "sender_filter": raw_params.get("sender"),
                 "subject_filter": raw_params.get("subject"),
@@ -1127,97 +1157,83 @@ async def generate_openai_rag_response(
         if extracted_email_params.get("sender_filter") or extracted_email_params.get("subject_filter") or extracted_email_params.get("start_date"):
             source_target = "email_focused"
         else:
-            # More robust keyword checking for document focus
+            # Check for document-related keywords
             doc_keywords = ['policy', 'procedure', 'document', 'rate card', 'sow', 'loa', 'guideline', 'report', 'agreement', 'contract', 'spec', 'manual']
             message_lower = message.lower()
             source_target = "document_focused" if any(k in message_lower for k in doc_keywords) else "mixed"
             
         is_email_focused = source_target == "email_focused"
-        # Broad email query is one that is email_focused BUT lacks specific filters (sender, subject, date)
-        # and might also imply no specific search_terms were extracted or they are very generic.
-        # For now, stick to the definition of email_focused lacking sender/subject/date.
         is_broad_email_query = is_email_focused and not any(
             extracted_email_params.get(k) for k in ["sender_filter", "subject_filter", "start_date"]
         )
+        
         logger.info(f"Query Intent Analysis - Source Target: {source_target}, Is Email Focused: {is_email_focused}, Is Broad Email Query: {is_broad_email_query}")
         logger.debug(f"Extracted Email Params: {extracted_email_params}")
 
-        # --- END: Intent Analysis & Parameter Extraction ---
-
-
-        # --- START: Conditional Context Retrieval (SEQUENTIAL) ---
-        retrieved_document_dicts: List[Dict[str, Any]] = [] 
-        retrieved_email_dicts: List[Dict[str, Any]] = []
-
-        # Determine dynamic MAX_EMAIL_CONTEXT_ITEMS based on query type
-        if is_broad_email_query:
-            MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'MAX_EMAIL_CONTEXT_ITEMS_BROAD', 50))
-            logger.info(f"Using BROAD email context limit: {MAX_EMAIL_CONTEXT_ITEMS}")
-        else:
-            MAX_EMAIL_CONTEXT_ITEMS = int(getattr(settings, 'MAX_EMAIL_CONTEXT_ITEMS_FOCUSED', 20))
-            logger.info(f"Using FOCUSED email context limit: {MAX_EMAIL_CONTEXT_ITEMS}")
+        # --- START: Optimized Context Retrieval ---
+        retrieved_document_dicts = []
+        retrieved_email_dicts = []
 
         logger.info("Starting SEQUENTIAL context retrieval...")
 
-        # Retrieve Documents (if needed)
+        # OPTIMIZED: Retrieve more documents
         if source_target in ["mixed", "document_focused"]:
             logger.debug("Retrieving document context sequentially...")
             try:
-                 MAX_MILVUS_CONTEXT_ITEMS = int(getattr(settings, 'RAG_LLM_MILVUS_LIMIT', 20))
-                 retrieved_document_dicts = await _get_milvus_context(
-                     max_items=MAX_MILVUS_CONTEXT_ITEMS,
-                     max_chunk_chars=MAX_CHUNK_CHARS,
-                     query=message,
-                     user_email=user.email
-                 )
-                 logger.debug(f"Sequential document retrieval finished. Retrieved {len(retrieved_document_dicts)} documents.")
+                retrieved_document_dicts = await _get_milvus_context(
+                    max_items=40,  # INCREASED: Retrieve more documents
+                    max_chunk_chars=8000,  # INCREASED: Allow larger chunks
+                    query=message,
+                    user_email=user.email
+                )
+                logger.debug(f"Sequential document retrieval finished. Retrieved {len(retrieved_document_dicts)} documents.")
             except Exception as doc_err:
-                 logger.error(f"Error during sequential document retrieval: {doc_err}", exc_info=True)
-                 retrieved_document_dicts = [] # Ensure it's empty on error
-                 # Add a log if RAG was supposed to get documents but failed
-                 if source_target in ["mixed", "document_focused"]:
-                     logger.warning("Document retrieval was expected but failed. Proceeding without document context.")
+                logger.error(f"Error during sequential document retrieval: {doc_err}", exc_info=True)
+                retrieved_document_dicts = []
+                if source_target in ["mixed", "document_focused"]:
+                    logger.warning("Document retrieval was expected but failed. Proceeding without document context.")
 
-        # Retrieve Emails (if needed)
+        # Retrieve Emails if needed
         if source_target in ["mixed", "email_focused"]:
             logger.debug("Retrieving email context sequentially...")
             try:
-                 retrieved_email_dicts = await _get_email_context(
-                     max_items=MAX_EMAIL_CONTEXT_ITEMS,
-                     max_chunk_chars=MAX_CHUNK_CHARS,
-                     user_client=user_client,
-                     search_params=extracted_email_params,
-                     user_email=user.email
-                 )
-                 logger.debug(f"Sequential email retrieval finished. Retrieved {len(retrieved_email_dicts)} emails.")
+                retrieved_email_dicts = await _get_email_context(
+                    max_items=MAX_EMAIL_CONTEXT_ITEMS,
+                    max_chunk_chars=8000,  # INCREASED: Allow larger email chunks
+                    user_client=user_client,
+                    search_params=extracted_email_params,
+                    user_email=user.email
+                )
+                logger.debug(f"Sequential email retrieval finished. Retrieved {len(retrieved_email_dicts)} emails.")
             except Exception as email_err:
-                 logger.error(f"Error during sequential email retrieval: {email_err}", exc_info=True)
-                 retrieved_email_dicts = [] # Ensure it's empty on error
-                 # Add a log if RAG was supposed to get emails but failed
-                 if source_target in ["mixed", "email_focused"]:
-                     logger.warning("Email retrieval was expected but failed. Proceeding without email context.")
+                logger.error(f"Error during sequential email retrieval: {email_err}", exc_info=True)
+                retrieved_email_dicts = []
+                if source_target in ["mixed", "email_focused"]:
+                    logger.warning("Email retrieval was expected but failed. Proceeding without email context.")
 
         logger.info("Finished SEQUENTIAL context retrieval.")
-        # --- END: Conditional Context Retrieval (SEQUENTIAL) ---
+        # --- END: Context Retrieval ---
 
-        logger.critical("!!! POINTER: Right before Process Email Context block !!!") # ADDED
+        logger.critical("!!! POINTER: Right before Process Email Context block !!!")
 
         # --- START: Process Email Context ---
         final_email_context_str = "No relevant emails found or search skipped."
 
         if retrieved_email_dicts:
-            # REMOVED DEBUG LOG: logger.critical("!!! POINTER: Entered 'if retrieved_email_dicts:' block !!!")
+            logger.debug(f"Processing {len(retrieved_email_dicts)} retrieved email dictionaries.")
             
-            logger.debug(f"Processing {len(retrieved_email_dicts)} retrieved email dictionaries.") # Keep standard debug log
-            # Helper to format a single email dictionary
+            # Helper to format a single email with INCREASED chunk size
             def _format_single_email(email: Dict[str, Any], max_len: int) -> str:
                 def _truncate_text(text: str, max_l: int) -> str:
                     text_str = str(text) if text is not None else ''
-                    if len(text_str) > max_l: return text_str[:max_l] + "... [TRUNCATED]"; return text_str
+                    if len(text_str) > max_l: 
+                        return text_str[:max_l] + "... [TRUNCATED]"
+                    return text_str
 
                 granularity = email.get('granularity', 'full_message')
                 text_content = ""
                 entry_type = "Email (Unknown Granularity)"
+                
                 if granularity == 'full_message':
                     text_content = email.get('body_text')
                     entry_type = "Email Reply/Body"
@@ -1227,7 +1243,6 @@ async def generate_openai_rag_response(
                 else:
                     text_content = email.get('body_text') or email.get('quoted_raw_text')
 
-                # Safely access keys with defaults
                 return (
                     f"Email ID: {email.get('message_id', 'N/A')}\n"
                     f"Type: {entry_type}\n"
@@ -1238,72 +1253,91 @@ async def generate_openai_rag_response(
                     f"Content: {_truncate_text(str(text_content) if text_content else '', max_len)}"
                 )
 
-            # Estimate tokens for the *full* potential context if NOT summarized
-            # --- RESTORED --- 
-            full_potential_email_context = "\n\n---\n\n".join([_format_single_email(email, MAX_CHUNK_CHARS) for email in retrieved_email_dicts])
+            # Estimate tokens for full email context
+            full_potential_email_context = "\n\n---\n\n".join([_format_single_email(email, 8000) for email in retrieved_email_dicts])
             full_email_tokens = count_tokens(full_potential_email_context, tokenizer_model)
             logger.info(f"Estimated tokens for full email context ({len(retrieved_email_dicts)} emails): {full_email_tokens}")
-            # REMOVED Dummy value & warning log
-            # full_email_tokens = 0 
-            # logger.warning("DEBUG: Bypassing initial token count for email context.")
-            # --- END RESTORED ---
 
-            # Check if multi-stage summarization is needed
-            # --- RESTORED --- 
-            trigger_summarization = is_broad_email_query and full_email_tokens > MULTI_STAGE_EMAIL_TOKEN_THRESHOLD
-            # REMOVED forced False & warning log
-            # trigger_summarization = False 
-            # logger.warning(f"DEBUG: Forcing trigger_summarization={trigger_summarization}")
-            # --- END RESTORED ---
-
-            if trigger_summarization:
-                # This block should now execute if conditions are met
-                # REMOVED pass statement
-                logger.warning(f"Multi-stage email summarization triggered. Token count {full_email_tokens} > threshold {MULTI_STAGE_EMAIL_TOKEN_THRESHOLD}. Query: '{message}'")
-
-                # Split emails into batches
+            # OPTIMIZED: Improved summarization decision with higher threshold
+            if full_email_tokens > EMAIL_TOKEN_THRESHOLD:
+                logger.info(f"Triggering email summarization because token count {full_email_tokens} exceeds threshold {EMAIL_TOKEN_THRESHOLD}.")
+                
+                # --- Batch Summarization Logic ---
+                # Calculate tokens per batch based on available budget - OPTIMIZED for more detailed summaries
                 email_batches = [
-                    retrieved_email_dicts[i:i + EMAIL_SUMMARY_BATCH_SIZE]
-                    for i in range(0, len(retrieved_email_dicts), EMAIL_SUMMARY_BATCH_SIZE)
+                    retrieved_email_dicts[i:i + EMAIL_BATCH_SIZE]
+                    for i in range(0, len(retrieved_email_dicts), EMAIL_BATCH_SIZE)
                 ]
-                logger.info(f"Created {len(email_batches)} email batches for summarization (batch size: {EMAIL_SUMMARY_BATCH_SIZE}).")
-
-                # Run summarization tasks concurrently
+                num_batches = len(email_batches)
+                logger.info(f"Created {num_batches} email batches for summarization (batch size: {EMAIL_BATCH_SIZE}).")
+                
+                # OPTIMIZED: Allocate more tokens per batch for richer summaries
+                # Target around 80% of available RAG budget for summaries, divided by number of batches
+                summary_budget = int(rag_budget * 0.8)
+                max_tokens_per_batch = min(8000, max(MIN_TOKENS_PER_BATCH, summary_budget // max(1, num_batches)))
+                logger.info(f"Targeting {max_tokens_per_batch} tokens for each summarization batch LLM call (summary budget: {summary_budget}).")
+                
+                # Run summarization tasks
                 summary_tasks = [
-                    _summarize_email_batch(batch, message, user_client, chat_model, max_chars_per_email=1000)
+                    _summarize_email_batch(
+                        batch,
+                        message, 
+                        user_client, 
+                        chat_model,
+                        max_chars_per_email=2000,  # INCREASED: Allow more content per email
+                        batch_max_tokens_for_llm=max_tokens_per_batch
+                    )
                     for batch in email_batches
                 ]
+                
                 try:
                     batch_summaries = await asyncio.gather(*summary_tasks)
-                    combined_summaries = "\n\n---\n\n".join(filter(None, batch_summaries))
+                    # OPTIMIZED: Don't filter out empty summaries as they might indicate important negatives
+                    combined_summaries = "\n\n---\n\n".join([s for s in batch_summaries if s])
                     final_email_context_str = f"<Summarized Email Context (Multiple Batches, {len(retrieved_email_dicts)} emails total)>\n{combined_summaries}\n</Summarized Email Context>"
                     logger.info(f"Multi-stage summarization completed. Final summary token count: {count_tokens(final_email_context_str, tokenizer_model)}")
                 except Exception as e_summary:
                     logger.error(f"Error during concurrent email batch summarization: {e_summary}", exc_info=True)
                     final_email_context_str = "<Error during multi-stage email summarization>"
             else:
-                # Removed the verbose loop logging, keep the main info log
-                logger.info(f"Using direct email context (Limit: {len(retrieved_email_dicts)} items). Summarization not triggered (Broad Query={is_broad_email_query}, Tokens={full_email_tokens}, Threshold={MULTI_STAGE_EMAIL_TOKEN_THRESHOLD}).")
-                direct_context_entries = [_format_single_email(email, MAX_CHUNK_CHARS) for email in retrieved_email_dicts]
+                # Using direct email context - OPTIMIZED: Include more raw content when below threshold
+                logger.info(f"Using direct email context as token count {full_email_tokens} is within threshold {EMAIL_TOKEN_THRESHOLD}.")
+                
+                # OPTIMIZED: Dynamically adjust the number of emails based on token budget
+                current_rag_tokens = 0
+                direct_context_entries = []
+                
+                # Include as many full emails as possible within the budget
+                for email in retrieved_email_dicts:
+                    email_entry = _format_single_email(email, 8000)  # INCREASED: Allow more content per email
+                    email_tokens = count_tokens(email_entry, tokenizer_model)
+                    
+                    if current_rag_tokens + email_tokens <= rag_budget * 0.9:  # Use 90% of budget for direct emails
+                        direct_context_entries.append(email_entry)
+                        current_rag_tokens += email_tokens
+                    else:
+                        # We've reached our token limit, stop adding emails
+                        break
+                
+                logger.info(f"Including {len(direct_context_entries)} of {len(retrieved_email_dicts)} emails directly within token budget (using {current_rag_tokens} tokens).")
                 final_email_context_str = "<User Email Context>\n" + "\n\n---\n\n".join(direct_context_entries) + "\n</User Email Context>"
-                # Removed redundant token counting/logging here, it happens later in budgeting
-        else: # If retrieved_email_dicts is empty
+        else:
             final_email_context_str = "No email context was retrieved or searched for."
             logger.info("No email dictionaries were retrieved to process for context.")
-
+        # --- END: Process Email Context ---
 
         # --- START: Process Document Context ---
         final_document_context_str = "No document context was retrieved or searched for."
         if retrieved_document_dicts:
             logger.debug(f"Processing {len(retrieved_document_dicts)} retrieved document dictionaries for context.")
             document_context_parts = []
+            
             for i, doc in enumerate(retrieved_document_dicts):
-                content = doc.get('content', '') # Assuming 'content' key holds the text
-                truncated_content = truncate_text_by_tokens(content, tokenizer_model, MAX_DOCUMENT_CONTEXT_CHARS // 3) # Rough token to char conversion
-                # Alternative: truncate by characters directly if MAX_DOCUMENT_CONTEXT_CHARS is char based
-                # truncated_content = content[:MAX_DOCUMENT_CONTEXT_CHARS] + ("...[TRUNCATED]" if len(content) > MAX_DOCUMENT_CONTEXT_CHARS else "")
-
-                source_info = doc.get('metadata', {}).get('source', f"Document {i+1}") # Example: get source from metadata
+                content = doc.get('content', '')
+                # OPTIMIZED: Increase document token limit
+                truncated_content = truncate_text_by_tokens(content, tokenizer_model, 2000)  # INCREASED: Allow more content per document
+                
+                source_info = doc.get('metadata', {}).get('source', f"Document {i+1}")
                 score = doc.get('score', 'N/A')
                 doc_entry = f"Source: {source_info} (Score: {score})\nContent:\n{truncated_content}"
                 document_context_parts.append(doc_entry)
@@ -1317,84 +1351,123 @@ async def generate_openai_rag_response(
             logger.info("No document dictionaries were retrieved to process for context.")
         # --- END: Process Document Context ---
 
-
-        # Token Budgeting & Context Construction
+        # --- OPTIMIZED: Context Assembly and Token Budget Management ---
         logger.info("Starting token budgeting and context construction...")
-        system_prompt_template = _build_system_prompt() # Get the template which includes placeholder
-        # Format chat history, applying token limit
-        formatted_history = _format_chat_history(chat_history, model=tokenizer_model, max_tokens=MAX_CHAT_HISTORY_TOKENS)
+        system_prompt_template = _build_system_prompt()
         
-        base_prompt_tokens = count_tokens(system_prompt_template.replace("<RAG_CONTEXT_PLACEHOLDER>", ""), tokenizer_model)
-        history_tokens = count_tokens(formatted_history, tokenizer_model)
-        query_tokens = count_tokens(message, tokenizer_model)
-        
-        # Calculate remaining tokens for RAG context
-        remaining_tokens_for_rag = MAX_TOTAL_TOKENS - (base_prompt_tokens + history_tokens + query_tokens + RESPONSE_BUFFER_TOKENS)
-        logger.info(f"Token budget: Total={MAX_TOTAL_TOKENS}, BasePrompt={base_prompt_tokens}, History={history_tokens}, Query={query_tokens}, ResponseBuffer={RESPONSE_BUFFER_TOKENS} => Remaining for RAG: {remaining_tokens_for_rag}")
+        remaining_tokens = rag_budget
+        logger.info(f"Token budget: Total={MAX_TOTAL_TOKENS}, BasePrompt={base_prompt_tokens}, History={history_tokens}, Query={query_tokens}, ResponseBuffer={RESPONSE_BUFFER} => Remaining for RAG: {remaining_tokens}")
 
         context_parts = []
-        current_rag_tokens = 0
 
-        # Add Document Context First (often more general, can be prioritized or ordered based on strategy)
-        if remaining_tokens_for_rag > 0 and final_document_context_str and final_document_context_str != "No document context was retrieved or searched for." and final_document_context_str != "Retrieved documents had no content to process.":
-            doc_tokens = count_tokens(final_document_context_str, tokenizer_model)
-            if doc_tokens <= remaining_tokens_for_rag:
+        # Calculate document and email token counts
+        doc_tokens = count_tokens(final_document_context_str, tokenizer_model) if final_document_context_str != "No document context was retrieved or searched for." else 0
+        email_tokens = count_tokens(final_email_context_str, tokenizer_model) if final_email_context_str != "No email context was retrieved or searched for." else 0
+        
+        logger.info(f"Context token counts - Documents: {doc_tokens}, Emails: {email_tokens}, Total: {doc_tokens + email_tokens}")
+
+        # OPTIMIZED STRATEGY: If both context types exist, balance them based on relevance type
+        if doc_tokens > 0 and email_tokens > 0:
+            # Determine allocation ratio based on query type
+            if source_target == "document_focused":
+                doc_ratio, email_ratio = 0.7, 0.3  # Prioritize documents
+            elif source_target == "email_focused":
+                doc_ratio, email_ratio = 0.3, 0.7  # Prioritize emails
+            else:  # mixed
+                doc_ratio, email_ratio = 0.5, 0.5  # Equal priority
+                
+            # Allocate token budget accordingly
+            doc_budget = int(remaining_tokens * doc_ratio)
+            email_budget = remaining_tokens - doc_budget
+            
+            logger.info(f"Allocation - Documents: {doc_budget} tokens ({doc_ratio*100:.0f}%), Emails: {email_budget} tokens ({email_ratio*100:.0f}%)")
+            
+            # Add document context with allocated budget
+            if doc_tokens <= doc_budget:
                 context_parts.append(final_document_context_str)
-                current_rag_tokens += doc_tokens
-                remaining_tokens_for_rag -= doc_tokens
-                logger.info(f"Added document context ({doc_tokens} tokens). Remaining for RAG: {remaining_tokens_for_rag}")
+                remaining_tokens -= doc_tokens
+                logger.info(f"Added full document context ({doc_tokens} tokens). Remaining: {remaining_tokens}")
             else:
-                truncated_doc_context = truncate_text_by_tokens(final_document_context_str, tokenizer_model, remaining_tokens_for_rag)
+                truncated_doc_context = truncate_text_by_tokens(final_document_context_str, tokenizer_model, doc_budget)
                 context_parts.append(truncated_doc_context)
                 truncated_doc_tokens = count_tokens(truncated_doc_context, tokenizer_model)
-                current_rag_tokens += truncated_doc_tokens
-                remaining_tokens_for_rag -= truncated_doc_tokens
-                logger.warning(f"Truncated document context from {doc_tokens} to {truncated_doc_tokens} tokens due to budget. Remaining for RAG: {remaining_tokens_for_rag}")
-        
-        # Add Email Context
-        if remaining_tokens_for_rag > 0 and final_email_context_str and final_email_context_str != "No email context was retrieved or searched for.":
-            email_tokens = count_tokens(final_email_context_str, tokenizer_model)
-            if email_tokens <= remaining_tokens_for_rag:
+                remaining_tokens -= truncated_doc_tokens
+                logger.info(f"Added truncated document context ({truncated_doc_tokens} tokens). Remaining: {remaining_tokens}")
+            
+            # Add email context with allocated budget
+            if email_tokens <= email_budget:
                 context_parts.append(final_email_context_str)
-                current_rag_tokens += email_tokens
-                # remaining_tokens_for_rag -= email_tokens # Not strictly needed to track beyond here for this var
-                logger.info(f"Added email context ({email_tokens} tokens).")
+                remaining_tokens -= email_tokens
+                logger.info(f"Added full email context ({email_tokens} tokens). Remaining: {remaining_tokens}")
             else:
-                truncated_email_context = truncate_text_by_tokens(final_email_context_str, tokenizer_model, remaining_tokens_for_rag)
+                truncated_email_context = truncate_text_by_tokens(final_email_context_str, tokenizer_model, email_budget)
                 context_parts.append(truncated_email_context)
                 truncated_email_tokens = count_tokens(truncated_email_context, tokenizer_model)
-                current_rag_tokens += truncated_email_tokens
-                logger.warning(f"Truncated email context from {email_tokens} to {truncated_email_tokens} tokens due to budget.")
+                remaining_tokens -= truncated_email_tokens
+                logger.info(f"Added truncated email context ({truncated_email_tokens} tokens). Remaining: {remaining_tokens}")
+        else:
+            # Only one context type exists, use all available tokens for it
+            if doc_tokens > 0:
+                if doc_tokens <= remaining_tokens:
+                    context_parts.append(final_document_context_str)
+                    remaining_tokens -= doc_tokens
+                    logger.info(f"Added document context ({doc_tokens} tokens). Remaining: {remaining_tokens}")
+                else:
+                    truncated_doc_context = truncate_text_by_tokens(final_document_context_str, tokenizer_model, remaining_tokens)
+                    context_parts.append(truncated_doc_context)
+                    truncated_doc_tokens = count_tokens(truncated_doc_context, tokenizer_model)
+                    remaining_tokens -= truncated_doc_tokens
+                    logger.info(f"Added truncated document context ({truncated_doc_tokens} tokens). Remaining: {remaining_tokens}")
+            
+            if email_tokens > 0:
+                if email_tokens <= remaining_tokens:
+                    context_parts.append(final_email_context_str)
+                    remaining_tokens -= email_tokens
+                    logger.info(f"Added email context ({email_tokens} tokens). Remaining: {remaining_tokens}")
+                else:
+                    truncated_email_context = truncate_text_by_tokens(final_email_context_str, tokenizer_model, remaining_tokens)
+                    context_parts.append(truncated_email_context)
+                    truncated_email_tokens = count_tokens(truncated_email_context, tokenizer_model)
+                    remaining_tokens -= truncated_email_tokens
+                    logger.info(f"Added truncated email context ({truncated_email_tokens} tokens). Remaining: {remaining_tokens}")
 
         rag_context_str = "\n\n".join(context_parts) if context_parts else "No context could be provided within token limits."
         if not context_parts:
-             logger.warning("No RAG context could be assembled within token limits or none was retrieved.")
+            logger.warning("No RAG context could be assembled within token limits or none was retrieved.")
         
         final_system_prompt = system_prompt_template.replace("<RAG_CONTEXT_PLACEHOLDER>", rag_context_str)
         
-        logger.debug(f"Final System Prompt (excluding history/query, first 200 chars):\n{final_system_prompt[:200]}...")
+        # Construct final messages array
         final_prompt_messages = [{"role": "system", "content": final_system_prompt}]
-        if formatted_history: # Add history if it exists
-            final_prompt_messages.append({"role": "user", "content": f"Previous conversation history:\n{formatted_history}"}) # Simplistic history injection
-            # A more robust approach would interleave user/assistant turns correctly.
-            # For now, just prepend it.
-        final_prompt_messages.append({"role": "user", "content": message}) # Current user message
+        if formatted_history:
+            final_prompt_messages.append({"role": "user", "content": f"Previous conversation history:\n{formatted_history}"})
+        final_prompt_messages.append({"role": "user", "content": message})
 
         # --- Final LLM Call ---
         logger.info(f"Making final LLM call to {provider}/{chat_model} with {len(final_prompt_messages)} messages.")
+        
         # Log total tokens being sent to LLM for debugging
         total_final_prompt_tokens = sum(count_tokens(msg["content"], tokenizer_model) for msg in final_prompt_messages)
-        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} (Max allowed: {MAX_TOTAL_TOKENS})")
+        total_utilization_percentage = (total_final_prompt_tokens / MAX_TOTAL_TOKENS) * 100
+        logger.info(f"Estimated total tokens in final prompt to LLM: {total_final_prompt_tokens} ({total_utilization_percentage:.1f}% of max {MAX_TOTAL_TOKENS})")
+        
         if total_final_prompt_tokens > MAX_TOTAL_TOKENS:
             logger.error(f"CRITICAL: Final prompt token count ({total_final_prompt_tokens}) EXCEEDS model max tokens ({MAX_TOTAL_TOKENS}). LLM call will likely fail.")
-            # This indicates a flaw in budgeting logic if it happens.
 
         try:
+            # Get temperature from settings or use default
+            temperature = 0.1
+            if hasattr(settings, 'OPENAI_TEMPERATURE'):
+                try:
+                    temperature = float(settings.OPENAI_TEMPERATURE)
+                except (ValueError, TypeError):
+                    logger.warning("Invalid OPENAI_TEMPERATURE setting. Using default: 0.1")
+            
             llm_response = await user_client.chat.completions.create(
                 model=chat_model,
                 messages=final_prompt_messages,
-                temperature=float(getattr(settings, 'OPENAI_TEMPERATURE', 0.1)), # Make temperature configurable
-                max_tokens=RESPONSE_BUFFER_TOKENS  # Ensure LLM has enough buffer to respond
+                temperature=temperature,
+                max_tokens=RESPONSE_BUFFER
             )
             response_content = llm_response.choices[0].message.content.strip()
             logger.info(f"RAG response generated successfully by {chat_model}.")
@@ -1402,19 +1475,17 @@ async def generate_openai_rag_response(
             return response_content
         except RateLimitError as rle:
             logger.error(f"OpenAI Rate Limit Error during RAG generation: {rle}", exc_info=True)
-            # Consider more specific user feedback for rate limits
             return "I'm currently experiencing high demand. Please try again in a few moments."
         except Exception as llm_call_err:
             logger.error(f"Error during final LLM call for RAG: {llm_call_err}", exc_info=True)
-            return fallback_response # Return fallback for LLM call errors
+            return fallback_response
 
-    except HTTPException as http_exc: # Catch HTTPExceptions from setup or elsewhere
+    except HTTPException as http_exc:
         logger.error(f"RAG: Caught HTTPException, re-raising: {http_exc.detail}", exc_info=True)
-        raise http_exc # Re-raise to be handled by FastAPI
-    except Exception as e: # General catch-all for unexpected errors in the main logic
+        raise http_exc
+    except Exception as e:
         logger.error(f"Unexpected error in generate_openai_rag_response: {e}", exc_info=True)
-        return fallback_response # Return fallback for any other unhandled error
-    # Ensure a string is always returned (though covered by above, defensive)
-    # This line should ideally not be reached if logic is correct.
+        return fallback_response
+        
     logger.error("RAG function reached unexpected end. Returning fallback.")
     return fallback_response
