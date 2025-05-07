@@ -127,51 +127,90 @@ async def query_iceberg_emails_duckdb(
         # --- END REMOVED ---
 
         # --- REVISED: Build WHERE clause based on provided filters ---
-        where_clauses = ["owner_email = ?"]
-        params = [user_email]
+        # Mandatory base conditions
+        final_where_clauses = ["owner_email = ?"]
+        final_query_params = [user_email]
 
-        # Add specific filters
-        if sender_filter:
-            # --- ADDED: Check if sender_filter looks plausible --- 
-            is_plausible_sender = '@' in sender_filter or len(sender_filter.split()) > 1 # Simple check: contains @ or multiple words?
-            if is_plausible_sender:
-                where_clauses.append("sender LIKE ?")
-                params.append(f"%{sender_filter}%") 
-                logger.debug(f"Applying sender filter: {sender_filter}")
-            else:
-                logger.warning(f"Ignoring likely implausible sender filter extracted by LLM: '{sender_filter}'")
-            # --- END CHECK --- 
-        if subject_filter:
-            where_clauses.append("subject LIKE ?")
-            params.append(f"%{subject_filter}%")
-            logger.debug(f"Applying subject filter: {subject_filter}")
+        # Apply date filters as top-level AND conditions if they exist
         if start_date:
-            where_clauses.append("received_datetime_utc >= ?")
-            params.append(start_date)
-            logger.info(f"Applying start_date filter: {start_date.isoformat()} (Year: {start_date.year})")
+            final_where_clauses.append("received_datetime_utc >= ?")
+            final_query_params.append(start_date)
+            logger.info(f"Applying mandatory start_date filter: {start_date.isoformat()} (Year: {start_date.year})")
         if end_date:
-            where_clauses.append("received_datetime_utc <= ?")
-            params.append(end_date)
-            logger.info(f"Applying end_date filter: {end_date.isoformat()} (Year: {end_date.year})")
+            final_where_clauses.append("received_datetime_utc <= ?")
+            final_query_params.append(end_date)
+            logger.info(f"Applying mandatory end_date filter: {end_date.isoformat()} (Year: {end_date.year})")
 
-        # Add general search terms filter (like original keyword logic)
-        keyword_params = []
-        keyword_filter_parts = []
+        # Clauses for specific field attribute filters (sender, subject)
+        attribute_filter_clauses = []
+        attribute_filter_params = []
+        
+        # Plausibility check for sender
+        is_plausible_sender_filter = False
+        if sender_filter:
+            # Simple check: contains @ or multiple words, or is a reasonable length name
+            if '@' in sender_filter or len(sender_filter.split()) > 1 or (len(sender_filter) >= 2 and sender_filter.isalpha()): 
+                is_plausible_sender_filter = True
+            else:
+                logger.warning(f"Ignoring likely implausible sender filter: '{sender_filter}'. Does not look like an email or multi-word name.")
+
+        if is_plausible_sender_filter:
+            attribute_filter_clauses.append("sender LIKE ?")
+            attribute_filter_params.append(f"%{sender_filter}%")
+            logger.debug(f"Applying attribute sender filter: {sender_filter}")
+        
+        if subject_filter:
+            attribute_filter_clauses.append("subject LIKE ?")
+            attribute_filter_params.append(f"%{subject_filter}%")
+            logger.debug(f"Applying attribute subject filter: {subject_filter}")
+        
+        attribute_filters_sql_part = ""
+        if attribute_filter_clauses:
+            attribute_filters_sql_part = " AND ".join(attribute_filter_clauses)
+            # Wrap in parentheses if there are attribute filters
+            attribute_filters_sql_part = f"({attribute_filters_sql_part})"
+
+        # Clause for general keyword search terms
+        keyword_search_sql_part = ""
+        keyword_search_params = []
         if search_terms:
-            logger.debug(f"Applying general search terms: {search_terms}")
+            keyword_filter_individual_parts = []
             for term in search_terms:
-                # Apply LIKE across multiple relevant fields
-                like_part = f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ? OR quoted_raw_text LIKE ?)"
-                keyword_filter_parts.append(like_part)
-                # Escape % and _ within the term itself before adding wildcards
-                safe_term = term.replace('%', '\\%').replace('_', '\\_')
-                keyword_params.extend([f'%{safe_term}%'] * 6) # Parameter for each '?' in like_part
+                safe_term = term.replace('%', '\%').replace('_', '\_')
+                # Each term searches across multiple fields OR'd together
+                term_specific_search = f"(subject LIKE ? OR body_text LIKE ? OR sender LIKE ? OR sender_name LIKE ? OR generated_tags LIKE ? OR quoted_raw_text LIKE ?)"
+                keyword_filter_individual_parts.append(term_specific_search)
+                keyword_search_params.extend([f'%{safe_term}%'] * 6)
+            
+            if keyword_filter_individual_parts:
+                # If multiple search terms, they are typically OR'd (any term can match)
+                keyword_search_sql_part = " OR ".join(keyword_filter_individual_parts)
+                # Wrap keyword search in parentheses if it exists
+                keyword_search_sql_part = f"({keyword_search_sql_part})"
+                logger.debug(f"Applying keyword search terms: {search_terms}")
 
-            if keyword_filter_parts:
-                # Combine keyword parts with OR, and wrap the whole group in parentheses
-                keyword_clause = "(" + " OR ".join(keyword_filter_parts) + ")"
-                where_clauses.append(keyword_clause)
-                params.extend(keyword_params)
+        # Combine attribute filters and keyword search with an OR, if both exist
+        # This combined group will then be ANDed with the mandatory filters (owner, dates)
+        optional_filters_combined_sql = ""
+        if attribute_filters_sql_part and keyword_search_sql_part:
+            optional_filters_combined_sql = f"({attribute_filters_sql_part} OR {keyword_search_sql_part})"
+            final_query_params.extend(attribute_filter_params)
+            final_query_params.extend(keyword_search_params)
+        elif attribute_filters_sql_part:
+            optional_filters_combined_sql = attribute_filters_sql_part
+            final_query_params.extend(attribute_filter_params)
+        elif keyword_search_sql_part:
+            optional_filters_combined_sql = keyword_search_sql_part
+            final_query_params.extend(keyword_search_params)
+        
+        # Add the combined optional filters part to the main WHERE clauses if it's not empty
+        if optional_filters_combined_sql:
+            final_where_clauses.append(optional_filters_combined_sql)
+        elif not (sender_filter or subject_filter or search_terms or start_date or end_date):
+            # This case is where only owner_email was provided which is usually not intended for a search.
+            # The initial check in the function (`if not sender_filter and not subject_filter ...`) handles this by returning early.
+            # If that check were removed, this log would be useful.
+            logger.warning("Querying with only owner_email filter. This might return many results.")
 
         # --- END REVISED WHERE clause ---
 
@@ -201,32 +240,25 @@ async def query_iceberg_emails_duckdb(
         effective_limit = token.row_limit if token else limit # Prioritize token limit if available
         effective_limit = min(effective_limit, limit) # Ensure it doesn't exceed the requested limit
 
-        # Combine specific filters (sender, subject, date) with AND
-        specific_filters_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
-
-        # Combine keyword search part with OR
-        keyword_search_sql = "(" + " OR ".join(keyword_filter_parts) + ")" if keyword_filter_parts else "FALSE"
-
-        # Combine specific filters and keyword search with OR, ensuring owner_email is always applied
-        where_sql = f"owner_email = ? AND ({specific_filters_sql.replace('owner_email = ? AND ', '', 1)} OR {keyword_search_sql})"
-        # Adjust params: owner_email is first, then specific filter params, then keyword params
-        final_params = [user_email] + params[1:] + keyword_params
+        where_sql_final = " AND ".join(final_where_clauses)
 
         sql_query = f"""
         SELECT
             {select_columns}
         FROM {view_name}
-        WHERE {where_sql}
+        WHERE {where_sql_final}
         ORDER BY received_datetime_utc DESC
         LIMIT ?;
         """
-        final_params.append(effective_limit) # Add limit as the last parameter
+        # The final_query_params list has been built progressively.
+        # Now add the limit parameter.
+        final_query_params.append(effective_limit)
 
         logger.debug(f"Executing DuckDB Query: {sql_query}")
-        logger.debug(f"With Params: {final_params}")
+        logger.debug(f"With Params: {final_query_params}")
 
         # Execute query and fetch results
-        arrow_table = con.execute(sql_query, final_params).fetch_arrow_table()
+        arrow_table = con.execute(sql_query, final_query_params).fetch_arrow_table()
         results = arrow_table.to_pylist()
         logger.info(f"DuckDB query returned {len(results)} email results.")
 
@@ -1401,8 +1433,25 @@ async def generate_openai_rag_response(
                 "end_date": end_date_obj,
                 "search_terms": raw_params.get("search_terms") if isinstance(raw_params.get("search_terms"), list) else None
             }.items() if v is not None}
-        except Exception:
-            extracted_email_params = {}
+
+            # --- START: Adjust start_date for 'upcoming' email queries ---
+            user_message_lower = message.lower()
+            if "upcoming" in user_message_lower or "up coming" in user_message_lower: # Check for both variations
+                llm_start_date = extracted_email_params.get("start_date")
+                # Check if LLM set start_date to roughly now for "upcoming"
+                if llm_start_date and (datetime.now(timezone.utc) - llm_start_date).total_seconds() < 300: # 5 min tolerance
+                    buffer_days = 7
+                    actual_email_search_start_date = llm_start_date - timedelta(days=buffer_days)
+                    extracted_email_params["start_date"] = actual_email_search_start_date
+                    logger.info(
+                        f"Adjusted email search start_date for 'upcoming/up coming' query by -{buffer_days} days to: "
+                        f"{actual_email_search_start_date.isoformat()} (Original LLM start_date: {llm_start_date.isoformat()})"
+                    )
+            # --- END: Adjust start_date for 'upcoming' email queries ---
+
+        except Exception: # Broader exception catch for parameter extraction phase
+            logger.error(f"Error during LLM parameter extraction or upcoming-adjustment: {e_ex}", exc_info=True)
+            extracted_email_params = {} # Ensure it's empty on error
 
         # Determine query type
         if extracted_email_params.get("sender_filter") or extracted_email_params.get("subject_filter") or extracted_email_params.get("start_date"):
