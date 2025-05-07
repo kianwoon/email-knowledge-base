@@ -427,20 +427,27 @@ async def get_last_sync_info(
             )
         
         # Get active folder info if available
-        folder_info = None
+        folder_id = None  # Changed variable name to folder_id to be more explicit
         items_processed = None
         for task_id, task_info in active_sync_tasks.items():
             if task_info['user_email'] == current_user.email:
-                for folder_id, status in task_info['statuses'].items():
+                # Find the most recently completed folder sync
+                for current_folder_id, status in task_info['statuses'].items():
                     if status['status'] == 'completed' and status['lastSync']:
-                        folder_info = status['folder']
+                        # Use folder ID instead of folder name 
+                        folder_id = current_folder_id  # Return the folder ID, not the name
                         items_processed = status['itemsProcessed']
+                        # Log for debugging
+                        logger.info(f"Last sync info found: folder_id={folder_id}, items={items_processed}")
                         break
+        
+        # Log the data being returned
+        logger.info(f"Returning last sync info: last_sync={user_db.last_outlook_sync}, folder={folder_id}")
         
         return LastSyncInfo(
             last_sync=user_db.last_outlook_sync,
             items_processed=items_processed,
-            folder=folder_info
+            folder=folder_id  # This was incorrectly returning the folder name instead of ID
         )
     except HTTPException:
         raise
