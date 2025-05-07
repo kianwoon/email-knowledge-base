@@ -13,7 +13,7 @@ from app.models.user import User
 from app.services.outlook import OutlookService
 from app.models.user import UserDB
 from app.crud import user_crud
-from app.tasks.outlook_sync import cancel_user_sync_tasks
+from app.tasks.outlook_sync import cancel_user_sync_tasks, process_user_outlook_sync
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -284,32 +284,36 @@ async def start_sync(
     db: Session = Depends(get_db)
 ):
     """Start synchronizing selected Outlook folders."""
+    logger.info(f"User {current_user.email} initiated manual sync for folders: {sync_request.folders} with start date: {sync_request.startDate}")
     try:
         # Create a new task ID
         task_id = str(uuid.uuid4())
+        logger.debug(f"Generated Celery task_id (for tracking in active_sync_tasks, not Celery's internal ID): {task_id}")
         
         # Initialize Outlook service to get folder information
+        # This is for initial UI display, actual processing uses its own service instance
         outlook_service = await OutlookService.create(current_user.email)
         
-        # Get information about each folder
+        # Get information about each folder for initial status update
         statuses = {}
         for folder_id in sync_request.folders:
             try:
                 folder_info = await outlook_service.get_folder_details(folder_id)
                 folder_name = folder_info.get('displayName', folder_id)
+                logger.debug(f"Got details for folder {folder_name} ({folder_id}): Total items {folder_info.get('totalItemCount')}")
                 
                 statuses[folder_id] = {
                     'folder': folder_name,
                     'folderId': folder_id,
-                    'status': 'idle',
+                    'status': 'idle', # Will be updated to 'syncing' by frontend/polling logic, or by task itself
                     'progress': 0,
                     'itemsProcessed': 0,
                     'totalItems': folder_info.get('totalItemCount', 0)
                 }
             except Exception as e:
-                logger.error(f"Error getting folder details for {folder_id}: {e}")
+                logger.error(f"Error getting folder details for {folder_id} during manual sync start: {e}", exc_info=True)
                 statuses[folder_id] = {
-                    'folder': folder_id,
+                    'folder': folder_id, # Fallback to ID if name fails
                     'folderId': folder_id,
                     'status': 'error',
                     'progress': 0,
@@ -318,7 +322,7 @@ async def start_sync(
                     'error': f"Failed to get folder details: {str(e)}"
                 }
         
-        # Store the task information
+        # Store the task information (for UI polling via /status endpoint)
         active_sync_tasks[task_id] = {
             'user_email': current_user.email,
             'folders': sync_request.folders,
@@ -326,25 +330,42 @@ async def start_sync(
             'statuses': statuses,
             'start_date': sync_request.startDate
         }
+        logger.info(f"Stored initial task info in active_sync_tasks for task_id {task_id}")
         
-        # Start background tasks for each folder
-        for folder_id in sync_request.folders:
-            if statuses[folder_id]['status'] != 'error':
-                background_tasks.add_task(
-                    process_folder_sync,
-                    current_user.email,
-                    folder_id,
-                    task_id,
-                    sync_request.startDate
-                )
+        # Dispatch the Celery task for actual processing
+        # This is the critical part that sends the task to the Celery worker
+        try:
+            logger.info(f"Attempting to dispatch process_user_outlook_sync.delay for user {current_user.id}, folders {sync_request.folders}")
+            process_user_outlook_sync.delay(
+                user_id=str(current_user.id),
+                folders=sync_request.folders,
+                start_date=sync_request.startDate
+            )
+            logger.info(f"Successfully called .delay() for process_user_outlook_sync for user {current_user.id}")
+        except Exception as celery_dispatch_error:
+            logger.error(f"CELERY DISPATCH ERROR for user {current_user.id}: {celery_dispatch_error}", exc_info=True)
+            # If dispatch fails, we should probably raise an HTTP exception
+            # And potentially revert or clear the active_sync_tasks entry for this attempt
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to queue synchronization task. Please try again later."
+            )
+
+        # The background_tasks.add_task is NOT for Celery.
+        # It's for FastAPI background tasks that run in the same process as the web server.
+        # We are using Celery, so the .delay() call above is the correct way.
+        # Removing the loop that was here before as it's redundant with Celery.
         
         return {
-            'task_id': task_id,
-            'message': 'Sync started for selected folders',
-            'statuses': list(statuses.values())
+            'task_id': task_id, # This is the UI tracking task_id, not Celery's internal one
+            'message': 'Sync successfully initiated for selected folders',
+            'statuses': list(statuses.values()) # Initial statuses for the UI
         }
+    except HTTPException as he:
+        logger.error(f"HTTPException during manual sync start for user {current_user.email}: {he.detail}", exc_info=True)
+        raise he # Re-raise HTTPException to be handled by FastAPI
     except Exception as e:
-        logger.error(f"Error starting sync: {e}")
+        logger.error(f"Generic error starting manual sync for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start folder synchronization: {str(e)}"
