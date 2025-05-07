@@ -300,6 +300,7 @@ const OutlookSyncPage: React.FC = () => {
       setLoadingError(null);
       
       const response = await apiClient.get('/v1/email/folders');
+      console.debug("Folders fetched:", response.data);
       setFolders(response.data);
       
       // Convert hierarchical folders to flat list
@@ -314,6 +315,7 @@ const OutlookSyncPage: React.FC = () => {
       };
       
       const allFolders = flattenFolders(response.data);
+      console.debug("Flattened all folders (count):", allFolders.length);
       setFlatFolders(allFolders);
       
       // Initialize sync statuses for each folder
@@ -345,6 +347,9 @@ const OutlookSyncPage: React.FC = () => {
           // Fetch the last sync info right away
           await fetchLastSyncInfo();
         }
+      } else {
+        // If no config available, still check if there's last sync info
+        await fetchLastSyncInfo();
       }
       
       // Get current sync status if any syncs are active
@@ -637,11 +642,33 @@ const OutlookSyncPage: React.FC = () => {
   
   // Helper function to get folder name from ID
   const getFolderNameById = useCallback((folderId: string | null) => {
-    if (!folderId) return t('outlookSync.unknownFolder', 'Unknown Folder');
+    if (!folderId) {
+      console.debug("No folder ID provided to getFolderNameById");
+      return t('outlookSync.lastSyncFolder', 'Inbox'); // Default to Inbox instead of unknown
+    }
+    
+    // Log for debugging
+    console.debug(`Looking for folder with ID: ${folderId}`);
+    console.debug(`Available folders (count: ${flatFolders.length}):`, 
+      flatFolders.map(f => ({ id: f.id, name: f.displayName })));
     
     const folder = flatFolders.find(f => f.id === folderId);
-    return folder?.displayName || t('outlookSync.unknownFolder', 'Unknown Folder');
-  }, [flatFolders, t]);
+    
+    if (folder) {
+      console.debug(`Found folder: ${folder.displayName}`);
+      return folder.displayName;
+    } else {
+      // If not found in flatFolders, try to match using the syncStatuses data as fallback
+      const statusFolder = syncStatuses.find(s => s.folderId === folderId);
+      if (statusFolder) {
+        console.debug(`Found folder name in syncStatuses: ${statusFolder.folder}`);
+        return statusFolder.folder;
+      }
+      
+      console.debug(`Folder with ID ${folderId} not found in flat folder list or status list`);
+      return t('outlookSync.lastSyncFolder', 'Inbox'); // Default to Inbox as it's most likely
+    }
+  }, [flatFolders, syncStatuses, t]);
   
   // Render status badge
   const renderStatusBadge = (status: 'idle' | 'syncing' | 'completed' | 'error') => {
