@@ -1331,13 +1331,16 @@ async def generate_openai_rag_response(
                 example_2_start_date = "[yesterday_start_error]"
                 example_2_end_date = "[yesterday_end_error]"
 
-            extraction_prompt_template = "Analyze the user's message to extract parameters for searching emails. Current UTC time: {now_utc_iso}.\n" \
-                "User Message: \"{message}\"\n" \
-                "Extract: sender, subject, start_date_utc (ISO 8601 UTC, calc from relative terms like 'last week'='past 7 days'), end_date_utc (ISO 8601 UTC), search_terms (list).\n" \
-                "Respond ONLY with a JSON object. Null if not found.\n" \
-                "Example 1: \"emails from jeff last week about the UOB project\" (Time: {now_utc_iso}) -> {{\"sender\": \"jeff\", \"subject\": \"UOB project\", \"start_date_utc\": \"{example_1_start_date}\", \"end_date_utc\": \"{now_utc_iso}\", \"search_terms\": [\"UOB project\"]}}\n" \
-                "Example 2: \"onboarding emails from yesterday\" (Time: {now_utc_iso}) -> {{\"sender\": null, \"subject\": \"onboarding\", \"start_date_utc\": \"{example_2_start_date}\", \"end_date_utc\": \"{example_2_end_date}\", \"search_terms\": [\"onboarding\"]}}\n" \
-                "JSON Response:"
+            extraction_prompt_template = (
+                f"Analyze the user's message to extract parameters for searching emails. Current UTC time: {{now_utc_iso}}.\n"
+                f"User Message: {{message}}\n"
+                f"Extract: sender, subject, start_date_utc (ISO 8601 UTC, calc from relative terms like 'last week'='past 7 days'), end_date_utc (ISO 8601 UTC), search_terms (list).\n"
+                f"Respond ONLY with a JSON object. Null if not found.\n"
+                f"Example 1: \"emails from jeff last week about the UOB project\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": \"jeff\", \"subject\": \"UOB project\", \"start_date_utc\": \"{{example_1_start_date}}\", \"end_date_utc\": \"{{now_utc_iso}}\", \"search_terms\": [\"UOB project\"]}}}}\n"
+                f"Example 2: \"onboarding emails from yesterday\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": null, \"subject\": \"onboarding\", \"start_date_utc\": \"{{example_2_start_date}}\", \"end_date_utc\": \"{{example_2_end_date}}\", \"search_terms\": [\"onboarding\"]}}}}\n"
+                f"Example 3: \"upcoming meetings from Derick\" (Time: {{now_utc_iso}}) -> {{{{ \"sender\": \"Derick\", \"subject\": \"meeting\", \"start_date_utc\": \"{{now_utc_iso}}\", \"end_date_utc\": null, \"search_terms\": [\"meeting\"]}}}}\n"
+                f"JSON Response:"
+            )
             extraction_prompt = extraction_prompt_template.format(
                 message=message, now_utc_iso=now_utc_iso, example_1_start_date=example_1_start_date,
                 example_2_start_date=example_2_start_date, example_2_end_date=example_2_end_date

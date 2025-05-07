@@ -118,21 +118,39 @@ class AuthService:
             logger.debug(f"Requesting refresh token with filtered resource scopes: {resource_scopes}")
             
             # Execute token refresh with timeout
-            try:
-                # Define the synchronous function call
-                sync_msal_call = lambda: _msal_app.acquire_token_by_refresh_token(
-                    decrypted_refresh_token,
-                    scopes=resource_scopes
-                )
-                # Run the sync call in threadpool and await its completion with timeout
-                refresh_result = await asyncio.wait_for(
-                    run_in_threadpool(sync_msal_call),
-                    timeout=REFRESH_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                logger.error(f"MSAL refresh for user {email} timed out after {REFRESH_TIMEOUT} seconds.")
+            refresh_result = None
+            MAX_REFRESH_ATTEMPTS = 2
+            REFRESH_RETRY_DELAY = 2  # seconds
+
+            for attempt in range(1, MAX_REFRESH_ATTEMPTS + 1):
+                try:
+                    # Define the synchronous function call
+                    sync_msal_call = lambda: _msal_app.acquire_token_by_refresh_token(
+                        decrypted_refresh_token,
+                        scopes=resource_scopes
+                    )
+                    # Run the sync call in threadpool and await its completion with timeout
+                    refresh_result = await asyncio.wait_for(
+                        run_in_threadpool(sync_msal_call),
+                        timeout=REFRESH_TIMEOUT
+                    )
+                    # If successful, break the loop
+                    break 
+                except asyncio.TimeoutError:
+                    logger.error(f"MSAL refresh for user {email} timed out on attempt {attempt}/{MAX_REFRESH_ATTEMPTS} after {REFRESH_TIMEOUT} seconds.")
+                    if attempt < MAX_REFRESH_ATTEMPTS:
+                        logger.info(f"Retrying MSAL refresh for user {email} in {REFRESH_RETRY_DELAY} seconds...")
+                        await asyncio.sleep(REFRESH_RETRY_DELAY)
+                    else:
+                        logger.error(f"All {MAX_REFRESH_ATTEMPTS} MSAL refresh attempts failed for user {email} due to timeout.")
+                        return None # All retries failed
+            
+            if refresh_result is None: # Should only happen if all retries fail due to timeout and return None was hit
+                # This case is technically covered by the return None in the loop, 
+                # but as a safeguard if logic changes.
+                logger.error(f"MSAL refresh for user {email} failed after all retries (refresh_result is None).")
                 return None
-                
+
             if "access_token" not in refresh_result:
                 error_details = refresh_result.get('error_description', 'Unknown MSAL error')
                 logger.error(f"MSAL refresh token acquisition failed for user {email}: {error_details}")
