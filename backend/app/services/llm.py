@@ -60,9 +60,9 @@ async def get_iceberg_catalog() -> Catalog:
                     "token": settings.R2_CATALOG_TOKEN,
                     # Add S3 specific creds if needed by PyArrowFileIO used under the hood
                     # These might come from settings or environment variables
-                    # "s3.endpoint": settings.R2_ENDPOINT_URL, 
-                    # "s3.access-key-id": settings.R2_ACCESS_KEY_ID,
-                    # "s3.secret-access-key": settings.R2_SECRET_ACCESS_KEY
+                    "s3.endpoint": settings.R2_ENDPOINT_URL, 
+                    "s3.access-key-id": settings.R2_ACCESS_KEY_ID,
+                    "s3.secret-access-key": settings.R2_SECRET_ACCESS_KEY
                 }
                 # Remove None values from props before passing to load_catalog
                 catalog_props = {k: v for k, v in catalog_props.items() if v is not None}
@@ -557,7 +557,8 @@ async def _get_milvus_context(
     max_items: int, 
     max_chunk_chars: int,
     query: str,
-    user_email: str
+    user_email: str,
+    model_name: str = None  # Add model_name parameter with default
 ) -> Tuple[List[Dict[str, Any]], int]:
     """
     Retrieves document context from Milvus using the search_milvus_knowledge_hybrid function.
@@ -580,8 +581,8 @@ async def _get_milvus_context(
         )
         
         # Get tokenizer model for token counting
-        model_name = settings.DEFAULT_CHAT_MODEL
-        tokenizer_model = get_tokenizer_model_for_chat_model(model_name)
+        # Use provided model_name or fall back to OPENAI_MODEL_NAME (not a new default model)
+        tokenizer_model = get_tokenizer_model_for_chat_model(model_name or settings.OPENAI_MODEL_NAME)
         
         # NEW: Deduplicate results before reranking and track token efficiency
         if len(document_results) > 1:
@@ -1493,7 +1494,8 @@ async def generate_openai_rag_response(
                     max_items=40,  # INCREASED: Retrieve more documents
                     max_chunk_chars=8000,  # INCREASED: Allow larger chunks
                     query=message,
-                    user_email=user.email
+                    user_email=user.email,
+                    model_name=chat_model
                 )
                 total_tokens_saved += milvus_tokens_saved
                 

@@ -989,7 +989,6 @@ const JarvisPage: React.FC = () => {
           colorScheme="blue"
           index={activeTab}
           onChange={setActiveTab}
-          isLazy
         >
           <TabList mb="1em" flexWrap="wrap">
             <Tab><Icon as={FaCommentDots} mr={2} />{t('jarvis.chat')}</Tab>
@@ -1538,7 +1537,7 @@ const JarvisPage: React.FC = () => {
                   {t('jarvis.knowledgeTokensDesc', 'Add tokens from other users or sources. Jarvis will use these tokens to search their shared knowledge bases via the secure /shared-knowledge/search endpoint, expanding its response capabilities.')}
                 </Text>
 
-                {/* Add New Token Form */} 
+                {/* Add New Token Form */}
                 <Box borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
                   <Heading size="sm" mb={3} color={headingColor}>{t('jarvis.addKnowledgeToken', 'Add New Token')}</Heading>
                   <VStack spacing={3}>
@@ -1592,7 +1591,7 @@ const JarvisPage: React.FC = () => {
                   </VStack>
                 </Box>
 
-                {/* List Existing Tokens */} 
+                {/* List Existing Tokens */}
                 <Box borderWidth="1px" borderRadius="lg" p={0} bg={boxBgColor} shadow="sm" overflow="hidden">
                   <Heading size="sm" p={4} pb={2} color={headingColor}>{t('jarvis.existingKnowledgeTokens', 'Existing Tokens')}</Heading>
                   {isLoadingExternalTokens ? (

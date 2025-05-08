@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     OPENAI_TIMEOUT_SECONDS: Optional[float] = None # Keep optional
     OPENAI_TEMPERATURE: Optional[float] = 0.1 # ADDED: Default temperature
 
+    # --- ADDED: Default Chat Model Setting --- 
+    DEFAULT_CHAT_MODEL: str = "gpt-4o" # Default model for chat and token counting
+    # --- END ADDED --- 
+
     # --- NEW: Default Timeout Settings --- 
     DEFAULT_LLM_TIMEOUT_SECONDS: float = 30.0
     DEFAULT_DEEPSEEK_TIMEOUT_SECONDS: float = 60.0

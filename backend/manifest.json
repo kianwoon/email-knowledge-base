@@ -1,0 +1,80 @@
+{
+  "tools": [
+    {
+      "name": "jira_list_issues",
+      "description": "List Jira issues for a given JQL query",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "jql": { "type": "string", "description": "Jira JQL query" }
+        },
+        "required": ["jql"]
+      }
+    },
+    {
+      "name": "jira_create_issue",
+      "description": "Create a new Jira issue",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_key": { "type": "string" },
+          "summary": { "type": "string" },
+          "description": { "type": "string" },
+          "issue_type": { "type": "string" }
+        },
+        "required": ["project_key","summary","issue_type"]
+      }
+    },
+    {
+      "name": "outlook_list_events",
+      "description": "List Outlook calendar events for a date range",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_datetime": { "type": "string", "format": "date-time" },
+          "end_datetime": { "type": "string", "format": "date-time" }
+        },
+        "required": ["start_datetime","end_datetime"]
+      }
+    },
+    {
+      "name": "outlook_create_event",
+      "description": "Create an Outlook calendar event",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subject": { "type": "string" },
+          "start_datetime": { "type": "string", "format": "date-time" },
+          "end_datetime": { "type": "string", "format": "date-time" },
+          "attendees": { "type": "array", "items": {"type":"string"} }
+        },
+        "required": ["subject","start_datetime","end_datetime"]
+      }
+    },
+    {
+      "name": "outlook_list_messages",
+      "description": "List Outlook email messages from a folder",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "folder": { "type": "string" },
+          "top": { "type": "integer", "description": "Number of messages to retrieve" }
+        },
+        "required": ["folder"]
+      }
+    },
+    {
+      "name": "outlook_send_message",
+      "description": "Send an Outlook email message",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "array", "items": {"type":"string"} },
+          "subject": { "type": "string" },
+          "body": { "type": "string" }
+        },
+        "required": ["to","subject","body"]
+      }
+    }
+  ]
+}
