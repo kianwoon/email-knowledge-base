@@ -486,7 +486,8 @@ async def _summarize_email_batch(
         f"Your primary goal is to be **extremely thorough and detailed** for the given query. Do not omit any potentially relevant piece of information, even if it seems minor. Capture the nuances and specifics from the emails.\n" \
         f"Produce an **expansive and highly detailed summary** of all relevant points. Aim to utilize a significant portion of the available token limit for your response if the source material contains sufficient relevant detail. If the batch is rich in relevant information, your summary should reflect that richness in length and detail.\n" \
         f"IMPORTANT: When referencing dates, ALWAYS maintain the EXACT years as they appear in the source emails. Do NOT change years or assume current year. If an email from 2023 is referenced, use '2023' not the current year or any other year.\n" \
-        f"For relative time expressions like 'last week', use the actual date range with correct years from the retrieved emails.\n" \
+        f"For relative time expressions like 'last week', use the actual date range with correct years from the retrieved emails.\\n" \
+        f"CRITICAL: If the emails contain information about multiple distinct entities, projects, or clients (e.g., UOB, OCBC), ensure your summary explicitly and accurately attributes details to the correct entity. Do not blend information or misattribute details between entities.\\n" \
         f"If, and only if, no relevant information is found, state that clearly. Otherwise, be exhaustive.\n" \
         f"Present the summary clearly. For multiple points, use detailed bullet points or paragraphs. Ensure all key facts, figures, and statements from the emails that pertain to the query are retained in your summary."
     )
@@ -617,7 +618,8 @@ def _build_system_prompt() -> str:
            "When referencing dates from emails or documents, always maintain the EXACT years as they appear in the source material.\n" \
            "Do NOT change years or assume current year. For example, if an email from 2023 is referenced, use '2023' not the current year.\n" \
            "For relative time expressions like 'last week', use the actual date range with correct years from the retrieved information.\n" \
-           "If the context doesn't provide enough information, state that you couldn't find the answer in the provided documents or emails.\n" \
+           "If the context mentions multiple entities, projects, or clients (e.g., UOB, OCBC), be meticulous in attributing specific details only to the entity they are explicitly linked with in the source text. Avoid generalizing details from one entity to another unless the text explicitly supports it.\\n" \
+           "If the context doesn't provide enough information, state that you couldn't find the answer in the provided documents or emails.\\n" \
            "Do not make up information.\n\n" \
            "<RAG_CONTEXT_PLACEHOLDER>"
 # --- END: Helper function to build the system prompt ---
