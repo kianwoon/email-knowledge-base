@@ -36,8 +36,8 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     define: {
-      // Define a global constant instead of trying to augment import.meta.env
-      '__MCP_SERVER_URL__': JSON.stringify(env.MCP_SERVER) 
+      // TEMPORARY TEST: Hardcode the URL to isolate the issue
+      '__MCP_SERVER_URL__': JSON.stringify('https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/invoke/')
     },
     server: {
       port: 5173,
