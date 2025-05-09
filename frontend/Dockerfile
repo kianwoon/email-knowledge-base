@@ -18,6 +18,7 @@ COPY frontend/ ./
 # Use the combined path needed for Koyeb routing (/api) + FastAPI prefix (/api/v1)
 ENV VITE_API_BASE_URL=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/v1
 ENV VITE_WEBSOCKET_URL=wss://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/api/v1/ws/analysis
+ENV MCP_SERVER=https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/invoke/
 
 # Set optional build flags (if needed)
 ENV TSC_COMPILE_ON_ERROR=true
