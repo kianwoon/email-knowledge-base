@@ -32,6 +32,9 @@ export default defineConfig(({ command, mode }) => {
         '@': path.resolve(__dirname, './src'),
       },
     },
+    define: {
+      'import.meta.env.MCP_SERVER': JSON.stringify(env.MCP_SERVER)
+    },
     server: {
       port: 5173,
       proxy: {
