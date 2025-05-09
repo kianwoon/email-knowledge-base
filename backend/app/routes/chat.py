@@ -21,6 +21,8 @@ from app.crud import crud_jarvis_token
 from app.services.encryption_service import decrypt_token
 from app.models.jarvis_token import JarvisExternalToken
 from app.config import settings
+from app.crud import mcp_tool_crud  # Import the MCP tool CRUD operations
+from app.services.tool_executor import execute_tool  # Import the tool executor
 # --- END ADDED IMPORTS ---
 
 # Setup logger
@@ -73,17 +75,49 @@ BACKEND_APP_DIR = os.path.dirname(APP_DIR) # .../backend/app
 BACKEND_DIR_ROOT = os.path.dirname(BACKEND_APP_DIR) # .../backend
 MANIFEST_PATH = os.path.join(BACKEND_DIR_ROOT, "manifest.json")
 
-def load_tool_manifest():
+def load_tool_manifest(user_email: Optional[str] = None, db_session: Optional[Session] = None):
+    """Load tool manifest from manifest.json and merge with user-defined MCP tools if user_email and db_session are provided."""
     global TOOL_MANIFEST
-    if TOOL_MANIFEST is None:
+    static_tools = []
+    
+    # Load static tools from manifest.json
+    try:
+        with open(MANIFEST_PATH, 'r') as f:
+            manifest_data = json.load(f)
+            static_tools = manifest_data.get("tools", [])
+        logger.info(f"Successfully loaded {len(static_tools)} static tools from {MANIFEST_PATH}")
+    except Exception as e:
+        logger.error(f"Failed to load tool manifest from {MANIFEST_PATH}: {e}", exc_info=True)
+        static_tools = []  # Default to empty tools if load fails
+    
+    # If user_email and db_session are provided, merge with user-defined tools
+    user_tools = []
+    if user_email and db_session:
         try:
-            with open(MANIFEST_PATH, 'r') as f:
-                TOOL_MANIFEST = json.load(f)
-            logger.info(f"Successfully loaded tool manifest from {MANIFEST_PATH}")
+            # Get all enabled MCP tools for the user
+            db_tools = mcp_tool_crud.get_mcp_tools(db_session, user_email)
+            user_tools = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                    "entrypoint": tool.entrypoint,  # Save the entrypoint for execution
+                    "version": tool.version,
+                    "is_custom": True  # Flag to identify user-defined tools
+                }
+                for tool in db_tools if tool.enabled  # Only include enabled tools
+            ]
+            logger.info(f"Successfully loaded {len(user_tools)} user-defined MCP tools for user {user_email}")
         except Exception as e:
-            logger.error(f"Failed to load tool manifest from {MANIFEST_PATH}: {e}", exc_info=True)
-            # Depending on strictness, could raise an error or allow app to run without tools
-            TOOL_MANIFEST = {"tools": []} # Default to empty tools if load fails
+            logger.error(f"Failed to load user-defined MCP tools for user {user_email}: {e}", exc_info=True)
+    
+    # Combine static and user tools
+    all_tools = static_tools + user_tools
+    
+    # Update the global manifest
+    TOOL_MANIFEST = {"tools": all_tools}
+    logger.info(f"Total tools available: {len(all_tools)} (Static: {len(static_tools)}, User-defined: {len(user_tools)})")
+    
     return TOOL_MANIFEST
 
 # Call it once on startup (FastAPI specific way would be in startup event)
@@ -156,10 +190,11 @@ async def chat_endpoint(
     """Chat endpoint for processing user messages, handling tool calls, and generating responses."""
     logger.info(f"Received chat request from user: {current_user.email}. Message: \"{chat_message.message}\". Tool results provided: {chat_message.tool_results is not None}")
 
-    # Load tools (manifest)
-    tools_config = load_tool_manifest()
+    # Load tools (manifest) with user-defined tools
+    tools_config = load_tool_manifest(current_user.email, db)
     # Ensure tools_config has a 'tools' key, even if empty from load_tool_manifest error handling
-    available_tools = tools_config.get("tools", []) 
+    available_tools = tools_config.get("tools", [])
+    logger.info(f"Loaded {len(available_tools)} available tools for user {current_user.email}")
 
     # --- Phase 3: Final Response Generation (if tool_results are provided) ---
     if chat_message.tool_results:
@@ -248,54 +283,48 @@ async def chat_endpoint(
         
         parsed_tool_calls_for_frontend = [] # Renamed to avoid confusion with llm.py's variable
         if isinstance(llm_response_data, dict) and llm_response_data.get('type') == 'tool_call' and llm_response_data.get('tool_calls'):
-            raw_tool_calls_from_llm_service = llm_response_data['tool_calls'] 
-            logger.info(f"[Phase 1 Routes] Raw tool_calls from LLM service: {raw_tool_calls_from_llm_service}")
-
-            for raw_call_item in raw_tool_calls_from_llm_service: 
-                try:
-                    logger.debug(f"[Phase 1 Routes] Processing raw_call_item: {raw_call_item}, type: {type(raw_call_item)}")
-                    item_name = raw_call_item.get('name')
-                    item_call_id = raw_call_item.get('call_id', str(uuid.uuid4())) # Default if missing
-                    item_arguments_str = raw_call_item.get('arguments')
-                    
-                    logger.debug(f"[Phase 1 Routes] Extracted before parsing arguments - Name: {item_name} (type: {type(item_name)}), CallID: {item_call_id}, ArgsStr: {item_arguments_str}")
-
-                    parsed_arguments_for_model = {}
-                    if isinstance(item_arguments_str, str):
-                        try:
-                            parsed_arguments_for_model = json.loads(item_arguments_str)
-                        except json.JSONDecodeError as je:
-                            logger.error(f"[Phase 1 Routes] Failed to parse arguments JSON: {je}. Raw args: {item_arguments_str}. Skipping this tool call.")
-                            continue 
-                    elif isinstance(item_arguments_str, dict):
-                        parsed_arguments_for_model = item_arguments_str
-                    elif item_arguments_str is None:
-                        logger.warning(f"[Phase 1 Routes] Tool arguments are None for call_id {item_call_id}. Using empty dict.")
-                        # Allow empty arguments if explicitly None, Pydantic will validate if required args are missing for the tool
-                    else:
-                        logger.error(f"[Phase 1 Routes] Tool arguments are of unexpected type: {type(item_arguments_str)}. Raw: {item_arguments_str}. Skipping this tool call.")
-                        continue
-                    
-                    # Ensure item_name is a string before passing to Pydantic model, though .get() should not cause Pydantic error if key missing
-                    if not isinstance(item_name, str):
-                        logger.error(f"[Phase 1 Routes] Tool call name is not a string: {item_name} (type: {type(item_name)}). Skipping this tool call. Full item: {raw_call_item}")
-                        continue
-
-                    logger.debug(f"[Phase 1 Routes] Attempting to create ToolCall model with Name: {item_name}, CallID: {item_call_id}, Arguments: {parsed_arguments_for_model}")
-                    parsed_tool_calls_for_frontend.append(
-                        ToolCall(
-                            call_id=item_call_id, 
-                            name=item_name, 
-                            arguments=parsed_arguments_for_model
-                        )
+            # Extract tool calls from the LLM response
+            tool_calls_from_llm = llm_response_data.get('tool_calls', [])
+            
+            # Find the tool metadata for each tool call
+            for tc in tool_calls_from_llm:
+                call_id = tc.get('call_id') or str(uuid.uuid4())  # Generate ID if none provided
+                tool_name = tc.get('name')
+                
+                # Parse arguments if they're a string (JSON)
+                tool_args = tc.get('arguments', {})
+                if isinstance(tool_args, str):
+                    try:
+                        tool_args = json.loads(tool_args)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse tool arguments JSON: {e}")
+                        tool_args = {}  # Default to empty dict if parsing fails
+                
+                # Find the tool metadata from available_tools
+                tool_metadata = next((tool for tool in available_tools if tool['name'] == tool_name), None)
+                
+                # Add to the list for the frontend response
+                parsed_tool_calls_for_frontend.append(
+                    ToolCall(
+                        call_id=call_id,
+                        name=tool_name,
+                        arguments=tool_args
                     )
-                except Exception as e:
-                    # Log the specific raw_call_item that caused the error along with the exception
-                    logger.error(f"[Phase 1 Routes] Error processing a raw tool call. Raw item: {raw_call_item}. Error: {e}", exc_info=True)
-
-        if parsed_tool_calls_for_frontend:
-            logger.info(f"[Phase 1 Routes] LLM decided to call tools (parsed for frontend): {parsed_tool_calls_for_frontend}")
-            return ChatPhase1ResponsePayload(type="tool_call", tool_calls=parsed_tool_calls_for_frontend)
+                )
+                
+                # Log what tool we're executing
+                if tool_metadata:
+                    is_custom = tool_metadata.get('is_custom', False)
+                    entrypoint = tool_metadata.get('entrypoint', 'unknown')
+                    logger.info(f"[Phase 1] Tool call for {tool_name} (Custom: {is_custom}, Entrypoint: {entrypoint})")
+                else:
+                    logger.warning(f"[Phase 1] Tool call for unknown tool: {tool_name}")
+                
+            # Return the tool calls to the frontend
+            return ChatPhase1ResponsePayload(
+                type="tool_call",
+                tool_calls=parsed_tool_calls_for_frontend
+            )
         else:
             # Assume it's a direct text reply if no valid tool calls were parsed.
             # If llm_response_data was a string, use it. If dict, try to find a reply field.

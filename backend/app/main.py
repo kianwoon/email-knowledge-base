@@ -45,6 +45,7 @@ from app.routes import (
     shared_knowledge_catalog,
     outlook_sync,
     mcp_tools,  # Add our mcp_tools router
+    tool_execution,  # Add our new tool_execution router
     # Import the websockets router
     websockets
 )
@@ -205,11 +206,12 @@ app.include_router(chat.router, prefix=f"{settings.API_PREFIX}/chat", tags=["Cha
 app.include_router(shared_knowledge.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge"]) 
 app.include_router(user.router, prefix=f"{settings.API_PREFIX}/user", tags=["User"])
 app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=["Schema"])
-app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Jarvis Settings"])
+app.include_router(jarvis_settings.router, prefix=f"{settings.API_PREFIX}/jarvis-settings", tags=["Jarvis Settings"])
 # Include the new router
-app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge Catalog"])
-app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}", tags=["Outlook Sync"])
-app.include_router(mcp_tools.router, prefix=f"{settings.API_PREFIX}", tags=["MCP Tools"])  # Include our mcp_tools router
+app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge-catalog", tags=["Shared Knowledge Catalog"])
+app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}/outlook", tags=["Outlook"])
+app.include_router(mcp_tools.router, prefix=f"{settings.API_PREFIX}/mcp", tags=["MCP Tools"])  # Include our mcp_tools router
+app.include_router(tool_execution.router, prefix=f"{settings.API_PREFIX}/tool", tags=["Tool Execution"])
 
 # Include the websockets router
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])

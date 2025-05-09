@@ -24,35 +24,35 @@ export interface MCPToolCreate {
 
 // Get all MCP tools for the current user
 export const listMCPTools = async (): Promise<MCPTool[]> => {
-  const response = await axios.get('/api/v1/mcp/tools');
+  const response = await axios.get('/api/v1/mcp/mcp/tools');
   return response.data;
 };
 
 // Get a specific MCP tool by ID
 export const getMCPTool = async (id: number): Promise<MCPTool> => {
-  const response = await axios.get(`/api/v1/mcp/tools/${id}`);
+  const response = await axios.get(`/api/v1/mcp/mcp/tools/${id}`);
   return response.data;
 };
 
 // Create a new MCP tool
 export const createMCPTool = async (toolData: MCPToolCreate): Promise<MCPTool> => {
-  const response = await axios.post('/api/v1/mcp/tools', toolData);
+  const response = await axios.post('/api/v1/mcp/mcp/tools', toolData);
   return response.data;
 };
 
 // Update an existing MCP tool
 export const updateMCPTool = async (id: number, toolData: Partial<MCPToolCreate>): Promise<MCPTool> => {
-  const response = await axios.put(`/api/v1/mcp/tools/${id}`, toolData);
+  const response = await axios.put(`/api/v1/mcp/mcp/tools/${id}`, toolData);
   return response.data;
 };
 
 // Delete an MCP tool
 export const deleteMCPTool = async (id: number): Promise<void> => {
-  await axios.delete(`/api/v1/mcp/tools/${id}`);
+  await axios.delete(`/api/v1/mcp/mcp/tools/${id}`);
 };
 
 // Toggle the enabled status of an MCP tool
 export const toggleMCPToolStatus = async (id: number, enabled: boolean): Promise<MCPTool> => {
-  const response = await axios.patch(`/api/v1/mcp/tools/${id}/status`, { enabled });
+  const response = await axios.patch(`/api/v1/mcp/mcp/tools/${id}/status`, { enabled });
   return response.data;
 }; 

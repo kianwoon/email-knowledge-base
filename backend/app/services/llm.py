@@ -1399,7 +1399,7 @@ async def generate_openai_rag_response(
         logger.info(f"[Phase 1 Router] Jarvis-Router decision: Target='{target}', Confidence={confidence:.2f}")
 
         # Low confidence threshold - adjust as needed
-        LOW_CONFIDENCE_THRESHOLD = 0.6 
+        LOW_CONFIDENCE_THRESHOLD = 0.88 
 
         if router_decision.get("error"):
             logger.error(f"[Phase 1 Router] Jarvis-Router returned an error: {router_decision.get('error')}. Defaulting to direct LLM reply attempt.")
