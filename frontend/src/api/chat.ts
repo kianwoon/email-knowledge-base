@@ -1,14 +1,14 @@
 import apiClient from './apiClient';
 import { AxiosError } from 'axios';
 // Import the MODIFIED sendMcpMessage and other types
-import { sendMcpMessage, ChatMessage as McpChatMessage, McpToolResponse } from './mcp';
+import { sendMcpMessage, ChatMessage as McpChatMessage, McpToolResponse, AuthenticationError, initiateAuth } from './mcp';
 
 // Define request body structure for Phase 1 and Phase 3
 interface BackendChatRequestPayload {
   message: string;
   chat_history?: Array<{ role: string; content: string }>;
   model_id?: string;
-  tool_results?: Array<{ call_id: string; result: any }>; // For Phase 3
+  tool_results?: Array<{ call_id: string; name: string; result: any }>; // For Phase 3
 }
 
 // Define response structure from Phase 1
@@ -24,15 +24,19 @@ interface BackendPhase3Response {
   reply: string;
 }
 
-// Ensure McpChatMessage is compatible or adjust as necessary
-// If McpChatMessage is { role: 'user' | 'assistant', content: string; }, it's fine.
+// Auth-related states and types
+type AuthRequiredInfo = {
+  service: string;
+  message: string;
+};
 
 /**
  * Sends a chat message to the backend, managing the three-phase tool calling process.
+ * @returns A string response or throws an AuthRequiredError if authentication is needed
  */
 export const sendChatMessage = async (
   message: string,
-  chatHistory?: Array<McpChatMessage>, // Use McpChatMessage for consistency
+  chatHistory?: Array<McpChatMessage>,
   modelId?: string
 ): Promise<string> => {
   try {
@@ -62,6 +66,8 @@ export const sendChatMessage = async (
       const toolResults: Array<{ call_id: string; name: string; result: any }> = [];
 
       // --- Phase 2: Tool Execution ---
+      let authError: AuthenticationError | null = null;
+      
       for (const toolCall of phase1Data.tool_calls) {
         console.log(`[Phase 2] Executing tool: ${toolCall.name} (Call ID: ${toolCall.call_id})`);
         try {
@@ -78,12 +84,40 @@ export const sendChatMessage = async (
           });
         } catch (toolExecError) {
           console.error(`[Phase 2] Error executing tool ${toolCall.name} (Call ID: ${toolCall.call_id}):`, toolExecError);
-          toolResults.push({
-            call_id: toolCall.call_id,
-            name: toolCall.name,
-            result: { error: `Failed to execute tool: ${(toolExecError as Error).message}` },
-          });
+          
+          // Check for authentication errors specifically
+          if (toolExecError instanceof AuthenticationError) {
+            // Store the authentication error for later handling
+            authError = toolExecError;
+            // Add a placeholder result indicating auth required
+            toolResults.push({
+              call_id: toolCall.call_id,
+              name: toolCall.name,
+              result: { 
+                error: "Authentication required",
+                auth_service: toolExecError.service,
+                requires_auth: true,
+                message: toolExecError.message
+              },
+            });
+          } else {
+            // Normal error handling
+            toolResults.push({
+              call_id: toolCall.call_id,
+              name: toolCall.name,
+              result: { error: `Failed to execute tool: ${(toolExecError as Error).message}` },
+            });
+          }
         }
+      }
+
+      // If we encountered an auth error, throw it after collecting all results
+      // This allows the UI to present the auth requirement to the user
+      if (authError) {
+        throw new AuthRequiredError(
+          authError.message || "Authentication required to complete this request",
+          authError.service
+        );
       }
 
       // --- Phase 3: Final Response Generation ---
@@ -119,6 +153,11 @@ export const sendChatMessage = async (
     return "Received an unexpected response from the AI.";
 
   } catch (error) {
+    // Re-throw AuthRequiredError for handling in UI
+    if (error instanceof AuthRequiredError) {
+      throw error;
+    }
+  
     console.error('Error in sendChatMessage multi-phase process:', error);
     const axiosError = error as AxiosError<{ detail?: string }>;
     if (axiosError.response?.data?.detail) {
@@ -133,4 +172,32 @@ export const sendChatMessage = async (
       throw new Error('An unexpected error occurred during the chat process.');
     }
   }
+};
+
+/**
+ * Custom error class for authentication requirements
+ */
+export class AuthRequiredError extends Error {
+  service: string;
+  
+  constructor(message: string, service: string) {
+    super(message);
+    this.name = 'AuthRequiredError';
+    this.service = service;
+  }
+}
+
+/**
+ * Handle authentication requirements
+ * @returns A promise that resolves when the user has completed authentication
+ */
+export const handleAuthenticationRequired = async (authInfo: AuthRequiredInfo): Promise<void> => {
+  // Could show a modal or UI element here before redirecting
+  console.log(`Authentication required for service: ${authInfo.service}`);
+  
+  // Redirect to the appropriate auth endpoint
+  initiateAuth(authInfo.service);
+  
+  // Return a never-resolving promise since we're redirecting away
+  return new Promise<void>(() => {});
 }; 

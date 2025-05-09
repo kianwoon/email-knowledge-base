@@ -6,7 +6,7 @@ import logging
 from app.db.session import get_db
 from app.dependencies.auth import get_current_active_user
 from app.models.user import User
-from app.services.tool_executor import execute_tool
+from app.services.tool_executor import execute_tool, AuthenticationError
 from app.crud import mcp_tool_crud
 
 router = APIRouter(
@@ -23,52 +23,113 @@ async def execute_tool_endpoint(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Execute a tool by name with provided arguments."""
+    """Execute a tool by name and arguments, handling authentication errors appropriately."""
     tool_name = tool_request.get("name")
     arguments = tool_request.get("arguments", {})
     
     if not tool_name:
         raise HTTPException(status_code=400, detail="Tool name is required")
-    
-    logger.info(f"User {current_user.email} requesting execution of tool: {tool_name}")
-    
-    # First, check if it's a user-defined tool
-    user_tool = mcp_tool_crud.get_mcp_tool_by_name(db, tool_name, current_user.email)
-    
-    if user_tool:
-        # If it's a user-defined tool, ensure it's enabled
-        if not user_tool.enabled:
-            raise HTTPException(status_code=403, detail=f"Tool {tool_name} is disabled")
         
-        # Create tool metadata for the executor
-        tool_metadata = {
-            "name": user_tool.name,
-            "description": user_tool.description,
-            "parameters": user_tool.parameters,
-            "entrypoint": user_tool.entrypoint,
-            "version": user_tool.version,
-            "is_custom": True
-        }
+    logger.info(f"Tool execution request: {tool_name} for user {current_user.email}")
+    
+    # Check if tool exists in MCP tools
+    tool_metadata = None
+    try:
+        user_tools = mcp_tool_crud.get_mcp_tools(db, current_user.email)
+        tool_metadata = next((tool for tool in user_tools if tool.name == tool_name), None)
         
-        # Execute the user-defined tool
+        if tool_metadata:
+            # Convert Pydantic/SQLAlchemy model to dictionary for easier handling
+            tool_metadata = {
+                "name": tool_metadata.name,
+                "description": tool_metadata.description,
+                "entrypoint": tool_metadata.entrypoint,
+                "is_custom": True,
+                "parameters": tool_metadata.parameters,
+                "version": tool_metadata.version
+            }
+    except Exception as e:
+        logger.error(f"Error retrieving tool metadata: {e}")
+        # Continue without metadata - might be a built-in tool
+    
+    # Execute the tool
+    try:
         result = await execute_tool(
             tool_name=tool_name,
             arguments=arguments,
             tool_metadata=tool_metadata,
             user_email=current_user.email
         )
+        
+        # Check for authentication errors in result
+        if isinstance(result, dict) and result.get("error") == "Authentication error":
+            # Return a standardized response for auth errors
+            return {
+                "status": "error",
+                "error_type": "authentication",
+                "message": result.get("message", "Authentication failed"),
+                "requires_auth": True,
+                "auth_service": result.get("auth_service", "unknown"),
+                "callback_endpoint": f"/api/v1/auth/reauthorize/{result.get('auth_service', 'unknown')}"
+            }
+            
+        # Return the result
         return result
+        
+    except Exception as e:
+        logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/auth-status/{service}", response_model=Dict[str, Any])
+async def check_auth_status(
+    service: str = Path(..., description="Authentication service to check"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Check if the user is authenticated with a particular service."""
+    logger.info(f"Auth status check for service {service} for user {current_user.email}")
     
-    # If it's not a user-defined tool, check if it's a built-in tool
-    # This would typically check against a list of allowed built-in tools
-    # For now, we just pass it to the executor and let it handle it
-    result = await execute_tool(
-        tool_name=tool_name,
-        arguments=arguments,
-        user_email=current_user.email
-    )
+    # Map of service names to check functions
+    auth_status_checks = {
+        "microsoft": check_microsoft_auth,
+        "jira": check_jira_auth,
+        # Add more services as needed
+    }
     
-    return result
+    check_func = auth_status_checks.get(service)
+    if not check_func:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {service}")
+        
+    # Execute the appropriate check function
+    try:
+        is_authenticated = await check_func(db, current_user.email)
+        return {
+            "service": service,
+            "authenticated": is_authenticated,
+            "user": current_user.email,
+            "reauthorize_url": f"/api/v1/auth/reauthorize/{service}" if not is_authenticated else None
+        }
+    except Exception as e:
+        logger.error(f"Error checking auth status for {service}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def check_microsoft_auth(db: Session, user_email: str) -> bool:
+    """Check if user is authenticated with Microsoft."""
+    from app.services.auth_service import AuthService
+    
+    try:
+        # Try to get a fresh token
+        token_result = await AuthService.refresh_ms_token(db, user_email)
+        return token_result is not None and "access_token" in token_result
+    except Exception as e:
+        logger.error(f"Error checking Microsoft auth: {e}")
+        return False
+
+async def check_jira_auth(db: Session, user_email: str) -> bool:
+    """Check if user is authenticated with Jira."""
+    # Placeholder for Jira authentication check
+    # Implement based on your Jira auth system
+    return False  # Not implemented
 
 @router.get("/list", response_model=List[Dict[str, Any]])
 async def list_available_tools(

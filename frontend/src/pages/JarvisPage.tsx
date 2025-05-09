@@ -49,12 +49,20 @@ import {
   Image,
   FormErrorMessage,
   Switch,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  useDisclosure,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle, FaKey, FaTrash, FaCommentDots, FaUpload, FaEdit, FaHistory, FaCog, FaTools, FaToggleOn, FaToggleOff } from 'react-icons/fa';
+import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle, FaKey, FaTrash, FaCommentDots, FaUpload, FaEdit, FaHistory, FaCog, FaTools, FaToggleOn, FaToggleOff, FaLock } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { sendChatMessage } from '../api/chat';
+import { sendChatMessage, AuthRequiredError, handleAuthenticationRequired } from '../api/chat';
 import { getOpenAIApiKey, saveOpenAIApiKey, getAllApiKeys, getProviderApiKey, saveProviderApiKey, ApiProvider, deleteProviderApiKey, saveDefaultModel, getDefaultModel } from '../api/user';
 import { uploadCustomKnowledgeFiles, getCustomKnowledgeHistory } from '../api/customKnowledge';
 import { ProcessedFile } from '../models/processedFile';
@@ -65,6 +73,7 @@ import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon, Info
 import JSONSchemaEditor from '../components/JSONSchemaEditor';
 import { MCPTool, MCPToolCreate, listMCPTools, createMCPTool, updateMCPTool, deleteMCPTool, toggleMCPToolStatus } from '../api/mcpTools';
 import MCPToolsHelp from '../components/MCPToolsHelp';
+import { checkAuthStatus, initiateAuth } from '../api/mcp';
 
 // Types for LLM models
 interface LLMModel {
@@ -208,6 +217,12 @@ const typingAnimation = {
   '&:nth-of-type(3)': { animation: `${bounce} 1s infinite ease-in-out 0.4s` }
 };
 
+// Add this type definition near the top with other types
+type AuthRequiredInfo = {
+  service: string;
+  message: string;
+};
+
 const JarvisPage: React.FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
@@ -284,6 +299,16 @@ const JarvisPage: React.FC = () => {
     version: '1.0',
     enabled: true
   });
+
+  // Add this state for auth requirements
+  const [authRequired, setAuthRequired] = useState<AuthRequiredInfo | null>(null);
+  
+  // Auth modal disclosure
+  const { 
+    isOpen: isAuthModalOpen, 
+    onOpen: onAuthModalOpen, 
+    onClose: onAuthModalClose 
+  } = useDisclosure();
 
   // Initialize with a welcome message or load existing chat history
   useEffect(() => {
@@ -584,45 +609,70 @@ const JarvisPage: React.FC = () => {
 
   // Update handleSendMessage to handle errors without breaking history
   const handleSendMessage = async () => {
-    if (!message.trim() || isLoading) return;
-
-    const userMessage: ChatMessage = { role: 'user', content: message };
-    const currentHistory = [...chatHistory, userMessage];
+    if (!message.trim()) return;
     
-    // Update UI and save to sessionStorage
-    setChatHistory(currentHistory);
-    sessionStorage.setItem('jarvis_chat_history', JSON.stringify(currentHistory));
+    // Add the user message immediately
+    const userMsg: ChatMessage = { role: 'user', content: message };
+    setChatHistory(prev => [...prev, userMsg]);
     
+    // Clear the input and start loading
     setMessage('');
     setIsLoading(true);
-
+    
     try {
-      // Send message with selected model
-      const reply = await sendChatMessage(userMessage.content, chatHistory, selectedModel);
+      const response = await sendChatMessage(
+        userMsg.content,
+        chatHistory,
+        selectedModel
+      );
       
-      // Add assistant response and save to sessionStorage
-      const updatedHistory = [...currentHistory, { role: 'assistant' as const, content: reply }];
-      setChatHistory(updatedHistory);
-      sessionStorage.setItem('jarvis_chat_history', JSON.stringify(updatedHistory));
-      
+      // Add the assistant response
+      const assistantMsg: ChatMessage = { role: 'assistant', content: response };
+      setChatHistory(prev => [...prev, assistantMsg]);
     } catch (error) {
-      console.error("Failed to send message:", error);
-      const errorMsg = (error instanceof Error) ? error.message : 'Failed to get response';
-      
-      // Add error message and save to sessionStorage
-      const errorHistory = [...currentHistory, { role: 'assistant' as const, content: `Error: ${errorMsg}` }];
-      setChatHistory(errorHistory);
-      sessionStorage.setItem('jarvis_chat_history', JSON.stringify(errorHistory));
-      
-      toast({
-        title: t('common.error'),
-        description: errorMsg || t('errors.chatFailed'),
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      // Handle authentication errors
+      if (error instanceof AuthRequiredError) {
+        console.log('Authentication required:', error);
+        
+        // Set the auth required info and open the modal
+        setAuthRequired({
+          service: error.service,
+          message: error.message
+        });
+        onAuthModalOpen();
+        
+        // Add a message to the chat indicating auth is required
+        const authErrorMsg: ChatMessage = { 
+          role: 'assistant', 
+          content: `I need to access your ${error.service} account to answer that question. Please authenticate to continue.` 
+        };
+        setChatHistory(prev => [...prev, authErrorMsg]);
+      } else {
+        // Handle other errors
+        console.error('Error sending message:', error);
+        toast({
+          title: 'Error',
+          description: error instanceof Error ? error.message : 'Failed to send message',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+        
+        // Add an error message to the chat
+        const errorMsg: ChatMessage = { 
+          role: 'assistant', 
+          content: `I'm sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}` 
+        };
+        setChatHistory(prev => [...prev, errorMsg]);
+      }
     } finally {
       setIsLoading(false);
+      setTimeout(() => {
+        chatContainerRef.current?.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }, 100);
     }
   };
 
@@ -1112,6 +1162,96 @@ const JarvisPage: React.FC = () => {
   const handleCancelEdit = () => {
     setCurrentMcpTool(null);
   };
+
+  // Add handler for auth process
+  const handleAuthenticate = async () => {
+    if (!authRequired) return;
+    
+    try {
+      // Close the modal first
+      onAuthModalClose();
+      
+      // Show a loading toast
+      const loadingToastId = toast({
+        title: 'Redirecting',
+        description: `Redirecting to ${authRequired.service} authentication...`,
+        status: 'loading',
+        duration: null,
+        isClosable: false,
+      });
+      
+      // Start the authentication process
+      await handleAuthenticationRequired(authRequired);
+      
+      // Update the toast (though this won't actually happen because of redirect)
+      toast.update(loadingToastId, {
+        title: 'Authentication Started',
+        description: 'You will be redirected to authenticate',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      console.error('Authentication error:', error);
+      toast({
+        title: 'Authentication Error',
+        description: error instanceof Error ? error.message : 'Failed to start authentication process',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+  
+  // Add this hook to check auth status on component mount
+  useEffect(() => {
+    // Check auth status for Microsoft services on mount
+    const checkMicrosoftAuth = async () => {
+      try {
+        const isAuthenticated = await checkAuthStatus('microsoft');
+        console.log('Microsoft auth status:', isAuthenticated);
+      } catch (error) {
+        console.error('Error checking Microsoft auth status:', error);
+      }
+    };
+    
+    checkMicrosoftAuth();
+  }, []);
+  
+  // Add the auth modal component
+  const AuthRequiredModal: React.FC = () => (
+    <Modal isOpen={isAuthModalOpen} onClose={onAuthModalClose}>
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader>Authentication Required</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody>
+          <VStack spacing={4} align="stretch">
+            <Alert status="info">
+              <AlertIcon />
+              <Box>
+                <Text>{authRequired?.message || 'Authentication is required to complete this request.'}</Text>
+                <Text fontWeight="bold" mt={2}>
+                  Service: {authRequired?.service || 'Unknown'}
+                </Text>
+              </Box>
+            </Alert>
+            <Text>
+              You'll be redirected to authenticate. After completing authentication, you'll be returned to this application.
+            </Text>
+          </VStack>
+        </ModalBody>
+        <ModalFooter>
+          <Button colorScheme="gray" mr={3} onClick={onAuthModalClose}>
+            Cancel
+          </Button>
+          <Button colorScheme="blue" onClick={handleAuthenticate} leftIcon={<FaLock />}>
+            Authenticate
+          </Button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
 
   return (
     <Container maxW="container.xl" py={5} bg={bgColor}>
@@ -2048,6 +2188,9 @@ const JarvisPage: React.FC = () => {
           </TabPanels>
         </Tabs>
       </VStack>
+      
+      {/* Add the AuthRequiredModal component */}
+      <AuthRequiredModal />
     </Container>
   );
 };
