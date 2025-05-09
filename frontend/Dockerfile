@@ -5,8 +5,7 @@ WORKDIR /app
 
 # Copy package files and install
 COPY frontend/package*.json ./
-# Adjust build script to skip TypeScript checks
-RUN sed -i 's/tsc && vite build/vite build/g' package.json
+# NOTE: Keep the original "build" script (including "tsc") in package.json to ensure TypeScript compilation before Vite bundling.
 
 # Install dependencies reproducibly
 RUN npm ci
