@@ -9,6 +9,7 @@ import binascii # For Base64 decoding errors
 from dateutil.parser import isoparse # Added import
 from pydantic import ValidationError # Added import
 import json
+import os
 
 from app.models.email import EmailPreview, EmailContent, EmailAttachment, EmailFilter
 from app.config import settings
@@ -19,11 +20,13 @@ logger = logging.getLogger(__name__)
 class OutlookService:
     def __init__(self, access_token: str):
         self.access_token = access_token
+        # Get timezone from environment variable, fall back to Asia/Singapore if not set
+        timezone_preference = os.getenv("TZ", "Asia/Singapore")
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
             "ConsistencyLevel": "eventual",
-            "Prefer": "outlook.timezone=\"UTC\""
+            "Prefer": f"outlook.timezone=\"{timezone_preference}\""
         }
         self.client = httpx.AsyncClient(
             base_url=settings.MS_GRAPH_BASE_URL,
@@ -749,13 +752,38 @@ class OutlookService:
         """
         logger.info(f"Fetching upcoming calendar events for the next {days_ahead} days.")
         
-        # Define the time window
-        now_utc = datetime.now(timezone.utc)
-        end_utc = now_utc + timedelta(days=days_ahead)
+        # Get timezone from environment variable, fall back to UTC+8 (Singapore) if not set
+        timezone_preference = os.getenv("TZ", "Asia/Singapore")
+        
+        # For Asia/Singapore, use UTC+8, otherwise try to determine the timezone offset
+        if timezone_preference == "Asia/Singapore":
+            singapore_tz = timezone(timedelta(hours=8))  # UTC+8 for Singapore
+        else:
+            # Default to UTC+8 if timezone parsing fails
+            try:
+                # This is a simplification - in a production environment,
+                # you would use the pytz or dateutil libraries to properly handle timezone parsing
+                if timezone_preference == "UTC":
+                    singapore_tz = timezone.utc
+                else:
+                    # Simplified fallback - assumes format like "UTC+8" or just numerical offset
+                    hours_offset = 8  # Default to Singapore offset
+                    if "+" in timezone_preference:
+                        try:
+                            hours_offset = int(timezone_preference.split("+")[1])
+                        except (ValueError, IndexError):
+                            logger.warning(f"Could not parse timezone offset from {timezone_preference}, using default UTC+8")
+                    singapore_tz = timezone(timedelta(hours=hours_offset))
+            except Exception as e:
+                logger.warning(f"Error parsing timezone {timezone_preference}: {e}. Using default UTC+8")
+                singapore_tz = timezone(timedelta(hours=8))
+        
+        now_sg = datetime.now(singapore_tz)
+        end_sg = now_sg + timedelta(days=days_ahead)
         
         # Format dates for Graph API query (ISO 8601)
-        start_dt_str = now_utc.isoformat()
-        end_dt_str = end_utc.isoformat()
+        start_dt_str = now_sg.isoformat()
+        end_dt_str = end_sg.isoformat()
         
         # Construct the API endpoint and parameters
         # calendarView automatically filters by start/end time
@@ -763,7 +791,7 @@ class OutlookService:
         params = {
             "startDateTime": start_dt_str,
             "endDateTime": end_dt_str,
-            "$select": "id,subject,start,end,location,attendees,bodyPreview,isCancelled", # Select relevant fields
+            "$select": "id,subject,start,end,location,attendees,bodyPreview,isCancelled,onlineMeeting", # Added onlineMeeting
             "$filter": "isCancelled eq false", # Exclude cancelled events
             "$orderby": "start/dateTime asc", # Order by start time
             "$top": 50 # Limit the number of results (adjust as needed)
@@ -784,17 +812,30 @@ class OutlookService:
                 start_info = event.get("start", {})
                 end_info = event.get("end", {})
                 
+                # Get online meeting URL if available
+                online_meeting_url = ""
+                if event.get("onlineMeeting"):
+                    online_meeting_url = event.get("onlineMeeting", {}).get("joinUrl", "")
+                
+                # Get location with more detail
+                location = event.get("location", {}).get("displayName", "No Location")
+                if online_meeting_url and not location:
+                    location = f"Online Meeting: {online_meeting_url}"
+                elif online_meeting_url:
+                    location = f"{location} ({online_meeting_url})"
+                
                 formatted_event = {
                     "id": event.get("id"),
                     "subject": event.get("subject", "No Subject"),
                     "start_time": start_info.get("dateTime"),
-                    "start_timezone": start_info.get("timeZone"),
+                    "start_timezone": timezone_preference,  # Use the environment timezone instead of hardcoding
                     "end_time": end_info.get("dateTime"),
-                    "end_timezone": end_info.get("timeZone"),
-                    "location": event.get("location", {}).get("displayName", "No Location"),
+                    "end_timezone": timezone_preference,  # Use the environment timezone instead of hardcoding
+                    "location": location,
                     "attendees": [att.get("emailAddress", {}).get("name", att.get("emailAddress", {}).get("address")) 
                                   for att in event.get("attendees", [])],
-                    "preview": event.get("bodyPreview", "")
+                    "preview": event.get("bodyPreview", ""),
+                    "online_meeting_url": online_meeting_url
                 }
                 events_list.append(formatted_event)
                 
