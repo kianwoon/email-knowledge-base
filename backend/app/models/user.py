@@ -29,6 +29,7 @@ if typing.TYPE_CHECKING:
     # Keep APIKeyDB import here if needed for other type hints
     # from .api_key import APIKeyDB 
     from .custom_knowledge_file import CustomKnowledgeFile
+    from app.db.models.mcp_tool import MCPToolDB  # Add import for MCPToolDB
 # --- End TYPE_CHECKING block ---
 
 
@@ -132,6 +133,9 @@ class UserDB(Base):
         cascade="all, delete-orphan",
         lazy="joined"
     )
+
+    # Add link to MCP tools
+    mcp_tools: Mapped[List["MCPToolDB"]] = relationship("MCPToolDB", back_populates="user", cascade="all, delete-orphan")
 
     # +++ Add Relationship to AwsCredential using String Literals +++
     aws_credential: Mapped[Optional["AwsCredential"]] = relationship(

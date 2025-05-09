@@ -26,6 +26,7 @@ from app.models.aws_credential import AwsCredential
 from app.models.azure_blob import AzureBlobConnection
 from app.models.azure_blob_sync_item import AzureBlobSyncItem
 from app.models.sharepoint_sync import SharePointSyncItem
+from app.db.models.mcp_tool import MCPToolDB  # Add our MCPToolDB model
 # Add other DB models used by the application here...
 # from app.models.ingestion_job import IngestionJob # Example
 # --- End Model Imports ---
@@ -43,6 +44,7 @@ from app.routes import (
     # Add the new router import
     shared_knowledge_catalog,
     outlook_sync,
+    mcp_tools,  # Add our mcp_tools router
     # Import the websockets router
     websockets
 )
@@ -148,7 +150,9 @@ app = FastAPI(
     title="Knowledge Base Builder API", 
     description="API for managing email processing, knowledge base, and analysis.",
     version="0.1.0",
-    lifespan=lifespan # Use the new lifespan context manager
+    lifespan=lifespan, # Use the new lifespan context manager
+    # Disable automatic redirects from /path to /path/
+    redirect_slashes=False
 )
 
 # Instrument the app after creation
@@ -205,6 +209,7 @@ app.include_router(jarvis_settings.router, prefix=settings.API_PREFIX, tags=["Ja
 # Include the new router
 app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge", tags=["Shared Knowledge Catalog"])
 app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}", tags=["Outlook Sync"])
+app.include_router(mcp_tools.router, prefix=f"{settings.API_PREFIX}", tags=["MCP Tools"])  # Include our mcp_tools router
 
 # Include the websockets router
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])
@@ -252,10 +257,19 @@ templates = Jinja2Templates(directory="../../frontend/dist")
 # Exception handler for validation errors
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.error(f"Validation error for request {request.method} {request.url}: {exc.errors()}")
+    # Convert the errors to a serializable format
+    errors = []
+    for error in exc.errors():
+        # Ensure the error context is serializable
+        if 'ctx' in error and 'error' in error['ctx'] and isinstance(error['ctx']['error'], Exception):
+            # Convert the exception to a string
+            error['ctx']['error'] = str(error['ctx']['error'])
+        errors.append(error)
+    
+    logger.error(f"Validation error for request {request.method} {request.url}: {errors}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
+        content={"detail": errors},
     )
 
 # Mount static files (Optional - if serving frontend from backend)

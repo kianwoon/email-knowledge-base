@@ -48,9 +48,10 @@ import {
   Divider,
   Image,
   FormErrorMessage,
+  Switch,
 } from '@chakra-ui/react';
 import { useTranslation } from 'react-i18next';
-import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle, FaKey, FaTrash, FaCommentDots, FaUpload, FaEdit, FaHistory, FaCog } from 'react-icons/fa';
+import { FaRobot, FaUser, FaSync, FaTrashAlt, FaPlusCircle, FaFileAlt, FaCheckCircle, FaExclamationTriangle, FaKey, FaTrash, FaCommentDots, FaUpload, FaEdit, FaHistory, FaCog, FaTools, FaToggleOn, FaToggleOff } from 'react-icons/fa';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { sendChatMessage } from '../api/chat';
@@ -61,6 +62,9 @@ import axios from 'axios';
 import { keyframes } from '@emotion/react';
 import { listExternalTokens, addExternalToken, deleteExternalToken, JarvisTokenDisplay, JarvisTokenCreate } from '../api/jarvis';
 import { CheckIcon, CloseIcon, ViewIcon, ChevronLeftIcon, ChevronRightIcon, InfoIcon } from '@chakra-ui/icons';
+import JSONSchemaEditor from '../components/JSONSchemaEditor';
+import { MCPTool, MCPToolCreate, listMCPTools, createMCPTool, updateMCPTool, deleteMCPTool, toggleMCPToolStatus } from '../api/mcpTools';
+import MCPToolsHelp from '../components/MCPToolsHelp';
 
 // Types for LLM models
 interface LLMModel {
@@ -264,6 +268,22 @@ const JarvisPage: React.FC = () => {
   const [isAddingToken, setIsAddingToken] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   // --- END ADDED STATE ---
+
+  // Add these new state variables inside the JarvisPage component alongside other state variables
+  const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
+  const [isLoadingMcpTools, setIsLoadingMcpTools] = useState(false);
+  const [mcpToolsError, setMcpToolsError] = useState<string | null>(null);
+  const [isAddingMcpTool, setIsAddingMcpTool] = useState(false);
+  const [isEditingMcpTool, setIsEditingMcpTool] = useState(false);
+  const [currentMcpTool, setCurrentMcpTool] = useState<MCPTool | null>(null);
+  const [newMcpToolData, setNewMcpToolData] = useState<MCPToolCreate>({
+    name: '',
+    description: '',
+    parameters: {},
+    entrypoint: '',
+    version: '1.0',
+    enabled: true
+  });
 
   // Initialize with a welcome message or load existing chat history
   useEffect(() => {
@@ -959,6 +979,140 @@ const JarvisPage: React.FC = () => {
     ),
   }), [borderColor]);
 
+  // Add this useEffect to load MCP tools when the tab is activated
+  useEffect(() => {
+    if (activeTab === 6) { // MCP Tools tab index (7th tab)
+      fetchMcpTools();
+    }
+  }, [activeTab]);
+
+  // Add these functions before the return statement
+  const fetchMcpTools = async () => {
+    setIsLoadingMcpTools(true);
+    setMcpToolsError(null);
+    try {
+      const tools = await listMCPTools();
+      setMcpTools(tools);
+    } catch (error: any) {
+      console.error("Error fetching MCP tools:", error);
+      setMcpToolsError(error.response?.data?.detail || error.message || t('jarvis.toolsFetchFailedDesc', "Failed to load MCP tools."));
+    } finally {
+      setIsLoadingMcpTools(false);
+    }
+  };
+
+  const handleAddMcpTool = async () => {
+    setIsAddingMcpTool(true);
+    setMcpToolsError(null);
+    try {
+      // Use currentMcpTool instead of newMcpToolData
+      await createMCPTool(currentMcpTool as MCPToolCreate);
+      toast({ 
+        title: t('jarvis.toolAddedTitle', "Tool Added"), 
+        description: t('jarvis.toolAddedDesc', "Tool '{{name}}' added successfully.", {name: currentMcpTool?.name}), 
+        status: "success" 
+      });
+      // Reset form
+      setCurrentMcpTool(null);
+      setIsAddingMcpTool(false);
+      fetchMcpTools(); // Refresh the list
+    } catch (error: any) {
+      console.error("Error adding MCP tool:", error);
+      const detail = error.response?.data?.detail || error.message || t('jarvis.toolAddFailedDesc', "Failed to add tool.");
+      setMcpToolsError(detail);
+      toast({ 
+        title: t('jarvis.toolAddFailedTitle', "Error Adding Tool"), 
+        description: detail, 
+        status: "error" 
+      });
+      setIsAddingMcpTool(false);
+    }
+  };
+
+  const handleUpdateMcpTool = async () => {
+    if (!currentMcpTool || !currentMcpTool.id) return;
+    
+    setIsEditingMcpTool(true);
+    setMcpToolsError(null);
+    try {
+      await updateMCPTool(currentMcpTool.id, currentMcpTool);
+      toast({ 
+        title: t('jarvis.toolUpdatedTitle', "Tool Updated"), 
+        description: t('jarvis.toolUpdatedDesc', "Tool '{{name}}' updated successfully.", {name: currentMcpTool.name}), 
+        status: "success" 
+      });
+      setIsEditingMcpTool(false);
+      setCurrentMcpTool(null);
+      fetchMcpTools(); // Refresh the list
+    } catch (error: any) {
+      console.error("Error updating MCP tool:", error);
+      const detail = error.response?.data?.detail || error.message || t('jarvis.toolUpdateFailedDesc', "Failed to update tool.");
+      setMcpToolsError(detail);
+      toast({ 
+        title: t('jarvis.toolUpdateFailedTitle', "Error Updating Tool"), 
+        description: detail, 
+        status: "error" 
+      });
+      setIsEditingMcpTool(false);
+    }
+  };
+
+  const handleDeleteMcpTool = async (id: number, name: string) => {
+    if (!window.confirm(t('jarvis.toolDeleteConfirm', 'Are you sure you want to delete the tool "{{name}}"?', {name}))) {
+      return;
+    }
+    
+    try {
+      await deleteMCPTool(id);
+      toast({ 
+        title: t('jarvis.toolDeletedTitle', "Tool Deleted"), 
+        description: t('jarvis.toolDeletedDesc', "Tool '{{name}}' deleted successfully.", {name}), 
+        status: "info" 
+      });
+      fetchMcpTools(); // Refresh the list
+    } catch (error: any) {
+      console.error(`Error deleting tool ${id}:`, error);
+      const detail = error.response?.data?.detail || error.message || t('jarvis.toolDeleteFailedDesc', "Failed to delete tool.");
+      setMcpToolsError(detail);
+      toast({ 
+        title: t('jarvis.toolDeleteFailedTitle', "Error Deleting Tool"), 
+        description: detail, 
+        status: "error" 
+      });
+    }
+  };
+
+  const handleToggleMcpToolStatus = async (id: number, enabled: boolean, name: string) => {
+    try {
+      await toggleMCPToolStatus(id, !enabled);
+      toast({ 
+        title: !enabled ? t('jarvis.toolEnabledTitle', "Tool Enabled") : t('jarvis.toolDisabledTitle', "Tool Disabled"), 
+        description: !enabled 
+          ? t('jarvis.toolEnabledDesc', "Tool '{{name}}' enabled successfully.", {name}) 
+          : t('jarvis.toolDisabledDesc', "Tool '{{name}}' disabled successfully.", {name}), 
+        status: "success" 
+      });
+      fetchMcpTools(); // Refresh the list
+    } catch (error: any) {
+      console.error(`Error toggling tool status ${id}:`, error);
+      const detail = error.response?.data?.detail || error.message || t('jarvis.toolStatusUpdateFailedDesc', "Failed to update tool status.");
+      setMcpToolsError(detail);
+      toast({ 
+        title: t('jarvis.toolStatusUpdateFailedTitle', "Error Updating Tool"), 
+        description: detail, 
+        status: "error" 
+      });
+    }
+  };
+
+  const handleEditMcpTool = (tool: MCPTool) => {
+    setCurrentMcpTool({...tool});
+  };
+
+  const handleCancelEdit = () => {
+    setCurrentMcpTool(null);
+  };
+
   return (
     <Container maxW="container.xl" py={5} bg={bgColor}>
       <VStack spacing={5} align="stretch">
@@ -997,6 +1151,7 @@ const JarvisPage: React.FC = () => {
             <Tab><Icon as={FaHistory} mr={2} />{t('customKnowledge.historyTab', 'History')}</Tab>
             <Tab><Icon as={FaCog} mr={2} />{t('jarvis.apiSettings')}</Tab>
             <Tab><Icon as={FaKey} mr={2} />{t('jarvis.knowledgeTokens', 'Knowledge Tokens')}</Tab>
+            <Tab><Icon as={FaTools} mr={2} />{t('jarvis.mcpTools', 'MCP Tools')}</Tab>
           </TabList>
           <TabPanels>
             <TabPanel p={0}>
@@ -1639,6 +1794,255 @@ const JarvisPage: React.FC = () => {
                     </TableContainer>
                   )}
                 </Box>
+              </VStack>
+            </TabPanel>
+
+            <TabPanel p={4}>
+              <VStack spacing={6} align="stretch">
+                <Heading size="md" color={headingColor}>{t('jarvis.mcpToolsTitle', 'MCP Tools Management')}</Heading>
+                <Text color={useColorModeValue('gray.600', 'gray.400')}>
+                  {t('jarvis.mcpToolsDesc', 'Manage your custom MCP tools. These tools can be called by the AI to perform specific actions or retrieve information.')}
+                </Text>
+
+                {/* Add the MCPToolsHelp component here */}
+                <MCPToolsHelp />
+
+                {/* Tool List */}
+                <Box borderWidth="1px" borderRadius="lg" p={0} bg={boxBgColor} shadow="sm" overflow="hidden">
+                  <Flex justifyContent="space-between" alignItems="center" p={4}>
+                    <Heading size="sm" color={headingColor}>
+                      {t('jarvis.mcpToolsList', 'Available Tools')}
+                    </Heading>
+                    {!currentMcpTool && (
+                      <Button 
+                        size="sm" 
+                        colorScheme="blue" 
+                        leftIcon={<FaPlusCircle />}
+                        onClick={() => setCurrentMcpTool({} as MCPTool)}
+                      >
+                        {t('jarvis.addTool', 'Add Tool')}
+                      </Button>
+                    )}
+                  </Flex>
+                  
+                  {mcpToolsError && (
+                    <Alert status="error" m={4} borderRadius="md">
+                      <AlertIcon />
+                      {mcpToolsError}
+                      <Button ml="auto" size="sm" onClick={fetchMcpTools}>
+                        {t('common.retry', 'Retry')}
+                      </Button>
+                    </Alert>
+                  )}
+                  
+                  {isLoadingMcpTools ? (
+                    <Center p={6}><Spinner /></Center>
+                  ) : mcpTools.length === 0 && !currentMcpTool ? (
+                    <Box p={4}>
+                      <Alert status="info" borderRadius="md">
+                        <AlertIcon />
+                        <Text>{t('jarvis.noMcpTools', 'No MCP tools defined yet. Add your first tool to get started.')}</Text>
+                      </Alert>
+                    </Box>
+                  ) : (
+                    !currentMcpTool && (
+                      <TableContainer overflowX="auto" maxW="100%" borderRadius="md" borderWidth="1px" borderColor={borderColor}>
+                        <Table variant="simple" size="sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                          <Thead>
+                            <Tr>
+                              <Th width="150px">{t('jarvis.toolName', 'Name')}</Th>
+                              <Th width="200px">{t('jarvis.toolDescription', 'Description')}</Th>
+                              <Th width="250px">{t('jarvis.toolEndpoint', 'Endpoint')}</Th>
+                              <Th width="80px">{t('jarvis.toolVersion', 'Version')}</Th>
+                              <Th width="80px">{t('jarvis.toolStatus', 'Status')}</Th>
+                              <Th isNumeric width="120px" textAlign="center">{t('common.actions', 'Actions')}</Th>
+                            </Tr>
+                          </Thead>
+                          <Tbody>
+                            {mcpTools.map(tool => (
+                              <Tr key={tool.id} _hover={{ bg: tableHoverBg }}>
+                                <Td width="150px">
+                                  <Box overflow="hidden" maxW="150px">
+                                    <Text 
+                                      fontWeight="medium" 
+                                      isTruncated 
+                                      whiteSpace="nowrap" 
+                                      overflow="hidden" 
+                                      textOverflow="ellipsis"
+                                      title={tool.name}
+                                    >
+                                      {tool.name}
+                                    </Text>
+                                  </Box>
+                                </Td>
+                                <Td width="200px">
+                                  <Box overflow="hidden" maxW="200px">
+                                    <Text 
+                                      isTruncated 
+                                      whiteSpace="nowrap" 
+                                      overflow="hidden" 
+                                      textOverflow="ellipsis"
+                                      title={tool.description}
+                                    >
+                                      {tool.description}
+                                    </Text>
+                                  </Box>
+                                </Td>
+                                <Td width="250px">
+                                  <Box overflow="hidden" maxW="250px">
+                                    <Code 
+                                      fontSize="xs" 
+                                      isTruncated 
+                                      display="block" 
+                                      whiteSpace="nowrap" 
+                                      overflow="hidden" 
+                                      textOverflow="ellipsis"
+                                      title={tool.entrypoint} // Add title attribute for native tooltip
+                                    >
+                                      {tool.entrypoint}
+                                    </Code>
+                                  </Box>
+                                </Td>
+                                <Td>{tool.version}</Td>
+                                <Td>
+                                  <IconButton
+                                    aria-label={tool.enabled ? t('jarvis.disable', 'Disable') : t('jarvis.enable', 'Enable')}
+                                    icon={tool.enabled ? <FaToggleOn /> : <FaToggleOff />}
+                                    size="sm"
+                                    colorScheme={tool.enabled ? "green" : "gray"}
+                                    variant="ghost"
+                                    onClick={() => handleToggleMcpToolStatus(tool.id!, tool.enabled, tool.name)}
+                                  />
+                                </Td>
+                                <Td isNumeric>
+                                  <HStack spacing={2} justifyContent="flex-end">
+                                    <IconButton
+                                      aria-label={t('common.edit', 'Edit')}
+                                      icon={<FaEdit />}
+                                      size="sm"
+                                      colorScheme="blue"
+                                      variant="solid"
+                                      onClick={() => handleEditMcpTool(tool)}
+                                    />
+                                    <IconButton
+                                      aria-label={t('common.delete', 'Delete')}
+                                      icon={<FaTrash />}
+                                      size="sm"
+                                      colorScheme="red"
+                                      variant="solid"
+                                      onClick={() => handleDeleteMcpTool(tool.id!, tool.name)}
+                                    />
+                                  </HStack>
+                                </Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+                    )
+                  )}
+                </Box>
+
+                {/* Add or Edit Tool Form */}
+                {currentMcpTool && (
+                  <Box borderWidth="1px" borderRadius="lg" p={4} bg={boxBgColor} shadow="sm">
+                    <Heading size="sm" mb={4} color={headingColor}>
+                      {currentMcpTool.id ? t('jarvis.editTool', 'Edit Tool') : t('jarvis.addNewTool', 'Add New Tool')}
+                    </Heading>
+                    
+                    <VStack spacing={4} align="stretch">
+                      <FormControl isRequired>
+                        <FormLabel>{t('jarvis.toolName', 'Tool Name')}</FormLabel>
+                        <Input
+                          value={currentMcpTool.name || ''}
+                          onChange={(e) => setCurrentMcpTool({...currentMcpTool, name: e.target.value})}
+                          placeholder={t('jarvis.toolNamePlaceholder', 'e.g., jira.create_issue')}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        />
+                        <FormHelperText>
+                          {t('jarvis.toolNameHelp', 'Use descriptive names with namespaces like "service.action"')}
+                        </FormHelperText>
+                      </FormControl>
+                      
+                      <FormControl isRequired>
+                        <FormLabel>{t('jarvis.toolDescription', 'Description')}</FormLabel>
+                        <Textarea
+                          value={currentMcpTool.description || ''}
+                          onChange={(e) => setCurrentMcpTool({...currentMcpTool, description: e.target.value})}
+                          placeholder={t('jarvis.toolDescriptionPlaceholder', 'Describe what this tool does...')}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        />
+                      </FormControl>
+                      
+                      <FormControl isRequired>
+                        <FormLabel>{t('jarvis.toolEndpoint', 'Endpoint')}</FormLabel>
+                        <Input
+                          value={currentMcpTool.entrypoint || ''}
+                          onChange={(e) => setCurrentMcpTool({...currentMcpTool, entrypoint: e.target.value})}
+                          placeholder={t('jarvis.toolEndpointPlaceholder', 'e.g., /api/v1/jira/create-issue or function_name')}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        />
+                        <FormHelperText>
+                          {t('jarvis.toolEndpointHelp', 'API endpoint or function name to call when this tool is invoked')}
+                        </FormHelperText>
+                      </FormControl>
+                      
+                      <FormControl>
+                        <FormLabel>{t('jarvis.toolVersion', 'Version')}</FormLabel>
+                        <Input
+                          value={currentMcpTool.version || '1.0'}
+                          onChange={(e) => setCurrentMcpTool({...currentMcpTool, version: e.target.value})}
+                          placeholder={t('jarvis.toolVersionPlaceholder', '1.0')}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        />
+                      </FormControl>
+                      
+                      <FormControl display="flex" alignItems="center">
+                        <FormLabel htmlFor="tool-enabled" mb="0">
+                          {t('jarvis.toolEnabled', 'Enabled')}
+                        </FormLabel>
+                        <Switch
+                          id="tool-enabled"
+                          isChecked={currentMcpTool.enabled}
+                          onChange={(e) => setCurrentMcpTool({...currentMcpTool, enabled: e.target.checked})}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        />
+                      </FormControl>
+                      
+                      <Box mt={2}>
+                        <JSONSchemaEditor
+                          value={currentMcpTool.parameters || {}}
+                          onChange={(value) => setCurrentMcpTool({...currentMcpTool, parameters: value})}
+                          label={t('jarvis.toolParameters', 'Parameters Schema')}
+                          isRequired={true}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                          formatButtonText={t('jarvis.formatJSON', 'Format JSON')}
+                          loadExampleButtonText={t('jarvis.loadExample', 'Load Example')}
+                          helpText={t('jarvis.jsonSchemaHelp', 'This should be a valid JSON Schema for the tool parameters.')}
+                        />
+                      </Box>
+                      
+                      <HStack spacing={4} justifyContent="flex-end" mt={4}>
+                        <Button
+                          onClick={handleCancelEdit}
+                          isDisabled={isEditingMcpTool || isAddingMcpTool}
+                        >
+                          {t('common.cancel', 'Cancel')}
+                        </Button>
+                        <Button
+                          colorScheme="blue"
+                          isLoading={isEditingMcpTool || isAddingMcpTool}
+                          onClick={currentMcpTool.id ? handleUpdateMcpTool : handleAddMcpTool}
+                          leftIcon={currentMcpTool.id ? <FaEdit /> : <FaPlusCircle />}
+                        >
+                          {currentMcpTool.id 
+                            ? t('common.update', 'Update') 
+                            : t('common.add', 'Add')}
+                        </Button>
+                      </HStack>
+                    </VStack>
+                  </Box>
+                )}
               </VStack>
             </TabPanel>
           </TabPanels>
