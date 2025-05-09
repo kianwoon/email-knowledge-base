@@ -1,191 +1,136 @@
 import apiClient from './apiClient';
 import { AxiosError } from 'axios';
 // Import the MODIFIED sendMcpMessage and other types
-import { sendMcpMessage, shouldUseMcpTools, ChatMessage as McpChatMessage, McpToolResponse } from './mcp';
+import { sendMcpMessage, ChatMessage as McpChatMessage, McpToolResponse } from './mcp';
 
-// Define request body structure based on backend route
-interface ChatRequestPayload {
+// Define request body structure for Phase 1 and Phase 3
+interface BackendChatRequestPayload {
   message: string;
-  chat_history?: Array<{ role: string; content: string }>; // Basic types for chat history items
-  model_id?: string; // Optional model ID to use for this message
+  chat_history?: Array<{ role: string; content: string }>;
+  model_id?: string;
+  tool_results?: Array<{ call_id: string; result: any }>; // For Phase 3
 }
 
-// Define response structure based on backend route
-interface ChatResponsePayload {
+// Define response structure from Phase 1
+interface BackendPhase1Response {
+  type: 'text' | 'tool_call';
+  reply?: string; // If type is 'text'
+  tool_calls?: Array<{ call_id: string; name: string; arguments: Record<string, any> }>; // If type is 'tool_call'
+}
+
+// Define response structure from Phase 3 (always text)
+interface BackendPhase3Response {
+  type: 'text'; // Should always be text after synthesis
   reply: string;
 }
 
-// --- Placeholder for LLM-based Tool Call Generation ---
-// In a real application, this would likely involve an LLM call
-// (potentially via a dedicated backend endpoint) to determine the
-// specific tool and arguments based on the message, history, and allowed tools.
-async function generateToolCallPayload(
-  message: string,
-  chatHistory: Array<{ role: 'user' | 'assistant', content: string }> | undefined,
-  toolNames: string[]
-): Promise<{ name: string; arguments: Record<string, any> } | null> {
-  console.warn("--- generateToolCallPayload ---");
-  console.warn("This is a placeholder function.");
-  console.warn("Input message:", message);
-  console.warn("Allowed tools:", toolNames);
-
-  // --- !!! Critical Missing Logic !!! ---
-  // Here, you would typically:
-  // 1. Format the message, history, and tool schemas for an LLM.
-  // 2. Call an LLM (e.g., via a backend endpoint) with a prompt designed for function/tool calling.
-  // 3. Instruct the LLM to choose ONE tool from 'toolNames' and generate the necessary arguments based on 'message'.
-  // 4. Parse the LLM's response to extract the tool name and arguments.
-  // 5. Validate the response against the tool schema from manifest.json (optional but recommended).
-  // --- Example Placeholder Logic ---
-  // This basic example just looks for keywords and creates a *hardcoded* JQL
-  // A real implementation MUST use an LLM for flexibility.
-  if (message.toLowerCase().includes("jira") && message.toLowerCase().includes("to do") && toolNames.includes("jira_list_issues")) {
-    console.warn("Placeholder: Detected 'jira' and 'to do'. Generating hardcoded jira_list_issues call.");
-    return {
-      name: "jira_list_issues",
-      arguments: {
-        // THIS IS HARDCODED - LLM should generate this based on the message context
-        jql: "status = 'To Do' ORDER BY created DESC"
-      }
-    };
-  }
-   // Add more placeholder logic for other tools/scenarios if needed for testing
-   // else if (message.toLowerCase().includes("create jira issue") && ...) { ... }
-
-  console.warn("Placeholder: Could not determine specific tool call from message.");
-  return null; // Return null if no specific tool call could be generated
-}
-// --- End Placeholder ---
-
+// Ensure McpChatMessage is compatible or adjust as necessary
+// If McpChatMessage is { role: 'user' | 'assistant', content: string; }, it's fine.
 
 /**
- * Sends a chat message to the backend with intelligent routing.
- * Includes LLM step to generate specific tool calls for MCP.
+ * Sends a chat message to the backend, managing the three-phase tool calling process.
  */
 export const sendChatMessage = async (
   message: string,
-  chatHistory?: Array<{ role: 'user' | 'assistant', content: string }>,
-  modelId?: string // Keep modelId for potential use in tool generation LLM call
+  chatHistory?: Array<McpChatMessage>, // Use McpChatMessage for consistency
+  modelId?: string
 ): Promise<string> => {
   try {
-    // 1. Check if MCP tools *might* be relevant
-    const mcpToolsCheck = shouldUseMcpTools(message);
-
-    if (mcpToolsCheck.use) {
-      console.log('Message appears potentially relevant for MCP tools, attempting tool call generation.');
-      console.log(`Potential MCP tools: [${mcpToolsCheck.tools.join(', ')}]`);
-
-      try {
-        // 2. Generate the SPECIFIC tool call payload using LLM (Placeholder used here)
-        const toolCallPayload = await generateToolCallPayload(
-            message,
-            chatHistory,
-            mcpToolsCheck.tools
-            // Potentially pass modelId here if the generation logic needs it
-        );
-
-        // 3. If a specific tool call was generated, execute it via MCP
-        if (toolCallPayload) {
-          console.log('Specific tool call generated:', toolCallPayload);
-          console.log(`Attempting to invoke MCP tool: ${toolCallPayload.name}`);
-
-          // Call the MODIFIED sendMcpMessage with the structured payload
-          const mcpResponse = await sendMcpMessage(toolCallPayload);
-
-          console.log('Received response from MCP server:', typeof mcpResponse);
-          // ADDED: Log the actual response for debugging structure
-          console.log('MCP Response Content:', JSON.stringify(mcpResponse).substring(0, 500));
-
-          // Process MCP response - START
-          // 1. Handle simple string response
-          if (typeof mcpResponse === 'string') {
-            return mcpResponse;
-          }
-
-          // 2. Handle structured object response
-          if (typeof mcpResponse === 'object' && mcpResponse !== null) {
-            
-            // --- START: JIRA LIST ISSUES FORMATTING ---
-            const toolResultData = (mcpResponse as any).result || (mcpResponse as any).toolResults?.result; // Use type assertion cautiously
-            
-            if (toolCallPayload.name === 'jira_list_issues' && toolResultData && Array.isArray(toolResultData.issues)) {
-                console.log("Processing JIRA list issues response.");
-                const issues = toolResultData.issues;
-                if (issues.length === 0) {
-                    return "No open Jira issues found matching your criteria.";
-                }
-                let reply = "Okay, here are the open Jira issues I found:\n";
-                issues.forEach((issue: any) => { // Added : any type
-                    const key = issue?.key ?? "N/A";
-                    const summary = issue?.fields?.summary ?? "No summary";
-                    const statusName = issue?.fields?.status?.name ?? "No status";
-                    const assigneeName = issue?.fields?.assignee?.displayName ?? "Unassigned";
-                    // Corrected template literal line endings
-                    reply += `  - [${key}] ${summary} (Status: ${statusName}, Assignee: ${assigneeName})\n`; 
-                });
-                return reply.trim();
-            }
-            // --- END: JIRA LIST ISSUES FORMATTING ---
-
-            // 2b. Check for standard { text: ... } response
-            if (typeof (mcpResponse as McpToolResponse).text === 'string') {
-              console.log("Processing standard text response from MCP.");
-              return (mcpResponse as McpToolResponse).text;
-            }
-            
-            // 2c. Handle other potential structured tools here if needed...
-
-          }
-          // --- END processing structured object ---
-          
-          // 3. Fallback for unexpected formats
-          console.log("MCP response format not recognized for direct display:", mcpResponse);
-          return 'Received a structured response from MCP tools, but could not format it for display.';
-          // --- Process MCP response - END ---
-
-        } else {
-          // Tool generation decided not to call a tool, or failed
-          console.log('Tool generation did not produce a specific MCP call. Falling back to standard chat.');
-          // Fall through to standard chat API
-        }
-
-      } catch (toolGenOrExecError) {
-         // Catch errors from either generateToolCallPayload OR sendMcpMessage
-        console.error('Error during MCP tool generation or invocation:', toolGenOrExecError);
-        if (toolGenOrExecError instanceof Error) {
-          console.error('Error message:', toolGenOrExecError.message);
-          // Avoid logging potentially large stacks unless needed
-          // console.error('Error stack:', toolGenOrExecError.stack);
-        }
-        console.error('Falling back to standard chat API due to MCP error.');
-        // Fall through to regular chat API on MCP failure
-      }
-    } else {
-      console.log('Message does not appear related to MCP tools, using standard chat API.');
-    }
-
-    // Standard chat API call (fallback or non-MCP message)
-    console.log("Proceeding with standard RAG API call.");
-    const payload: ChatRequestPayload = {
+    // --- Phase 1: Tool Call Decision ---
+    console.log("[Phase 1] Sending message to backend for tool decision...");
+    const phase1Payload: BackendChatRequestPayload = {
       message,
       chat_history: chatHistory,
+      model_id: modelId,
     };
-    if (modelId) {
-      payload.model_id = modelId;
+
+    // Assume the primary chat endpoint is /v1/chat/ for now
+    // This endpoint needs to be updated on the backend to support the new flow
+    const phase1Response = await apiClient.post<BackendPhase1Response>('/v1/chat/', phase1Payload);
+    const phase1Data = phase1Response.data;
+
+    console.log("[Phase 1] Received response:", phase1Data);
+
+    if (phase1Data.type === 'text') {
+      // LLM decided no tool was needed, or it's a direct answer
+      console.log("[Phase 1] Direct text response received.");
+      return phase1Data.reply || "Received an empty reply.";
     }
-    const response = await apiClient.post<ChatResponsePayload>('/v1/chat/', payload);
-    return response.data.reply;
+
+    if (phase1Data.type === 'tool_call' && phase1Data.tool_calls && phase1Data.tool_calls.length > 0) {
+      console.log("[Phase 2] Tool call(s) requested by backend:", phase1Data.tool_calls);
+      const toolResults: Array<{ call_id: string; name: string; result: any }> = [];
+
+      // --- Phase 2: Tool Execution ---
+      for (const toolCall of phase1Data.tool_calls) {
+        console.log(`[Phase 2] Executing tool: ${toolCall.name} (Call ID: ${toolCall.call_id})`);
+        try {
+          // sendMcpMessage now directly calls /invoke with { name, arguments }
+          const mcpToolRawResult = await sendMcpMessage({
+            name: toolCall.name,
+            arguments: toolCall.arguments,
+          });
+          console.log(`[Phase 2] Raw result for ${toolCall.name} (Call ID: ${toolCall.call_id}):`, mcpToolRawResult);
+          toolResults.push({
+            call_id: toolCall.call_id,
+            name: toolCall.name,
+            result: mcpToolRawResult,
+          });
+        } catch (toolExecError) {
+          console.error(`[Phase 2] Error executing tool ${toolCall.name} (Call ID: ${toolCall.call_id}):`, toolExecError);
+          toolResults.push({
+            call_id: toolCall.call_id,
+            name: toolCall.name,
+            result: { error: `Failed to execute tool: ${(toolExecError as Error).message}` },
+          });
+        }
+      }
+
+      // --- Phase 3: Final Response Generation ---
+      if (toolResults.length > 0) {
+        console.log("[Phase 3] Sending tool results back to backend for final response...");
+        const phase3Payload: BackendChatRequestPayload = {
+          message, // Original message
+          chat_history: chatHistory, // Original history
+          model_id: modelId,
+          tool_results: toolResults,
+        };
+
+        // Call the same backend endpoint, now with tool_results
+        const phase3Response = await apiClient.post<BackendPhase3Response>('/v1/chat/', phase3Payload);
+        const phase3Data = phase3Response.data;
+
+        console.log("[Phase 3] Received final response:", phase3Data);
+        if (phase3Data.type === 'text') {
+          return phase3Data.reply || "Received an empty final reply.";
+        } else {
+          console.error("[Phase 3] Expected a 'text' response but got:", phase3Data);
+          return "Error: Did not receive the expected final text response from the AI.";
+        }
+      } else {
+        // Should not happen if phase1Data.tool_calls was populated, but handle defensively
+        console.warn("[Phase 2] No tool results were collected despite tool_calls being present.");
+        return "An internal error occurred while processing tool calls (no results).";
+      }
+    }
+
+    // Fallback if the response type from Phase 1 is unexpected
+    console.warn("[Phase 1] Unexpected response type or empty tool_calls:", phase1Data);
+    return "Received an unexpected response from the AI.";
 
   } catch (error) {
-     // General error handling (mostly for the standard chat path now)
-    console.error('Error in sendChatMessage main block:', error);
+    console.error('Error in sendChatMessage multi-phase process:', error);
     const axiosError = error as AxiosError<{ detail?: string }>;
     if (axiosError.response?.data?.detail) {
       throw new Error(`Chat API Error: ${axiosError.response.data.detail}`);
-    } else if (axiosError instanceof Error) {
-      throw new Error(`Failed to get chat response: ${axiosError.message}`);
-    } else {
-      throw new Error('An unexpected error occurred.');
+    } else if (axiosError.isAxiosError) { // More robust check for AxiosError
+        // Try to get more specific error from response if available
+        const errorDetail = axiosError.response?.data?.detail || axiosError.response?.data || axiosError.message;
+        throw new Error(`Chat service communication error: ${errorDetail}`);
+    } else if (error instanceof Error) { // Standard JS error
+      throw new Error(`Failed to get chat response: ${error.message}`);
+    } else { // Unknown error type
+      throw new Error('An unexpected error occurred during the chat process.');
     }
   }
 }; 

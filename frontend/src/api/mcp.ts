@@ -43,37 +43,5 @@ export const sendMcpMessage = async (
   }
 };
 
-/**
- * Determine if a query might be a good candidate for MCP tools
- */
-export const shouldUseMcpTools = (message: string): { use: boolean, tools: string[] } => {
-  // Logic to determine if this query is for MCP tools
-  const jiraPattern = /\b(jira|issue|ticket|task|bug|project|sprint|backlog|todo|to-do|to do)\b/i;
-  const outlookPattern = /outlook|email|mail|calendar|meeting|schedule|appointment|message|invite/i;
-  
-  console.log(`Checking if message "${message}" matches MCP patterns. Jira pattern: ${jiraPattern}`);
-  
-  let tools = [];
-  if (jiraPattern.test(message)) {
-    console.log(`✅ Jira pattern matched in message: "${message}"`);
-    tools.push('jira_list_issues', 'jira_create_issue');
-  } else {
-    console.log(`❌ Jira pattern did NOT match in message: "${message}" (Pattern: ${jiraPattern})`);
-  }
-  
-  if (outlookPattern.test(message)) {
-    console.log(`✅ Outlook pattern matched in message: "${message}"`);
-    tools.push('outlook_list_events', 'outlook_create_event', 
-               'outlook_list_messages', 'outlook_send_message');
-  } else {
-    console.log(`❌ Outlook pattern did NOT match in message: "${message}" (Pattern: ${outlookPattern})`);
-  }
-  
-  const result = { 
-    use: tools.length > 0,
-    tools
-  };
-  
-  console.log(`shouldUseMcpTools result: ${result.use ? 'true' : 'false'}, tools: [${result.tools.join(', ')}] for message: "${message}"`);
-  return result;
-}; 
+// The shouldUseMcpTools function (lines 40-68) has been removed.
+// THIS LINE SHOULD BE EMPTY AFTER REMOVAL 
