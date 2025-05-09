@@ -8,26 +8,30 @@ declare global {
       [key: string]: any;
     }
   }
+  // Declare the global constant that Vite will define
+  const __MCP_SERVER_URL__: string;
 }
 
-// Check for MCP server URL in environment variables
+// Check for MCP server URL
 const getMcpServerUrl = () => {
-  // 1. Prioritize MCP_SERVER from import.meta.env
-  if (import.meta.env && typeof import.meta.env.MCP_SERVER === 'string') {
-    console.log("Using MCP_SERVER from import.meta.env.MCP_SERVER:", import.meta.env.MCP_SERVER);
-    return import.meta.env.MCP_SERVER;
+  // 1. Prioritize __MCP_SERVER_URL__ (defined by Vite)
+  // Also check it's not the literal string "undefined" which can happen if env var was missing at build time and stringified
+  if (typeof __MCP_SERVER_URL__ === 'string' && __MCP_SERVER_URL__ !== 'undefined' && __MCP_SERVER_URL__.length > 0) {
+    console.log("Using MCP_SERVER from global __MCP_SERVER_URL__ (defined by Vite):", __MCP_SERVER_URL__);
+    return __MCP_SERVER_URL__;
   }
 
   // 2. Try to access from window.__env (runtime config injected via script)
   if (typeof window !== 'undefined' && 
       window.__env && 
-      typeof window.__env.MCP_SERVER === 'string') {
+      typeof window.__env.MCP_SERVER === 'string' && 
+      window.__env.MCP_SERVER.length > 0) {
     console.log("Using MCP_SERVER from window.__env.MCP_SERVER:", window.__env.MCP_SERVER);
     return window.__env.MCP_SERVER;
   }
   
   // 3. If no configuration is found, throw an error
-  const errorMessage = "MCP_SERVER URL is not configured. Please set MCP_SERVER in your environment variables (e.g., in .env for Vite/Next.js to expose it as import.meta.env.MCP_SERVER) or via window.__env.MCP_SERVER.";
+  const errorMessage = "MCP_SERVER URL is not configured. Ensure MCP_SERVER is set in .env for Vite build (to define __MCP_SERVER_URL__) or MCP_SERVER in window.__env for runtime config.";
   console.error(errorMessage);
   throw new Error(errorMessage);
 };
