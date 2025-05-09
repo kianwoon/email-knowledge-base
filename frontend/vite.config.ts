@@ -24,6 +24,9 @@ export default defineConfig(({ command, mode }) => {
   
   console.log('=== Environment Variables Loaded ===');
   console.log('Mode:', mode);
+  // Explicitly log MCP_SERVER and its type for Docker build debugging
+  console.log('[VITE_CONFIG_DEBUG] MCP_SERVER value from loadEnv:', env.MCP_SERVER);
+  console.log('[VITE_CONFIG_DEBUG] typeof env.MCP_SERVER:', typeof env.MCP_SERVER);
   
   return {
     plugins: [react()],
