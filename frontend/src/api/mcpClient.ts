@@ -12,28 +12,13 @@ declare global {
 
 // Check for MCP server URL in environment variables
 const getMcpServerUrl = () => {
-  // 1. Prioritize MCP_SERVER from import.meta.env (if Vite is configured to expose it)
+  // 1. Prioritize MCP_SERVER from import.meta.env
   if (import.meta.env && typeof import.meta.env.MCP_SERVER === 'string') {
     console.log("Using MCP_SERVER from import.meta.env.MCP_SERVER:", import.meta.env.MCP_SERVER);
     return import.meta.env.MCP_SERVER;
   }
 
-  // 2. Fallback to VITE_MCP_SERVER (Vite's default prefixing)
-  if (import.meta.env && typeof import.meta.env.VITE_MCP_SERVER === 'string') {
-    console.log("Using MCP_SERVER from import.meta.env.VITE_MCP_SERVER:", import.meta.env.VITE_MCP_SERVER);
-    return import.meta.env.VITE_MCP_SERVER;
-  }
-
-  // 3. Fallback for process.env.REACT_APP_MCP_SERVER (e.g., Create React App or polyfilled process)
-  // @ts-ignore process is not defined in standard browser env
-  if (typeof process !== 'undefined' && process.env && typeof process.env.REACT_APP_MCP_SERVER === 'string') {
-    // @ts-ignore
-    console.log("Using MCP_SERVER from process.env.REACT_APP_MCP_SERVER:", process.env.REACT_APP_MCP_SERVER);
-    // @ts-ignore
-    return process.env.REACT_APP_MCP_SERVER;
-  }
-  
-  // 4. Try to access from window.__env (runtime config injected via script)
+  // 2. Try to access from window.__env (runtime config injected via script)
   if (typeof window !== 'undefined' && 
       window.__env && 
       typeof window.__env.MCP_SERVER === 'string') {
@@ -41,9 +26,10 @@ const getMcpServerUrl = () => {
     return window.__env.MCP_SERVER;
   }
   
-  // 5. Default fallback
-  console.log("Using default MCP_SERVER: http://localhost:9000");
-  return 'http://localhost:9000';
+  // 3. If no configuration is found, throw an error
+  const errorMessage = "MCP_SERVER URL is not configured. Please set MCP_SERVER in your environment variables (e.g., in .env for Vite/Next.js to expose it as import.meta.env.MCP_SERVER) or via window.__env.MCP_SERVER.";
+  console.error(errorMessage);
+  throw new Error(errorMessage);
 };
 
 // Get MCP server URL using our helper function
