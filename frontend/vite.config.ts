@@ -36,7 +36,8 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     define: {
-      'import.meta.env.MCP_SERVER': JSON.stringify(env.MCP_SERVER)
+      // Define a global constant instead of trying to augment import.meta.env
+      '__MCP_SERVER_URL__': JSON.stringify(env.MCP_SERVER) 
     },
     server: {
       port: 5173,
