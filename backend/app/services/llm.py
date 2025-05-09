@@ -1716,7 +1716,7 @@ async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str) -> 
         "  3) milvus – user is asking a knowledge question, seeking information from documents, or wants a rate card.\n"
         "Analyze the user's message and respond with a single JSON object. "
         "The JSON object must have two keys: 'target' (string, one of ['mcp', 'iceberg', 'milvus', 'multi']) "
-        "and 'confidence' (float, 0.0 to 1.0). Example JSON response: { \"target\": \"milvus\", \"confidence\": 0.92 }"
+        "and 'confidence' (float, 0.0 to 1.0). Example JSON response: { \"target\": \"milvus\", \"confidence\": 0.88 }"
     )
     
     prompt_messages = [
