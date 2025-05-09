@@ -27,6 +27,7 @@ export default defineConfig(({ command, mode }) => {
   // Explicitly log MCP_SERVER and its type for Docker build debugging
   console.log('[VITE_CONFIG_DEBUG] MCP_SERVER value from loadEnv:', env.MCP_SERVER);
   console.log('[VITE_CONFIG_DEBUG] typeof env.MCP_SERVER:', typeof env.MCP_SERVER);
+  console.log('[VITE_CONFIG_DEBUG] We are using a direct hardcoded URL in mcpClient.ts for maximum build compatibility.');
   
   return {
     plugins: [react()],
@@ -34,10 +35,6 @@ export default defineConfig(({ command, mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
-    },
-    define: {
-      // TEMPORARY TEST: Hardcode the URL to isolate the issue
-      '__MCP_SERVER_URL__': JSON.stringify('https://email-knowledge-base-2-automationtesting-ba741710.koyeb.app/invoke/')
     },
     server: {
       port: 5173,
