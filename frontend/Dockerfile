@@ -11,7 +11,10 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 # Copy source files
+
 COPY frontend/ ./
+# Strip potential BOM or stray characters from mcpClient.ts to fix parse errors
+RUN sed -i '1s/^\xEF\xBB\xBF//' src/api/mcpClient.ts || true
 
 # --- Hardcode Production URLs for the Build ---
 # Use the combined path needed for Koyeb routing (/api) + FastAPI prefix (/api/v1)
