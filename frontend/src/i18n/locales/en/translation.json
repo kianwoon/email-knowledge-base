@@ -1607,11 +1607,13 @@
     "uploadFailed": "Some files failed to upload"
   },
   "outlookSync": {
-    "title": "Outlook Sync",
     "loading": {
+      "message": "Loading Outlook folders...",
       "default": "Loading your Outlook folders...",
       "error": "Failed to load your Outlook folders. Please try again later."
     },
+    "title": "Outlook Sync",
+    "description": "Configure synchronization settings for your Outlook folders",
     "selectFolders": "Select Folders to Sync",
     "tableHeaders": {
       "select": "Select",

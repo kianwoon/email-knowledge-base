@@ -18,7 +18,7 @@ from app.tasks.outlook_sync import cancel_user_sync_tasks, process_user_outlook_
 # Configure logging
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/email/sync", tags=["outlook-sync"])
+router = APIRouter(tags=["outlook-sync"])
 
 
 class SyncConfig(BaseModel):

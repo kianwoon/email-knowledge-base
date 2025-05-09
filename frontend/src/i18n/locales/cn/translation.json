@@ -516,5 +516,12 @@
     "parameters": "参数",
     "jiraDescription": "创建新的 JIRA 问题",
     "weatherDescription": "获取位置的天气预报"
+  },
+  "outlookSync": {
+    "loading": {
+      "message": "正在加载 Outlook 文件夹...",
+      "default": "正在加载您的 Outlook 文件夹...",
+      "error": "无法加载您的 Outlook 文件夹。请稍后再试。"
+    }
   }
 }

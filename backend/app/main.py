@@ -209,7 +209,7 @@ app.include_router(schema.router, prefix=f"{settings.API_PREFIX}/schema", tags=[
 app.include_router(jarvis_settings.router, prefix=f"{settings.API_PREFIX}/jarvis-settings", tags=["Jarvis Settings"])
 # Include the new router
 app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFIX}/shared-knowledge-catalog", tags=["Shared Knowledge Catalog"])
-app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}/outlook", tags=["Outlook"])
+app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}/email/sync", tags=["Outlook Sync"])
 app.include_router(mcp_tools.router, prefix=f"{settings.API_PREFIX}/mcp", tags=["MCP Tools"])  # Include our mcp_tools router
 app.include_router(tool_execution.router, prefix=f"{settings.API_PREFIX}/tool", tags=["Tool Execution"])
 
