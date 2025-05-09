@@ -1711,7 +1711,7 @@ async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str) -> 
     """Calls an LLM to classify the user message into a target category (mcp, iceberg, milvus)."""
     system_prompt = (
         "You are Jarvis-Router. Classify the user message into one of the following categories:\n"
-        "  1) mcp  – user wants to DO something (e.g., create, update, schedule, send an email or Jira ticket).\n"
+        "  1) mcp – user wants to interact with external systems or APIs (e.g., list/get/create/update Jira issues, schedule events & calendar, send emails, etc.).\n"
         "  2) iceberg – user wants operational data like emails, or information about jobs, tables, metrics, or day-to-day activities.\n"
         "  3) milvus – user is asking a knowledge question, seeking information from documents, or wants a rate card.\n"
         "Analyze the user's message and respond with a single JSON object. "
