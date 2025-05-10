@@ -37,3 +37,5 @@ knowledge_base_structure.txt
 *.db
 *.db-shm
 *.db-wal
+*.md
+cline*.json
