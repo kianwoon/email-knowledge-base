@@ -265,6 +265,11 @@ class Settings(BaseSettings):
         os.getenv("OUTLOOK_SYNC_DISPATCH_INTERVAL_SECONDS", "300")
     )
     
+    # --- Email Context Item Limits ---
+    MAX_EMAIL_CONTEXT_ITEMS_BROAD: int = int(os.getenv("MAX_EMAIL_CONTEXT_ITEMS_BROAD", "500"))
+    MAX_EMAIL_CONTEXT_ITEMS_FOCUSED: int = int(os.getenv("MAX_EMAIL_CONTEXT_ITEMS_FOCUSED", "500"))
+    # --- End Email Context Item Limits ---
+
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,

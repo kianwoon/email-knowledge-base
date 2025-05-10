@@ -1464,7 +1464,7 @@ async def generate_openai_rag_response(
                     start_date=extracted_iceberg_params.get("start_date"), # This will be a datetime object or None
                     end_date=extracted_iceberg_params.get("end_date"),   # This will be a datetime object or None
                     search_terms=extracted_iceberg_params.get("search_terms"), # This will be a list of strings or None
-                    limit=10, 
+                    limit=getattr(settings, "MAX_EMAIL_CONTEXT_ITEMS_BROAD", 10),
                     user_client=user_client, 
                     provider=provider
                 )
@@ -1716,7 +1716,7 @@ async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str) -> 
         "  3) milvus – user is asking a knowledge question, seeking information from documents, or wants a rate card.\n"
         "Analyze the user's message and respond with a single JSON object. "
         "The JSON object must have two keys: 'target' (string, one of ['mcp', 'iceberg', 'milvus', 'multi']) "
-        "and 'confidence' (float, 0.0 to 1.0). Example JSON response: { \"target\": \"milvus\", \"confidence\": 0.88 }"
+        "and 'confidence' (float, 0.0 to 1.0). Example JSON response: { \"target\": \"milvus\", \"confidence\": 0.85 }"
     )
     
     prompt_messages = [
