@@ -574,9 +574,16 @@ const FilterSetup: React.FC = () => {
     setIsInitialLoad(false);
     setPreviews([]); // Clear existing previews before new search
     setTotalEmails(0); // Reset total count before new search
+    
+    // Add debug logging for the selected folder
+    if (filter.folder_id) {
+      const selectedFolder = folders.find(f => f.id === filter.folder_id);
+      console.log(`[DEBUG] Searching folder: "${selectedFolder?.displayName}" (ID: ${filter.folder_id})`);
+    }
+    
     // Explicitly tell loadPreviews this is a fresh search
     loadPreviews({ isFreshSearch: true }); 
-  }, [loadPreviews]);
+  }, [loadPreviews, filter.folder_id, folders]);
   
   // Handler for adding a keyword
   const handleAddKeyword = () => {

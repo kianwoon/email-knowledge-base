@@ -116,6 +116,81 @@ class OutlookService:
             logger.error(f"[FOLDERS] Unexpected error fetching folders: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Internal server error fetching folders")
 
+    async def get_best_sent_folder_id(self) -> Optional[str]:
+        """Find the 'Sent' folder with the most emails and return its ID."""
+        logger.info("[SENT-FOLDER] Searching for best Sent Items folder...")
+        try:
+            # Fetch all folders with their total item counts
+            response = await self.client.get(
+                "/me/mailFolders",
+                params={
+                    "$select": "id,displayName,totalItemCount,childFolderCount",
+                    "$top": 1000  # Increased to ensure we get all folders
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            folders = data.get("value", [])
+            
+            # Find all folders whose name contains 'sent' (case-insensitive)
+            sent_folders = []
+            exact_sent_items_folder = None  # Special folder for the exact "Sent Items" match
+            large_sent_folder = None        # Special folder for any sent folder with significant emails
+            min_significant_emails = 1000   # Threshold for considering a folder "significant"
+            
+            for folder in folders:
+                display_name = folder.get("displayName", "").lower()
+                item_count = folder.get("totalItemCount", 0)
+                
+                if "sent" in display_name:
+                    folder_info = {
+                        "id": folder.get("id"),
+                        "displayName": folder.get("displayName"),
+                        "totalItemCount": item_count,
+                        "childFolderCount": folder.get("childFolderCount", 0)
+                    }
+                    sent_folders.append(folder_info)
+                    
+                    # Check for exact "sent items" match (standard folder name)
+                    if display_name == "sent items":
+                        exact_sent_items_folder = folder_info
+                        logger.info(f"[SENT-FOLDER] Found exact 'Sent Items' folder: ID {folder_info['id']}, Count: {item_count}")
+                    
+                    # Check for any sent folder with significant emails
+                    if item_count >= min_significant_emails and (large_sent_folder is None or item_count > large_sent_folder["totalItemCount"]):
+                        large_sent_folder = folder_info
+                        logger.info(f"[SENT-FOLDER] Found large sent folder: '{folder_info['displayName']}', ID {folder_info['id']}, Count: {item_count}")
+            
+            logger.info(f"[SENT-FOLDER] Found {len(sent_folders)} potential sent folders: {[f['displayName'] for f in sent_folders]}")
+            
+            if not sent_folders:
+                logger.warning("[SENT-FOLDER] No sent folders found")
+                return None
+            
+            # Decision logic for which sent folder to use:
+            # 1. If we found a large sent folder with significant emails, use that
+            if large_sent_folder and large_sent_folder["totalItemCount"] >= min_significant_emails:
+                logger.info(f"[SENT-FOLDER] Selected large sent folder: '{large_sent_folder['displayName']}' with {large_sent_folder['totalItemCount']} emails")
+                return large_sent_folder["id"]
+                
+            # 2. If we found the exact "Sent Items" folder, use that
+            if exact_sent_items_folder:
+                logger.info(f"[SENT-FOLDER] Selected exact 'Sent Items' folder with {exact_sent_items_folder['totalItemCount']} emails")
+                return exact_sent_items_folder["id"]
+                
+            # 3. Otherwise, pick the one with the most emails
+            sent_folders.sort(key=lambda x: x.get("totalItemCount", 0), reverse=True)
+            best_folder = sent_folders[0]
+            logger.info(f"[SENT-FOLDER] Selected best folder by count: {best_folder['displayName']} (ID: {best_folder['id']}, Count: {best_folder['totalItemCount']})")
+            return best_folder["id"]
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(f"[SENT-FOLDER] HTTP error getting sent folder: {e.response.status_code} - {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"[SENT-FOLDER] Unexpected error finding sent folder: {str(e)}")
+            return None
+
     def sanitize_keyword(self, keyword: str) -> str:
         # Remove any quotes and escape special characters
         return keyword.replace("'", "").replace('"', "")

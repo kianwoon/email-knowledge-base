@@ -73,6 +73,45 @@ async def preview_emails(
 
         outlook = OutlookService(current_user.ms_access_token)
         
+        # Determine if we need to look for a better "Sent Items" folder
+        folder_id = filter_params.folder_id
+        original_folder_id = folder_id
+        
+        # Check if this is a "Sent" related folder that might need the smart logic
+        is_sent_folder = False
+        
+        # First check if "sent" is in the folder_id (unlikely but possible)
+        if folder_id and "sent" in folder_id.lower():
+            is_sent_folder = True
+            logger.info(f"[SMART-SENT] Sent folder detected in ID: {folder_id}")
+        
+        # If not found in ID, check the folder's display name (more reliable)
+        if not is_sent_folder and folder_id:
+            try:
+                # Get folder details to check display name
+                folder_details = await outlook.get_folder_details(folder_id)
+                folder_name = folder_details.get("displayName", "")
+                
+                if folder_name and "sent" in folder_name.lower():
+                    is_sent_folder = True
+                    logger.info(f"[SMART-SENT] Sent folder detected by display name: '{folder_name}' (ID: {folder_id})")
+            except Exception as e:
+                # Don't fail if we can't get folder details, just log and continue
+                logger.warning(f"[SMART-SENT] Couldn't check folder display name: {str(e)}")
+        
+        # If this is a sent folder, try to find a better one
+        if is_sent_folder:
+            best_sent_id = await outlook.get_best_sent_folder_id()
+            if best_sent_id and best_sent_id != folder_id:
+                logger.info(f"[SMART-SENT] Using best Sent Items folder ID: {best_sent_id} instead of {folder_id}")
+                folder_id = best_sent_id
+            else:
+                logger.info(f"[SMART-SENT] No better Sent Items folder found, using original: {folder_id}")
+        
+        # Update the filter_params with potentially new folder_id
+        if folder_id != original_folder_id:
+            filter_params.folder_id = folder_id
+        
         next_link = filter_params.next_link 
         # Directly use filter_params.keywords if provided
         keywords_from_filter = filter_params.keywords or []
@@ -82,7 +121,7 @@ async def preview_emails(
 
         # Call the correct method with adjusted parameters
         preview_data = await outlook.get_email_preview(
-            folder_id=filter_params.folder_id,
+            folder_id=folder_id,
             keywords=keywords_list if keywords_list else None, # Use the processed list
             start_date=filter_params.start_date,
             end_date=filter_params.end_date,
