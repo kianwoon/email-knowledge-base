@@ -95,18 +95,53 @@ def load_tool_manifest(user_email: Optional[str] = None, db_session: Optional[Se
     if user_email and db_session:
         try:
             # Get all enabled MCP tools for the user
+            logger.debug(f"Retrieving MCP tools for user {user_email}")
             db_tools = mcp_tool_crud.get_mcp_tools(db_session, user_email)
+            logger.debug(f"Found {len(db_tools)} MCP tools for user {user_email}")
+            
+            # Log more details about the tools
+            for db_tool in db_tools:
+                logger.debug(f"MCP Tool: id={db_tool.id}, name={db_tool.name}, entrypoint={db_tool.entrypoint}, enabled={db_tool.enabled}")
+                
             user_tools = [
                 {
                     "name": tool.name,
-                    "description": tool.description,
+                    "description": tool.description or f"Custom tool '{tool.name}' defined by user",
                     "parameters": tool.parameters,
                     "entrypoint": tool.entrypoint,  # Save the entrypoint for execution
                     "version": tool.version,
-                    "is_custom": True  # Flag to identify user-defined tools
+                    "is_custom": True,  # Flag to identify user-defined tools
+                    "user_defined": True  # Additional flag for clarity in prompts
                 }
                 for tool in db_tools if tool.enabled  # Only include enabled tools
             ]
+            
+            # Add a special field for some tools that need name mapping for remote services
+            for tool in user_tools:
+                # For calendar_list_events, add a remapped name hint
+                if tool["name"] == "calendar_list_events":
+                    tool["__remote_tool_name"] = "list_events"
+                    logger.info(f"Added remote_tool_name mapping for {tool['name']}: {tool['__remote_tool_name']}")
+                    
+            # Ensure each user tool has proper format for OpenAI function calling
+            for tool in user_tools:
+                # Fix parameters if needed
+                params = tool.get("parameters", {})
+                if not params or not isinstance(params, dict):
+                    tool["parameters"] = {"type": "object", "properties": {}, "required": []}
+                elif "type" not in params:
+                    params["type"] = "object"
+                if "properties" not in params:
+                    params["properties"] = {}
+                if "required" not in params:
+                    params["required"] = []
+                    
+                # Enhance description with custom tool marker
+                if not tool.get("description"):
+                    tool["description"] = f"Custom tool defined by user: {tool['name']}"
+                elif not "custom" in tool["description"].lower():
+                    tool["description"] = f"Custom tool: {tool['description']}"
+            
             logger.info(f"Successfully loaded {len(user_tools)} user-defined MCP tools for user {user_email}")
         except Exception as e:
             logger.error(f"Failed to load user-defined MCP tools for user {user_email}: {e}", exc_info=True)

@@ -1445,7 +1445,7 @@ async def generate_openai_rag_response(
         logger.info(f"[Phase 1 Router] Attempting to route message for user {user.email}. MCP tools available: {[t.get('name') for t in available_tools]}")
         
         # 1. Call Jarvis-Router to classify the query
-        router_decision = await _call_jarvis_router(message, user_client, chat_model)
+        router_decision = await _call_jarvis_router(message, user_client, chat_model, available_tools)
         target = router_decision.get('target')
         confidence = router_decision.get('confidence', 0.0)
         logger.info(f"[Phase 1 Router] Jarvis-Router decision: Target='{target}', Confidence={confidence:.2f}")
@@ -1461,11 +1461,23 @@ async def generate_openai_rag_response(
         if target == 'mcp' and confidence >= LOW_CONFIDENCE_THRESHOLD:
             logger.info(f"[Phase 1 Router] Target is 'mcp'. Proceeding with MCP tool decision.")
             try:
+                # Build a more structured and detailed description of available tools
+                tool_descriptions = ""
+                if available_tools:
+                    for tool in available_tools:
+                        tool_name = tool.get("name", "unknown_tool")
+                        tool_desc = tool.get("description", "No description available")
+                        user_defined = "User-defined" if tool.get("user_defined", False) else "System"
+                        tool_descriptions += f"\n- {tool_name}: {tool_desc} ({user_defined})"
+                
                 # This is the existing logic for when LLM decides on an MCP tool or direct answer
                 system_prompt_mcp = (
                     "You are an AI assistant. Based on the user's query, "
                     "decide if calling one of the available external tools (MCP tools) would be beneficial. "
-                    "If so, choose the tool(s) and provide arguments. Otherwise, answer directly without using these tools."
+                    f"The following tools are available:{tool_descriptions}\n\n"
+                    "If calling a tool would help answer the query, choose the appropriate tool(s) and provide arguments. "
+                    "Otherwise, answer directly without using these tools. "
+                    "Be specific when deciding to use a tool - only use tools when they directly apply to the user's request."
                 )
                 messages_for_mcp_decision = [{"role": "system", "content": system_prompt_mcp}]
                 if chat_history:
@@ -1759,13 +1771,24 @@ async def _test_and_fix_rate_card_function():
     pass
 
 # --- NEW HELPER: Jarvis-Router --- 
-async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str) -> Dict[str, Any]:
+async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str, available_tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Calls an LLM to classify the user message into a target category (mcp, iceberg, milvus)."""
+    
+    # Build MCP tools details if provided
+    mcp_tools_details = ""
+    if available_tools and len(available_tools) > 0:
+        mcp_tools_details = "Available MCP tools:\n"
+        for tool in available_tools:
+            tool_name = tool.get("name", "")
+            tool_desc = tool.get("description", "No description")
+            mcp_tools_details += f"  - {tool_name}: {tool_desc}\n"
+    
     system_prompt = (
         "You are Jarvis-Router. Classify the user message into one of the following categories:\n"
         "  1) mcp – user wants to interact with external systems or APIs (e.g., list/get/create/update Jira issues, schedule events & calendar, send emails, etc.).\n"
         "  2) iceberg – user wants operational data like emails, or information about jobs, tables, metrics, or day-to-day activities.\n"
         "  3) milvus – user is asking a knowledge question, seeking information from documents, or wants a rate card.\n"
+        f"{mcp_tools_details}\n"
         "Analyze the user's message and respond with a single JSON object. "
         "The JSON object must have two keys: 'target' (string, one of ['mcp', 'iceberg', 'milvus', 'multi']) "
         "and 'confidence' (float, 0.0 to 1.0). Example JSON response: { \"target\": \"milvus\", \"confidence\": 0.85 }"
@@ -1775,7 +1798,7 @@ async def _call_jarvis_router(message: str, client: AsyncOpenAI, model: str) -> 
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": message}
     ]
-    router_output_str = "" # Initialize for clarity in case of exception before assignment
+    router_output_str = ""
     try:
         logger.info(f"[_call_jarvis_router] Calling LLM for routing. Message: '{message[:100]}...'")
         response = await client.chat.completions.create(

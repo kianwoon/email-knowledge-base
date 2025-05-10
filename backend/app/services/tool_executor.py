@@ -44,7 +44,13 @@ async def execute_tool(
     
     try:
         # Handle custom MCP tool (user-defined)
-        if tool_metadata and tool_metadata.get("is_custom", False):
+        is_custom = False
+        if tool_metadata:
+            # Tool is custom if it has the is_custom flag set or has an entrypoint defined
+            is_custom = tool_metadata.get("is_custom", False) or "entrypoint" in tool_metadata
+            
+        if is_custom:
+            logger.info(f"Executing custom MCP tool: {tool_name}")
             return await execute_custom_mcp_tool(tool_name, arguments, tool_metadata, user_email)
             
         # Handle built-in tools based on their names
@@ -96,28 +102,87 @@ async def execute_custom_mcp_tool(
         return {"error": "Tool entrypoint not defined"}
     
     logger.info(f"Executing custom MCP tool: {tool_name} with entrypoint: {entrypoint}")
+    logger.debug(f"Tool arguments: {arguments}")
+    logger.debug(f"Tool metadata: {tool_metadata}")
     
-    try:
-        # If entrypoint is a URL, make an HTTP request
-        if entrypoint.startswith(("http://", "https://")):
-            return await execute_http_entrypoint(entrypoint, arguments, user_email)
+    # Ensure we have the correct tool name
+    if "name" in tool_metadata and tool_metadata["name"] != tool_name:
+        logger.warning(f"Tool name mismatch: request={tool_name}, metadata={tool_metadata['name']}. Using metadata name.")
+        tool_name = tool_metadata["name"]
+    
+    # Check if this tool needs name remapping for the remote service
+    if "__remote_tool_name" in tool_metadata:
+        remote_tool_name = tool_metadata["__remote_tool_name"]
+        logger.info(f"Found remote tool name mapping: {tool_name} -> {remote_tool_name}")
+        arguments["__remote_tool_name"] = remote_tool_name
+    
+    # For calendar tools, we'll try different endpoint variations
+    potential_endpoints = [entrypoint]
+    
+    # If it's a calendar tool, add alternative endpoints
+    is_calendar_tool = "calendar" in tool_name.lower()
+    is_email_kb_endpoint = "email-knowledge-base" in entrypoint
+    
+    if is_calendar_tool and is_email_kb_endpoint:
+        # Add potential alternative endpoint URLs
+        base_url = entrypoint.split('/invoke')[0]  # Get the base URL without /invoke paths
+        potential_endpoints = [
+            entrypoint,  # Original endpoint (likely /invoke/invoke)
+            f"{base_url}/invoke",  # Single /invoke
+            f"{base_url}/api/invoke",  # API path
+            f"{base_url}/api/tools/invoke",  # Another common pattern
+            f"{base_url}/api/v1/invoke"  # Versioned API
+        ]
+        logger.info(f"Will try multiple potential endpoints for calendar tool: {potential_endpoints}")
         
-        # If entrypoint is a local function path
-        elif "." in entrypoint:
-            return await execute_function_entrypoint(entrypoint, arguments, user_email)
-        
-        # If entrypoint is just a path without protocol
-        else:
-            # Assume it's a relative API path
-            base_url = settings.MCP_SERVER_URL or "http://localhost:8000"
-            full_url = f"{base_url.rstrip('/')}/{entrypoint.lstrip('/')}"
-            return await execute_http_entrypoint(full_url, arguments, user_email)
+    for endpoint_url in potential_endpoints:
+        try:
+            # Log which endpoint we're trying
+            if endpoint_url != entrypoint:
+                logger.info(f"Trying alternative endpoint URL: {endpoint_url}")
+                
+            # If entrypoint is a URL, make an HTTP request
+            if endpoint_url.startswith(("http://", "https://")):
+                logger.info(f"Executing tool via HTTP entrypoint: {endpoint_url}, tool_name={tool_name}")
+                result = await execute_http_entrypoint(endpoint_url, arguments, user_email, tool_name)
+                
+                # Check if the request was successful (no error in the result)
+                if "error" not in result or (isinstance(result.get("error"), str) and "Unknown tool" not in result["error"]):
+                    # If successful or error is not about unknown tool, return the result
+                    return result
+                    
+                # If we got an "Unknown tool" error and have more endpoints to try, continue to the next one
+                if "error" in result and isinstance(result.get("error"), str) and "Unknown tool" in result["error"] and endpoint_url != potential_endpoints[-1]:
+                    logger.warning(f"Endpoint {endpoint_url} returned 'Unknown tool' error. Trying next endpoint.")
+                    continue
+                    
+                # If this was the last endpoint or error is not about unknown tool, return the result
+                return result
+                
+            # If we're here, the endpoint wasn't a URL or all URLs failed
+            elif "." in endpoint_url:
+                logger.info(f"Executing tool via function entrypoint: {endpoint_url}")
+                return await execute_function_entrypoint(endpoint_url, arguments, user_email)
             
-    except Exception as e:
-        logger.error(f"Error executing custom MCP tool {tool_name}: {str(e)}", exc_info=True)
-        return {"error": f"Tool execution failed: {str(e)}"}
+            # If entrypoint is just a path without protocol
+            else:
+                # Assume it's a relative API path
+                base_url = settings.MCP_SERVER_URL or "http://localhost:8000"
+                full_url = f"{base_url.rstrip('/')}/{endpoint_url.lstrip('/')}"
+                logger.info(f"Using base URL: {base_url}, full URL: {full_url}, tool_name={tool_name}")
+                return await execute_http_entrypoint(full_url, arguments, user_email, tool_name)
+                
+        except Exception as e:
+            # Log the error but continue trying other endpoints if available
+            logger.error(f"Error executing custom MCP tool {tool_name} with endpoint {endpoint_url}: {str(e)}")
+            if endpoint_url == potential_endpoints[-1]:
+                # If this was the last endpoint, raise the exception
+                return {"error": f"Tool execution failed with all endpoints: {str(e)}"}
+                
+    # This should never be reached unless all endpoints fail
+    return {"error": f"Tool execution failed with all endpoints"}
 
-async def execute_http_entrypoint(url: str, arguments: Dict[str, Any], user_email: Optional[str] = None) -> Dict[str, Any]:
+async def execute_http_entrypoint(url: str, arguments: Dict[str, Any], user_email: Optional[str] = None, tool_name: Optional[str] = None) -> Dict[str, Any]:
     """Execute a tool by making an HTTP request to its entrypoint."""
     try:
         headers = {
@@ -136,22 +201,100 @@ async def execute_http_entrypoint(url: str, arguments: Dict[str, Any], user_emai
             finally:
                 db.close()
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=arguments, headers=headers)
+        # Format the request payload according to the expected format
+        # If the URL contains '/invoke', it likely expects the MCP format with name and arguments
+        if '/invoke' in url:
+            if not tool_name:
+                logger.warning(f"Tool name not provided for MCP tool request to {url}")
+                tool_name = "unknown_tool"  # Fallback name if not provided
+                
+            # Check if we need to map the local tool name to a different remote tool name
+            # This could be specified in the arguments as a special parameter
+            remote_tool_name = tool_name
             
-            if response.status_code == 401:
-                raise AuthenticationError(f"Authentication failed for {url}")
-            elif response.status_code >= 400:
-                logger.error(f"HTTP error {response.status_code} from {url}: {response.text}")
-                return {"error": f"Tool execution failed with status {response.status_code}: {response.text}"}
+            # For calendar-related tools, create a list of potential names to try
+            potential_tool_names = [remote_tool_name]
             
-            # Try to parse response as JSON
+            if "__remote_tool_name" in arguments:
+                remote_tool_name = arguments.pop("__remote_tool_name")
+                logger.info(f"Using mapped remote tool name: {remote_tool_name} (local name: {tool_name})")
+                potential_tool_names = [remote_tool_name]  # Reset list to just use the provided remote name
+            elif "calendar" in tool_name.lower():
+                # Only use alternatives if no explicit remote name was provided
+                potential_tool_names = [
+                    remote_tool_name,  # Original name (calendar_list_events)
+                    "list_events",
+                    "calendar",
+                    "get_calendar",
+                    "get_events",
+                    "calendar_events",
+                    "list_calendar_events",
+                    "calendar_lookup"
+                ]
+                logger.info(f"Will try multiple potential tool names for calendar tool: {potential_tool_names}")
+            
+            # For our first attempt, use the primary tool name (either mapped or original)
+            payload = {
+                "name": potential_tool_names[0],
+                "arguments": arguments
+            }
+            logger.debug(f"Formatted MCP tool request payload: {payload}")
+            
+            # Send the request with the initial tool name
+            logger.debug(f"Making HTTP request to {url} with payload: {payload}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Try each potential tool name in sequence
+                for i, name in enumerate(potential_tool_names):
+                    if i > 0:  # Skip the first one as we already tried it
+                        payload["name"] = name
+                        logger.info(f"Retrying with alternate tool name: {name}")
+                    
+                    response = await client.post(url, json=payload, headers=headers)
+                    
+                    if response.status_code == 200:
+                        # Success! We found the right tool name
+                        logger.info(f"Successfully called tool with name: {name}")
+                        break
+                    elif response.status_code == 400 and "Unknown tool" in response.text and i < len(potential_tool_names) - 1:
+                        # Continue to the next tool name
+                        logger.warning(f"Tool name '{name}' not recognized by the server. Trying next alternative.")
+                        continue
+                    else:
+                        # Other error or last attempt
+                        if response.status_code >= 400:
+                            logger.error(f"HTTP error {response.status_code} from {url}: {response.text}")
+                            return {"error": f"Tool execution failed with status {response.status_code}: {response.text}"}
+            
+            # Process the response from the last attempt
             try:
                 result = response.json()
                 return result
             except json.JSONDecodeError:
                 # If not JSON, return text
                 return {"result": response.text}
+        else:
+            # Use arguments directly for other APIs
+            payload = arguments
+            
+            logger.debug(f"Making HTTP request to {url} with payload: {payload}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                
+                if response.status_code == 401:
+                    raise AuthenticationError(f"Authentication failed for {url}")
+                elif response.status_code >= 400:
+                    logger.error(f"HTTP error {response.status_code} from {url}: {response.text}")
+                    return {"error": f"Tool execution failed with status {response.status_code}: {response.text}"}
+                
+                # Try to parse response as JSON
+                try:
+                    result = response.json()
+                    return result
+                except json.JSONDecodeError:
+                    # If not JSON, return text
+                    return {"result": response.text}
     
     except httpx.RequestError as e:
         logger.error(f"Request error to {url}: {str(e)}")
