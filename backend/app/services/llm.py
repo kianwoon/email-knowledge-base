@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo # Added ZoneInfo import
 import tiktoken # ADDED tiktoken import
 import hashlib # For content hashing in deduplication
 import difflib # For text similarity comparison
+import uuid  # Added UUID import
 
 from app.config import settings
 from app.models.email import EmailContent, EmailAnalysis, SensitivityLevel, Department, PIIType
@@ -38,6 +39,59 @@ from ..config import settings # Import settings if not already
 logger = logging.getLogger(__name__)
 # Configure logger level based on LOG_LEVEL env var
 logger.setLevel(getattr(logging, settings.LOG_LEVEL, logging.INFO))
+
+# --- START: Global DuckDB Connection Pool ---
+DUCKDB_CONN: Optional[duckdb.DuckDBPyConnection] = None
+
+def get_duckdb_conn() -> duckdb.DuckDBPyConnection:
+    """Returns a reusable DuckDB connection with httpfs and caching configured."""
+    global DUCKDB_CONN
+    if DUCKDB_CONN is None:
+        DUCKDB_CONN = duckdb.connect(database=':memory:')
+        
+        # Create and configure cache directories with absolute paths
+        import os
+        import pathlib
+        
+        # Define paths for cache directories
+        home_dir = os.path.expanduser("~/.duckdb_cache")
+        httpfs_cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "duckdb_httpfs_cache")
+        
+        # Create directories if they don't exist
+        pathlib.Path(home_dir).mkdir(parents=True, exist_ok=True)
+        pathlib.Path(httpfs_cache_dir).mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Using DuckDB home directory: {home_dir}")
+        logger.info(f"Using HTTP/FS cache directory: {httpfs_cache_dir}")
+        
+        # Configure home directory first
+        DUCKDB_CONN.execute(f"SET home_directory='{home_dir}';")
+        
+        # Install and load httpfs (required for S3/remote data access)
+        DUCKDB_CONN.execute("INSTALL httpfs; LOAD httpfs;")
+        
+        # Try to enable object-store caching using the cache_httpfs extension
+        try:
+            # 1. Install & load the cache_httpfs community extension
+            logger.info("Installing and loading cache_httpfs extension...")
+            DUCKDB_CONN.execute("INSTALL cache_httpfs FROM community;")
+            DUCKDB_CONN.execute("LOAD cache_httpfs;")
+            
+            # 2. Configure caching parameters
+            logger.info("Configuring cache_httpfs settings...")
+            DUCKDB_CONN.execute("SET cache_httpfs_type = 'on_disk';")
+            DUCKDB_CONN.execute(f"SET cache_httpfs_cache_directory = '{httpfs_cache_dir}';")
+            DUCKDB_CONN.execute("SET cache_httpfs_cache_block_size = 1048576;")  # 1 MiB blocks
+            DUCKDB_CONN.execute("SET cache_httpfs_in_mem_cache_block_timeout_millisec = 600000;")  # 10 min
+            
+            logger.info("Successfully enabled object-store caching for DuckDB via cache_httpfs extension")
+        except Exception as e:
+            # If the caching extension isn't available or fails to install, log and continue without it
+            logger.warning(f"DuckDB object-store caching could not be enabled: {e}")
+            logger.info("Continuing without object-store caching")
+    
+    return DUCKDB_CONN
+# --- END: Global DuckDB Connection Pool ---
 
 # --- START: Global Catalog Variable (Initialize lazily) ---
 # Use a global variable to hold the catalog instance to avoid reinitialization on every call.
@@ -118,43 +172,82 @@ async def query_iceberg_emails_duckdb(
             logger.error(f"Iceberg table {full_table_name} not found.")
             return results
 
-        con = duckdb.connect(database=':memory:', read_only=False)
-        view_name = 'email_facts_view'
-        iceberg_table.scan().to_duckdb(table_name=view_name, connection=con)
-
-        # --- REMOVED: LLM-based Date Filtering Logic ---
-        # Removed the entire block that called an LLM to extract dates.
-        # --- END REMOVED ---
-
-        # --- REVISED: Build WHERE clause based on provided filters ---
-        # Mandatory base conditions
-        final_where_clauses = ["owner_email = ?"]
-        final_query_params = [user_email]
-
-        # Apply date filters as top-level AND conditions if they exist
-        if start_date:
-            final_where_clauses.append("received_datetime_utc >= ?")
-            final_query_params.append(start_date)
-            logger.info(f"Applying mandatory start_date filter: {start_date.isoformat()} (Year: {start_date.year})")
-        if end_date:
-            final_where_clauses.append("received_datetime_utc <= ?")
-            final_query_params.append(end_date)
-            logger.info(f"Applying mandatory end_date filter: {end_date.isoformat()} (Year: {end_date.year})")
-
-        # Clauses for specific field attribute filters (sender, subject)
-        attribute_filter_clauses = []
-        attribute_filter_params = []
+        # Get reusable DuckDB connection
+        con = get_duckdb_conn()
+        view_name = f'email_facts_view_{uuid.uuid4().hex[:8]}'  # Use unique view name to avoid conflicts
         
-        # Plausibility check for sender
+        # Create PyIceberg expressions for predicate push-down
+        from pyiceberg.expressions import GreaterThanOrEqual, LessThanOrEqual, And, StartsWith, EqualTo
+        
+        # Build push-down expressions
+        exprs = []
+        # Add owner email filter
+        exprs.append(EqualTo("owner_email", user_email))
+        
+        # Add date filters
+        if start_date:
+            exprs.append(GreaterThanOrEqual("received_datetime_utc", start_date))
+            logger.info(f"Pushing down start_date filter: {start_date.isoformat()}")
+        if end_date:
+            exprs.append(LessThanOrEqual("received_datetime_utc", end_date))
+            logger.info(f"Pushing down end_date filter: {end_date.isoformat()}")
+            
+        # Add sender filter if plausible
         is_plausible_sender_filter = False
         if sender_filter:
             # Simple check: contains @ or multiple words, or is a reasonable length name
             if '@' in sender_filter or len(sender_filter.split()) > 1 or (len(sender_filter) >= 2 and sender_filter.isalpha()): 
                 is_plausible_sender_filter = True
+                # Only push-down exact match filters, do LIKE filters in SQL
+                if '@' in sender_filter:
+                    exprs.append(StartsWith("sender", sender_filter))
+                    logger.debug(f"Pushing down sender filter: {sender_filter}")
             else:
-                logger.warning(f"Ignoring likely implausible sender filter: '{sender_filter}'. Does not look like an email or multi-word name.")
+                logger.warning(f"Ignoring likely implausible sender filter: '{sender_filter}'")
+        
+        # Determine select columns based on token
+        select_columns = None  # Default to selecting all columns
+        if token and token.allow_columns:
+            select_columns = token.allow_columns
+            logger.info(f"Applying column projection based on token {token.id}")
+            
+        # Create scan with filters and projection
+        scan = iceberg_table.scan()
+        
+        # Apply filter expressions if we have any
+        if exprs:
+            try:
+                scan = scan.filter(And(*exprs))
+                logger.debug(f"Applied {len(exprs)} predicate pushdown filters to Iceberg scan")
+            except Exception as filter_err:
+                logger.warning(f"Failed to apply some predicate filters: {filter_err}. Falling back to basic scan.")
+                # Start with a fresh scan and just apply the owner email filter which is the most important
+                scan = iceberg_table.scan()
+                try:
+                    scan = scan.filter(EqualTo("owner_email", user_email))
+                    logger.debug("Applied fallback filter for owner_email only")
+                except Exception as basic_filter_err:
+                    logger.error(f"Even basic filtering failed: {basic_filter_err}")
+            
+        # Apply column projection if specified
+        if select_columns:
+            scan = scan.select(*select_columns)
+            
+        # Execute the scan to DuckDB
+        scan.to_duckdb(table_name=view_name, connection=con)
+        
+        # Continue with SQL filtering for more complex conditions that can't be pushed down
+        # --- REVISED: Build WHERE clause based on provided filters ---
+        # We've already filtered owner_email, start_date, and end_date in the scan
+        final_where_clauses = []
+        final_query_params = []
 
-        if is_plausible_sender_filter:
+        # Clauses for specific field attribute filters (sender, subject)
+        attribute_filter_clauses = []
+        attribute_filter_params = []
+        
+        # Only add SQL sender filter if we couldn't push it down completely
+        if is_plausible_sender_filter and not ('@' in sender_filter):
             # MODIFIED: Search in both sender (email) and sender_name (display name)
             attribute_filter_clauses.append("(sender LIKE ? OR sender_name LIKE ?)")
             attribute_filter_params.append(f"%{sender_filter}%")
@@ -171,6 +264,8 @@ async def query_iceberg_emails_duckdb(
             attribute_filters_sql_part = " AND ".join(attribute_filter_clauses)
             # Wrap in parentheses if there are attribute filters
             attribute_filters_sql_part = f"({attribute_filters_sql_part})"
+            final_where_clauses.append(attribute_filters_sql_part)
+            final_query_params.extend(attribute_filter_params)
 
         # Clause for general keyword search terms
         keyword_search_sql_part = ""
@@ -189,71 +284,27 @@ async def query_iceberg_emails_duckdb(
                 keyword_search_sql_part = " OR ".join(keyword_filter_individual_parts)
                 # Wrap keyword search in parentheses if it exists
                 keyword_search_sql_part = f"({keyword_search_sql_part})"
+                final_where_clauses.append(keyword_search_sql_part)
+                final_query_params.extend(keyword_search_params)
                 logger.debug(f"Applying keyword search terms: {search_terms}")
 
-        # Combine attribute filters and keyword search with an OR, if both exist
-        # This combined group will then be ANDed with the mandatory filters (owner, dates)
-        optional_filters_combined_sql = ""
-        if attribute_filters_sql_part and keyword_search_sql_part:
-            optional_filters_combined_sql = f"({attribute_filters_sql_part} OR {keyword_search_sql_part})"
-            final_query_params.extend(attribute_filter_params)
-            final_query_params.extend(keyword_search_params)
-        elif attribute_filters_sql_part:
-            optional_filters_combined_sql = attribute_filters_sql_part
-            final_query_params.extend(attribute_filter_params)
-        elif keyword_search_sql_part:
-            optional_filters_combined_sql = keyword_search_sql_part
-            final_query_params.extend(keyword_search_params)
-        
-        # Add the combined optional filters part to the main WHERE clauses if it's not empty
-        if optional_filters_combined_sql:
-            final_where_clauses.append(optional_filters_combined_sql)
-        elif not (sender_filter or subject_filter or search_terms or start_date or end_date):
-            # This case is where only owner_email was provided which is usually not intended for a search.
-            # The initial check in the function (`if not sender_filter and not subject_filter ...`) handles this by returning early.
-            # If that check were removed, this log would be useful.
-            logger.warning("Querying with only owner_email filter. This might return many results.")
+        # --- END REVISED: WHERE clause ---
 
-        # --- END REVISED WHERE clause ---
+        # Construct the full SQL query with dynamic WHERE clauses
+        effective_limit = token.row_limit if token and token.row_limit else limit
 
-        # --- START: Determine SELECT columns based on token ---
-        select_columns = "*" # Default to selecting all columns
-        # Define columns essential for the query logic (WHERE, ORDER BY) AND context building
-        essential_query_cols = {"owner_email", "received_datetime_utc", "subject", "body_text", "sender", "sender_name", "generated_tags", "granularity", "quoted_raw_text", "message_id"}
-        
-        if token and token.allow_columns: # Check if token exists and allow_columns is set
-            allowed_set = set(token.allow_columns)
-            # Ensure essential columns are included
-            final_select_set = allowed_set.union(essential_query_cols)
-            # We need to check against actual columns in the view to avoid errors
-            view_columns = set([desc[0] for desc in con.execute(f"DESCRIBE {view_name};").fetchall()])
-            valid_select_cols = [col for col in final_select_set if col in view_columns]
-            
-            if valid_select_cols:
-                select_columns = ", ".join([f'"{col}"' for col in valid_select_cols]) # Quote column names
-                logger.info(f"Applying column projection based on token {token.id}. Selecting: {select_columns}")
-            else:
-                # This case should be rare if essential cols exist, but prevents selecting nothing
-                logger.warning(f"Token {token.id} allow_columns resulted in empty valid selection. Defaulting to SELECT *.")
-                select_columns = "*"
-        # --- END: Determine SELECT columns ---
-
-        # Construct the full SQL query with dynamic SELECT and WHERE clauses
-        effective_limit = token.row_limit if token else limit # Prioritize token limit if available
-        effective_limit = min(effective_limit, limit) # Ensure it doesn't exceed the requested limit
-
-        where_sql_final = " AND ".join(final_where_clauses)
+        # Only add WHERE if we have conditions
+        where_sql_final = ""
+        if final_where_clauses:
+            where_sql_final = f"WHERE {' AND '.join(final_where_clauses)}"
 
         sql_query = f"""
-        SELECT
-            {select_columns}
+        SELECT * 
         FROM {view_name}
-        WHERE {where_sql_final}
+        {where_sql_final}
         ORDER BY received_datetime_utc DESC
         LIMIT ?;
         """
-        # The final_query_params list has been built progressively.
-        # Now add the limit parameter.
         final_query_params.append(effective_limit)
 
         # ADDED LOGGING FOR THE SQL QUERY AND PARAMETERS
@@ -264,13 +315,14 @@ async def query_iceberg_emails_duckdb(
         arrow_table = con.execute(sql_query, final_query_params).fetch_arrow_table()
         results = arrow_table.to_pylist()
         logger.info(f"DuckDB query returned {len(results)} email results.")
+        
+        # Drop the temporary view to avoid cluttering the connection
+        con.execute(f"DROP VIEW IF EXISTS {view_name}")
 
     except Exception as e:
         logger.error(f"Error querying DuckDB for emails: {e}", exc_info=True)
         results = [] # Ensure empty list on error
-    finally:
-        if 'con' in locals() and con:
-            con.close()
+    # Don't close the connection since we're reusing it
 
     return results
 # --- END: DuckDB Query Helper ---

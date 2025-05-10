@@ -14,6 +14,8 @@ import traceback
 from fastapi import HTTPException
 import asyncio
 import threading # Import threading for lock
+from pyiceberg.expressions import Or, EqualTo
+from pyiceberg.expressions import GreaterThanOrEqual, LessThanOrEqual
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +130,9 @@ async def search_catalog_items(
         # --- ADDED: Filter by token owner --- 
         if "owner_email" in all_column_names:
             if token.owner_email:
-                # Escape single quotes in the owner_email for the filter expression
-                escaped_owner_email = token.owner_email.replace("'", "''")
-                logger.info(f"Applying filter for owner_email: {escaped_owner_email}")
-                scan = scan.filter(f"owner_email = '{escaped_owner_email}'")
+                # Use PyIceberg expressions for owner_email filter
+                scan = scan.filter(EqualTo("owner_email", token.owner_email))
+                logger.info(f"Applying filter for owner_email using PyIceberg expressions: {token.owner_email}")
             else:
                 logger.warning("Token has no owner_email, cannot filter by owner. This might be a security risk!")
         else:
@@ -149,28 +150,31 @@ async def search_catalog_items(
         # Apply specific field filters
         if filters.get("sender"):
             sender = filters["sender"]
-            # Escape single quotes in the sender value for use in filter expression
-            escaped_sender = sender.replace("'", "''")
             
-            # Build filter expressions
+            # Use PyIceberg expressions for better predicate push-down
             sender_filters = []
             if "sender_name" in all_column_names:
-                sender_filters.append(f"sender_name = '{escaped_sender}'")
+                sender_filters.append(EqualTo("sender_name", sender))
             if "sender" in all_column_names:
-                sender_filters.append(f"sender = '{escaped_sender}'")
+                sender_filters.append(EqualTo("sender", sender))
             
             if sender_filters:
-                logger.debug(f"Applying sender filters: {' OR '.join(sender_filters)}")
-                scan = scan.filter(" OR ".join(sender_filters))
+                logger.debug(f"Applying sender filters with PyIceberg expressions")
+                if len(sender_filters) > 1:
+                    scan = scan.filter(Or(*sender_filters))
+                else:
+                    scan = scan.filter(sender_filters[0])
         
-        # Date range filters
+        # Date range filters with PyIceberg expressions
         if filters.get("date_from") and "created_at" in all_column_names:
             date_from = filters["date_from"]
-            scan = scan.filter(f"created_at >= '{date_from}'")
+            scan = scan.filter(GreaterThanOrEqual("created_at", date_from))
+            logger.debug(f"Applied date_from filter using PyIceberg expressions: {date_from}")
         
         if filters.get("date_to") and "created_at" in all_column_names:
             date_to = filters["date_to"]
-            scan = scan.filter(f"created_at <= '{date_to}'")
+            scan = scan.filter(LessThanOrEqual("created_at", date_to))
+            logger.debug(f"Applied date_to filter using PyIceberg expressions: {date_to}")
 
         # 6. Execute scan and get results
         # Convert to Arrow table and then to Python list - wrapped in to_thread as it's CPU-bound

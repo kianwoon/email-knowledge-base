@@ -9,7 +9,7 @@ from pyiceberg.exceptions import NoSuchTableError
 # We might need to adjust how the catalog is accessed if llm.py dependencies are complex
 # For now, let's assume we can import and use it similarly
 # If this causes issues, we'll refactor catalog access.
-from app.services.llm import get_iceberg_catalog 
+from app.services.llm import get_iceberg_catalog, get_duckdb_conn
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,6 @@ router = APIRouter(
 async def get_email_facts_columns():
     """Returns the list of column names for the email_facts table."""
     logger.info("Request received for email_facts columns.")
-    con = None
     try:
         # Get Iceberg catalog
         # Note: get_iceberg_catalog uses an asyncio.Lock, which should be fine here.
@@ -49,17 +48,21 @@ async def get_email_facts_columns():
              logger.error(f"Error loading Iceberg table '{full_table_name}': {load_err}", exc_info=True)
              raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load Iceberg table information.")
 
-        # Connect to DuckDB (in-memory is fine for schema reading)
-        con = duckdb.connect(database=':memory:', read_only=False)
+        # Use global DuckDB connection
+        con = get_duckdb_conn()
         
         # Load table into a DuckDB view (required for DESCRIBE)
-        # Reusing the same view name as in llm.py for consistency
         view_name = 'email_facts_view_schema_check' # Use a distinct view name
         # This scan might be slow if the table is huge, but necessary for DESCRIBE
-        # We might optimize this later if needed (e.g., cache schema)
         logger.debug(f"Loading Iceberg table '{full_table_name}' into DuckDB view '{view_name}' for schema description...")
         iceberg_table = catalog.load_table(full_table_name) # Load again, necessary for scan
-        iceberg_table.scan().to_duckdb(table_name=view_name, connection=con)
+        
+        # Clean up the view first if it exists
+        con.execute(f"DROP VIEW IF EXISTS {view_name}")
+        
+        # Use predicate and projection push-down to limit data scan
+        scan = iceberg_table.scan().limit(1)  # We only need schema, so limit to 1 row
+        scan.to_duckdb(table_name=view_name, connection=con)
         logger.debug("Table loaded into DuckDB view.")
 
         # Execute DESCRIBE to get schema info
@@ -68,17 +71,17 @@ async def get_email_facts_columns():
         # Extract column names
         column_names = [row[0] for row in schema_info] # First element of each row is the column name
         
+        # Clean up after use
+        con.execute(f"DROP VIEW IF EXISTS {view_name}")
+        
         logger.info(f"Successfully retrieved {len(column_names)} columns for email_facts.")
-        con.close() # Close connection
         return column_names
 
     except HTTPException as http_exc:
         # Re-raise HTTP exceptions
-        if con: con.close()
         raise http_exc
     except Exception as e:
         logger.error(f"Failed to retrieve email_facts columns: {e}", exc_info=True)
-        if con: con.close()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving table schema: {e}"
