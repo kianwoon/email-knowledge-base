@@ -9,7 +9,7 @@ from pyiceberg.exceptions import NoSuchTableError
 # We might need to adjust how the catalog is accessed if llm.py dependencies are complex
 # For now, let's assume we can import and use it similarly
 # If this causes issues, we'll refactor catalog access.
-from app.services.llm import get_iceberg_catalog, get_duckdb_conn
+from app.services.duckdb import get_iceberg_catalog, get_duckdb_conn
 from app.config import settings
 
 logger = logging.getLogger(__name__)

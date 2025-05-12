@@ -8,15 +8,23 @@ import pandas as pd
 import pyarrow as pa
 from pyiceberg.io.pyarrow import schema_to_pyarrow
 from typing import List, Dict, Tuple, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import sqlalchemy.exc
+import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+import traceback
+import sys
 
 # Remove Qdrant Imports
 # from qdrant_client import QdrantClient, models
 # from qdrant_client.http.exceptions import UnexpectedResponse
 # Import Milvus
 from pymilvus import MilvusClient
+
+# Ensure SQLAlchemy models are properly initialized
+from app.db import models
 
 from app.celery_app import celery_app
 # from ..core.config import settings # OLD Relative import (wrong path)

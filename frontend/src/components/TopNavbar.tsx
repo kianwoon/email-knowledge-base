@@ -31,7 +31,7 @@ import {
 } from '@chakra-ui/react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { SunIcon, MoonIcon, HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
-import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey, FaRobot, FaShareAltSquare, FaEnvelopeOpenText, FaChartBar } from 'react-icons/fa';
+import { FaFilter, FaClipboardCheck, FaSearch, FaSignOutAlt, FaBook, FaUsers, FaGlobe, FaHome, FaMicrosoft, FaBoxes, FaDatabase, FaShareSquare, FaConfluence, FaServer, FaGoogleDrive, FaAws, FaBrain, FaKey, FaRobot, FaShareAltSquare, FaEnvelopeOpenText, FaChartBar, FaUsersCog } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { getLoginUrl } from '../api/auth';
 
@@ -85,7 +85,8 @@ const TopNavbar = ({ onLogout, isAuthenticated, user }: TopNavbarProps): JSX.Ele
         { path: '/knowledge', label: t('navigation.knowledgeManagement'), icon: FaBoxes },
         { path: '/tokens', label: t('navigation.tokenManagement'), icon: FaKey },
         { path: '/jarvis', label: t('navigation.jarvis'), icon: FaRobot },
-        { path: '/token-usage', label: t('navigation.tokenUsage'), icon: FaChartBar, disabled: false }
+        { path: '/token-usage', label: t('navigation.tokenUsage'), icon: FaChartBar, disabled: false },
+        { path: '/autogen', label: t('navigation.agenticAI'), icon: FaUsersCog, disabled: false }
       ]
     },
     { path: '/docs', label: t('navigation.documentation'), icon: FaBook },

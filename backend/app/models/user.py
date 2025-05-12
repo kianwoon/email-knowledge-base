@@ -29,7 +29,7 @@ if typing.TYPE_CHECKING:
     # Keep APIKeyDB import here if needed for other type hints
     # from .api_key import APIKeyDB 
     from .custom_knowledge_file import CustomKnowledgeFile
-    from app.db.models.mcp_tool import MCPToolDB  # Add import for MCPToolDB
+    from app.db.models.mcp_tool import MCPToolDB  # MCPToolDB type hint for type checking only
 # --- End TYPE_CHECKING block ---
 
 

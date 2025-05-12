@@ -49,6 +49,7 @@ import AzureBlobBrowser from './pages/DataSource/AzureBlob/AzureBlobBrowser';
 // Import the OutlookSync page
 import OutlookSyncPage from './pages/DataSource/OutlookSync';
 // import EmailProcessing from './pages/documentation/EmailProcessing'; // <-- Comment out or remove this line
+import AutoGenPage from './pages/AutoGenPage'; // Import the AutoGenPage component
 
 // MUI Theme imports for wrapping AzureBlobBrowser - NO LONGER NEEDED
 // import { ThemeProvider as MuiThemeProvider, createTheme as createMuiTheme } from '@mui/material/styles';
@@ -522,6 +523,18 @@ function App() {
             }
           />
           {/* --- End Azure Blob Route --- */}
+
+          {/* AutoGen AI Route */}
+          <Route
+            path="/autogen"
+            element={
+              <ProtectedRoute isAuthenticated={auth.isAuthenticated} onOpenLoginModal={onSessionExpiredModalOpen}>
+                <React.Suspense fallback={<LoadingScreen />}>
+                  <AutoGenPage />
+                </React.Suspense>
+              </ProtectedRoute>
+            }
+          />
 
           {/* Add routes for lazy-loaded pages */}
           <Route

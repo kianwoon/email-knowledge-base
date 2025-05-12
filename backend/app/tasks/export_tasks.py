@@ -23,7 +23,7 @@ from app.models.token_models import TokenDB
 from app.crud import crud_export_job, token_crud
 
 # Import services needed for data fetching/storage
-from app.services.llm import query_iceberg_emails_duckdb
+from app.services.duckdb import query_iceberg_emails_duckdb
 from app.services import s3 as r2_service
 # Import counters for auditing from the new metrics module
 from app.metrics import ATTACHMENT_REDACTIONS # Add other counters if needed

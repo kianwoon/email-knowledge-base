@@ -140,6 +140,7 @@
     "chat": "对话",
     "settings": "设置",
     "tokenUsage": "令牌使用",
+    "agenticAI": "智能代理 AI",
     "customKnowledge": "自定义知识库"
   },
   "jarvis": {
@@ -522,6 +523,80 @@
       "message": "正在加载 Outlook 文件夹...",
       "default": "正在加载您的 Outlook 文件夹...",
       "error": "无法加载您的 Outlook 文件夹。请稍后再试。"
+    }
+  },
+  "agenticAI": {
+    "title": "基于 AutoGen 的智能代理 AI",
+    "subtitle": "利用多个 AI 代理协作解决复杂任务的强大功能",
+    "chat": {
+      "title": "智能代理 AI 聊天",
+      "placeholder": "输入您的消息...",
+      "reset": "重置对话",
+      "agentsThinking": "代理正在思考中...",
+      "welcomeMessage": "我是您的智能代理 AI 助手，可以通过多个 AI 代理协作帮助您完成复杂任务。今天有什么可以帮您的吗？",
+      "errorMessage": "抱歉，处理您的请求时出错。请重试。",
+      "manageAgents": "管理代理",
+      "agentName": "代理名称",
+      "agentType": "代理类型",
+      "systemMessage": "系统消息",
+      "addAgent": "添加代理",
+      "editAgent": "编辑代理",
+      "deleteAgent": "删除代理",
+      "agentTemplates": "预定义模板",
+      "generalAssistant": "通用助手",
+      "researcher": "研究专家",
+      "coder": "编程专家",
+      "critic": "评论专家",
+      "custom": "自定义",
+      "typeHelp": "代理类型会影响其行为和专业知识",
+      "systemMessageHelp": "此指令指导代理如何表现和回应",
+      "validationError": "代理名称和系统消息为必填项",
+      "noAgentsEnabled": "没有启用任何代理。请至少启用一个代理。"
+    },
+    "research": {
+      "title": "研究工作流",
+      "subtitle": "创建专业 AI 代理团队深入研究主题",
+      "questionLabel": "研究问题",
+      "questionPlaceholder": "量子计算对环境有什么影响？",
+      "modelLabel": "模型",
+      "modelHelp": "选择用于此工作流的 AI 模型",
+      "maxRoundsLabel": "最大轮次",
+      "temperatureLabel": "温度",
+      "submitButton": "开始研究",
+      "running": "正在执行研究工作流...",
+      "resultsTitle": "研究结果",
+      "summaryTitle": "摘要",
+      "conversationHistoryTitle": "对话历史",
+      "messagesCount": "{{count}} 条消息",
+      "noResults": "启动研究工作流以在此处查看结果"
+    },
+    "codeGeneration": {
+      "title": "代码生成工作流",
+      "subtitle": "创建 AI 代理团队设计、实现和测试代码",
+      "taskLabel": "任务描述",
+      "taskPlaceholder": "创建一个从 API 获取天气数据的 Python 脚本",
+      "workDirLabel": "工作目录",
+      "workDirHelp": "代码将保存在服务器上的目录",
+      "submitButton": "生成代码",
+      "running": "正在执行代码生成工作流...",
+      "resultsTitle": "代码生成结果",
+      "locationTitle": "生成代码位置",
+      "conversationHistoryTitle": "对话历史",
+      "messagesCount": "{{count}} 条消息",
+      "noResults": "启动代码生成工作流以在此处查看结果"
+    },
+    "qa": {
+      "title": "问答",
+      "subtitle": "基于特定上下文获取准确答案",
+      "questionLabel": "问题",
+      "questionPlaceholder": "法国的首都是什么？",
+      "contextLabel": "上下文",
+      "contextPlaceholder": "法国是西欧的一个国家，巴黎是其首都。",
+      "contextHelp": "输入上下文信息，每行一个段落。AI 将仅使用此信息回答。",
+      "submitButton": "回答问题",
+      "running": "正在处理问题...",
+      "resultsTitle": "答案",
+      "noResults": "提出问题以在此处查看答案"
     }
   }
 }

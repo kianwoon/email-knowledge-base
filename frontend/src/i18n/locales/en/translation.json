@@ -44,6 +44,7 @@
     "jarvis": "Jarvis",
     "dashboard": "Dashboard",
     "tokenUsage": "Token Usage",
+    "agenticAI": "Agentic AI",
     "customKnowledge": "Custom Knowledge"
   },
   "features": {
@@ -2212,5 +2213,79 @@
     "parameters": "Parameters",
     "jiraDescription": "Creates a new JIRA issue",
     "weatherDescription": "Gets weather forecast for a location"
+  },
+  "agenticAI": {
+    "title": "Agentic AI with AutoGen",
+    "subtitle": "Harness the power of multiple AI agents collaborating to solve complex tasks",
+    "chat": {
+      "title": "Agentic AI Chat",
+      "placeholder": "Type your message...",
+      "reset": "Reset Chat",
+      "agentsThinking": "Agents are thinking...",
+      "welcomeMessage": "I'm your agentic AI assistant, ready to help with complex tasks using multiple AI agents. What can I help you with today?",
+      "errorMessage": "Sorry, there was an error processing your request. Please try again.",
+      "manageAgents": "Manage Agents",
+      "agentName": "Agent Name",
+      "agentType": "Agent Type",
+      "systemMessage": "System Message",
+      "addAgent": "Add Agent",
+      "editAgent": "Edit Agent",
+      "deleteAgent": "Delete Agent",
+      "agentTemplates": "Predefined Templates",
+      "generalAssistant": "General Assistant",
+      "researcher": "Researcher",
+      "coder": "Code Expert",
+      "critic": "Critic",
+      "custom": "Custom",
+      "typeHelp": "The agent type influences its behavior and expertise",
+      "systemMessageHelp": "This instruction guides how the agent behaves and responds",
+      "validationError": "Agent name and system message are required",
+      "noAgentsEnabled": "No agents are enabled. Please enable at least one agent."
+    },
+    "research": {
+      "title": "Research Workflow",
+      "subtitle": "Create a team of specialized AI agents to research a topic in depth",
+      "questionLabel": "Research Question",
+      "questionPlaceholder": "What are the environmental impacts of quantum computing?",
+      "modelLabel": "Model",
+      "modelHelp": "Select the AI model to use for this workflow",
+      "maxRoundsLabel": "Max Rounds",
+      "temperatureLabel": "Temperature",
+      "submitButton": "Start Research",
+      "running": "Running research workflow...",
+      "resultsTitle": "Research Results",
+      "summaryTitle": "Summary",
+      "conversationHistoryTitle": "Conversation History",
+      "messagesCount": "{{count}} messages",
+      "noResults": "Start a research workflow to see results here"
+    },
+    "codeGeneration": {
+      "title": "Code Generation Workflow",
+      "subtitle": "Create a team of AI agents to design, implement and test code",
+      "taskLabel": "Task Description",
+      "taskPlaceholder": "Create a Python script that fetches weather data from an API",
+      "workDirLabel": "Working Directory",
+      "workDirHelp": "Directory where code will be saved on the server",
+      "submitButton": "Generate Code",
+      "running": "Running code generation workflow...",
+      "resultsTitle": "Code Generation Results",
+      "locationTitle": "Generated Code Location",
+      "conversationHistoryTitle": "Conversation History",
+      "messagesCount": "{{count}} messages",
+      "noResults": "Start a code generation workflow to see results here"
+    },
+    "qa": {
+      "title": "Question Answering",
+      "subtitle": "Get accurate answers based on specific context",
+      "questionLabel": "Question",
+      "questionPlaceholder": "What is the capital of France?",
+      "contextLabel": "Context",
+      "contextPlaceholder": "France is a country in Western Europe with Paris as its capital city.",
+      "contextHelp": "Enter context information, one paragraph per line. The AI will only use this information to answer.",
+      "submitButton": "Answer Question",
+      "running": "Processing question...",
+      "resultsTitle": "Answer",
+      "noResults": "Ask a question to see the answer here"
+    }
   }
 }

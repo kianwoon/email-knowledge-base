@@ -6,7 +6,6 @@ from .api_key import APIKeyDB, APIKey, APIKeyCreate
 from .user_preference import UserPreferenceDB, UserPreference
 from .custom_knowledge_file import CustomKnowledgeFile
 from .email import EmailContent, EmailFilter, EmailPreview, EmailAttachment
-from .aws_credential import AwsCredential
 from .azure_blob import AzureBlobConnection
 from .sharepoint import SharePointItem, SharePointDrive, SharePointSite, UsedInsight, RecentDriveItem
 
@@ -24,7 +23,6 @@ __all__ = [
     "EmailFilter",
     "EmailPreview",
     "EmailAttachment",
-    "AwsCredential",
     "AzureBlobConnection",
     "SharePointItem",
     "SharePointDrive",

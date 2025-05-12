@@ -8,6 +8,8 @@ import uuid
 from sqlalchemy import func
 from fastapi import HTTPException
 
+# Import all models to ensure proper initialization
+from app.db.models import MCPToolDB  # Ensure MCPToolDB is properly initialized
 # Import BOTH the Pydantic User and the SQLAlchemy UserDB models
 from ..models.user import User, UserDB 
 

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from app.models.email import EmailReview, EmailApproval, ReviewStatus
 from app.models.user import User
 from app.dependencies.auth import get_current_active_user
-from app.services.llm import analyze_email_content
+from app.rag.email_rag import analyze_email_content
 
 logger = logging.getLogger("app")
 router = APIRouter()

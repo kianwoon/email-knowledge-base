@@ -17,16 +17,17 @@ from app.metrics import COLUMN_BLOCKS, ATTACHMENT_REDACTIONS
 
 # +++ Explicitly import ALL necessary SQLAlchemy Models +++
 # This ensures they are registered with Base.metadata before routes are loaded
+# Import DB model package for proper initialization
+from app.db import models
+
 from app.models.user import UserDB
 from app.models.api_key import APIKeyDB
 from app.models.user_preference import UserPreferenceDB
-from app.db.models.processed_file import ProcessedFile 
 from app.models.custom_knowledge_file import CustomKnowledgeFile # Keep if used
 from app.models.aws_credential import AwsCredential
 from app.models.azure_blob import AzureBlobConnection
 from app.models.azure_blob_sync_item import AzureBlobSyncItem
 from app.models.sharepoint_sync import SharePointSyncItem
-from app.db.models.mcp_tool import MCPToolDB  # Add our MCPToolDB model
 # Add other DB models used by the application here...
 # from app.models.ingestion_job import IngestionJob # Example
 # --- End Model Imports ---
@@ -47,7 +48,9 @@ from app.routes import (
     mcp_tools,  # Add our mcp_tools router
     tool_execution,  # Add our new tool_execution router
     # Import the websockets router
-    websockets
+    websockets,
+    # Import the AutoGen router
+    autogen
 )
 # Import the new shared_knowledge router
 # from app.routes import shared_knowledge 
@@ -212,6 +215,8 @@ app.include_router(shared_knowledge_catalog.router, prefix=f"{settings.API_PREFI
 app.include_router(outlook_sync.router, prefix=f"{settings.API_PREFIX}/email/sync", tags=["Outlook Sync"])
 app.include_router(mcp_tools.router, prefix=f"{settings.API_PREFIX}/mcp", tags=["MCP Tools"])  # Include our mcp_tools router
 app.include_router(tool_execution.router, prefix=f"{settings.API_PREFIX}/tool", tags=["Tool Execution"])
+# Include the AutoGen router
+app.include_router(autogen.router, prefix=f"{settings.API_PREFIX}/autogen", tags=["AutoGen"])
 
 # Include the websockets router
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])

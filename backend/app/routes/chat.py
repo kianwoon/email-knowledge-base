@@ -10,7 +10,8 @@ import uuid
 import os
 
 # Import the RAG function
-from app.services.llm import generate_openai_rag_response, get_rate_card_response_advanced
+from app.orchestration.tool_router import generate_openai_rag_response
+from app.rag.ratecard_rag import get_rate_card_response_advanced
 # Import authentication dependency and User model
 from app.dependencies.auth import get_current_active_user_or_token_owner
 from app.models.user import User
