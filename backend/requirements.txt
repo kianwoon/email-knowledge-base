@@ -70,7 +70,7 @@ grpcio-tools~=1.56.0
 # ADDED prometheus-fastapi-instrumentator
 prometheus-fastapi-instrumentator
 cryptography
-httpx
+httpx==0.28.1
 
 # Microsoft AutoGen requirements
 pyautogen==0.9
