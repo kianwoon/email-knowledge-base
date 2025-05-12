@@ -19,64 +19,47 @@ def create_assistant(
     name: str = "Assistant",
     system_message: str = "You are a helpful AI assistant.",
     llm_config: Optional[Dict[str, Any]] = None,
-    human_input_mode: str = "NEVER"
+    **kwargs
 ) -> AssistantAgent:
     """
-    Create an AutoGen assistant agent.
+    Create an AssistantAgent with the specified configuration.
     
     Args:
-        name: Name of the assistant
-        system_message: System message/instructions for the assistant
+        name: Name of the agent
+        system_message: System message for the agent
         llm_config: LLM configuration
-        human_input_mode: Mode for human input
+        **kwargs: Additional arguments for the agent
         
     Returns:
-        AssistantAgent: The created assistant agent
+        Created agent
     """
-    logger.info(f"Creating assistant agent: {name}")
-    
-    # Use default config if none provided
-    if llm_config is None:
-        llm_config = {
-            "config_list": [
-                {
-                    "model": "gpt-3.5-turbo",
-                    "api_key": settings.OPENAI_API_KEY
-                }
-            ],
-            "temperature": 0.7
-        }
-    
     try:
-        # Create the assistant agent using AutoGen 0.9.0 API
+        # Sanitize the agent name by replacing spaces with underscores
+        sanitized_name = name.replace(' ', '_')
+        logger.info(f"Creating assistant agent: {name}")
+        
+        # Create the AssistantAgent
         assistant = AssistantAgent(
-            name=name,
+            name=sanitized_name,
             system_message=system_message,
             llm_config=llm_config,
-            human_input_mode=human_input_mode
+            **kwargs
         )
         return assistant
     except Exception as e:
-        logger.error(f"Error creating assistant agent: {str(e)}", exc_info=True)
-        # Try with an even simpler configuration
+        logger.error(f"Error creating assistant agent: {str(e)}")
+        
+        # If first attempt fails, try with a very basic configuration
         try:
-            minimal_llm_config = {
-                "config_list": [
-                    {
-                        "model": "gpt-3.5-turbo",
-                        "api_key": settings.OPENAI_API_KEY
-                    }
-                ]
-            }
+            sanitized_name = name.replace(' ', '_')
             assistant = AssistantAgent(
-                name=name,
-                system_message=system_message,
-                llm_config=minimal_llm_config,
-                human_input_mode=human_input_mode
+                name=sanitized_name,
+                system_message="You are a helpful assistant.",
+                llm_config={"config_list": [{"model": "gpt-3.5-turbo"}]},
             )
             return assistant
-        except Exception as e2:
-            logger.error(f"Second attempt failed: {str(e2)}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Second attempt failed: {str(e)}")
             raise RuntimeError(f"Failed to create assistant agent: {str(e)}")
 
 def create_user_proxy(

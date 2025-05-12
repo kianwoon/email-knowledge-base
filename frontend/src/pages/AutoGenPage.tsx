@@ -388,6 +388,7 @@ const AutoGenPage: React.FC = () => {
 
   const handleEditAgent = (agent: CustomAgent) => {
     setIsEditing(true);
+    // When showing for editing, convert underscores back to spaces for better UX
     setCurrentAgent({...agent});
     onOpen();
   };
@@ -423,18 +424,35 @@ const AutoGenPage: React.FC = () => {
       });
       return;
     }
+    
+    // Sanitize the agent name by replacing spaces with underscores
+    const sanitizedAgent = {
+      ...currentAgent,
+      name: currentAgent.name.replace(/\s+/g, '_')
+    };
 
     let updatedAgents;
     if (isEditing) {
       updatedAgents = customAgents.map(agent => 
-        agent.id === currentAgent.id ? currentAgent : agent
+        agent.id === sanitizedAgent.id ? sanitizedAgent : agent
       );
     } else {
-      updatedAgents = [...customAgents, currentAgent];
+      updatedAgents = [...customAgents, sanitizedAgent];
     }
     
     setCustomAgents(updatedAgents);
     setChatForm(prev => ({...prev, agents: updatedAgents}));
+    
+    // Show a toast if the name was changed
+    if (sanitizedAgent.name !== currentAgent.name) {
+      toast({
+        title: 'Agent Name Modified',
+        description: 'Spaces in agent name were replaced with underscores to ensure compatibility.',
+        status: 'info',
+        duration: 5000,
+      });
+    }
+    
     onClose();
   };
 
@@ -784,9 +802,9 @@ const AutoGenPage: React.FC = () => {
                       <Avatar
                         size="xs"
                         mr={2}
-                        name={agent.name}
+                        name={agent.name.replace(/_/g, ' ')}
                       />
-                      {agent.name}
+                      {agent.name.replace(/_/g, ' ')}
                       <IconButton
                         aria-label="Edit agent"
                         icon={<FaPen />}
@@ -795,7 +813,9 @@ const AutoGenPage: React.FC = () => {
                         variant="ghost"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleEditAgent(agent);
+                          // When editing, display the name with spaces for editing, but keep the ID
+                          const displayAgent = {...agent, name: agent.name.replace(/_/g, ' ')};
+                          handleEditAgent(displayAgent);
                         }}
                       />
                     </Tag>
@@ -844,7 +864,7 @@ const AutoGenPage: React.FC = () => {
                       >
                         {msg.agentName && msg.role !== 'user' && (
                           <Text fontSize="xs" fontWeight="bold" mb={1} color="gray.500">
-                            {msg.agentName}
+                            {msg.agentName.replace(/_/g, ' ')}
                           </Text>
                         )}
                         <Text whiteSpace="pre-wrap">{msg.content}</Text>
@@ -874,15 +894,26 @@ const AutoGenPage: React.FC = () => {
               <Box p={4} borderTopWidth="1px" borderColor={borderColor}>
                 <form onSubmit={handleChatSubmit}>
                   <InputGroup>
-                    <Input
+                    <Textarea
                       name="message"
                       value={chatForm.message}
                       onChange={handleChatChange}
                       placeholder={t('agenticAI.chat.placeholder')}
                       pr="4.5rem"
+                      resize="vertical"
+                      minH="60px"
+                      maxH="200px"
                       disabled={chatLoading}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (chatForm.message.trim()) {
+                            handleChatSubmit(e);
+                          }
+                        }
+                      }}
                     />
-                    <InputRightElement width="4.5rem">
+                    <InputRightElement width="4.5rem" h="auto" top="10px">
                       <Button 
                         h="1.75rem" 
                         size="sm" 
@@ -895,6 +926,14 @@ const AutoGenPage: React.FC = () => {
                       </Button>
                     </InputRightElement>
                   </InputGroup>
+                  <Flex justify="space-between" align="center" mt={1}>
+                    <Text fontSize="xs" color="gray.500">
+                      {t('agenticAI.chat.pressEnterToSend', 'Press Enter to send, Shift+Enter for new line')}
+                    </Text>
+                    <Text fontSize="xs" color={chatForm.message.length > 4000 ? "red.500" : "gray.500"}>
+                      {chatForm.message.length}/4000
+                    </Text>
+                  </Flex>
                 </form>
               </Box>
             </Card>
