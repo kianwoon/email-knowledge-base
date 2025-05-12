@@ -8,6 +8,9 @@ from .custom_knowledge_file import CustomKnowledgeFile
 from .email import EmailContent, EmailFilter, EmailPreview, EmailAttachment
 from .azure_blob import AzureBlobConnection
 from .sharepoint import SharePointItem, SharePointDrive, SharePointSite, UsedInsight, RecentDriveItem
+from .user_settings import UserSettings
+from .agent import Agent
+from .conversation import AutogenConversation, AutogenMessage
 
 __all__ = [
     "UserDB",
@@ -28,5 +31,9 @@ __all__ = [
     "SharePointDrive",
     "SharePointSite",
     "UsedInsight",
-    "RecentDriveItem"
+    "RecentDriveItem",
+    "UserSettings",
+    "Agent",
+    "AutogenConversation",
+    "AutogenMessage"
 ] 

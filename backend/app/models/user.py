@@ -162,5 +162,30 @@ class UserDB(Base):
     )
     # --- End Add ---
 
+    # +++ Add Relationship to UserSettings +++
+    settings = relationship(
+        "UserSettings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+    # --- End Add ---
+    
+    # +++ Add Relationship to Agent +++
+    agents: Mapped[List["Agent"]] = relationship(
+        "Agent",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    # --- End Add ---
+    
+    # +++ Add Relationship to AutogenConversation +++
+    autogen_conversations: Mapped[List["AutogenConversation"]] = relationship(
+        "AutogenConversation",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    # --- End Add ---
+
     def __repr__(self) -> str:
         return f"<UserDB(email='{self.email}', name='{self.display_name}')>"

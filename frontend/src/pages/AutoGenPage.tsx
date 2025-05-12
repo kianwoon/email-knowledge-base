@@ -44,12 +44,25 @@ import {
   DrawerOverlay,
   useDisclosure,
   Stack,
-  Divider
+  Divider,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Switch
 } from '@chakra-ui/react';
-import { FaUsers, FaCode, FaSearch, FaRobot, FaUsersCog, FaQuestion, FaComments, FaPaperPlane, FaPlus, FaPen, FaTrash, FaCog } from 'react-icons/fa';
+import { FaUsers, FaCode, FaSearch, FaRobot, FaUsersCog, FaQuestion, FaComments, FaPaperPlane, FaPlus, FaPen, FaTrash, FaCog, FaChevronDown, FaSave, FaUndo, FaHistory } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { getAllApiKeys, getDefaultModel } from '../api/user';
+import { getUserAgents, createAgent, updateAgent, deleteAgent } from '../api/agent';
+import { getUserConversations, getConversationById, createConversation, updateConversation, addMessageToConversation, deleteConversation } from '../api/conversation';
+import { getUserSettings, updateUserSettings } from '../api/settings';
 
 // Model interface matching Jarvis implementation
 interface LLMModel {
@@ -111,19 +124,35 @@ interface ChatMessage {
   agentName?: string;
 }
 
-// New interface for custom agent definition
+// Updated interface for custom agent definition with server fields
 interface CustomAgent {
   id: string;
   name: string;
   type: 'assistant' | 'researcher' | 'coder' | 'critic' | 'custom';
   systemMessage: string;
   isEnabled: boolean;
+  // New fields for database stored agents
+  createdAt?: Date;
+  updatedAt?: Date;
+  // Flag to distinguish saved agents from temporary ones
+  isSaved?: boolean;
+}
+
+// New interface for conversation data
+interface ConversationData {
+  id: string;
+  title: string;
+  createdAt: Date;
+  updatedAt: Date;
+  maxRounds: number;
 }
 
 interface ChatForm {
   message: string;
   model_id: string;
   agents: CustomAgent[]; // Add agents array to the chat form
+  max_rounds: number; // Add max_rounds to the chat form
+  conversation_id?: string; // Add conversation_id to track the current conversation
 }
 
 const AutoGenPage: React.FC = () => {
@@ -173,23 +202,38 @@ const AutoGenPage: React.FC = () => {
 
   // State for agent management
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([
-    {
-      id: '1',
-      name: 'Assistant',
-      type: 'assistant',
-      systemMessage: 'You are a helpful AI assistant that provides accurate, concise information. Respond to the user\'s queries in a friendly and informative manner.',
-      isEnabled: true
-    }
-  ]);
+  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
+  const [savedAgents, setSavedAgents] = useState<CustomAgent[]>([]);
   const [currentAgent, setCurrentAgent] = useState<CustomAgent | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [agentsLoading, setAgentsLoading] = useState(false);
   
-  // Update the chat form to include agents
+  // New state for conversation management
+  const [conversations, setConversations] = useState<ConversationData[]>([]);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+  const [currentConversation, setCurrentConversation] = useState<ConversationData | null>(null);
+  
+  // Conversation drawer state
+  const { 
+    isOpen: isConversationDrawerOpen, 
+    onOpen: onConversationDrawerOpen, 
+    onClose: onConversationDrawerClose 
+  } = useDisclosure();
+  
+  // User settings state
+  const [userSettings, setUserSettings] = useState({
+    maxRounds: 10,
+    defaultModel: ''
+  });
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  
+  // Update the chat form to include maxRounds and conversationId
   const [chatForm, setChatForm] = useState<ChatForm>({
     message: '',
     model_id: '',
-    agents: customAgents
+    agents: [],
+    max_rounds: 10,
+    conversation_id: undefined
   });
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -393,10 +437,37 @@ const AutoGenPage: React.FC = () => {
     onOpen();
   };
 
-  const handleDeleteAgent = (agentId: string) => {
-    const updatedAgents = customAgents.filter(agent => agent.id !== agentId);
-    setCustomAgents(updatedAgents);
-    setChatForm(prev => ({...prev, agents: updatedAgents}));
+  const handleDeleteAgent = async (agentId: string, isSaved: boolean = false) => {
+    try {
+      if (isSaved) {
+        // Delete from the database if it's a saved agent
+        await deleteAgent(agentId);
+        
+        // Remove from savedAgents state
+        setSavedAgents(prev => prev.filter(agent => agent.id !== agentId));
+        
+        toast({
+          title: 'Agent deleted',
+          description: 'The agent has been deleted from your saved agents',
+          status: 'success',
+          duration: 3000,
+        });
+      }
+      
+      // Always remove from customAgents state (for current chat)
+      const updatedAgents = customAgents.filter(agent => agent.id !== agentId);
+      setCustomAgents(updatedAgents);
+      setChatForm(prev => ({...prev, agents: updatedAgents}));
+      
+    } catch (error) {
+      console.error("Error deleting agent:", error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete the agent',
+        status: 'error',
+        duration: 5000,
+      });
+    }
   };
 
   const handleToggleAgent = (agentId: string) => {
@@ -414,7 +485,7 @@ const AutoGenPage: React.FC = () => {
     }
   };
 
-  const handleSaveAgent = () => {
+  const handleSaveAgent = async () => {
     if (!currentAgent || !currentAgent.name || !currentAgent.systemMessage) {
       toast({
         title: 'Validation Error',
@@ -431,35 +502,105 @@ const AutoGenPage: React.FC = () => {
       name: currentAgent.name.replace(/\s+/g, '_')
     };
 
-    let updatedAgents;
-    if (isEditing) {
-      updatedAgents = customAgents.map(agent => 
-        agent.id === sanitizedAgent.id ? sanitizedAgent : agent
-      );
-    } else {
-      updatedAgents = [...customAgents, sanitizedAgent];
-    }
-    
-    setCustomAgents(updatedAgents);
-    setChatForm(prev => ({...prev, agents: updatedAgents}));
-    
-    // Show a toast if the name was changed
-    if (sanitizedAgent.name !== currentAgent.name) {
+    try {
+      let updatedAgents;
+      
+      // Check if we need to save this agent to the database
+      const shouldSaveToDatabase = document.getElementById('saveToDatabase') as HTMLInputElement;
+      
+      if (shouldSaveToDatabase && shouldSaveToDatabase.checked) {
+        if (isEditing && sanitizedAgent.isSaved) {
+          // Update an existing saved agent
+          const updatedAgent = await updateAgent(sanitizedAgent.id, {
+            name: sanitizedAgent.name,
+            type: sanitizedAgent.type,
+            systemMessage: sanitizedAgent.systemMessage
+          });
+          
+          // Update savedAgents state
+          setSavedAgents(prev => prev.map(agent => 
+            agent.id === updatedAgent.id ? {...updatedAgent, isEnabled: false, isSaved: true} : agent
+          ));
+          
+          toast({
+            title: 'Agent updated',
+            description: 'The agent has been updated in your saved agents',
+            status: 'success',
+            duration: 3000,
+          });
+        } else {
+          // Create a new saved agent
+          const createdAgent = await createAgent({
+            name: sanitizedAgent.name,
+            type: sanitizedAgent.type,
+            systemMessage: sanitizedAgent.systemMessage
+          });
+          
+          // Add to savedAgents state
+          setSavedAgents(prev => [...prev, {...createdAgent, isEnabled: false, isSaved: true}]);
+          
+          // Update the sanitizedAgent with the returned ID and saved status
+          sanitizedAgent.id = createdAgent.id;
+          sanitizedAgent.isSaved = true;
+          
+          toast({
+            title: 'Agent saved',
+            description: 'The agent has been saved to your agent library',
+            status: 'success',
+            duration: 3000,
+          });
+        }
+      }
+      
+      // Always update the current chat agents
+      if (isEditing) {
+        updatedAgents = customAgents.map(agent => 
+          agent.id === sanitizedAgent.id ? sanitizedAgent : agent
+        );
+      } else {
+        updatedAgents = [...customAgents, sanitizedAgent];
+      }
+      
+      setCustomAgents(updatedAgents);
+      setChatForm(prev => ({...prev, agents: updatedAgents}));
+      
+      // Show a toast if the name was changed
+      if (sanitizedAgent.name !== currentAgent.name) {
+        toast({
+          title: 'Agent Name Modified',
+          description: 'Spaces in agent name were replaced with underscores to ensure compatibility.',
+          status: 'info',
+          duration: 5000,
+        });
+      }
+      
+      onClose();
+      
+    } catch (error) {
+      console.error("Error saving agent:", error);
       toast({
-        title: 'Agent Name Modified',
-        description: 'Spaces in agent name were replaced with underscores to ensure compatibility.',
-        status: 'info',
+        title: 'Error',
+        description: 'Failed to save the agent',
+        status: 'error',
         duration: 5000,
       });
     }
-    
-    onClose();
   };
 
   // Chat handlers
   const handleChatChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setChatForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleMaxRoundsChange = (value: string) => {
+    setChatForm(prev => ({ ...prev, max_rounds: parseInt(value) || 5 }));
+    
+    // Save the max rounds setting to user preferences
+    updateUserSettings({ maxRounds: parseInt(value) || 5 })
+      .catch(error => {
+        console.error("Error saving max rounds setting:", error);
+      });
   };
 
   const handleChatSubmit = async (e: React.FormEvent) => {
@@ -479,12 +620,37 @@ const AutoGenPage: React.FC = () => {
     setChatLoading(true);
     
     try {
+      // Check if we need to create a new conversation
+      let conversationId = chatForm.conversation_id;
+      
+      if (!conversationId) {
+        // Create a new conversation
+        const conversation = await createConversation({
+          title: userMessage.content.substring(0, 50) + (userMessage.content.length > 50 ? '...' : ''),
+          maxRounds: chatForm.max_rounds
+        });
+        
+        // Update state with the new conversation
+        setConversations(prev => [conversation, ...prev]);
+        setCurrentConversation(conversation);
+        
+        // Update the chat form with the new conversation ID
+        conversationId = conversation.id;
+        setChatForm(prev => ({ ...prev, conversation_id: conversation.id }));
+      }
+      
       // Get enabled agents
       const enabledAgents = chatForm.agents.filter(agent => agent.isEnabled);
       
       if (enabledAgents.length === 0) {
         throw new Error(t('agenticAI.chat.noAgentsEnabled'));
       }
+      
+      // Save the user message to the conversation
+      await addMessageToConversation(conversationId, {
+        role: 'user',
+        content: userMessage.content
+      });
       
       // Call the agentic AI endpoint with agents configuration - Each call is a single message exchange
       const response = await api.post('/api/v1/autogen/chat', {
@@ -504,25 +670,34 @@ const AutoGenPage: React.FC = () => {
           type: agent.type,
           system_message: agent.systemMessage
         })),
-        max_rounds: 1 // Only one round of conversation per API call
+        max_rounds: chatForm.max_rounds // Use the user-configured max rounds
       });
       
       // Process the response
       if (response.data.messages && Array.isArray(response.data.messages)) {
         // If we get multiple messages (from different agents)
         if (response.data.messages.length > 0) {
-          response.data.messages.forEach((msg: any, index: number) => {
+          for (const msg of response.data.messages) {
             if (msg.content?.trim()) { // Only add non-empty messages
               const agentMsg: ChatMessage = {
-                id: `${Date.now()}-${index}`,
+                id: `${Date.now()}-${Math.random()}`,
                 role: 'assistant',
                 content: msg.content,
                 timestamp: new Date(),
-                agentName: msg.name || 'Assistant'
+                agentName: msg.agent || msg.name || 'Assistant'
               };
+              
+              // Add to UI
               setChatMessages(prev => [...prev, agentMsg]);
+              
+              // Save to database
+              await addMessageToConversation(conversationId, {
+                role: 'assistant',
+                content: agentMsg.content,
+                agentName: agentMsg.agentName
+              });
             }
-          });
+          }
         } else {
           // Add a default message if no messages were returned
           const defaultMsg: ChatMessage = {
@@ -532,7 +707,16 @@ const AutoGenPage: React.FC = () => {
             timestamp: new Date(),
             agentName: 'Assistant'
           };
+          
+          // Add to UI
           setChatMessages(prev => [...prev, defaultMsg]);
+          
+          // Save to database
+          await addMessageToConversation(conversationId, {
+            role: 'assistant',
+            content: defaultMsg.content,
+            agentName: defaultMsg.agentName
+          });
         }
       } else {
         // Simple response
@@ -543,8 +727,24 @@ const AutoGenPage: React.FC = () => {
           timestamp: new Date(),
           agentName: 'Assistant'
         };
+        
+        // Add to UI
         setChatMessages(prev => [...prev, assistantMessage]);
+        
+        // Save to database
+        await addMessageToConversation(conversationId, {
+          role: 'assistant',
+          content: assistantMessage.content,
+          agentName: assistantMessage.agentName
+        });
       }
+      
+      // If this is a new conversation, refresh the conversation list
+      if (!chatForm.conversation_id) {
+        const conversationData = await getUserConversations();
+        setConversations(conversationData);
+      }
+      
     } catch (error) {
       // Add error message to chat
       const errorMessage: ChatMessage = {
@@ -676,6 +876,145 @@ const AutoGenPage: React.FC = () => {
     }
   };
 
+  // Add useEffect to load saved agents
+  useEffect(() => {
+    const loadSavedAgents = async () => {
+      setAgentsLoading(true);
+      try {
+        const agents = await getUserAgents();
+        setSavedAgents(agents.map(agent => ({
+          ...agent,
+          isEnabled: false,
+          isSaved: true
+        })));
+        console.log("Loaded saved agents:", agents);
+      } catch (error) {
+        console.error("Error loading saved agents:", error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load your saved agents',
+          status: 'error',
+          duration: 5000,
+        });
+      } finally {
+        setAgentsLoading(false);
+      }
+    };
+
+    loadSavedAgents();
+  }, [toast]);
+
+  // Add useEffect to load conversations
+  useEffect(() => {
+    const loadConversations = async () => {
+      setConversationsLoading(true);
+      try {
+        const conversationData = await getUserConversations();
+        setConversations(conversationData);
+        console.log("Loaded conversations:", conversationData);
+      } catch (error) {
+        console.error("Error loading conversations:", error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load your conversation history',
+          status: 'error',
+          duration: 5000,
+        });
+      } finally {
+        setConversationsLoading(false);
+      }
+    };
+
+    loadConversations();
+  }, [toast]);
+
+  // Add useEffect to load user settings
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      setSettingsLoading(true);
+      try {
+        const settings = await getUserSettings();
+        setUserSettings({
+          maxRounds: settings.maxRounds,
+          defaultModel: settings.defaultModel
+        });
+        
+        // Update chat form with the loaded max rounds setting
+        setChatForm(prev => ({
+          ...prev,
+          max_rounds: settings.maxRounds
+        }));
+        
+        console.log("Loaded user settings:", settings);
+      } catch (error) {
+        console.error("Error loading user settings:", error);
+        // Don't show toast for this, just silently fall back to default values
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    loadUserSettings();
+  }, []);
+
+  // Add function to load a specific conversation
+  const loadConversation = async (conversationId: string) => {
+    try {
+      setChatLoading(true);
+      
+      // Get the conversation data with messages
+      const conversation = await getConversationById(conversationId);
+      
+      // Update the current conversation
+      setCurrentConversation(conversation);
+      
+      // Update messages
+      setChatMessages(conversation.messages.map(msg => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.timestamp),
+        agentName: msg.agentName
+      })));
+      
+      // Update agents from the conversation config
+      if (conversation.agentsConfig && Array.isArray(conversation.agentsConfig)) {
+        const loadedAgents = conversation.agentsConfig.map(agentConfig => ({
+          id: agentConfig.id || String(Date.now() + Math.random()),
+          name: agentConfig.name,
+          type: agentConfig.type as 'assistant' | 'researcher' | 'coder' | 'critic' | 'custom',
+          systemMessage: agentConfig.systemMessage,
+          isEnabled: true
+        }));
+        
+        setCustomAgents(loadedAgents);
+        setChatForm(prev => ({
+          ...prev,
+          agents: loadedAgents,
+          max_rounds: conversation.maxRounds,
+          conversation_id: conversationId
+        }));
+      }
+      
+      toast({
+        title: 'Conversation loaded',
+        description: `Loaded conversation: ${conversation.title}`,
+        status: 'success',
+        duration: 3000,
+      });
+    } catch (error) {
+      console.error("Error loading conversation:", error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load the conversation',
+        status: 'error',
+        duration: 5000,
+      });
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (!statusChecked) {
     return (
       <Container maxW="container.xl" py={8}>
@@ -747,8 +1086,22 @@ const AutoGenPage: React.FC = () => {
             <Card bg={cardBg} borderWidth="1px" borderColor={borderColor} h="70vh" display="flex" flexDirection="column">
               <CardHeader borderBottomWidth="1px" borderColor={borderColor} pb={2}>
                 <Flex justify="space-between" align="center" wrap="wrap" gap={2}>
-                  <Heading size="md">{t('agenticAI.chat.title')}</Heading>
                   <HStack>
+                    <Heading size="md">{t('agenticAI.chat.title')}</Heading>
+                    {currentConversation && (
+                      <Text fontSize="sm" color="gray.500">- {currentConversation.title}</Text>
+                    )}
+                  </HStack>
+                  <HStack>
+                    <Button 
+                      size="sm" 
+                      leftIcon={<Icon as={FaHistory} />}
+                      onClick={onConversationDrawerOpen}
+                      colorScheme="blue"
+                      variant="outline"
+                    >
+                      {t('agenticAI.chat.conversations')}
+                    </Button>
                     <Button 
                       size="sm" 
                       leftIcon={<Icon as={FaCog} />}
@@ -783,6 +1136,54 @@ const AutoGenPage: React.FC = () => {
                     <Button size="sm" onClick={handleResetChat}>{t('agenticAI.chat.reset')}</Button>
                   </HStack>
                 </Flex>
+                
+                {/* Max rounds configuration */}
+                <Flex mt={2} justify="space-between" align="center">
+                  <FormControl display="flex" alignItems="center" maxW="400px">
+                    <FormLabel htmlFor="max_rounds" mb="0" fontSize="sm">
+                      {t('agenticAI.chat.maxRounds')}:
+                    </FormLabel>
+                    <NumberInput 
+                      size="sm" 
+                      maxW="100px" 
+                      min={1} 
+                      max={30} 
+                      value={chatForm.max_rounds}
+                      onChange={handleMaxRoundsChange}
+                    >
+                      <NumberInputField id="max_rounds" />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                  </FormControl>
+                  
+                  {/* Saved agents dropdown */}
+                  {savedAgents.length > 0 && (
+                    <Menu>
+                      <MenuButton as={Button} rightIcon={<FaChevronDown />} size="sm">
+                        {t('agenticAI.chat.savedAgents')}
+                      </MenuButton>
+                      <MenuList>
+                        {savedAgents.map(agent => (
+                          <MenuItem 
+                            key={agent.id}
+                            onClick={() => {
+                              // Clone the agent and add it to the current chat
+                              const newAgent = {...agent, isEnabled: true, id: agent.id + '_' + Date.now()};
+                              setCustomAgents(prev => [...prev, newAgent]);
+                              setChatForm(prev => ({...prev, agents: [...prev.agents, newAgent]}));
+                            }}
+                          >
+                            {agent.name.replace(/_/g, ' ')} - {agent.type}
+                          </MenuItem>
+                        ))}
+                      </MenuList>
+                    </Menu>
+                  )}
+                </Flex>
+                
                 <Flex mt={2} wrap="wrap" gap={2}>
                   {customAgents.map(agent => (
                     <Tag 
@@ -991,6 +1392,19 @@ const AutoGenPage: React.FC = () => {
                       </FormHelperText>
                     </FormControl>
                     
+                    {/* Add option to save to database */}
+                    <FormControl>
+                      <Flex align="center">
+                        <Switch id="saveToDatabase" colorScheme="blue" mr={2} defaultChecked={currentAgent?.isSaved} />
+                        <FormLabel htmlFor="saveToDatabase" mb="0">
+                          {t('agenticAI.chat.saveToDatabase')}
+                        </FormLabel>
+                      </Flex>
+                      <FormHelperText>
+                        {t('agenticAI.chat.saveToDatabaseHelp')}
+                      </FormHelperText>
+                    </FormControl>
+                    
                     <Box>
                       <Heading size="sm" mb={2}>{t('agenticAI.chat.agentTemplates')}</Heading>
                       <HStack spacing={2} wrap="wrap">
@@ -1045,7 +1459,7 @@ const AutoGenPage: React.FC = () => {
                       ml={3} 
                       onClick={() => {
                         if (currentAgent) {
-                          handleDeleteAgent(currentAgent.id);
+                          handleDeleteAgent(currentAgent.id, currentAgent.isSaved);
                           onClose();
                         }
                       }}
@@ -1053,6 +1467,102 @@ const AutoGenPage: React.FC = () => {
                       {t('agenticAI.chat.deleteAgent')}
                     </Button>
                   )}
+                </DrawerFooter>
+              </DrawerContent>
+            </Drawer>
+            
+            {/* Conversations Drawer */}
+            <Drawer isOpen={isConversationDrawerOpen} placement="left" onClose={onConversationDrawerClose} size="md">
+              <DrawerOverlay />
+              <DrawerContent>
+                <DrawerCloseButton />
+                <DrawerHeader>
+                  {t('agenticAI.chat.conversationHistory')}
+                </DrawerHeader>
+
+                <DrawerBody>
+                  {conversationsLoading ? (
+                    <Flex justify="center" align="center" h="100%">
+                      <Spinner size="lg" />
+                    </Flex>
+                  ) : conversations.length === 0 ? (
+                    <Text color="gray.500" textAlign="center" py={8}>
+                      {t('agenticAI.chat.noConversations')}
+                    </Text>
+                  ) : (
+                    <VStack spacing={3} align="stretch">
+                      {conversations.map((conversation) => (
+                        <Card 
+                          key={conversation.id} 
+                          borderWidth="1px" 
+                          borderRadius="md"
+                          borderColor={currentConversation?.id === conversation.id ? 'blue.400' : borderColor}
+                          _hover={{ borderColor: 'blue.300', shadow: 'sm' }}
+                          cursor="pointer"
+                          onClick={() => {
+                            loadConversation(conversation.id);
+                            onConversationDrawerClose();
+                          }}
+                        >
+                          <CardBody py={3}>
+                            <Flex justify="space-between" align="center">
+                              <VStack align="start" spacing={0}>
+                                <Text fontWeight="medium">{conversation.title}</Text>
+                                <Text fontSize="xs" color="gray.500">
+                                  {new Date(conversation.createdAt).toLocaleString()}
+                                </Text>
+                              </VStack>
+                              <IconButton
+                                aria-label="Delete conversation"
+                                icon={<FaTrash />}
+                                size="sm"
+                                variant="ghost"
+                                colorScheme="red"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Implement delete conversation functionality
+                                  if (window.confirm(t('agenticAI.chat.confirmDeleteConversation'))) {
+                                    deleteConversation(conversation.id)
+                                      .then(() => {
+                                        setConversations(prev => prev.filter(c => c.id !== conversation.id));
+                                        
+                                        // If this was the current conversation, reset the chat
+                                        if (currentConversation?.id === conversation.id) {
+                                          handleResetChat();
+                                          setCurrentConversation(null);
+                                          setChatForm(prev => ({ ...prev, conversation_id: undefined }));
+                                        }
+                                        
+                                        toast({
+                                          title: 'Conversation deleted',
+                                          status: 'success',
+                                          duration: 3000,
+                                        });
+                                      })
+                                      .catch(error => {
+                                        console.error("Error deleting conversation:", error);
+                                        toast({
+                                          title: 'Error',
+                                          description: 'Failed to delete the conversation',
+                                          status: 'error',
+                                          duration: 5000,
+                                        });
+                                      });
+                                  }
+                                }}
+                              />
+                            </Flex>
+                          </CardBody>
+                        </Card>
+                      ))}
+                    </VStack>
+                  )}
+                </DrawerBody>
+
+                <DrawerFooter>
+                  <Button variant="outline" onClick={onConversationDrawerClose}>
+                    {t('close', 'Close')}
+                  </Button>
                 </DrawerFooter>
               </DrawerContent>
             </Drawer>

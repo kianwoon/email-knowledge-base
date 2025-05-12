@@ -9,6 +9,7 @@ from app.crud import api_key_crud
 from app.crud.user_llm_config_crud import get_user_llm_config
 from app.config import settings
 from app.autogen.compatibility import create_compatible_openai_config, patch_autogen_openai_client
+import types
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,17 @@ def create_user_proxy(
     """
     logger.info(f"Creating user proxy agent: {name}")
     
+    # Create a custom is_termination_msg function that always returns False
+    # to prevent the user proxy from ending the conversation
+    def custom_is_termination_msg(self, message):
+        return False
+    
+    # Create a custom reply function that returns False and empty message
+    # This prevents the user proxy from being selected by the group chat manager
+    def custom_reply(self, messages, sender, config):
+        """Always return False and empty message to prevent being selected as speaker"""
+        return False, ""
+    
     try:
         # For AutoGen 0.9.0, the code_execution_config parameter usage has changed
         user_proxy = UserProxyAgent(
@@ -92,6 +104,13 @@ def create_user_proxy(
             # In 0.9.0, use execute_code=False instead of code_execution_config=False
             code_execution_config={"use_docker": False, "execute_code": False}
         )
+        
+        # Replace the is_termination_msg method to prevent early termination
+        user_proxy.is_termination_msg = types.MethodType(custom_is_termination_msg, user_proxy)
+        
+        # Add a custom reply function to prevent being selected as speaker
+        user_proxy.register_reply([autogen.Agent, None], custom_reply, position=0)
+        
         return user_proxy
     except Exception as e:
         logger.error(f"Error creating user proxy agent: {str(e)}", exc_info=True)
@@ -104,6 +123,13 @@ def create_user_proxy(
                 system_message=system_message,
                 code_execution_config=None
             )
+            
+            # Replace the is_termination_msg method to prevent early termination
+            user_proxy.is_termination_msg = types.MethodType(custom_is_termination_msg, user_proxy)
+            
+            # Add a custom reply function to prevent being selected as speaker
+            user_proxy.register_reply([autogen.Agent, None], custom_reply, position=0)
+            
             return user_proxy
         except Exception as e2:
             logger.error(f"Second attempt failed: {str(e2)}", exc_info=True)
@@ -152,21 +178,25 @@ async def build_llm_config_for_user(
         # If no API key found, use system default
         if not api_key:
             api_key = settings.OPENAI_API_KEY if provider == "openai" else settings.ANTHROPIC_API_KEY
-            
-        # Create config for OpenAI 1.78.1 format
-        config = {
-            "config_list": [
-                {
-                    "model": target_model_id,
-                    "api_key": api_key
-                }
-            ],
-            "temperature": temperature
+        
+        # Build a config item
+        config_item = {
+            "model": target_model_id,
+            "api_key": api_key
         }
         
         # Add max tokens if provided
         if max_tokens:
-            config["config_list"][0]["max_tokens"] = max_tokens
+            config_item["max_tokens"] = max_tokens
+        
+        # Create proper config format for AutoGen 0.9.0
+        config = {
+            "config_list": [config_item]
+        }
+        
+        # Set temperature at the right level in the config
+        if temperature:
+            config["temperature"] = temperature
             
         logger.debug("LLM config built successfully")
         return config

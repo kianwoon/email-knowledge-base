@@ -50,7 +50,11 @@ from app.routes import (
     # Import the websockets router
     websockets,
     # Import the AutoGen router
-    autogen
+    autogen,
+    # Import our new routers
+    agents,
+    conversations,
+    user_settings as user_settings_route
 )
 # Import the new shared_knowledge router
 # from app.routes import shared_knowledge 
@@ -220,6 +224,11 @@ app.include_router(autogen.router, prefix=f"{settings.API_PREFIX}/autogen", tags
 
 # Include the websockets router
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])
+
+# Include our new routers
+app.include_router(agents.router, prefix=f"{settings.API_PREFIX}/agents", tags=["Agents"])
+app.include_router(conversations.router, prefix=f"{settings.API_PREFIX}/conversations", tags=["Conversations"])
+app.include_router(user_settings_route.router, prefix=f"{settings.API_PREFIX}/settings", tags=["Settings"])
 
 # --- Log Registered Routes --- #
 logger.info("--- Registered Routes --- DUMP START ---")

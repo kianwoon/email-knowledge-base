@@ -62,10 +62,16 @@ def patch_autogen_openai_client():
         if hasattr(OpenAIWrapper, 'create'):
             original_create = OpenAIWrapper.create
             
+            # Check if the original create method is a class method
+            is_classmethod = isinstance(original_create, classmethod) or 'cls' in inspect.signature(original_create).parameters
+            
             @functools.wraps(original_create)
-            def patched_create(cls, config_list=None, **kwargs):
+            def patched_create(*args, **kwargs):
                 """Patched create method that handles OpenAI 1.78.1 compatibility"""
                 logger.debug("Using patched OpenAIWrapper.create method")
+                
+                # Extract config_list from kwargs if present
+                config_list = kwargs.pop('config_list', None)
                 
                 # Clean up config_list items
                 if config_list:
@@ -77,7 +83,22 @@ def patch_autogen_openai_client():
                                     del config[key]
                 
                 try:
-                    return original_create(cls, config_list=config_list, **kwargs)
+                    # If it's a classmethod (and has a cls parameter), handle differently
+                    if is_classmethod:
+                        if len(args) > 0:  # Has cls as first arg
+                            cls = args[0]
+                            if config_list:
+                                return original_create(cls, config_list=config_list, **kwargs)
+                            return original_create(cls, **kwargs)
+                        else:  # No cls provided
+                            if config_list:
+                                return original_create(config_list=config_list, **kwargs)
+                            return original_create(**kwargs)
+                    else:  # It's an instance method or function
+                        # Pass all args as is, and add config_list as a kwarg if needed
+                        if config_list:
+                            kwargs['config_list'] = config_list
+                        return original_create(*args, **kwargs)
                 except Exception as e:
                     logger.warning(f"Error in original create method: {e}")
                     
@@ -92,11 +113,23 @@ def patch_autogen_openai_client():
                                 }
                                 minimal_config_list.append(minimal_config)
                         
-                        return original_create(cls, config_list=minimal_config_list, **kwargs)
-                    return original_create(cls, **kwargs)
+                        if is_classmethod and len(args) > 0:
+                            return original_create(args[0], config_list=minimal_config_list, **kwargs)
+                        elif is_classmethod:
+                            return original_create(config_list=minimal_config_list, **kwargs)
+                        else:
+                            kwargs['config_list'] = minimal_config_list
+                            return original_create(*args, **kwargs)
+                    
+                    # Last resort, just try with whatever args we have
+                    return original_create(*args, **kwargs)
             
-            # Apply the patch
-            OpenAIWrapper.create = classmethod(patched_create)
+            # Apply the patch - check if we need to wrap as classmethod
+            if is_classmethod:
+                OpenAIWrapper.create = classmethod(patched_create)
+            else:
+                OpenAIWrapper.create = patched_create
+                
             logger.info("Successfully patched OpenAIWrapper.create method")
         
         # Patch OpenAI client initialization if needed

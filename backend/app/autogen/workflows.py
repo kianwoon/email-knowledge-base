@@ -432,19 +432,20 @@ async def run_chat_workflow(
             name="User",
             human_input_mode="NEVER"
         )
-        created_agents.append(user_proxy)
         
-        # Create a group chat with all agents
+        # Create a group chat with all AI agents (excluding user_proxy from the main agent list)
         groupchat = create_group_chat(
             agents=created_agents,
-            max_round=max_rounds
+            max_round=max_rounds,
+            speaker_selection_method="round_robin",  # Use round_robin to avoid selecting user proxy
+            allow_repeat_speaker=False
         )
         
         # Create a manager to orchestrate the chat
         manager = create_group_chat_manager(
             groupchat=groupchat,
             llm_config=llm_config,
-            system_message="You are managing a multi-agent conversation. Ensure all agents contribute appropriately."
+            system_message="You are managing a multi-agent conversation. Ensure all agents contribute appropriately and follow a round-robin approach."
         )
         
         # Initialize with history if provided
