@@ -74,7 +74,7 @@ httpx
 
 # Microsoft AutoGen requirements
 pyautogen>=0.2.0
-openai>=1.6.0
+openai
 chromadb>=0.4.15
 tenacity>=8.2.0
 tiktoken>=0.5.0
