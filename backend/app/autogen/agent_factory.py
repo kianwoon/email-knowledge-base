@@ -1,42 +1,15 @@
 import logging
 from typing import Dict, Any, List, Optional, Union, Callable
-# Temporarily disable autogen imports
-# import autogen
-# from autogen import Agent, AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
+import autogen
+from autogen import Agent, AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
 from app.services.client_factory import get_user_client
 from app.models.user import User
 from sqlalchemy.orm import Session
+from app.crud import api_key_crud
+from app.crud.user_llm_config_crud import get_user_llm_config
+from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-# Define stub classes to prevent import errors
-class Agent:
-    """Stub Agent class"""
-    pass
-
-class AssistantAgent:
-    """Stub AssistantAgent class"""
-    def __init__(self, **kwargs):
-        self.name = kwargs.get('name', 'Assistant')
-        logger.warning(f"Created stub AssistantAgent: {self.name}")
-
-class UserProxyAgent:
-    """Stub UserProxyAgent class"""
-    def __init__(self, **kwargs):
-        self.name = kwargs.get('name', 'User')
-        logger.warning(f"Created stub UserProxyAgent: {self.name}")
-
-class GroupChat:
-    """Stub GroupChat class"""
-    def __init__(self, **kwargs):
-        self.agents = kwargs.get('agents', [])
-        logger.warning(f"Created stub GroupChat with {len(self.agents)} agents")
-
-class GroupChatManager:
-    """Stub GroupChatManager class"""
-    def __init__(self, **kwargs):
-        self.groupchat = kwargs.get('groupchat')
-        logger.warning("Created stub GroupChatManager")
 
 def create_assistant(
     name: str,
@@ -63,10 +36,21 @@ def create_assistant(
         AssistantAgent: Configured assistant agent
     """
     logger.info(f"Creating assistant agent: {name}")
-    logger.warning("AutoGen is temporarily disabled due to compatibility issues")
     
-    # Return a stub AssistantAgent
-    return AssistantAgent(
+    if llm_config is None:
+        # Default configuration using application settings
+        llm_config = {
+            "config_list": [
+                {
+                    "model": "gpt-4",
+                    "api_key": "YOUR_API_KEY"
+                }
+            ],
+            "cache_seed": 42,  # Seed for caching and reproducibility
+            "temperature": 0.7
+        }
+    
+    assistant = AssistantAgent(
         name=name,
         system_message=system_message,
         llm_config=llm_config,
@@ -74,6 +58,9 @@ def create_assistant(
         max_consecutive_auto_reply=max_consecutive_auto_reply or 10,
         description=description or f"Assistant agent '{name}'",
     )
+    
+    logger.debug(f"Created assistant agent: {name} with config: {llm_config}")
+    return assistant
 
 def create_user_proxy(
     name: str,
@@ -98,10 +85,17 @@ def create_user_proxy(
         UserProxyAgent: Configured user proxy agent
     """
     logger.info(f"Creating user proxy agent: {name}")
-    logger.warning("AutoGen is temporarily disabled due to compatibility issues")
 
-    # Return a stub UserProxyAgent
-    return UserProxyAgent(
+    # Default code execution configuration if none provided
+    if code_execution_config is None:
+        code_execution_config = {
+            "work_dir": "workspace",
+            "use_docker": False,  # Change to True for secure code execution
+            "timeout": 60,
+            "last_n_messages": 10,
+        }
+    
+    user_proxy = UserProxyAgent(
         name=name,
         system_message=system_message,
         human_input_mode=human_input_mode,
@@ -109,6 +103,9 @@ def create_user_proxy(
         default_auto_reply=default_auto_reply or "",
         description=description or f"User proxy agent '{name}'",
     )
+    
+    logger.debug(f"Created user proxy agent: {name} with code execution: {bool(code_execution_config)}")
+    return user_proxy
 
 async def build_llm_config_for_user(
     user: User, 
@@ -131,20 +128,66 @@ async def build_llm_config_for_user(
         Dict: LLM configuration for AutoGen
     """
     logger.info(f"Building LLM config for user {user.email if user else 'unknown'}")
-    logger.warning("AutoGen is temporarily disabled due to compatibility issues")
     
-    # Return a simple config dictionary
-    return {
-        "config_list": [
-            {
-                "model": model_id or "gpt-4",
-                "api_key": "PLACEHOLDER_KEY",
-                "base_url": "https://api.openai.com/v1"
-            }
-        ],
-        "cache_seed": 42,
-        "temperature": temperature
-    }
+    try:
+        # Find the user's preferred LLM config
+        user_llm_config = get_user_llm_config(db=db, user_id=user.id) if user else None
+        
+        # Use provided model_id or the user's default from their config
+        target_model_id = model_id or (user_llm_config.default_model_id if user_llm_config else settings.DEFAULT_CHAT_MODEL)
+        
+        # Determine provider from model_id
+        provider = "openai"  # Default provider
+        if target_model_id:
+            if target_model_id.startswith(("gpt-", "text-")):
+                provider = "openai"
+            elif target_model_id.startswith("claude-"):
+                provider = "anthropic"
+            elif target_model_id.startswith("gemini-"):
+                provider = "google"
+        
+        # Get the API key for the model
+        api_key = None
+        if user:
+            api_key = api_key_crud.get_decrypted_api_key(db=db, user_email=user.email, provider=provider)
+        
+        # Fall back to system key if needed
+        if not api_key:
+            api_key = settings.OPENAI_API_KEY
+            logger.info(f"Using system API key for {target_model_id}")
+        
+        # Return the LLM config for AutoGen
+        config = {
+            "config_list": [
+                {
+                    "model": target_model_id,
+                    "api_key": api_key,
+                    "base_url": "https://api.openai.com/v1"
+                }
+            ],
+            "cache_seed": 42,  # For caching and reproducibility
+            "temperature": temperature
+        }
+        
+        # Add max tokens if provided
+        if max_tokens:
+            config["config_list"][0]["max_tokens"] = max_tokens
+            
+        return config
+    except Exception as e:
+        logger.error(f"Error building LLM config: {str(e)}", exc_info=True)
+        # Return a fallback config
+        return {
+            "config_list": [
+                {
+                    "model": model_id or settings.DEFAULT_CHAT_MODEL,
+                    "api_key": settings.OPENAI_API_KEY,
+                    "base_url": "https://api.openai.com/v1"
+                }
+            ],
+            "cache_seed": 42,
+            "temperature": temperature
+        }
 
 def create_group_chat(
     agents: List[Agent],

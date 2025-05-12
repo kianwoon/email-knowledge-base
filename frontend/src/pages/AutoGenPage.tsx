@@ -139,6 +139,7 @@ const AutoGenPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [isAvailable, setIsAvailable] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
   
   // New state for API key management
   const [savedKeysStatus, setSavedKeysStatus] = useState<Record<string, boolean>>({});
@@ -331,7 +332,14 @@ const AutoGenPage: React.FC = () => {
     const checkStatus = async () => {
       try {
         const response = await api.get('/api/v1/autogen/status');
+        // Check if status is operational or maintenance
         setIsAvailable(response.data.status === 'operational');
+        
+        // Store the maintenance message if provided
+        if (response.data.status === 'maintenance' && response.data.message) {
+          setMaintenanceMessage(response.data.message);
+        }
+        
         setStatusChecked(true);
       } catch (error) {
         setIsAvailable(false);
@@ -670,8 +678,8 @@ const AutoGenPage: React.FC = () => {
           </CardHeader>
           <CardBody>
             <Text>
-              The AutoGen module appears to be unavailable or not installed. 
-              Please contact your administrator or refer to the documentation for installation instructions.
+              {maintenanceMessage || 
+                "The AutoGen module appears to be unavailable or not installed. Please contact your administrator or refer to the documentation for installation instructions."}
             </Text>
             <Button 
               mt={4} 
