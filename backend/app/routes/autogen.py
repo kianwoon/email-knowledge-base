@@ -237,12 +237,13 @@ async def check_autogen_status(
     Check the status of AutoGen module and its dependencies.
     """
     try:
-        # Simple status check for the AutoGen module
+        # Report that AutoGen is temporarily disabled
         return {
-            "status": "operational",
+            "status": "maintenance",
             "version": "0.1.0",
             "user": current_user.email,
-            "features": ["research", "code_generation", "qa"]
+            "features": [],
+            "message": "AutoGen is temporarily disabled due to compatibility issues between AutoGen and OpenAI packages. The feature will be restored in a future update."
         }
     except Exception as e:
         logger.error(f"Error checking AutoGen status: {str(e)}", exc_info=True)
