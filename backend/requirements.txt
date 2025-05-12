@@ -73,8 +73,8 @@ cryptography
 httpx
 
 # Microsoft AutoGen requirements
-pyautogen==0.2.8
-openai
+pyautogen==0.9
+openai==1.78.1
 chromadb>=0.4.15
 tenacity>=8.2.0
 tiktoken>=0.5.0

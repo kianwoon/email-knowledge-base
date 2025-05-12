@@ -1,9 +1,9 @@
 import logging
 from typing import Dict, Any, List, Optional, Union, Callable
-# Temporarily disable autogen imports 
-# import autogen
-# from autogen import AssistantAgent, UserProxyAgent
-from app.autogen.agent_factory import create_assistant, AssistantAgent
+# Re-enable autogen imports
+import autogen
+from autogen import AssistantAgent, UserProxyAgent
+from app.autogen.agent_factory import create_assistant
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,15 @@ class ResearchAgent(AssistantAgent):
         code_execution_config: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
-        logger.warning("ResearchAgent is temporarily disabled due to compatibility issues")
-        self.name = name
-        self.system_message = system_message
-        self.llm_config = llm_config
+        super().__init__(
+            name=name,
+            system_message=system_message or "You are a research expert who provides detailed information.",
+            llm_config=llm_config,
+            is_termination_msg=is_termination_msg,
+            max_consecutive_auto_reply=max_consecutive_auto_reply,
+            human_input_mode=human_input_mode,
+            **kwargs
+        )
 
 class CodingAgent(AssistantAgent):
     """
@@ -46,10 +51,15 @@ class CodingAgent(AssistantAgent):
         code_execution_config: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
-        logger.warning("CodingAgent is temporarily disabled due to compatibility issues")
-        self.name = name
-        self.system_message = system_message
-        self.llm_config = llm_config
+        super().__init__(
+            name=name,
+            system_message=system_message or "You are a coding expert who writes clean, efficient code.",
+            llm_config=llm_config,
+            is_termination_msg=is_termination_msg,
+            max_consecutive_auto_reply=max_consecutive_auto_reply,
+            human_input_mode=human_input_mode,
+            **kwargs
+        )
 
 class CriticAgent(AssistantAgent):
     """
@@ -68,10 +78,15 @@ class CriticAgent(AssistantAgent):
         code_execution_config: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
-        logger.warning("CriticAgent is temporarily disabled due to compatibility issues")
-        self.name = name
-        self.system_message = system_message
-        self.llm_config = llm_config
+        super().__init__(
+            name=name,
+            system_message=system_message or "You are a critical thinking expert who evaluates ideas thoroughly.",
+            llm_config=llm_config,
+            is_termination_msg=is_termination_msg,
+            max_consecutive_auto_reply=max_consecutive_auto_reply,
+            human_input_mode=human_input_mode,
+            **kwargs
+        )
 
 def create_agent_team(
     team_config: Dict[str, Any],
@@ -87,5 +102,40 @@ def create_agent_team(
     Returns:
         List of created agents
     """
-    logger.warning("Agent teams are temporarily disabled due to compatibility issues")
-    return [] 
+    agents = []
+    
+    # Create agents based on team_config
+    for agent_config in team_config.get('agents', []):
+        agent_type = agent_config.get('type', 'assistant')
+        agent_name = agent_config.get('name', f'Agent-{len(agents)+1}')
+        agent_system_message = agent_config.get('system_message', '')
+        
+        if agent_type == 'researcher':
+            agent = ResearchAgent(
+                name=agent_name,
+                system_message=agent_system_message,
+                llm_config=llm_config
+            )
+        elif agent_type == 'coder':
+            agent = CodingAgent(
+                name=agent_name,
+                system_message=agent_system_message,
+                llm_config=llm_config
+            )
+        elif agent_type == 'critic':
+            agent = CriticAgent(
+                name=agent_name,
+                system_message=agent_system_message,
+                llm_config=llm_config
+            )
+        else:
+            # Default to standard assistant
+            agent = create_assistant(
+                name=agent_name,
+                system_message=agent_system_message,
+                llm_config=llm_config
+            )
+        
+        agents.append(agent)
+    
+    return agents 

@@ -1,8 +1,7 @@
 import logging
 from typing import Dict, Any, List, Optional, Tuple
-# Temporarily disable autogen imports
-# import autogen
-# from autogen import Agent, AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
+# Re-enable autogen imports
+import autogen
 from app.autogen.agent_factory import (
     create_assistant, 
     create_user_proxy, 
@@ -11,7 +10,7 @@ from app.autogen.agent_factory import (
     build_llm_config_for_user,
     Agent
 )
-# from app.autogen.custom_agents import ResearchAgent, CodingAgent, CriticAgent
+from app.autogen.custom_agents import ResearchAgent, CodingAgent, CriticAgent
 from app.services.client_factory import get_user_client
 from app.models.user import User
 from sqlalchemy.orm import Session
@@ -43,107 +42,122 @@ async def run_research_workflow(
     logger.info(f"Starting research workflow for query: {query}")
     
     try:
-        # Build LLM config for the user
+        # Build LLM config based on user preferences
         llm_config = await build_llm_config_for_user(
             user=user, 
             db=db, 
-            model_id=model_id,
+            model_id=model_id, 
             temperature=temperature
         )
         
-        # Create agents for the research team
+        # Create the researcher agent
         researcher = create_assistant(
             name="Researcher",
             system_message=(
-                "You are a research assistant that searches for accurate information. "
-                "Research the topic thoroughly and provide detailed findings with references when possible."
+                "You are an expert researcher who provides accurate and detailed information. "
+                "Focus on facts and cite sources when possible. Avoid speculation and clearly "
+                "state when information is uncertain."
             ),
             llm_config=llm_config
         )
         
+        # Create the critic agent
         critic = create_assistant(
             name="Critic",
             system_message=(
-                "You are a critical thinker who evaluates research findings. "
-                "Your job is to analyze the information provided, identify potential gaps or biases, "
-                "and suggest improvements or alternative perspectives."
+                "You are a critical thinker who evaluates information for accuracy, bias, and gaps. "
+                "Your job is to identify weaknesses in the research and suggest improvements. "
+                "Be constructive and specific in your criticism."
             ),
             llm_config=llm_config
         )
         
-        summarizer = create_assistant(
-            name="Summarizer",
+        # Create the synthesizer agent
+        synthesizer = create_assistant(
+            name="Synthesizer",
             system_message=(
-                "You are an expert at summarizing complex information. "
-                "Your task is to condense research findings into a clear, concise summary "
-                "that captures the key points and insights."
+                "You are a synthesis expert who consolidates information into coherent summaries. "
+                "Identify key themes, create frameworks that organize the information, and present "
+                "balanced conclusions. Focus on clarity and completeness."
             ),
             llm_config=llm_config
         )
         
+        # Create a user proxy to oversee the conversation
         user_proxy = create_user_proxy(
             name="User",
-            human_input_mode="NEVER",  # Automated mode
-            code_execution_config=None  # Disable code execution for safety
+            human_input_mode="NEVER",
+            system_message=f"You are delegating the following research task to a team of agents: {query}"
         )
         
-        # Create a group chat
+        # Create a group chat with all agents
         groupchat = create_group_chat(
-            agents=[researcher, critic, summarizer, user_proxy],
-            messages=[],
+            agents=[user_proxy, researcher, critic, synthesizer],
             max_round=max_rounds
         )
         
-        # Create manager
+        # Create a manager to orchestrate the chat
         manager = create_group_chat_manager(
             groupchat=groupchat,
             llm_config=llm_config,
-            system_message=(
-                "You are managing a research discussion. Guide the conversation to thoroughly "
-                "explore the topic, ensure all perspectives are considered, and work toward "
-                "a comprehensive and accurate summary."
-            )
+            system_message="You are managing a research discussion. Keep the conversation focused on the research query."
         )
         
-        # Start the chat with the research query
+        # Start the conversation with the research query
         user_proxy.initiate_chat(
-            recipient=manager,
-            message=f"Research the following topic and provide a detailed summary: {query}"
+            manager,
+            message=f"Research query: {query}. Please investigate this topic thoroughly."
         )
         
-        # Extract messages from the group chat
+        # Extract messages from the conversation
         messages = []
         for msg in groupchat.messages:
-            messages.append({
-                "role": "assistant" if msg.get("role") == "assistant" else "user",
-                "name": msg.get("name", "System"),
-                "content": msg.get("content", "")
-            })
+            if msg.get("role") != "system":  # Filter out system messages
+                messages.append({
+                    "role": msg.get("role", "unknown"),
+                    "content": msg.get("content", ""),
+                    "agent": msg.get("name", "unknown")
+                })
         
-        # Get the final summary from the last message by the summarizer
-        summary_content = "No summary generated."
-        for msg in reversed(groupchat.messages):
-            if msg.get("name") == "Summarizer":
-                summary_content = msg.get("content", "No summary generated.")
-                break
-        
-        # Create summary object
+        # Extract a summary from the synthesizer's last message
         summary = {
             "query": query,
-            "summary": summary_content,
-            "agent": "Summarizer"
+            "summary": "No synthesis provided yet",
+            "agent": "Synthesizer"
+        }
+        
+        # Look for the synthesizer's last message
+        for msg in reversed(groupchat.messages):
+            if msg.get("name") == "Synthesizer":
+                summary["summary"] = msg.get("content", "No synthesis provided")
+                break
+        
+        logger.info("Research workflow completed successfully")
+        return messages, summary
+        
+    except Exception as e:
+        logger.error(f"Error in research workflow: {str(e)}", exc_info=True)
+        
+        # Fallback response in case of error
+        messages = [{
+            "role": "system",
+            "content": f"Error in research workflow: {str(e)}"
+        }, {
+            "role": "assistant",
+            "content": (
+                "I encountered an issue while processing your research request. "
+                "Please try again later or contact support if the problem persists."
+            ),
+            "agent": "System"
+        }]
+        
+        summary = {
+            "query": query,
+            "summary": f"Error: {str(e)}",
+            "agent": "System"
         }
         
         return messages, summary
-    except Exception as e:
-        logger.error(f"Error in research workflow: {str(e)}", exc_info=True)
-        empty_messages = []
-        summary = {
-            "query": query,
-            "summary": f"An error occurred during the research workflow: {str(e)}",
-            "agent": "System"
-        }
-        return empty_messages, summary
 
 async def run_code_generation_workflow(
     task_description: str,
@@ -172,103 +186,107 @@ async def run_code_generation_workflow(
     logger.info(f"Starting code generation workflow for task: {task_description}")
     
     try:
-        # Build LLM config for the user
+        # Build LLM config based on user preferences
         llm_config = await build_llm_config_for_user(
             user=user, 
             db=db, 
-            model_id=model_id,
+            model_id=model_id, 
             temperature=temperature
         )
         
-        # Create a directory for code execution if it doesn't exist
-        import os
-        os.makedirs(work_dir, exist_ok=True)
+        # Create the architect agent
+        architect = create_assistant(
+            name="Architect",
+            system_message=(
+                "You are a software architect who designs high-level solutions. "
+                "Focus on system structure, component interactions, and best practices. "
+                "Provide clear rationales for your design decisions."
+            ),
+            llm_config=llm_config
+        )
         
-        # Create agents for the coding team
+        # Create the coder agent
         coder = create_assistant(
             name="Coder",
             system_message=(
-                "You are an expert software developer. Your task is to implement code based on "
-                "requirements. Write clean, efficient, and well-documented code that follows "
-                "best practices for the relevant programming language."
+                "You are an expert programmer who implements solutions based on requirements and designs. "
+                "Write clean, efficient, and well-documented code. Follow best practices for the "
+                "language and framework you're using."
             ),
             llm_config=llm_config
         )
         
-        code_reviewer = create_assistant(
-            name="CodeReviewer",
+        # Create the tester agent
+        tester = create_assistant(
+            name="Tester",
             system_message=(
-                "You are a code review expert. Your task is to review code for errors, "
-                "bugs, security issues, and adherence to best practices. Provide constructive "
-                "feedback and suggest improvements."
+                "You are a QA engineer who reviews and tests code. "
+                "Look for bugs, edge cases, and improvements. Provide constructive feedback "
+                "and suggest specific fixes for any issues you find."
             ),
             llm_config=llm_config
         )
         
-        # Code execution config - enable code execution for the user proxy
-        code_execution_config = {
-            "work_dir": work_dir,
-            "use_docker": False,  # For safety in this implementation
-            "timeout": 60,
-            "last_n_messages": 10,
-        }
-        
+        # Create a user proxy that will receive the code
         user_proxy = create_user_proxy(
             name="User",
-            human_input_mode="NEVER",  # Automated mode
-            code_execution_config=code_execution_config
+            human_input_mode="NEVER",
+            system_message=f"You are delegating the following coding task: {task_description}"
         )
         
-        # Start the chat
+        # Create a group chat with all agents
+        groupchat = create_group_chat(
+            agents=[user_proxy, architect, coder, tester],
+            max_round=max_rounds
+        )
+        
+        # Create a manager to orchestrate the chat
+        manager = create_group_chat_manager(
+            groupchat=groupchat,
+            llm_config=llm_config,
+            system_message="You are managing a code development discussion. Keep the conversation focused on implementing the requested code."
+        )
+        
+        # Start the conversation with the coding task
         user_proxy.initiate_chat(
-            coder,
-            message=(
-                f"Task: {task_description}\n\n"
-                "Please write code to accomplish this task. Once you've written the code, "
-                "I'll review it and provide feedback. If needed, we can iterate to improve the solution."
-            )
+            manager,
+            message=f"Coding task: {task_description}. Please design and implement a solution."
         )
         
-        # After the coder provides a solution, engage the code reviewer
+        # Extract messages from the conversation
         messages = []
-        for msg in user_proxy.chat_messages.get(coder.name, []):
-            messages.append({
-                "role": msg.get("role", "user"),
-                "name": msg.get("name", "System"),
-                "content": msg.get("content", "")
-            })
+        for msg in groupchat.messages:
+            if msg.get("role") != "system":  # Filter out system messages
+                messages.append({
+                    "role": msg.get("role", "unknown"),
+                    "content": msg.get("content", ""),
+                    "agent": msg.get("name", "unknown")
+                })
         
-        # Get the last code implementation from the coder
-        code_content = None
-        code_file_path = None
+        # The output path would normally be where code was saved
+        # For now, we'll just return a placeholder
+        output_path = f"{work_dir}/output.py"
         
-        for msg in reversed(messages):
-            content = msg.get("content", "")
-            if "```" in content and msg.get("name") == "Coder":
-                # Extract code between triple backticks
-                import re
-                code_blocks = re.findall(r"```(?:\w+)?\s*([\s\S]+?)```", content)
-                if code_blocks:
-                    code_content = code_blocks[0].strip()
-                    break
+        logger.info("Code generation workflow completed successfully")
+        return messages, output_path
         
-        if code_content:
-            # Save the code to a file in the workspace
-            import random
-            import string
-            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-            code_file_path = os.path.join(work_dir, f"generated_code_{random_suffix}.py")
-            
-            with open(code_file_path, "w") as f:
-                f.write(code_content)
-            
-            logger.info(f"Code generated and saved to {code_file_path}")
-        
-        return messages, code_file_path or work_dir
     except Exception as e:
         logger.error(f"Error in code generation workflow: {str(e)}", exc_info=True)
-        empty_messages = []
-        return empty_messages, work_dir
+        
+        # Fallback response in case of error
+        messages = [{
+            "role": "system",
+            "content": f"Error in code generation workflow: {str(e)}"
+        }, {
+            "role": "assistant",
+            "content": (
+                "I encountered an issue while processing your code generation request. "
+                "Please try again later or contact support if the problem persists."
+            ),
+            "agent": "System"
+        }]
+        
+        return messages, work_dir + "/error.log"
 
 async def run_qa_workflow(
     question: str,
@@ -295,95 +313,71 @@ async def run_qa_workflow(
     logger.info(f"Starting QA workflow for question: {question}")
     
     try:
-        # Build LLM config for the user
+        # Build LLM config based on user preferences
         llm_config = await build_llm_config_for_user(
             user=user, 
             db=db, 
-            model_id=model_id,
+            model_id=model_id, 
             temperature=temperature
         )
         
-        # Format the context
-        formatted_context = "\n\n".join([f"Context {i+1}:\n{ctx}" for i, ctx in enumerate(context)])
-        
-        # Create the QA assistant
-        qa_assistant = create_assistant(
-            name="QA_Assistant",
+        # Create the QA agent
+        qa_agent = create_assistant(
+            name="QA",
             system_message=(
-                "You are a question-answering assistant. Your task is to provide accurate, "
-                "concise answers to questions based on the provided context. Only use information "
-                "from the context. If the answer cannot be determined from the context, say so clearly."
+                "You are a question-answering assistant. Your task is to answer questions based only "
+                "on the provided context. If the context doesn't contain the information needed, "
+                "state that you cannot answer the question based on the available information."
             ),
             llm_config=llm_config
         )
         
-        # Create user proxy
+        # Create a user proxy to interact with the QA agent
         user_proxy = create_user_proxy(
             name="User",
-            human_input_mode="NEVER",  # Automated mode
-            code_execution_config=None  # Disable code execution for QA
+            human_input_mode="NEVER"
         )
         
-        # Create the prompt with context and question
-        prompt = (
-            f"I need you to answer a question based on the following context information.\n\n"
-            f"{formatted_context}\n\n"
-            f"Question: {question}\n\n"
-            f"Please provide a concise and accurate answer using only the information in the context. "
-            f"If the context doesn't contain the answer, indicate that clearly."
-        )
+        # Format the context for the assistant
+        formatted_context = "\n\n".join([f"Context {i+1}:\n{ctx}" for i, ctx in enumerate(context)])
+        message = f"Question: {question}\n\nHere is the context to use for answering:\n{formatted_context}"
         
-        # Start the chat
+        # Interact with the QA agent
         user_proxy.initiate_chat(
-            qa_assistant,
-            message=prompt
+            qa_agent,
+            message=message
         )
         
-        # Get the answer from the QA assistant
-        answer_text = "No answer generated."
-        confidence = 0.0
-        sources = []
+        # Get the answer from the QA agent's last message
+        answer = "No answer provided"
+        for msg in reversed(user_proxy.chat_messages[qa_agent]):
+            if msg.get("role") == "assistant":
+                answer = msg.get("content", "No answer provided")
+                break
         
-        # Extract the answer from the chat
-        chat_history = user_proxy.chat_messages.get(qa_assistant.name, [])
-        if len(chat_history) >= 2:  # At least user prompt and assistant response
-            answer_content = chat_history[1].get("content", "")
-            if answer_content:
-                answer_text = answer_content
-                
-                # Estimate confidence based on language markers
-                if "definitely" in answer_text.lower() or "certainly" in answer_text.lower():
-                    confidence = 0.9
-                elif "likely" in answer_text.lower() or "probably" in answer_text.lower():
-                    confidence = 0.7
-                elif "might" in answer_text.lower() or "may" in answer_text.lower():
-                    confidence = 0.5
-                elif "unclear" in answer_text.lower() or "cannot determine" in answer_text.lower():
-                    confidence = 0.3
-                else:
-                    confidence = 0.6
-                
-                # Extract source references if present
-                import re
-                source_refs = re.findall(r"Context (\d+)", answer_content)
-                sources = [int(ref) for ref in source_refs]
+        # Determine confidence level based on heuristics
+        confidence = "high" if len(answer) > 50 and "I cannot" not in answer and "don't have" not in answer else "low"
         
-        # Format the result
-        answer = {
+        # Return the QA result
+        result = {
             "question": question,
-            "answer": answer_text,
-            "sources": sources,
+            "answer": answer,
+            "context_used": context,
             "confidence": confidence
         }
         
-        return answer
+        logger.info("QA workflow completed successfully")
+        return result
+        
     except Exception as e:
         logger.error(f"Error in QA workflow: {str(e)}", exc_info=True)
+        
+        # Fallback response in case of error
         return {
             "question": question,
-            "answer": f"An error occurred during the QA workflow: {str(e)}",
-            "sources": [],
-            "confidence": 0
+            "answer": f"Error processing request: {str(e)}",
+            "context_used": [],
+            "confidence": "low"
         }
 
 async def run_chat_workflow(
@@ -415,69 +409,81 @@ async def run_chat_workflow(
     logger.info(f"Starting chat workflow with message: {message}")
     
     try:
-        # Build LLM config for the user
+        # Build LLM config based on user preferences
         llm_config = await build_llm_config_for_user(
-            user=user,
-            db=db,
-            model_id=model_id,
+            user=user, 
+            db=db, 
+            model_id=model_id, 
             temperature=temperature
         )
         
-        # Initialize conversation history if None
-        history = history or []
-        
-        # Create assistant agents from the agent configurations
-        assistant_agents = []
+        # Create agents from the provided configurations
+        created_agents = []
         for agent_config in agents:
-            if agent_config.get("isEnabled", True):
-                assistant = create_assistant(
-                    name=agent_config.get("name", "Assistant"),
-                    system_message=agent_config.get("systemMessage", "You are a helpful assistant."),
-                    llm_config=llm_config,
-                    human_input_mode="NEVER"
-                )
-                assistant_agents.append(assistant)
+            agent = create_assistant(
+                name=agent_config.name,
+                system_message=agent_config.system_message,
+                llm_config=llm_config
+            )
+            created_agents.append(agent)
         
-        # Create user proxy agent
+        # Create a user proxy to interact with the agents
         user_proxy = create_user_proxy(
-            name="user",
-            human_input_mode="NEVER",  # We're automating this
-            code_execution_config=None  # Disable code execution for safety
+            name="User",
+            human_input_mode="NEVER"
+        )
+        created_agents.append(user_proxy)
+        
+        # Create a group chat with all agents
+        groupchat = create_group_chat(
+            agents=created_agents,
+            max_round=max_rounds
         )
         
-        # Add initial message from user
-        history.append({
-            "role": "user",
-            "content": message
-        })
+        # Create a manager to orchestrate the chat
+        manager = create_group_chat_manager(
+            groupchat=groupchat,
+            llm_config=llm_config,
+            system_message="You are managing a multi-agent conversation. Ensure all agents contribute appropriately."
+        )
         
-        # Run the chat with each assistant
-        for assistant in assistant_agents:
-            # Initiate chat between user proxy and the assistant
-            user_proxy.initiate_chat(
-                assistant,
-                message=message,
-                max_turns=2  # Keep it simple for now
-            )
-            
-            # Extract the response from the assistant
-            chat_history = user_proxy.chat_messages.get(assistant.name, [])
-            if chat_history and len(chat_history) >= 2:
-                # Get the assistant's response
-                assistant_message = chat_history[1]  # Second message is assistant's response
-                history.append({
-                    "role": "assistant",
-                    "name": assistant.name,
-                    "content": assistant_message.get("content", "")
+        # Initialize with history if provided
+        if history and isinstance(history, list):
+            for msg in history:
+                if "role" in msg and "content" in msg:
+                    groupchat.messages.append(msg)
+        
+        # Start the conversation with the user message
+        user_proxy.initiate_chat(
+            manager,
+            message=message
+        )
+        
+        # Extract messages from the conversation
+        result_messages = []
+        for msg in groupchat.messages:
+            if msg.get("role") != "system":  # Filter out system messages
+                result_messages.append({
+                    "role": msg.get("role", "unknown"),
+                    "content": msg.get("content", ""),
+                    "agent": msg.get("name", "unknown")
                 })
         
-        return history
+        logger.info("Chat workflow completed successfully")
+        return result_messages
+        
     except Exception as e:
         logger.error(f"Error in chat workflow: {str(e)}", exc_info=True)
-        # Return basic error message in history
-        history = history or []
-        history.append({
+        
+        # Fallback response in case of error
+        return [{
             "role": "system",
-            "content": f"An error occurred during the chat workflow: {str(e)}"
-        })
-        return history 
+            "content": f"Error in chat workflow: {str(e)}"
+        }, {
+            "role": "assistant",
+            "content": (
+                "I encountered an issue while processing your chat request. "
+                "Please try again later or contact support if the problem persists."
+            ),
+            "agent": "System"
+        }] 

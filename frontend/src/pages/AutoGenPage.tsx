@@ -332,8 +332,8 @@ const AutoGenPage: React.FC = () => {
     const checkStatus = async () => {
       try {
         const response = await api.get('/api/v1/autogen/status');
-        // Check if status is operational or maintenance
-        setIsAvailable(response.data.status === 'operational');
+        // Check if status is operational or available
+        setIsAvailable(response.data.status === 'operational' || response.data.status === 'available');
         
         // Store the maintenance message if provided
         if (response.data.status === 'maintenance' && response.data.message) {

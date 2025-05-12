@@ -230,24 +230,32 @@ async def chat_endpoint(
         )
 
 @router.get("/status", status_code=status.HTTP_200_OK)
-async def check_autogen_status(
-    current_user: User = Depends(get_current_active_user)
-):
+async def check_autogen_status():
     """
-    Check the status of AutoGen module and its dependencies.
+    Check the status of the AutoGen integration.
+    
+    This endpoint verifies that AutoGen is properly installed and configured.
+    It returns version information and compatibility status.
     """
     try:
-        # Report that AutoGen is now available
+        import autogen
+        import openai
+        from app.autogen.compatibility import PATCHED
+        
         return {
-            "status": "operational",
-            "version": "0.2.8",
-            "user": current_user.email,
-            "features": ["chat", "research", "code_generation", "qa"],
-            "message": "AutoGen module is operational and ready to use."
+            "status": "available",
+            "autogen_version": autogen.__version__,
+            "openai_version": openai.__version__,
+            "compatibility_patched": PATCHED,
+            "message": "AutoGen is properly configured and ready to use."
         }
-    except Exception as e:
-        logger.error(f"Error checking AutoGen status: {str(e)}", exc_info=True)
+    except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AutoGen status check failed: {str(e)}"
+            detail=f"AutoGen integration is not properly installed: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking AutoGen status: {str(e)}"
         ) 
