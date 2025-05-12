@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, FastAPI, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -56,7 +56,10 @@ class QAResponse(BaseModel):
 class AgentConfig(BaseModel):
     name: str = Field(..., description="Name of the agent")
     type: str = Field(..., description="Type of agent (assistant, researcher, coder, critic, custom)")
-    system_message: str = Field(..., description="System message defining the agent's behavior")
+    system_message: str = Field(..., description="System message defining the agent's behavior", alias="systemMessage")
+    
+    class Config:
+        populate_by_field_name = True
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
@@ -192,14 +195,18 @@ async def qa_endpoint(
 @router.post("/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
 async def chat_endpoint(
     request: ChatRequest,
+    request_obj: Request,  # Get the request object without Depends()
+    conversation_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Run a multi-agent chat workflow with custom agent configurations.
     
     This creates a team of AI agents based on the provided configurations.
     The agents discuss and respond to the user's message.
+    
+    When conversation_id is provided, real-time updates will be sent via WebSockets.
     """
     try:
         logger.info(f"Chat request from user {current_user.email}: {request.message}")
@@ -207,6 +214,9 @@ async def chat_endpoint(
         
         # Use a smaller max_rounds value to avoid indefinite conversations
         max_rounds = min(request.max_rounds if hasattr(request, 'max_rounds') else 5, 10)
+        
+        # Get the FastAPI app instance from the request
+        app = request_obj.app
         
         messages = await run_chat_workflow(
             message=request.message,
@@ -216,7 +226,9 @@ async def chat_endpoint(
             temperature=request.temperature,
             history=request.history,
             agents=request.agents,
-            max_rounds=max_rounds
+            max_rounds=max_rounds,
+            conversation_id=conversation_id,
+            app=app
         )
         
         return ChatResponse(

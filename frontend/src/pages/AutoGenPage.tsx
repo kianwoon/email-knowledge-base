@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -63,6 +63,7 @@ import { getAllApiKeys, getDefaultModel } from '../api/user';
 import { getUserAgents, createAgent, updateAgent, deleteAgent } from '../api/agent';
 import { getUserConversations, getConversationById, createConversation, updateConversation, addMessageToConversation, deleteConversation } from '../api/conversation';
 import { getUserSettings, updateUserSettings } from '../api/settings';
+import axios from 'axios';
 
 // Model interface matching Jarvis implementation
 interface LLMModel {
@@ -122,6 +123,7 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   agentName?: string;
+  isThinking?: boolean;
 }
 
 // Updated interface for custom agent definition with server fields
@@ -153,6 +155,11 @@ interface ChatForm {
   agents: CustomAgent[]; // Add agents array to the chat form
   max_rounds: number; // Add max_rounds to the chat form
   conversation_id?: string; // Add conversation_id to track the current conversation
+}
+
+// Custom WebSocket type with additional properties
+interface CustomWebSocket extends WebSocket {
+  pingInterval?: NodeJS.Timeout;
 }
 
 const AutoGenPage: React.FC = () => {
@@ -603,6 +610,162 @@ const AutoGenPage: React.FC = () => {
       });
   };
 
+  // Add WebSocket hooks at the component level
+  const [socket, setSocket] = useState<CustomWebSocket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Function to connect to the WebSocket
+  const connectToWebSocket = useCallback((conversationId: string) => {
+    if (!conversationId) return;
+    
+    // Get auth token from localStorage
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    
+    // Close existing socket connection if any
+    if (socket) {
+      if (socket.pingInterval) {
+        clearInterval(socket.pingInterval);
+      }
+      socket.close();
+    }
+    
+    // Get API base URL from environment or use default
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    
+    // Build WebSocket URL with auth token as query param for authentication
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}/ws/chat/${conversationId}?token=${token}`;
+    
+    const newSocket = new WebSocket(wsUrl) as CustomWebSocket;
+    
+    newSocket.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
+      
+      // Setup ping interval to keep connection alive
+      const pingInterval = setInterval(() => {
+        if (newSocket.readyState === WebSocket.OPEN) {
+          newSocket.send('ping');
+        }
+      }, 30000); // 30 seconds
+      
+      // Store the interval ID on the socket object
+      newSocket.pingInterval = pingInterval;
+      setSocket(newSocket);
+    };
+    
+    newSocket.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+      
+      // Clear ping interval
+      if (newSocket.pingInterval) {
+        clearInterval(newSocket.pingInterval);
+      }
+    };
+    
+    newSocket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setIsConnected(false);
+    };
+    
+    newSocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle different message types
+        if (data.type === 'agent_message') {
+          const message = data.data.message;
+          
+          // Only add the message if it's not a system message and has content
+          if (message.role !== 'system' && message.content) {
+            const agentMsg: ChatMessage = {
+              id: `${Date.now()}-${Math.random()}`,
+              role: message.role,
+              content: message.content,
+              timestamp: new Date(),
+              agentName: message.agent || 'Assistant'
+            };
+            
+            // Add to UI
+            setChatMessages(prev => {
+              // Check if this message is already in the list to avoid duplicates
+              const isDuplicate = prev.some(msg => 
+                msg.content === agentMsg.content && 
+                msg.agentName === agentMsg.agentName
+              );
+              
+              if (isDuplicate) {
+                return prev;
+              }
+              
+              // Remove "thinking" messages for this agent
+              const filteredMessages = prev.filter(msg => 
+                !(msg.isThinking && msg.agentName === agentMsg.agentName)
+              );
+              
+              return [...filteredMessages, agentMsg];
+            });
+            
+            // Store in backend
+            addMessageToConversation(data.data.conversation_id, {
+              role: 'assistant',
+              content: message.content,
+              agentName: message.agent
+            }).catch(err => console.error('Error saving message:', err));
+          }
+        } else if (data.type === 'agent_thinking') {
+          // Show "thinking" status for the agent
+          const thinkingMsg: ChatMessage = {
+            id: `thinking-${data.data.agent_name}-${Date.now()}`,
+            role: 'assistant',
+            content: `${t('agenticAI.chat.thinking', 'Thinking')}...`,
+            timestamp: new Date(),
+            agentName: data.data.agent_name,
+            isThinking: true
+          };
+          
+          // Add thinking indicator to UI
+          setChatMessages(prev => {
+            // Check if we already have a thinking message for this agent
+            const hasThinking = prev.some(msg => 
+              msg.isThinking && msg.agentName === thinkingMsg.agentName
+            );
+            
+            if (hasThinking) {
+              return prev;
+            }
+            
+            return [...prev, thinkingMsg];
+          });
+        } else if (data.type === 'pong') {
+          // Ping-pong to keep connection alive
+          console.debug('Pong received');
+        }
+      } catch (err) {
+        console.error('Error parsing WebSocket message:', err);
+      }
+    };
+    
+    setSocket(newSocket);
+  }, [t, socket]);
+
+  // Cleanup WebSocket on component unmount
+  useEffect(() => {
+    return () => {
+      if (socket) {
+        if (socket.pingInterval) {
+          clearInterval(socket.pingInterval);
+        }
+        socket.close();
+        setSocket(null);
+      }
+    };
+  }, [socket]);
+
+  // Modify the chat submit handler to include conversation_id parameter and connect WebSocket
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatForm.message.trim()) return;
@@ -627,143 +790,99 @@ const AutoGenPage: React.FC = () => {
         // Create a new conversation
         const conversation = await createConversation({
           title: userMessage.content.substring(0, 50) + (userMessage.content.length > 50 ? '...' : ''),
-          maxRounds: chatForm.max_rounds
+          maxRounds: chatForm.max_rounds || 5
         });
         
-        // Update state with the new conversation
-        setConversations(prev => [conversation, ...prev]);
-        setCurrentConversation(conversation);
-        
-        // Update the chat form with the new conversation ID
         conversationId = conversation.id;
-        setChatForm(prev => ({ ...prev, conversation_id: conversation.id }));
+        setCurrentConversation(conversation);
+        setChatForm(prev => ({ ...prev, conversation_id: conversationId }));
+        
+        // Update conversations list
+        setConversations(prev => [conversation, ...prev]);
       }
       
-      // Get enabled agents
-      const enabledAgents = chatForm.agents.filter(agent => agent.isEnabled);
+      // Connect to WebSocket for real-time updates
+      connectToWebSocket(conversationId);
       
-      if (enabledAgents.length === 0) {
-        throw new Error(t('agenticAI.chat.noAgentsEnabled'));
-      }
+      // Make API call
+      const response = await axios.post(
+        `/api/v1/autogen/chat?conversation_id=${conversationId}`,
+        {
+          message: userMessage.content,
+          agents: chatForm.agents && chatForm.agents.length > 0 
+            ? chatForm.agents 
+            : [{ 
+                name: 'Assistant', 
+                type: 'assistant',
+                system_message: 'You are a helpful AI assistant.' 
+              }],
+          max_rounds: chatForm.max_rounds || 5
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
       
-      // Save the user message to the conversation
+      // Store this conversation in backend
       await addMessageToConversation(conversationId, {
         role: 'user',
         content: userMessage.content
       });
       
-      // Call the agentic AI endpoint with agents configuration - Each call is a single message exchange
-      const response = await api.post('/api/v1/autogen/chat', {
-        message: userMessage.content,
-        model_id: chatForm.model_id,
-        // Only send relevant history to avoid confusing the model with system messages
-        history: chatMessages
-          .filter(m => m.role !== 'system' && m.content.trim() !== '') // Skip empty messages
-          .slice(-6) // Only include the most recent messages
-          .map(m => ({
-            role: m.role,
-            content: m.content,
-            name: m.agentName
-          })),
-        agents: enabledAgents.map(agent => ({
-          name: agent.name,
-          type: agent.type,
-          system_message: agent.systemMessage
-        })),
-        max_rounds: chatForm.max_rounds // Use the user-configured max rounds
-      });
-      
-      // Process the response
+      // Process the response - Server will still return full results, but
+      // we'll receive them incrementally via WebSocket first
       if (response.data.messages && Array.isArray(response.data.messages)) {
         // If we get multiple messages (from different agents)
         if (response.data.messages.length > 0) {
+          // We don't need to add them as they will come through WebSocket
+          // but we'll add any that might have been missed
           for (const msg of response.data.messages) {
             if (msg.content?.trim()) { // Only add non-empty messages
-              const agentMsg: ChatMessage = {
-                id: `${Date.now()}-${Math.random()}`,
-                role: 'assistant',
-                content: msg.content,
-                timestamp: new Date(),
-                agentName: msg.agent || msg.name || 'Assistant'
-              };
+              // Check if this message is already in the chat
+              const isAlreadyInChat = chatMessages.some(
+                existingMsg => 
+                  existingMsg.content === msg.content && 
+                  existingMsg.agentName === (msg.agent || msg.name || 'Assistant')
+              );
               
-              // Add to UI
-              setChatMessages(prev => [...prev, agentMsg]);
-              
-              // Save to database
-              await addMessageToConversation(conversationId, {
-                role: 'assistant',
-                content: agentMsg.content,
-                agentName: agentMsg.agentName
-              });
+              // Only add if not already there
+              if (!isAlreadyInChat) {
+                const agentMsg: ChatMessage = {
+                  id: `${Date.now()}-${Math.random()}`,
+                  role: 'assistant',
+                  content: msg.content,
+                  timestamp: new Date(),
+                  agentName: msg.agent || msg.name || 'Assistant'
+                };
+                
+                // Add to UI
+                setChatMessages(prev => [...prev, agentMsg]);
+                
+                // Store in backend
+                await addMessageToConversation(conversationId, {
+                  role: 'assistant',
+                  content: msg.content,
+                  agentName: (msg.agent || msg.name || 'Assistant') as string
+                });
+              }
             }
           }
-        } else {
-          // Add a default message if no messages were returned
-          const defaultMsg: ChatMessage = {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: "I've processed your request but don't have a specific response.",
-            timestamp: new Date(),
-            agentName: 'Assistant'
-          };
-          
-          // Add to UI
-          setChatMessages(prev => [...prev, defaultMsg]);
-          
-          // Save to database
-          await addMessageToConversation(conversationId, {
-            role: 'assistant',
-            content: defaultMsg.content,
-            agentName: defaultMsg.agentName
-          });
         }
-      } else {
-        // Simple response
-        const assistantMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: response.data.response || response.data.message || "I've processed your request.",
-          timestamp: new Date(),
-          agentName: 'Assistant'
-        };
-        
-        // Add to UI
-        setChatMessages(prev => [...prev, assistantMessage]);
-        
-        // Save to database
-        await addMessageToConversation(conversationId, {
-          role: 'assistant',
-          content: assistantMessage.content,
-          agentName: assistantMessage.agentName
-        });
       }
       
-      // If this is a new conversation, refresh the conversation list
-      if (!chatForm.conversation_id) {
-        const conversationData = await getUserConversations();
-        setConversations(conversationData);
-      }
-      
+      setChatLoading(false);
     } catch (error) {
-      // Add error message to chat
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'system',
-        content: t('agenticAI.chat.errorMessage'),
-        timestamp: new Date(),
-        agentName: 'System'
-      };
-      setChatMessages(prev => [...prev, errorMessage]);
-      
+      console.error('Error sending chat:', error);
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'An error occurred',
+        title: t('common.error'),
+        description: t('agenticAI.chat.errorSending'),
         status: 'error',
         duration: 5000,
         isClosable: true,
       });
-    } finally {
       setChatLoading(false);
     }
   };
@@ -1252,7 +1371,21 @@ const AutoGenPage: React.FC = () => {
                           size="sm" 
                           mr={2} 
                           name={msg.agentName || 'Assistant'}
-                          bg={msg.role === 'system' ? 'gray.500' : 'blue.500'}
+                          bg={
+                            msg.role === 'system' 
+                              ? 'gray.500' 
+                              : msg.agentName === 'Assistant' || !msg.agentName
+                                ? 'blue.500'
+                                : msg.agentName.toLowerCase().includes('consultant') || msg.agentName.toLowerCase().includes('business')
+                                  ? 'purple.500'
+                                  : msg.agentName.toLowerCase().includes('research')
+                                    ? 'cyan.500'
+                                    : msg.agentName.toLowerCase().includes('coder') || msg.agentName.toLowerCase().includes('developer')
+                                      ? 'green.500'
+                                      : msg.agentName.toLowerCase().includes('critic')
+                                        ? 'red.500'
+                                        : `hsl(${msg.agentName.split('').reduce((a, b) => a + b.charCodeAt(0), 0) % 360}, 70%, 50%)`
+                          }
                         />
                       )}
                       <Box 

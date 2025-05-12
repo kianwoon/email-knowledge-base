@@ -14,6 +14,7 @@ from app.autogen.custom_agents import ResearchAgent, CodingAgent, CriticAgent
 from app.services.client_factory import get_user_client
 from app.models.user import User
 from sqlalchemy.orm import Session
+from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +386,8 @@ async def run_chat_workflow(
     user: User,
     db: Session,
     agents: List[Dict[str, Any]],
+    conversation_id: str = None,
+    app: FastAPI = None,
     history: Optional[List[Dict[str, Any]]] = None,
     model_id: Optional[str] = None,
     temperature: float = 0.7,
@@ -398,6 +401,8 @@ async def run_chat_workflow(
         user: Current user
         db: Database session
         agents: List of agent configurations
+        conversation_id: Optional conversation ID for WebSocket notifications
+        app: Optional FastAPI app instance for WebSocket notifications
         history: Optional conversation history
         model_id: Optional model ID to use
         temperature: Temperature for LLM
@@ -407,6 +412,12 @@ async def run_chat_workflow(
         List of messages in the conversation
     """
     logger.info(f"Starting chat workflow with message: {message}")
+    
+    # Initialize message hook if we have app and conversation_id
+    message_hook = None
+    if app and conversation_id and hasattr(app.state, 'ws_manager'):
+        from app.autogen.message_hooks import AutoGenMessageHook
+        message_hook = AutoGenMessageHook(app)
     
     try:
         # Build LLM config based on user preferences
@@ -435,11 +446,44 @@ async def run_chat_workflow(
         
         # Create a group chat with all AI agents (excluding user_proxy from the main agent list)
         groupchat = create_group_chat(
-            agents=created_agents,
+            agents=created_agents + [user_proxy],  # Include user_proxy as an agent
             max_round=max_rounds,
-            speaker_selection_method="round_robin",  # Use round_robin to avoid selecting user proxy
+            speaker_selection_method="round_robin",
             allow_repeat_speaker=False
         )
+        
+        # Custom message handler for real-time updates
+        async def on_new_message(sender, recipient, message):
+            if message_hook and hasattr(message, 'get') and message.get('role') == 'assistant':
+                # Send the "thinking" notification when agent is selected
+                if message.get('name') and message.get('name') != 'User':
+                    await message_hook.on_thinking(
+                        user_id=str(user.id),
+                        conversation_id=conversation_id,
+                        agent_name=message.get('name')
+                    )
+            
+            # When a new message is available from an agent
+            if message_hook and message.get('content') and message.get('name') and message.get('name') != 'User':
+                agent_message = {
+                    "role": message.get('role', 'assistant'),
+                    "content": message.get('content', ''),
+                    "agent": message.get('name', 'Assistant')
+                }
+                
+                await message_hook.on_message(
+                    user_id=str(user.id),
+                    conversation_id=conversation_id,
+                    message=agent_message
+                )
+                
+            return message
+        
+        # Register the message handler if we have a hook
+        if message_hook:
+            for agent in created_agents:
+                if hasattr(agent, 'register_message_handler'):
+                    agent.register_message_handler(on_new_message)
         
         # Create a manager to orchestrate the chat
         manager = create_group_chat_manager(
@@ -477,7 +521,7 @@ async def run_chat_workflow(
         logger.error(f"Error in chat workflow: {str(e)}", exc_info=True)
         
         # Fallback response in case of error
-        return [{
+        error_message = [{
             "role": "system",
             "content": f"Error in chat workflow: {str(e)}"
         }, {
@@ -487,4 +531,17 @@ async def run_chat_workflow(
                 "Please try again later or contact support if the problem persists."
             ),
             "agent": "System"
-        }] 
+        }]
+        
+        # Try to send error via WebSocket if possible
+        if message_hook and conversation_id:
+            try:
+                await message_hook.on_message(
+                    user_id=str(user.id),
+                    conversation_id=conversation_id,
+                    message=error_message[1]
+                )
+            except:
+                pass
+                
+        return error_message 

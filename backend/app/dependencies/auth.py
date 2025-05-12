@@ -12,6 +12,8 @@ import asyncio
 from starlette.concurrency import run_in_threadpool
 import bcrypt
 import uuid
+from fastapi import WebSocket
+from fastapi import WebSocketException
 
 from app.config import settings
 from app.models.user import User, UserDB, TokenData
@@ -545,3 +547,44 @@ def get_token_with_request():
         return await get_validated_token(authorization=authorization, db=db, request=request)
     
     return _get_token_with_request
+
+async def get_current_active_user_ws(
+    websocket: WebSocket,
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket dependency for authentication with header token
+    """
+    credentials_exception = WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+    
+    # Get token from headers
+    try:
+        token = websocket.headers.get("authorization")
+        if not token:
+            # Try to get token from query params
+            token = websocket.query_params.get("token")
+            
+        if not token:
+            raise credentials_exception
+            
+        # Remove 'Bearer ' prefix if present
+        if token.startswith("Bearer "):
+            token = token[7:]
+            
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenPayload(**payload)
+    except (JWTError, ValidationError):
+        raise credentials_exception
+        
+    user = get_user_by_email(db, email=token_data.sub)
+    if not user:
+        raise credentials_exception
+    if not user.is_active:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
+        
+    return user

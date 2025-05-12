@@ -3,7 +3,7 @@ import os
 import sys
 # Force UTC for JWT operations
 # os.environ['TZ'] = 'UTC'
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -73,6 +73,13 @@ from app.db.base import Base, engine
 from app.db.milvus_client import get_milvus_client, ensure_collection_exists
 # Corrected import path for celery_app
 from app.celery_app import celery_app
+# Remove the non-existent imports
+# from app.api.api_v1.api import api_router
+# from app.core.errors import http_422_error_handler, http_error_handler
+from app.websockets.connection_manager import ConnectionManager
+# Import the WebSocket manager from the new module
+from app.websockets.manager import ws_manager
+from app.websockets.routes import router as websocket_router
 
 # Configure logging
 logger = logging.getLogger("app")
@@ -160,7 +167,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan, # Use the new lifespan context manager
     # Disable automatic redirects from /path to /path/
-    redirect_slashes=False
+    redirect_slashes=False,
+    openapi_url=f"{settings.API_PREFIX}/openapi.json",
+    docs_url=f"{settings.API_PREFIX}/docs"
 )
 
 # Instrument the app after creation
@@ -224,6 +233,8 @@ app.include_router(autogen.router, prefix=f"{settings.API_PREFIX}/autogen", tags
 
 # Include the websockets router
 app.include_router(websockets.router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])
+# Include the WebSocket chat router
+app.include_router(websocket_router, prefix=f"{settings.API_PREFIX}/ws", tags=["WebSockets"])
 
 # Include our new routers
 app.include_router(agents.router, prefix=f"{settings.API_PREFIX}/agents", tags=["Agents"])
@@ -302,6 +313,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def trigger_task():
     # Implementation of the task trigger logic
     pass
+
+# No longer create the ws_manager here, now import it from the manager module
+
+# Register error handlers
+# app.add_exception_handler(StarletteHTTPException, http_error_handler)
+# app.add_exception_handler(RequestValidationError, http_422_error_handler)
+
+# Make the WebSocket manager available in app state
+@app.on_event("startup")
+async def startup_event():
+    app.state.ws_manager = ws_manager
 
 if __name__ == "__main__":
     import uvicorn
