@@ -930,7 +930,6 @@
     "yes": "Yes",
     "no": "No",
     "loading": "Loading...",
-    "error": "Error",
     "success": "Success",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -1065,7 +1064,9 @@
     "error": {
       "failedToLoad": "Failed to load token configuration."
     },
-    "unknownSender": "Unknown Sender"
+    "unknownSender": "Unknown Sender",
+    "warning": "Warning",
+    "info": "Information"
   },
   "analysis": {
     "classification": {
@@ -2224,7 +2225,11 @@
       "agentsThinking": "Agents are thinking...",
       "welcomeMessage": "I'm your agentic AI assistant, ready to help with complex tasks using multiple AI agents. What can I help you with today?",
       "errorMessage": "Sorry, there was an error processing your request. Please try again.",
+      "errorSending": "There was an error sending your message. Please try again.",
       "manageAgents": "Manage Agents",
+      "maxRounds": "Max Rounds",
+      "conversations": "Conversations",
+      "savedAgents": "Saved Agents",
       "agentName": "Agent Name",
       "agentType": "Agent Type",
       "systemMessage": "System Message",

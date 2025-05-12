@@ -4,7 +4,7 @@
     "tagline": "一个平台。所有知识。AI 就绪"
   },
   "common": {
-    "loading": "加载中",
+    "loading": "加载中...",
     "error": "错误",
     "success": "成功",
     "cancel": "取消",
@@ -102,7 +102,9 @@
     "error": {
       "failedToLoad": "无法加载令牌配置。"
     },
-    "unknownSender": "未知发件人"
+    "unknownSender": "未知发件人",
+    "warning": "警告",
+    "info": "信息"
   },
   "home": {
     "hero": {
@@ -535,7 +537,11 @@
       "agentsThinking": "代理正在思考中...",
       "welcomeMessage": "我是您的智能代理 AI 助手，可以通过多个 AI 代理协作帮助您完成复杂任务。今天有什么可以帮您的吗？",
       "errorMessage": "抱歉，处理您的请求时出错。请重试。",
+      "errorSending": "发送消息时出错。请重试。",
       "manageAgents": "管理代理",
+      "maxRounds": "最大轮次",
+      "conversations": "对话历史",
+      "savedAgents": "已保存代理",
       "agentName": "代理名称",
       "agentType": "代理类型",
       "systemMessage": "系统消息",
