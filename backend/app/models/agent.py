@@ -18,7 +18,9 @@ class Agent(Base):
     __tablename__ = "agents"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.email"), nullable=False)
+    # NOTE: This should be String in the future as it references users.email
+    # Current mismatch in type (UUID vs. String) is causing database errors
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)  # 'assistant', 'researcher', 'coder', 'critic', 'custom'
     system_message = Column(Text, nullable=False)

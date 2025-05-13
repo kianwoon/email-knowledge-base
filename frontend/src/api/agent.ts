@@ -36,11 +36,15 @@ export const createAgent = async (agent: AgentCreate): Promise<Agent> => {
 
 // Update an existing agent
 export const updateAgent = async (id: string, agent: Partial<AgentCreate>): Promise<Agent> => {
-  const response = await apiClient.put(`/agents/${id}`, agent);
+  // Extract the UUID part (before any underscore)
+  const uuidPart = id.split('_')[0];
+  const response = await apiClient.put(`/agents/${uuidPart}`, agent);
   return response.data;
 };
 
 // Delete an agent
 export const deleteAgent = async (id: string): Promise<void> => {
-  await apiClient.delete(`/agents/${id}`);
+  // Extract the UUID part (before any underscore)
+  const uuidPart = id.split('_')[0];
+  await apiClient.delete(`/agents/${uuidPart}`);
 }; 

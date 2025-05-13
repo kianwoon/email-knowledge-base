@@ -426,34 +426,41 @@ class AuthService:
             payload = AuthService.extract_token_data(token)
             email = payload.get("email")
             user_id = payload.get("sub")
-            ms_token = payload.get("ms_token")
             
             if not email or not user_id:
                 logger.error("JWT missing required fields (email or sub)")
                 return None
                 
-            # Validate MS token
-            is_valid, _ = await AuthService.validate_ms_token(ms_token)
+            # Fetch user from DB with MS token
+            user_db = get_user_full_instance(db, email=email)
+            if not user_db:
+                logger.error(f"User {email} not found in DB")
+                return None
+            
+            # Check if we have a valid MS token in the database
+            ms_token = user_db.ms_access_token
+            
+            # Validate MS token if available
+            is_valid = False
+            if ms_token:
+                is_valid, _ = await AuthService.validate_ms_token(ms_token)
             
             if is_valid:
-                # Token is valid, fetch user and return
+                # Token is valid, use it
                 validated_ms_token = ms_token
+                logger.info(f"MS token for user {email} is valid")
             else:
-                # Token invalid, attempt refresh
+                # Token invalid or not present, attempt refresh
+                logger.info(f"MS token for user {email} is invalid or missing, attempting refresh")
                 validated_ms_token = await AuthService.handle_token_refresh_flow(
                     db, email, user_id, response
                 )
                 
                 if not validated_ms_token:
                     # Refresh failed
+                    logger.warning(f"Token refresh failed for user {email}")
                     return None
             
-            # Fetch user from DB
-            user_db = get_user_full_instance(db, email=email)
-            if not user_db:
-                logger.error(f"User {email} not found in DB after token validation")
-                return None
-                
             # Create and return user model
             user = User.model_validate(user_db)
             user.ms_access_token = validated_ms_token
