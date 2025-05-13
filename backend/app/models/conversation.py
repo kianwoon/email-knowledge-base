@@ -13,7 +13,7 @@ class AutogenConversation(Base):
     __tablename__ = "autogen_conversations"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.email"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=False)
     max_rounds = Column(Integer, default=10)
     agent_configs = Column(JSONB, nullable=True)  # Stores agent configuration used in this conversation
