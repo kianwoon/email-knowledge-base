@@ -1,4 +1,4 @@
-import { api } from './index';
+import { apiClient } from './client';
 
 // Types for conversation-related operations
 export interface Message {
@@ -31,35 +31,35 @@ export interface ConversationUpdate {
 
 // Get all conversations for the current user
 export const getUserConversations = async (): Promise<Conversation[]> => {
-  const response = await api.get('/api/v1/conversations/');
+  const response = await apiClient.get('/conversations/');
   return response.data;
 };
 
 // Get a specific conversation by ID
 export const getConversationById = async (id: string): Promise<Conversation> => {
-  const response = await api.get(`/api/v1/conversations/${id}`);
+  const response = await apiClient.get(`/conversations/${id}`);
   return response.data;
 };
 
 // Create a new conversation
 export const createConversation = async (conversation: ConversationCreate): Promise<Conversation> => {
-  const response = await api.post('/api/v1/conversations/', conversation);
+  const response = await apiClient.post('/conversations/', conversation);
   return response.data;
 };
 
 // Update an existing conversation
 export const updateConversation = async (id: string, updates: ConversationUpdate): Promise<Conversation> => {
-  const response = await api.put(`/api/v1/conversations/${id}`, updates);
+  const response = await apiClient.put(`/conversations/${id}`, updates);
   return response.data;
 };
 
 // Delete a conversation
 export const deleteConversation = async (id: string): Promise<void> => {
-  await api.delete(`/api/v1/conversations/${id}`);
+  await apiClient.delete(`/conversations/${id}`);
 };
 
 // Add a message to a conversation
 export const addMessageToConversation = async (conversationId: string, message: Omit<Message, 'id' | 'timestamp'>): Promise<Message> => {
-  const response = await api.post(`/api/v1/conversations/${conversationId}/messages`, message);
+  const response = await apiClient.post(`/conversations/${conversationId}/messages`, message);
   return response.data;
 }; 

@@ -1,4 +1,4 @@
-import { api } from './index';
+import { apiClient } from './client';
 
 // Types for settings-related operations
 export interface UserSettings {
@@ -11,12 +11,12 @@ export interface UserSettings {
 
 // Get user settings
 export const getUserSettings = async (): Promise<UserSettings> => {
-  const response = await api.get('/api/v1/settings/');
+  const response = await apiClient.get('/settings/');
   return response.data;
 };
 
 // Update user settings
 export const updateUserSettings = async (settings: Partial<UserSettings>): Promise<UserSettings> => {
-  const response = await api.put('/api/v1/settings/', settings);
+  const response = await apiClient.put('/settings/', settings);
   return response.data;
 }; 
