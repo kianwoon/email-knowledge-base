@@ -39,3 +39,4 @@ knowledge_base_structure.txt
 *.db-wal
 *.md
 cline*.json
+/backend/alembic
