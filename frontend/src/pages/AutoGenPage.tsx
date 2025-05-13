@@ -58,12 +58,11 @@ import {
 } from '@chakra-ui/react';
 import { FaUsers, FaCode, FaSearch, FaRobot, FaUsersCog, FaQuestion, FaComments, FaPaperPlane, FaPlus, FaPen, FaTrash, FaCog, FaChevronDown, FaSave, FaUndo, FaHistory } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
-import { api } from '../api';
+import { apiClient } from '../api/client';
 import { getAllApiKeys, getDefaultModel } from '../api/user';
 import { getUserAgents, createAgent, updateAgent, deleteAgent } from '../api/agent';
 import { getUserConversations, getConversationById, createConversation, updateConversation, addMessageToConversation, deleteConversation } from '../api/conversation';
 import { getUserSettings, updateUserSettings } from '../api/settings';
-import axios from 'axios';
 
 // Model interface matching Jarvis implementation
 interface LLMModel {
@@ -382,7 +381,7 @@ const AutoGenPage: React.FC = () => {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const response = await api.get('/api/v1/autogen/status');
+        const response = await apiClient.get('/autogen/status');
         // Check if status is operational or available
         setIsAvailable(response.data.status === 'operational' || response.data.status === 'available');
         
@@ -804,9 +803,9 @@ const AutoGenPage: React.FC = () => {
       // Connect to WebSocket for real-time updates
       connectToWebSocket(conversationId);
       
-      // Make API call
-      const response = await axios.post(
-        `/api/v1/autogen/chat?conversation_id=${conversationId}`,
+      // Make API call using apiClient and corrected path
+      const response = await apiClient.post(
+        `/autogen/chat?conversation_id=${conversationId}`,
         {
           message: userMessage.content,
           agents: chatForm.agents && chatForm.agents.length > 0 
@@ -908,7 +907,7 @@ const AutoGenPage: React.FC = () => {
     setSummary('');
     
     try {
-      const response = await api.post('/api/v1/autogen/research', researchForm);
+      const response = await apiClient.post('/autogen/research', researchForm);
       setMessages(response.data.messages);
       setSummary(response.data.summary.summary);
       toast({
@@ -938,7 +937,7 @@ const AutoGenPage: React.FC = () => {
     setCodeOutput('');
     
     try {
-      const response = await api.post('/api/v1/autogen/code-generation', codeGenForm);
+      const response = await apiClient.post('/autogen/code-generation', codeGenForm);
       setMessages(response.data.messages);
       setCodeOutput(response.data.output_path);
       toast({
@@ -970,7 +969,7 @@ const AutoGenPage: React.FC = () => {
       // Split context by newlines into array
       const contextArray = qaForm.context.split('\n').filter(line => line.trim() !== '');
       
-      const response = await api.post('/api/v1/autogen/qa', {
+      const response = await apiClient.post('/autogen/qa', {
         ...qaForm,
         context: contextArray
       });

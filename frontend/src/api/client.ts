@@ -12,10 +12,21 @@ interface ApiErrorResponse {
   detail?: string | ApiErrorDetail[];
 }
 
+let determinedBaseURL: string;
+
+if (import.meta.env.PROD) {
+  // In production, prioritize VITE_API_BASE_URL if it's set and truthy.
+  // Fallback to '/api/v1' if it's not set or empty, assuming same-origin deployment or reverse proxy handles it.
+  determinedBaseURL = import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL : '/api/v1';
+} else {
+  // In development, always use '/api/v1' to ensure Vite proxy is used correctly.
+  // This overrides any local VITE_API_BASE_URL that might not be proxy-friendly.
+  determinedBaseURL = '/api/v1';
+}
+
 // Create an Axios instance with base configuration
 export const apiClient = axios.create({
-  // Use VITE_ environment variable for base URL, fallback to relative path
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: determinedBaseURL,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json', // Ensure we accept JSON responses
