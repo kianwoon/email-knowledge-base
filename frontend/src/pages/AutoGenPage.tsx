@@ -58,6 +58,7 @@ import {
 } from '@chakra-ui/react';
 import { FaUsers, FaCode, FaSearch, FaRobot, FaUsersCog, FaQuestion, FaComments, FaPaperPlane, FaPlus, FaPen, FaTrash, FaCog, FaChevronDown, FaSave, FaUndo, FaHistory } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
 import { apiClient } from '../api/client';
 import { getAllApiKeys, getDefaultModel } from '../api/user';
 import { getUserAgents, createAgent, updateAgent, deleteAgent } from '../api/agent';
@@ -1539,7 +1540,7 @@ const AutoGenPage: React.FC = () => {
                             {msg.agentName.replace(/_/g, ' ')}
                           </Text>
                         )}
-                        <Text whiteSpace="pre-wrap">{msg.content}</Text>
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
                         <Text fontSize="xs" color="gray.500" mt={1} textAlign="right">
                           {new Date(msg.timestamp).toLocaleTimeString()}
                         </Text>
