@@ -648,8 +648,8 @@ const AutoGenPage: React.FC = () => {
   }, []);
 
   // Function to connect to the WebSocket - now wrapped in useCallback
-  const connectToWebSocket = useCallback((conversationId: string, token: string) => {
-    console.log('[connectToWebSocket] Entered. conversationId:', conversationId, 'token:', token ? 'present' : 'absent');
+  const connectToWebSocket = useCallback((conversationId: string, token: string, convData: ConversationData | null) => {
+    console.log('[connectToWebSocket] Entered. conversationId:', conversationId, 'token:', token ? 'present' : 'absent', 'convData:', convData);
 
     if (!conversationId || !token) {
       console.warn('[connectToWebSocket] Missing conversationId or token. Aborting.');
@@ -727,7 +727,25 @@ const AutoGenPage: React.FC = () => {
               );
               return [...filteredMessages, agentMsg];
             });
-            // Storing in backend removed for brevity here, but should be present
+            
+            // Save agent message received via WebSocket
+            if (convData && convData.id && agentMsg.role === 'assistant') {
+              addMessageToConversation(convData.id, {
+                role: agentMsg.role,
+                content: agentMsg.content,
+                agentName: agentMsg.agentName
+              }).catch(err => {
+                console.error("Error saving WebSocket agent message to conversation:", err);
+                // Optionally, inform the user via toast if saving fails
+                // toast({
+                //   title: t('common.error'),
+                //   description: "Failed to save agent's message to history.",
+                //   status: 'error',
+                //   duration: 3000,
+                //   isClosable: true,
+                // });
+              });
+            }
           }
         } else if (data.type === 'agent_thinking') {
           const thinkingMsg: ChatMessage = {
@@ -750,7 +768,7 @@ const AutoGenPage: React.FC = () => {
         console.error('Error parsing WebSocket message:', err);
       }
     };
-  }, [t]); // t from useTranslation is a dependency of onmessage if it uses t()
+  }, [t, toast, currentConversation]); // Added currentConversation as a dependency
 
   // Effect to manage WebSocket connection based on conversation and auth state
   useEffect(() => {
@@ -776,7 +794,7 @@ const AutoGenPage: React.FC = () => {
       console.log(
         `[AutoGenPage useEffect WS] Conditions MET. Attempting to connect for conversation ID: ${currentConversation.id}.`
       );
-      connectToWebSocket(currentConversation.id, wsToken);
+      connectToWebSocket(currentConversation.id, wsToken, currentConversation);
     } else {
       console.log(
         `[AutoGenPage useEffect WS] Conditions NOT met. WebSocket will not be connected or will be closed.`
