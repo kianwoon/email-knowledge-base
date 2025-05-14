@@ -1,4 +1,7 @@
 {
+  "cancel": "Cancel",
+  "save": "Save",
+  "close": "Close",
   "app": {
     "name": "Email Knowledge Base",
     "tagline": "One Platform. All Your Knowledge. Ready for AI"
@@ -2248,7 +2251,15 @@
       "typeHelp": "The agent type influences its behavior and expertise",
       "systemMessageHelp": "This instruction guides how the agent behaves and responds",
       "validationError": "Agent name and system message are required",
-      "noAgentsEnabled": "No agents are enabled. Please enable at least one agent."
+      "noAgentsEnabled": "No agents are enabled. Please enable at least one agent.",
+      "orchestrationType": "Orchestration",
+      "autoDetect": "Auto-Detect",
+      "parallel": "Parallel",
+      "sequential": "Sequential",
+      "orchestrationTypeHelp": "Choose how agents collaborate",
+      "useMcpTools": "Use MCP Tools",
+      "useMcpToolsHelp": "Allow agents to use connected tools",
+      "pressEnterToSend": "Press Enter to send, Shift+Enter for new line"
     },
     "research": {
       "title": "Research Workflow",

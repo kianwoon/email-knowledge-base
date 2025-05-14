@@ -1,4 +1,7 @@
 {
+  "cancel": "取消",
+  "save": "保存",
+  "close": "关闭",
   "app": {
     "name": "电子邮件知识库",
     "tagline": "一个平台。所有知识。AI 就绪"
@@ -560,7 +563,15 @@
       "typeHelp": "代理类型会影响其行为和专业知识",
       "systemMessageHelp": "此指令指导代理如何表现和回应",
       "validationError": "代理名称和系统消息为必填项",
-      "noAgentsEnabled": "没有启用任何代理。请至少启用一个代理。"
+      "noAgentsEnabled": "没有启用任何代理。请至少启用一个代理。",
+      "orchestrationType": "协作方式",
+      "autoDetect": "自动检测",
+      "parallel": "并行",
+      "sequential": "顺序",
+      "orchestrationTypeHelp": "选择代理如何协作",
+      "useMcpTools": "使用 MCP 工具",
+      "useMcpToolsHelp": "允许代理使用已连接的工具",
+      "pressEnterToSend": "按 Enter 发送，Shift+Enter 换行"
     },
     "research": {
       "title": "研究工作流",
