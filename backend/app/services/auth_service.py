@@ -301,16 +301,22 @@ class AuthService:
         
         # Decode and validate the token with explicit leeway for clock skew
         try:
+            logger.debug(f"Attempting final JWT decode and validation for token: {token[:20]}...")
             payload = jwt.decode(
                 token,
                 settings.JWT_SECRET,
                 algorithms=[settings.JWT_ALGORITHM],
                 options={"leeway": 60}  # Increase leeway for clock skew to 60 seconds
             )
+            logger.debug(f"JWT decode successful for token: {token[:20]}. Payload email: {payload.get('email')}")
             return payload
+        except jwt.ExpiredSignatureError as ese:
+            logger.error(f"JWT EXPIRED (within extract_token_data) for token {token[:20]}...: {ese}")
+            raise
         except JWTError as e:
-            logger.error(f"JWT Error during token decode: {e}")
-            logger.error(f"JWT validation error: {str(e)}")
+            # General JWTError (signature, format, etc.)
+            logger.error(f"JWT VALIDATION ERROR (within extract_token_data) for token {token[:20]}...: {e}. Type: {type(e)}")
+            logger.error(f"JWT validation error (re-raising): {str(e)}")
             raise
     
     @staticmethod
@@ -423,62 +429,98 @@ class AuthService:
             
         try:
             # Extract data from JWT
-            payload = AuthService.extract_token_data(token)
+            payload = AuthService.extract_token_data(token) # This can throw JWTError (including ExpiredSignatureError)
             email = payload.get("email")
-            user_id = payload.get("sub")
+            user_id = payload.get("sub") # This is the internal DB User ID (UUID)
             
             if not email or not user_id:
-                logger.error("JWT missing required fields (email or sub)")
-                return None
+                logger.error("JWT missing required fields (email or sub/user_id)")
+                # It's possible extract_token_data itself threw an error handled by outer JWTError block
+                return None # Should be caught by JWTError if token was malformed
                 
-            # Fetch user from DB with MS token
-            user_db = get_user_full_instance(db, email=email)
+            # Fetch user from DB 
+            user_db = get_user_full_instance(db, email=email) # Assuming this fetches the full user object
             if not user_db:
-                logger.error(f"User {email} not found in DB")
-                return None
+                logger.error(f"User {email} (ID: {user_id}) not found in DB based on JWT claims.")
+                return None # User in JWT doesn't exist in DB
             
-            # Check if we have a valid MS token in the database
+            # At this point, the local JWT was valid (not expired, good signature etc.)
+            # Now, check the MS token associated with the user
             ms_token = user_db.ms_access_token
             
-            # Validate MS token if available
-            is_valid = False
+            is_ms_token_valid = False
             if ms_token:
-                is_valid, _ = await AuthService.validate_ms_token(ms_token)
+                is_ms_token_valid, _ = await AuthService.validate_ms_token(ms_token)
             
-            if is_valid:
-                # Token is valid, use it
+            if is_ms_token_valid:
                 validated_ms_token = ms_token
-                logger.info(f"MS token for user {email} is valid")
+                logger.info(f"Existing MS token for user {email} is valid.")
             else:
-                # Token invalid or not present, attempt refresh
-                logger.info(f"MS token for user {email} is invalid or missing, attempting refresh")
+                logger.info(f"MS token for user {email} is invalid or missing. Attempting MS token refresh flow.")
+                # The user_id from the local JWT (which is db_user.id) is passed here
                 validated_ms_token = await AuthService.handle_token_refresh_flow(
-                    db, email, user_id, response
+                    db, email, user_id, response # response object is passed to set new local JWT cookie
                 )
                 
                 if not validated_ms_token:
-                    # Refresh failed
-                    logger.warning(f"Token refresh failed for user {email}")
+                    logger.warning(f"MS Token refresh failed for user {email}. Session ending.")
+                    # handle_token_refresh_flow should have deleted the cookie.
                     return None
             
-            # Create and return user model
             user = User.model_validate(user_db)
-            user.ms_access_token = validated_ms_token
-            
+            user.ms_access_token = validated_ms_token 
+            logger.info(f"Successfully authenticated user {email} with valid local JWT and MS token (potentially refreshed).")
             return user
             
-        except JWTError as e:
-            logger.error(f"JWT validation error: {e}")
-            # Clear cookie on JWT error
-            response.delete_cookie(
-                key=settings.JWT_COOKIE_NAME,
-                path="/",
-                domain=settings.COOKIE_DOMAIN,
-                samesite="Lax",
-                secure=True,
-                httponly=True
-            )
+        except jwt.ExpiredSignatureError as e:
+            logger.warning(f"LOCAL JWT EXPIRED (Caught in authenticate_and_validate_token) for user: {e}. Attempting full session refresh via MS token.")
+            try:
+                # Try to get email/user_id from the expired token to initiate refresh
+                unsafe_payload = AuthService.decode_jwt_unsafe(token) # Use unsafe decode for expired token
+                email_from_expired_token = unsafe_payload.get("email")
+                user_id_from_expired_token = unsafe_payload.get("sub") # This is db_user.id
+
+                if not email_from_expired_token or not user_id_from_expired_token:
+                    logger.error("Could not extract email/user_id from expired local JWT for refresh.")
+                    response.delete_cookie(key=settings.JWT_COOKIE_NAME, path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=settings.COOKIE_SECURE, httponly=True)
+                    return None
+
+                logger.info(f"Attempting to refresh MS token and reissue local JWT for user {email_from_expired_token} due to expired local JWT.")
+                
+                # This will attempt MS refresh, and if successful, create_user_jwt and set_cookie via response
+                refreshed_ms_token_after_local_jwt_expiry = await AuthService.handle_token_refresh_flow(
+                    db, email_from_expired_token, user_id_from_expired_token, response 
+                )
+
+                if not refreshed_ms_token_after_local_jwt_expiry:
+                    logger.warning(f"Full session refresh failed for user {email_from_expired_token} after local JWT expired. Cookie should have been deleted by handle_token_refresh_flow.")
+                    return None # handle_token_refresh_flow deletes cookie on failure
+                
+                # If refresh was successful, a new local JWT cookie is set. Now fetch user and return.
+                user_db_after_refresh = get_user_full_instance(db, email=email_from_expired_token)
+                if not user_db_after_refresh:
+                    logger.error(f"User {email_from_expired_token} not found in DB after successful session refresh. This should not happen.")
+                    # This case implies a serious inconsistency.
+                    response.delete_cookie(key=settings.JWT_COOKIE_NAME, path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=settings.COOKIE_SECURE, httponly=True)
+                    return None 
+                
+                user_model_after_refresh = User.model_validate(user_db_after_refresh)
+                # The refreshed_ms_token_after_local_jwt_expiry is the new MS access token
+                user_model_after_refresh.ms_access_token = refreshed_ms_token_after_local_jwt_expiry 
+                logger.info(f"Successfully re-authenticated user {email_from_expired_token} after local JWT expiry and MS refresh. New local JWT cookie set.")
+                return user_model_after_refresh
+
+            except Exception as refresh_exc: # Catch any error during this specific refresh flow
+                logger.error(f"Exception during local JWT expiry refresh flow: {refresh_exc}", exc_info=True)
+                response.delete_cookie(key=settings.JWT_COOKIE_NAME, path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=settings.COOKIE_SECURE, httponly=True)
+                return None
+
+        except JWTError as e: # Catch other JWTError (invalid signature, malformed, etc.)
+            logger.error(f"OTHER JWT ERROR (Caught in authenticate_and_validate_token). Type: {type(e)}, Error: {e}. Deleting cookie.")
+            response.delete_cookie(key=settings.JWT_COOKIE_NAME, path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=settings.COOKIE_SECURE, httponly=True)
             return None
         except Exception as e:
-            logger.error(f"Unexpected error during authentication: {e}", exc_info=True)
+            logger.error(f"UNEXPECTED AUTHENTICATION ERROR (Caught in authenticate_and_validate_token): {e}", exc_info=True)
+            # It's safer to ensure cookie is cleared on any unexpected auth error
+            response.delete_cookie(key=settings.JWT_COOKIE_NAME, path="/", domain=settings.COOKIE_DOMAIN, samesite="Lax", secure=settings.COOKIE_SECURE, httponly=True)
             return None 

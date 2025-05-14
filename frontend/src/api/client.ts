@@ -31,7 +31,7 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json',
     'Accept': 'application/json', // Ensure we accept JSON responses
   },
-  timeout: 30000, // 30 second timeout for requests
+  timeout: 90000, // 90 second timeout for requests
   // *** CRUCIAL FOR HttpOnly COOKIE AUTHENTICATION ***
   withCredentials: true, 
 });
@@ -57,7 +57,7 @@ const errorInterceptor = (error: AxiosError<ApiErrorResponse>) => {
     console.warn('[API Client] Received 401 Unauthorized. Assuming session expired.');
     
     // Optionally remove potentially invalid tokens
-    // localStorage.removeItem('access_token');
+    localStorage.removeItem('access_token');
     // localStorage.removeItem('refresh_token');
     
     // Dispatch a custom event that App.tsx can listen for to show login modal/redirect

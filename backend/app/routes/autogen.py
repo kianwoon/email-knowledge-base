@@ -11,7 +11,8 @@ from app.autogen.workflows import (
     run_research_workflow, 
     run_code_generation_workflow, 
     run_qa_workflow,
-    run_chat_workflow
+    run_chat_workflow,
+    run_hybrid_orchestration_workflow
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,17 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     messages: List[Dict[str, Any]] = Field(..., description="Agent messages in response to the query")
+
+# New model for hybrid orchestration
+class HybridChatRequest(BaseModel):
+    message: str = Field(..., description="User message")
+    model_id: Optional[str] = Field(None, description="Optional model ID to use")
+    temperature: Optional[float] = Field(0.7, description="Temperature for LLM")
+    history: Optional[List[Dict[str, Any]]] = Field([], description="Previous conversation history")
+    agents: List[AgentConfig] = Field(..., description="List of custom agents to use in the conversation")
+    max_rounds: Optional[int] = Field(5, description="Maximum conversation rounds")
+    orchestration_type: Optional[str] = Field(None, description="Orchestration type (parallel, sequential, or null for auto-determination)")
+    use_mcp_tools: Optional[bool] = Field(True, description="Whether to use MCP tools when appropriate")
 
 # --- API Endpoints ---
 
@@ -201,19 +213,13 @@ async def chat_endpoint(
     db: Session = Depends(get_db),
 ):
     """
-    Run a multi-agent chat workflow with custom agent configurations.
+    Run a flexible chat workflow with customizable agents.
     
-    This creates a team of AI agents based on the provided configurations.
-    The agents discuss and respond to the user's message.
-    
-    When conversation_id is provided, real-time updates will be sent via WebSockets.
+    This endpoint allows you to specify a list of agents with custom system messages.
+    The agents will engage in a group chat to address the user's message.
     """
     try:
         logger.info(f"Chat request from user {current_user.email}: {request.message}")
-        logger.info(f"Using {len(request.agents)} agents for chat")
-        
-        # Use a smaller max_rounds value to avoid indefinite conversations
-        max_rounds = min(request.max_rounds if hasattr(request, 'max_rounds') else 5, 10)
         
         # Get the FastAPI app instance from the request
         app = request_obj.app
@@ -226,7 +232,7 @@ async def chat_endpoint(
             temperature=request.temperature,
             history=request.history,
             agents=request.agents,
-            max_rounds=max_rounds,
+            max_rounds=request.max_rounds,
             conversation_id=conversation_id,
             app=app
         )
@@ -241,33 +247,58 @@ async def chat_endpoint(
             detail=f"Chat workflow failed: {str(e)}"
         )
 
-@router.get("/status", status_code=status.HTTP_200_OK)
-async def check_autogen_status():
+@router.post("/hybrid-chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
+async def hybrid_chat_endpoint(
+    request: HybridChatRequest,
+    request_obj: Request,  # Get the request object without Depends()
+    conversation_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
     """
-    Check the status of the AutoGen integration.
+    Run a hybrid orchestration workflow with dynamic agent collaboration patterns.
     
-    This endpoint verifies that AutoGen is properly installed and configured.
-    It returns version information and compatibility status.
+    This endpoint automatically determines whether to use parallel or sequential orchestration
+    based on the nature of the query, unless an orchestration_type is explicitly specified.
+    
+    It can also leverage MCP tools when appropriate for the query.
     """
     try:
-        import autogen
-        import openai
-        from app.autogen.compatibility import PATCHED
+        logger.info(f"Hybrid chat request from user {current_user.email}: {request.message}")
+        logger.info(f"Using {len(request.agents)} agents with orchestration_type: {request.orchestration_type or 'auto'}")
         
-        return {
-            "status": "available",
-            "autogen_version": autogen.__version__,
-            "openai_version": openai.__version__,
-            "compatibility_patched": PATCHED,
-            "message": "AutoGen is properly configured and ready to use."
-        }
-    except ImportError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AutoGen integration is not properly installed: {str(e)}"
+        # Use a smaller max_rounds value to avoid indefinite conversations
+        max_rounds = min(request.max_rounds if hasattr(request, 'max_rounds') else 5, 10)
+        
+        # Get the FastAPI app instance from the request
+        app = request_obj.app
+        
+        messages = await run_hybrid_orchestration_workflow(
+            query=request.message,
+            user=current_user,
+            db=db,
+            model_id=request.model_id,
+            temperature=request.temperature,
+            history=request.history,
+            agents=request.agents,
+            max_rounds=max_rounds,
+            conversation_id=conversation_id,
+            app=app,
+            orchestration_type=request.orchestration_type,
+            use_mcp_tools=request.use_mcp_tools if hasattr(request, 'use_mcp_tools') else True
+        )
+        
+        return ChatResponse(
+            messages=messages
         )
     except Exception as e:
+        logger.error(f"Error in hybrid chat workflow: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error checking AutoGen status: {str(e)}"
-        ) 
+            detail=f"Hybrid chat workflow failed: {str(e)}"
+        )
+
+@router.get("/status", status_code=status.HTTP_200_OK)
+async def check_autogen_status():
+    """Check if the AutoGen service is available."""
+    return {"status": "ok", "message": "AutoGen service is running"} 

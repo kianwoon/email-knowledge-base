@@ -57,6 +57,27 @@ export default defineConfig(({ command, mode }) => {
               }
             });
           }
+        },
+        // Add WebSocket proxy configuration
+        '/ws': {
+          target: 'ws://localhost:8000', // Target your backend WebSocket server
+          ws: true, // Enable WebSocket proxying
+          changeOrigin: true,
+          secure: false, // Adjust if your backend uses wss
+          rewrite: (path) => path.replace(/^\/ws/, ''), // Remove /ws prefix
+          configure: (proxy, options) => {
+            proxy.on('error', (err, req, res) => {
+              console.error('[Vite WS Proxy] Proxy error:', err);
+              if (res && typeof res.writeHead === 'function') { // Check if res is a valid ServerResponse
+                res.writeHead(500, {
+                  'Content-Type': 'text/plain',
+                });
+                res.end('WebSocket proxy error');
+              } else if (res && res.socket && typeof res.socket.end === 'function') { // For WS connections
+                 res.socket.end();
+              }
+            });
+          }
         }
       },
     },
@@ -79,6 +100,27 @@ export default defineConfig(({ command, mode }) => {
               if (req.headers.cookie) {
                  console.log('[Vite Proxy Preview] Forwarding Cookie header:', req.headers.cookie);
                  proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+          }
+        },
+        // Add WebSocket proxy configuration for preview as well
+        '/ws': {
+          target: 'ws://localhost:8000', // Adjust if your VITE_API_BASE_URL implies a different WS target
+          ws: true,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/ws/, ''), // Remove /ws prefix
+          configure: (proxy, options) => {
+            proxy.on('error', (err, req, res) => {
+              console.error('[Vite WS Proxy Preview] Proxy error:', err);
+              if (res && typeof res.writeHead === 'function') {
+                res.writeHead(500, {
+                  'Content-Type': 'text/plain',
+                });
+                res.end('WebSocket proxy error');
+              } else if (res && res.socket && typeof res.socket.end === 'function') {
+                 res.socket.end();
               }
             });
           }
