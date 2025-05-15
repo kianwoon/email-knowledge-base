@@ -2259,7 +2259,11 @@
       "orchestrationTypeHelp": "Choose how agents collaborate",
       "useMcpTools": "Use MCP Tools",
       "useMcpToolsHelp": "Allow agents to use connected tools",
-      "pressEnterToSend": "Press Enter to send, Shift+Enter for new line"
+      "pressEnterToSend": "Press Enter to send, Shift+Enter for new line",
+      "sequentialExecutor": "Sequential Executor",
+      "parallelExecutor": "Parallel Executor",
+      "streamResponses": "Stream responses",
+      "streamResponsesHelp": "Show agent responses as they are generated"
     },
     "research": {
       "title": "Research Workflow",

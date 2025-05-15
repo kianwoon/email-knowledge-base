@@ -1,4 +1,8 @@
 import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger("app").setLevel(logging.DEBUG)
+logging.getLogger("app.autogen.workflows").setLevel(logging.DEBUG)
 import os
 import sys
 # Force UTC for JWT operations

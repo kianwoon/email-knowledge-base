@@ -33,7 +33,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     logger.info(f"DEBUG JWT CREATE: JWT_SECRET: {settings.JWT_SECRET[:5]}..., Algorithm: {settings.JWT_ALGORITHM}")
     
     # Convert to datetime.timestamp for consistent serialization
-    to_encode.update({"exp": expire.timestamp(), "iat": now.timestamp()})
+    to_encode.update({"exp": int(expire.timestamp()), "iat": int(now.timestamp())})
     
     # Ensure 'sub' (user ID) and 'email' are present for user tokens
     if "ms_token" in to_encode: # Heuristic check if it's a user session token

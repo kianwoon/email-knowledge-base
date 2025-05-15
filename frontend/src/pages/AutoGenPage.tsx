@@ -154,20 +154,43 @@ interface ConversationData {
   maxRounds: number;
 }
 
+// Update the ChatForm interface
+type OrchestrationType = 'parallel' | 'sequential' | 'team' | null;
+
 interface ChatForm {
   message: string;
   model_id: string;
   agents: CustomAgent[];
   max_rounds: number;
   conversation_id?: string;
-  orchestration_type?: 'parallel' | 'sequential' | null;
+  orchestration_type?: OrchestrationType;
   use_mcp_tools?: boolean;
+  stream?: boolean;
+  temperature?: number; // <-- Add temperature
 }
 
 // Custom WebSocket type with additional properties
 interface CustomWebSocket extends WebSocket {
   pingInterval?: NodeJS.Timeout;
 }
+
+// Utility to add a temporary system message
+const addTemporarySystemMessage = (setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>, content: string, duration = 3000) => {
+  const tempId = `system-msg-${Date.now()}-${Math.random()}`;
+  setChatMessages(prev => [
+    ...prev,
+    {
+      id: tempId,
+      role: 'system',
+      content,
+      timestamp: new Date(),
+      agentName: 'System'
+    }
+  ]);
+  setTimeout(() => {
+    setChatMessages(prev => prev.filter(msg => msg.id !== tempId));
+  }, duration);
+};
 
 const AutoGenPage: React.FC = () => {
   const { t } = useTranslation();
@@ -247,8 +270,10 @@ const AutoGenPage: React.FC = () => {
     agents: [],
     max_rounds: 10,
     conversation_id: undefined,
-    orchestration_type: null,
-    use_mcp_tools: true
+    orchestration_type: undefined,
+    use_mcp_tools: true,
+    stream: false,
+    temperature: 0.7 // <-- Default temperature
   });
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -445,6 +470,7 @@ const AutoGenPage: React.FC = () => {
       isEnabled: true
     });
     onOpen();
+    addTemporarySystemMessage(t('agenticAI.chat.agentTeamUpdated', 'Agent team updated'));
   };
 
   const handleEditAgent = (agent: CustomAgent) => {
@@ -476,6 +502,7 @@ const AutoGenPage: React.FC = () => {
       setCustomAgents(updatedAgents);
       setChatForm(prev => ({...prev, agents: updatedAgents}));
       
+      addTemporarySystemMessage(t('agenticAI.chat.agentTeamUpdated', 'Agent team updated'));
     } catch (error) {
       console.error("Error deleting agent:", error);
       toast({
@@ -493,6 +520,7 @@ const AutoGenPage: React.FC = () => {
     );
     setCustomAgents(updatedAgents);
     setChatForm(prev => ({...prev, agents: updatedAgents}));
+    addTemporarySystemMessage(t('agenticAI.chat.agentTeamUpdated', 'Agent team updated'));
   };
 
   const handleAgentChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -593,6 +621,8 @@ const AutoGenPage: React.FC = () => {
       
       onClose();
       
+      addTemporarySystemMessage(t('agenticAI.chat.agentTeamUpdated', 'Agent team updated'));
+      
     } catch (error) {
       console.error("Error saving agent:", error);
       toast({
@@ -665,13 +695,8 @@ const AutoGenPage: React.FC = () => {
       socketRef.current = null;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Use a more explicit way to get hostname and port, fallback to window.location.host if needed
-    const hostname = window.location.hostname;
-    const port = window.location.port ? `:${window.location.port}` : ''; // Vite dev server port (e.g., :5173)
-    const hostAndPort = `${hostname}${port}`;
-
-    const wsUrl = `${protocol}//${hostAndPort}/ws/chat/${conversationId}?token=${token}`;
+    const wsBaseUrl = import.meta.env.VITE_WEBSOCKET_URL;
+    const wsUrl = `${wsBaseUrl}/chat/${conversationId}?token=${token}`;
     console.log(`[WebSocket] Attempting to connect to: ${wsUrl}`);
 
     const newSocket = new WebSocket(wsUrl) as CustomWebSocket;
@@ -681,12 +706,31 @@ const AutoGenPage: React.FC = () => {
     newSocket.onopen = () => {
       console.log('[WebSocket] onopen: Connection established.');
       setIsConnected(true);
-      const pingInterval = setInterval(() => {
+      // --- FIX: Send initial chat payload as JSON ---
+      // Gather the current chat form data and agents
+      const chatPayload = {
+        message: chatForm.message, // The message the user just submitted
+        agents: chatForm.agents.filter(agent => agent.isEnabled), // Only enabled agents
+        model_id: chatForm.model_id || userSettings.defaultModel,
+        temperature: chatForm.temperature ?? 0.7,
+        max_rounds: chatForm.max_rounds ?? 5,
+        orchestration_type: chatForm.orchestration_type ?? null,
+        use_mcp_tools: chatForm.use_mcp_tools ?? true,
+        history: getMessageHistoryForApi()
+      };
+      try {
+        newSocket.send(JSON.stringify(chatPayload));
+        console.log('[WebSocket] Sent initial chat payload:', chatPayload);
+      } catch (err) {
+        console.error('[WebSocket] Error sending initial chat payload:', err);
+      }
+      // --- END FIX ---
+      const interval = setInterval(() => {
         if (newSocket.readyState === WebSocket.OPEN) {
           newSocket.send('ping');
         }
       }, 30000);
-      newSocket.pingInterval = pingInterval;
+      newSocket.pingInterval = interval;
     };
 
     newSocket.onclose = (event) => {
@@ -704,6 +748,10 @@ const AutoGenPage: React.FC = () => {
     };
 
     newSocket.onmessage = (event) => {
+      if (event.data === "pong") {
+        // Optionally log or handle keep-alive
+        return;
+      }
       try {
         const data = JSON.parse(event.data);
         console.log('[WebSocket] Received data:', JSON.stringify(data));
@@ -727,7 +775,6 @@ const AutoGenPage: React.FC = () => {
               );
               return [...filteredMessages, agentMsg];
             });
-            
             // Save agent message received via WebSocket
             if (convData && convData.id && agentMsg.role === 'assistant') {
               addMessageToConversation(convData.id, {
@@ -931,6 +978,10 @@ const AutoGenPage: React.FC = () => {
       }
 
       console.log('[handleChatSubmit] Calling sendHybridChat with userMessage:', userMessageContent, 'apiAgents:', apiAgents.length > 0 ? apiAgents : defaultAgents); // Added log
+      const orchestrationType =
+        chatForm.orchestration_type === 'parallel' || chatForm.orchestration_type === 'sequential' || chatForm.orchestration_type === null
+          ? chatForm.orchestration_type
+          : null;
       const response = await sendHybridChat(
         userMessageContent,
         apiAgents.length > 0 ? apiAgents : defaultAgents,
@@ -939,10 +990,48 @@ const AutoGenPage: React.FC = () => {
           maxRounds: chatForm.max_rounds || userSettings.maxRounds || 10,
           conversationId: conversationId,
           history: historyForApi,
-          orchestrationType: chatForm.orchestration_type,
-          useMcpTools: chatForm.use_mcp_tools
+          orchestrationType,
+          useMcpTools: chatForm.use_mcp_tools,
+          stream: chatForm.stream
         }
       );
+      
+      // Only update chatMessages from HTTP response if streaming is disabled
+      if (!chatForm.stream) {
+        if (response.messages && response.messages.length > 0) {
+          const newMessagesFromApi = response.messages.map((msg: ChatHistoryItem) => ({
+            id: Date.now().toString() + Math.random().toString(),
+            role: msg.role as 'user' | 'assistant' | 'system',
+            content: msg.content,
+            timestamp: new Date(),
+            agentName: msg.agent || 'Assistant'
+          }));
+          setChatMessages(prev => {
+            const updatedMessages = [...prev];
+            newMessagesFromApi.forEach(newMessage => {
+              // Remove "thinking" message for this agent if one exists
+              const thinkingIndex = updatedMessages.findIndex(m => m.isThinking && m.agentName === newMessage.agentName);
+              if (thinkingIndex !== -1) {
+                updatedMessages.splice(thinkingIndex, 1);
+              }
+              updatedMessages.push(newMessage);
+            });
+            return updatedMessages;
+          });
+          if (conversationId) {
+            for (const newMessage of newMessagesFromApi) {
+              if (newMessage.role === 'assistant') {
+                await addMessageToConversation(conversationId, {
+                  role: 'assistant',
+                  content: newMessage.content,
+                  agentName: newMessage.agentName
+                });
+              }
+            }
+          }
+        }
+      }
+      
       
       console.log('[handleChatSubmit] Received response from sendHybridChat:', JSON.stringify(response, null, 2)); // Added log
 
@@ -1004,6 +1093,7 @@ const AutoGenPage: React.FC = () => {
 
   // Reset chat
   const handleResetChat = () => {
+    // Reset chat messages to welcome
     setChatMessages([
       {
         id: '1',
@@ -1013,6 +1103,32 @@ const AutoGenPage: React.FC = () => {
         agentName: 'System'
       }
     ]);
+
+    // Reset custom agents to default Assistant
+    const defaultAgent: CustomAgent = {
+      id: '1',
+      name: 'Assistant',
+      type: 'assistant',
+      systemMessage: 'You are a helpful AI assistant that provides accurate, concise information. Respond to the user\'s queries in a friendly and informative manner.',
+      isEnabled: true
+    };
+    setCustomAgents([defaultAgent]);
+
+    // Reset chat form to initial state
+    setChatForm({
+      message: '',
+      model_id: chatForm.model_id,
+      agents: [defaultAgent],
+      max_rounds: userSettings.maxRounds || 10,
+      conversation_id: undefined,
+      orchestration_type: null,
+      use_mcp_tools: true,
+      stream: false,
+      temperature: 0.7 // <-- Default temperature
+    });
+
+    // Reset current conversation
+    setCurrentConversation(null);
   };
 
   // Submit handlers
@@ -1249,6 +1365,34 @@ const AutoGenPage: React.FC = () => {
     }
   };
 
+  // Utility to add a temporary system message
+  const addTemporarySystemMessage = (content: string, duration = 3000) => {
+    const tempId = `system-msg-${Date.now()}-${Math.random()}`;
+    setChatMessages(prev => [
+      ...prev,
+      {
+        id: tempId,
+        role: 'system',
+        content,
+        timestamp: new Date(),
+        agentName: 'System'
+      }
+    ]);
+    setTimeout(() => {
+      setChatMessages(prev => prev.filter(msg => msg.id !== tempId));
+    }, duration);
+  };
+
+  // Add getMessageHistoryForApi helper
+  const getMessageHistoryForApi = () =>
+    chatMessages
+      .filter(msg => !msg.isThinking)
+      .map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        agent: msg.agentName !== 'User' && msg.agentName !== 'System' ? msg.agentName : undefined
+      }));
+
   if (!statusChecked) {
     return (
       <Container maxW="container.xl" py={8}>
@@ -1425,12 +1569,12 @@ const AutoGenPage: React.FC = () => {
                       value={chatForm.orchestration_type || ''}
                       onChange={(e) => setChatForm(prev => ({
                         ...prev,
-                        orchestration_type: e.target.value === '' ? null : e.target.value as 'parallel' | 'sequential'
+                        orchestration_type: e.target.value === '' ? null : e.target.value as OrchestrationType
                       }))}
                     >
                       <option value="">{t('agenticAI.chat.autoDetect', 'Auto-Detect')}</option>
-                      <option value="parallel">{t('agenticAI.chat.parallel', 'Parallel')}</option>
-                      <option value="sequential">{t('agenticAI.chat.sequential', 'Sequential')}</option>
+                      <option value="sequential">{t('agenticAI.chat.sequentialExecutor', 'Sequentialexecutor')}</option>
+                      <option value="parallel">{t('agenticAI.chat.parallelExecutor', 'Parallelexecutor')}</option>
                     </Select>
                     <FormHelperText fontSize="xs" mt={1}>
                       {t('agenticAI.chat.orchestrationTypeHelp', 'Choose how agents collaborate')}
@@ -1456,6 +1600,26 @@ const AutoGenPage: React.FC = () => {
                     </Flex>
                     <FormHelperText fontSize="xs" ml={8} mt={1}> {/* Adjusted margin for alignment */}
                        {t('agenticAI.chat.useMcpToolsHelp', 'Allow agents to use connected tools')}
+                    </FormHelperText>
+                  </FormControl>
+                  <FormControl>
+                    <Flex alignItems="center">
+                      <Switch
+                        id="stream-responses"
+                        isChecked={!!chatForm.stream}
+                        onChange={(e) => setChatForm(prev => ({
+                          ...prev,
+                          stream: e.target.checked
+                        }))}
+                        colorScheme="blue"
+                        mr={2}
+                      />
+                      <FormLabel htmlFor="stream-responses" mb="0" fontSize="sm" fontWeight="normal" whiteSpace="nowrap">
+                        {t('agenticAI.chat.streamResponses', 'Stream responses')}
+                      </FormLabel>
+                    </Flex>
+                    <FormHelperText fontSize="xs" ml={8} mt={1}>
+                      {t('agenticAI.chat.streamResponsesHelp', 'Show agent responses as they are generated')}
                     </FormHelperText>
                   </FormControl>
                 </HStack>

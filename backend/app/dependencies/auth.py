@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from sqlalchemy.orm import Session
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 import requests
 import asyncio
 from starlette.concurrency import run_in_threadpool
@@ -565,6 +565,7 @@ async def get_current_active_user_ws(
             token = websocket.query_params.get("token")
             
         if not token:
+            logger.error("WebSocket Auth: No token provided in headers or query params.")
             raise credentials_exception
             
         # Remove 'Bearer ' prefix if present
@@ -572,19 +573,45 @@ async def get_current_active_user_ws(
             token = token[7:]
             
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
         )
         username: str = payload.get("sub")
         if username is None:
+            logger.error("WebSocket Auth: JWT payload missing 'sub' claim.")
             raise credentials_exception
         token_data = TokenPayload(**payload)
-    except (JWTError, ValidationError):
+    except (JWTError, ValidationError) as e:
+        logger.error(f"WebSocket Auth: JWT decode/validation error: {e}")
         raise credentials_exception
         
-    user = get_user_by_email(db, email=token_data.sub)
+    # Try user lookup by UUID (sub), then by email if needed
+    logger.info(f"WebSocket Auth: Attempting user lookup. sub={token_data.sub}, email={token_data.email}")
+    user = None
+    if token_data.sub:
+        from app.crud.user_crud import get_user_by_id
+        import uuid
+        try:
+            user_uuid = uuid.UUID(token_data.sub)
+            user = get_user_by_id(db, user_id=user_uuid)
+            logger.info(f"WebSocket Auth: get_user_by_id({user_uuid}) -> {user}")
+        except (ValueError, TypeError) as e:
+            logger.warning(f"WebSocket Auth: UUID conversion failed: {e}")
+            user = None
+    if not user and token_data.email:
+        from app.crud.user_crud import get_user_by_email
+        user = get_user_by_email(db, email=token_data.email)
+        logger.info(f"WebSocket Auth: get_user_by_email({token_data.email}) -> {user}")
     if not user:
+        logger.error(f"WebSocket Auth: User not found for sub={token_data.sub}, email={token_data.email}")
         raise credentials_exception
     if not user.is_active:
+        logger.error(f"WebSocket Auth: User {user.email} is not active")
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
         
     return user
+
+class TokenPayload(BaseModel):
+    sub: str
+    email: str = None
+    exp: int = None
+    iat: int = None

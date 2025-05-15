@@ -571,7 +571,11 @@
       "orchestrationTypeHelp": "选择代理如何协作",
       "useMcpTools": "使用 MCP 工具",
       "useMcpToolsHelp": "允许代理使用已连接的工具",
-      "pressEnterToSend": "按 Enter 发送，Shift+Enter 换行"
+      "pressEnterToSend": "按 Enter 发送，Shift+Enter 换行",
+      "sequentialExecutor": "顺序执行器",
+      "parallelExecutor": "并行执行器",
+      "streamResponses": "流式响应",
+      "streamResponsesHelp": "在生成时显示代理响应"
     },
     "research": {
       "title": "研究工作流",

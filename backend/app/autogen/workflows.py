@@ -435,6 +435,8 @@ async def run_chat_workflow(
         # Create agents from the provided configurations
         created_agents = []
         for agent_config in agents:
+            logger.debug(f"Full agent_config: {agent_config}")
+            logger.info(f"Creating agent {getattr(agent_config, 'name', getattr(agent_config, 'agent', 'unknown'))} with system message: {getattr(agent_config, 'system_message', '')}")
             agent = create_assistant(
                 name=agent_config.name,
                 system_message=agent_config.system_message,
@@ -443,6 +445,7 @@ async def run_chat_workflow(
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
+        logger.info(f"Creating group chat with agents: {[a.name for a in created_agents]}")
         
         # Create a user proxy to interact with the agents
         user_proxy = create_user_proxy(
@@ -565,7 +568,8 @@ async def run_hybrid_orchestration_workflow(
     temperature: float = 0.7,
     max_rounds: int = 10,
     orchestration_type: Optional[str] = None,  # Can be explicitly provided or auto-determined
-    use_mcp_tools: bool = True  # Whether to allow the use of MCP tools
+    use_mcp_tools: bool = True,  # Whether to allow the use of MCP tools
+    stream: bool = True  # Whether to stream messages via WebSocket
 ) -> List[Dict[str, Any]]:
     """
     Run a hybrid orchestration workflow that dynamically chooses between parallel and sequential agent execution.
@@ -583,6 +587,7 @@ async def run_hybrid_orchestration_workflow(
         max_rounds: Maximum conversation rounds
         orchestration_type: Optional explicit orchestration type ("parallel" or "sequential")
         use_mcp_tools: Whether to allow the use of MCP tools
+        stream: Whether to stream messages via WebSocket
         
     Returns:
         List of messages exchanged during the workflow
@@ -637,17 +642,26 @@ async def run_hybrid_orchestration_workflow(
             logger.info(f"[{time.time():.4f}] conductor.determine_workflow_type completed in {time.time() - t0:.4f}s. Type: {orchestration_type}")
         
         t0 = time.time()
+        # Helper to extract agent config fields without hardcoding
+        def get_agent_field(agent_config, field):
+            if hasattr(agent_config, '__getitem__') and not hasattr(agent_config, field):
+                # dict-like
+                return agent_config.get(field)
+            return getattr(agent_config, field, None)
+
         # Create agents from the provided configurations
         created_agents = []
         for agent_config in agents:
+            logger.debug(f"Full agent_config: {agent_config}")
             agent = create_assistant(
-                name=agent_config.name,
-                system_message=agent_config.system_message,
+                name=get_agent_field(agent_config, 'name'),
+                system_message=get_agent_field(agent_config, 'system_message'),
                 llm_config=llm_config,
-                max_consecutive_auto_reply=1  # Ensure agents only reply once to the initial query
+                max_consecutive_auto_reply=1
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
+        logger.info(f"Creating group chat with agents: {[a.name for a in created_agents]}")
         
         # Create a user proxy to interact with the agents
         t0 = time.time()
@@ -675,6 +689,8 @@ async def run_hybrid_orchestration_workflow(
         
         # Custom message handler for real-time updates
         async def on_new_message(sender, recipient, message):
+            if not stream:
+                return message
             if message_hook and hasattr(message, 'get') and message.get('role') == 'assistant':
                 # Send the "thinking" notification when agent is selected
                 if message.get('name') and message.get('name') != 'User':
@@ -683,7 +699,6 @@ async def run_hybrid_orchestration_workflow(
                         conversation_id=conversation_id,
                         agent_name=message.get('name')
                     )
-            
             # When a new message is available from an agent
             if message_hook and message.get('content') and message.get('name') and message.get('name') != 'User':
                 agent_message = {
@@ -691,13 +706,11 @@ async def run_hybrid_orchestration_workflow(
                     "content": message.get('content', ''),
                     "agent": message.get('name', 'Assistant')
                 }
-                
                 await message_hook.on_message(
                     user_id=str(user.id),
                     conversation_id=conversation_id,
                     message=agent_message
                 )
-                
             return message
         
         # Register message handlers
@@ -714,7 +727,7 @@ async def run_hybrid_orchestration_workflow(
         if mcp_tools_to_use:
             logger.info(f"[{time.time():.4f}] Starting MCP tool execution. Number of tools: {len(mcp_tools_to_use)}")
             # Let user know we're using tools
-            if message_hook:
+            if stream and message_hook:
                 await message_hook.on_message(
                     user_id=str(user.id),
                     conversation_id=conversation_id,
@@ -724,12 +737,11 @@ async def run_hybrid_orchestration_workflow(
                         "agent": "System"
                     }
                 )
-                
             # Execute tools and gather results
             for tool_idx, tool in enumerate(mcp_tools_to_use):
                 tool_exec_start_time = time.time()
                 try:
-                    if message_hook:
+                    if stream and message_hook:
                         await message_hook.on_message(
                             user_id=str(user.id),
                             conversation_id=conversation_id,
@@ -739,18 +751,15 @@ async def run_hybrid_orchestration_workflow(
                                 "agent": "System"
                             }
                         )
-                    
                     logger.info(f"[{time.time():.4f}] Executing tool {tool_idx + 1}/{len(mcp_tools_to_use)}: {tool.get('name', 'Unknown Tool')}")
                     result = await execute_mcp_tool_for_query(tool, query, user.email, llm_config)
                     logger.info(f"[{time.time():.4f}] Tool {tool.get('name', 'Unknown Tool')} completed in {time.time() - tool_exec_start_time:.4f}s")
-                    
                     if "error" not in result:
                         tool_results.append({
                             "tool_name": tool.get("name", "Unknown Tool"),
                             "result": result
                         })
-                        
-                        if message_hook:
+                        if stream and message_hook:
                             await message_hook.on_message(
                                 user_id=str(user.id),
                                 conversation_id=conversation_id,
@@ -762,8 +771,7 @@ async def run_hybrid_orchestration_workflow(
                             )
                 except Exception as e:
                     logger.error(f"[{time.time():.4f}] Error executing tool: {e}")
-                    
-                    if message_hook:
+                    if stream and message_hook:
                         await message_hook.on_message(
                             user_id=str(user.id),
                             conversation_id=conversation_id,
@@ -787,141 +795,114 @@ async def run_hybrid_orchestration_workflow(
         
         logger.info(f"[{time.time():.4f}] Pre-chat setup completed. Total time so far: {time.time() - start_time:.4f}s. Starting agent interaction with orchestration_type: {orchestration_type}")
 
+        # --- Orchestration using group chat/manager (restored pattern) ---
         if orchestration_type == "parallel":
-            logger.info(f"[{time.time():.4f}] Using PARALLEL workflow orchestration")
-            
-            # Execute parallel workflow - fan out to all agents
+            logger.info(f"[{time.time():.4f}] Using PARALLEL workflow orchestration (manual fan-out)")
             agent_responses = []
-            
-            for agent_idx, agent in enumerate(created_agents):
-                agent_chat_start_time = time.time()
-                logger.info(f"[{time.time():.4f}] Initiating chat with parallel agent {agent_idx + 1}/{len(created_agents)}: {agent.name}")
-                # Engage each agent independently with the same query
+            all_messages = []
+            for agent in created_agents:
+                logger.info(f"[{time.time():.4f}] Initiating chat with parallel agent: {agent.name}")
                 user_proxy.initiate_chat(
                     agent,
                     message=query
                 )
-                logger.info(f"[{time.time():.4f}] Chat with parallel agent {agent.name} completed in {time.time() - agent_chat_start_time:.4f}s")
-                
-                # Collect the response from the agent, not the user_proxy's auto-reply
-                last_agent_response_content = None
-                if agent in user_proxy.chat_messages: # Use agent object as key
-                    for i in range(len(user_proxy.chat_messages[agent]) - 1, -1, -1):
-                        msg = user_proxy.chat_messages[agent][i]
-                        # Ensure the message is from the agent and has content
-                        if msg.get("name") == agent.name and msg.get("content"):
-                            last_agent_response_content = msg.get("content")
-                            break # Found the last valid message from this agent
-                
-                if last_agent_response_content:
-                    current_response_item = {
+                # Robustly extract chat history
+                chat_history = []
+                if agent in user_proxy.chat_messages:
+                    chat_history = user_proxy.chat_messages[agent]
+                elif hasattr(agent, 'name') and agent.name in user_proxy.chat_messages:
+                    chat_history = user_proxy.chat_messages[agent.name]
+                logger.debug(f"user_proxy.chat_messages after chatting with {agent.name}: {user_proxy.chat_messages}")
+                logger.debug(f"Full chat_history for {agent.name}: {chat_history}")
+                # Print every message in chat_history for diagnosis
+                for msg in chat_history:
+                    logger.debug(f"Message in chat_history for {agent.name}: {msg}")
+                # Find the last non-empty message from the agent
+                agent_reply = next(
+                    (msg for msg in reversed(chat_history)
+                     if msg.get('name') == agent.name and msg.get('content', '').strip()),
+                    None
+                )
+                if agent_reply:
+                    response = agent_reply['content']
+                    logger.debug(f"Extracted agent response for {agent.name}: {repr(response)}")
+                    agent_responses.append({
                         "agent": agent.name,
-                        "response": last_agent_response_content
-                    }
-                    agent_responses.append(current_response_item)
-                    logger.info(f"[{time.time():.4f}] Appended to agent_responses: {json.dumps(current_response_item)}. Current agent_responses count: {len(agent_responses)}")
-                    all_messages.append({ 
+                        "response": response
+                    })
+                    all_messages.append({
                         "role": "assistant",
-                        "content": last_agent_response_content,
+                        "content": response,
                         "agent": agent.name
                     })
                 else:
-                    logger.warning(f"[{time.time():.4f}] No valid response content found from agent {agent.name} in user_proxy.chat_messages. Messages: {json.dumps(user_proxy.chat_messages.get(agent, []))}")
-                    # Optionally, add a placeholder if an agent fails to respond, for consistent history length
+                    logger.warning(f"No valid response found for agent {agent.name}")
+            # Synthesize the responses
+            synthesis_prompt = "I need you to synthesize the following agent responses into a comprehensive answer. Ensure the final output is a single, coherent response based on the inputs provided, and does not refer to the synthesis process itself or the individual agents unless it's natural to do so in the context of the combined answer:\n\n"
+            for resp in agent_responses:
+                synthesis_prompt += f"--- {resp['agent']} ---\n{resp['response']}\n\n"
+            logger.info(f"Synthesis prompt for Synthesizer: {synthesis_prompt[:500]}{'...' if len(synthesis_prompt) > 500 else ''}")
+            user_proxy.initiate_chat(
+                synthesizer,
+                message=synthesis_prompt
+            )
+            if len(user_proxy.chat_messages[synthesizer]) > 0:
+                synthesized_response = user_proxy.chat_messages[synthesizer][-1]["content"]
+                all_messages.append({
+                    "role": "assistant",
+                    "content": synthesized_response,
+                    "agent": "Synthesizer"
+                })
+            logger.info(f"[{time.time():.4f}] Parallel orchestration completed. Returning {len(all_messages)} messages.")
+            return all_messages
+        else:  # Sequential workflow
+            logger.info(f"[{time.time():.4f}] Using SEQUENTIAL workflow orchestration (group chat)")
+            # Chain the user message through agents in sequence
+            current_input = query
+            all_messages = []
+            for i, agent in enumerate(created_agents):
+                groupchat = create_group_chat(
+                    agents=[agent, user_proxy],
+                    max_round=1,
+                    speaker_selection_method="round_robin",
+                    allow_repeat_speaker=False
+                )
+                if message_hook and hasattr(agent, 'register_message_handler'):
+                    agent.register_message_handler(on_new_message)
+                manager = create_group_chat_manager(
+                    groupchat=groupchat,
+                    llm_config=llm_config,
+                    system_message=f"You are managing a sequential agent conversation. Agent: {agent.name}"
+                )
+                # Start the conversation with the user message (ASYNC for streaming)
+                await user_proxy.a_initiate_chat(
+                    manager,
+                    message=current_input
+                )
+                # Extract agent's response
+                agent_response = None
+                for msg in reversed(groupchat.messages):
+                    if msg.get("name") == agent.name and msg.get("content"):
+                        agent_response = msg.get("content")
+                        all_messages.append({
+                            "role": msg.get("role", "assistant"),
+                            "content": agent_response,
+                            "agent": agent.name
+                        })
+                        break
+                if agent_response is None:
+                    logger.warning(f"[{time.time():.4f}] Agent {agent.name} did not provide a valid response.")
                     all_messages.append({
                         "role": "assistant",
                         "content": "[Agent did not provide a valid response]",
                         "agent": agent.name
                     })
-            
-            # Ask synthesizer to combine all responses
-            synthesis_prompt = "I need you to synthesize the following agent responses into a comprehensive answer. Ensure the final output is a single, coherent response based on the inputs provided, and does not refer to the synthesis process itself or the individual agents unless it's natural to do so in the context of the combined answer:\\n\\n"
-            if not agent_responses: # Handle case where no agents responded
-                logger.warning(f"[{time.time():.4f}] No agent responses collected to synthesize. Returning an error message.")
-                all_messages.append({"role": "assistant", "content": "Error: No responses received from agents to synthesize.", "agent": "System"})
-                return all_messages
-                
-            for resp in agent_responses:
-                synthesis_prompt += f"--- {resp['agent']} ---\\n{resp['response']}\\n\\n"
-            
-            synthesis_start_time = time.time()
-            logger.info(f"[{time.time():.4f}] Initiating chat with Synthesizer. Agent responses collected: {json.dumps(agent_responses)}")
-            logger.info(f"[{time.time():.4f}] Synthesis prompt for Synthesizer: {synthesis_prompt}")
-            user_proxy.initiate_chat(
-                synthesizer,
-                message=synthesis_prompt
-            )
-            logger.info(f"[{time.time():.4f}] Chat with Synthesizer completed in {time.time() - synthesis_start_time:.4f}s")
-            
-            # Get the synthesized response
-            if synthesizer in user_proxy.chat_messages and len(user_proxy.chat_messages[synthesizer]) > 0:
-                # Iterate backwards to find the last message from the synthesizer
-                synthesized_response = None
-                for msg_idx in range(len(user_proxy.chat_messages[synthesizer]) -1, -1, -1):
-                    msg_content = user_proxy.chat_messages[synthesizer][msg_idx].get("content")
-                    if msg_content: # Ensure there is content
-                        synthesized_response = msg_content
-                        break
-                
-                if synthesized_response:
-                    all_messages.append({
-                        "role": "assistant",
-                        "content": synthesized_response,
-                        "agent": "Synthesizer"
-                    })
-                else:
-                    logger.warning(f"[{time.time():.4f}] Synthesizer did not provide a final message with content.")
-            else:
-                logger.warning(f"[{time.time():.4f}] No messages found for Synthesizer in user_proxy.chat_messages.")
-        
-        else:  # Sequential workflow
-            logger.info(f"[{time.time():.4f}] Using SEQUENTIAL workflow orchestration")
-            
-            # Start with the user's original query
-            current_input = query
-            
-            # Chain through each agent in sequence
-            for i, agent in enumerate(created_agents):
-                agent_chat_start_time = time.time()
-                logger.info(f"[{time.time():.4f}] Initiating chat with sequential agent {i + 1}/{len(created_agents)}: {agent.name}")
-                user_proxy.initiate_chat(
-                    agent,
-                    message=current_input
-                )
-                logger.info(f"[{time.time():.4f}] Chat with sequential agent {agent.name} completed in {time.time() - agent_chat_start_time:.4f}s")
-                
-                # Get the agent's response to use as input for the next agent
-                # Ensure the agent key exists and there are messages
-                if agent in user_proxy.chat_messages and len(user_proxy.chat_messages[agent]) > 0:
-                    # Iterate backwards to find the last message from this agent that has content
-                    agent_response = None
-                    for msg_idx in range(len(user_proxy.chat_messages[agent]) - 1, -1, -1):
-                        msg_content = user_proxy.chat_messages[agent][msg_idx].get("content")
-                        if msg_content: # Ensure there is content
-                            agent_response = msg_content
-                            break 
-                    
-                    if agent_response is None:
-                        logger.warning(f"[{time.time():.4f}] Agent {agent.name} did not provide a final message with content.")
-                        # Optionally skip this agent or use a placeholder
-                        # For now, we'll just log and potentially skip adding its message
-                        # If this is critical, an error or placeholder might be needed
-                        continue # Skip to next agent if no valid response
-
-                    # Add to all_messages for return
-                    all_messages.append({
-                        "role": "assistant",
-                        "content": agent_response,
-                        "agent": agent.name
-                    })
-                    
-                    # If this isn't the last agent, prepare the input for the next agent
-                    if i < len(created_agents) - 1:
-                        next_agent = created_agents[i + 1]
-                        current_input = f"The previous agent ({agent.name}) provided this analysis:\n\n{agent_response}\n\nPlease build on this and provide your expertise."
-                    
-        logger.info(f"[{time.time():.4f}] Hybrid orchestration workflow completed. Total execution time: {time.time() - start_time:.4f}s")
-        return all_messages
+                # Prepare input for next agent
+                if i < len(created_agents) - 1 and agent_response:
+                    current_input = f"The previous agent ({agent.name}) provided this analysis:\n\n{agent_response}\n\nPlease build on this and provide your expertise."
+                logger.info(f"Group chat messages (sequential, agent {agent.name}): {json.dumps(groupchat.messages, indent=2)}")
+            logger.info(f"[{time.time():.4f}] Sequential group chat completed. Returning {len(all_messages)} messages.")
+            return all_messages
     
     except Exception as e:
         logger.error(f"[{time.time():.4f}] Error in hybrid orchestration workflow: {str(e)}", exc_info=True)

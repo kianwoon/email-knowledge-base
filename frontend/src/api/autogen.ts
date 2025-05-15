@@ -74,6 +74,7 @@ export interface ChatRequest {
 }
 
 // New hybrid chat interfaces
+export type OrchestrationType = 'parallel' | 'sequential' | 'team' | null;
 export interface HybridChatRequest {
   message: string;
   model_id?: string;
@@ -81,7 +82,7 @@ export interface HybridChatRequest {
   history?: ChatHistoryItem[];
   agents: AgentConfig[];
   max_rounds?: number;
-  orchestration_type?: 'parallel' | 'sequential' | null;
+  orchestration_type?: OrchestrationType;
   use_mcp_tools?: boolean;
 }
 
@@ -189,6 +190,7 @@ export const sendHybridChat = async (
     history?: ChatHistoryItem[];
     orchestrationType?: 'parallel' | 'sequential' | null;
     useMcpTools?: boolean;
+    stream?: boolean;
   }
 ): Promise<ChatResponse> => {
   const response = await apiClient.post<ChatResponse>(
@@ -201,7 +203,8 @@ export const sendHybridChat = async (
       max_rounds: options?.maxRounds ?? 5,
       history: options?.history ?? [],
       orchestration_type: options?.orchestrationType ?? null,
-      use_mcp_tools: options?.useMcpTools ?? true
+      use_mcp_tools: options?.useMcpTools ?? true,
+      stream: options?.stream ?? true
     }
   );
   return response.data;

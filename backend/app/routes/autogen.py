@@ -83,6 +83,7 @@ class HybridChatRequest(BaseModel):
     max_rounds: Optional[int] = Field(5, description="Maximum conversation rounds")
     orchestration_type: Optional[str] = Field(None, description="Orchestration type (parallel, sequential, or null for auto-determination)")
     use_mcp_tools: Optional[bool] = Field(True, description="Whether to use MCP tools when appropriate")
+    stream: Optional[bool] = Field(True, description="Whether to stream responses via WebSocket")
 
 # --- API Endpoints ---
 
@@ -273,6 +274,7 @@ async def hybrid_chat_endpoint(
         # Get the FastAPI app instance from the request
         app = request_obj.app
         
+        stream = getattr(request, 'stream', True)
         messages = await run_hybrid_orchestration_workflow(
             query=request.message,
             user=current_user,
@@ -285,12 +287,16 @@ async def hybrid_chat_endpoint(
             conversation_id=conversation_id,
             app=app,
             orchestration_type=request.orchestration_type,
-            use_mcp_tools=request.use_mcp_tools if hasattr(request, 'use_mcp_tools') else True
+            use_mcp_tools=request.use_mcp_tools if hasattr(request, 'use_mcp_tools') else True,
+            stream=stream
         )
         
-        return ChatResponse(
-            messages=messages
-        )
+        if stream:
+            # If streaming, return only a minimal response (frontend will get messages via WebSocket)
+            return ChatResponse(messages=[])
+        else:
+            # If not streaming, return the full messages as before
+            return ChatResponse(messages=messages)
     except Exception as e:
         logger.error(f"Error in hybrid chat workflow: {str(e)}", exc_info=True)
         raise HTTPException(
