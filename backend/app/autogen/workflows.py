@@ -441,7 +441,7 @@ async def run_chat_workflow(
                 name=agent_config.name,
                 system_message=agent_config.system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=1  # Ensure agents only reply once to the initial query
+                max_consecutive_auto_reply=max_rounds  # Allow agent to reply as many times as needed
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
@@ -657,7 +657,7 @@ async def run_hybrid_orchestration_workflow(
                 name=get_agent_field(agent_config, 'name'),
                 system_message=get_agent_field(agent_config, 'system_message'),
                 llm_config=llm_config,
-                max_consecutive_auto_reply=1
+                max_consecutive_auto_reply=max_rounds  # Allow agent to reply as many times as needed
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
@@ -830,13 +830,19 @@ async def run_hybrid_orchestration_workflow(
                         "agent": agent.name,
                         "response": response
                     })
+                    # Always normalize agent message structure for frontend
                     all_messages.append({
-                        "role": "assistant",
+                        "role": "assistant",  # Always 'assistant' for agent replies
                         "content": response,
-                        "agent": agent.name
+                        "agent": agent.name    # Always include agent name
                     })
                 else:
                     logger.warning(f"No valid response found for agent {agent.name}")
+                    all_messages.append({
+                        "role": "assistant",
+                        "content": "[Agent did not provide a valid response]",
+                        "agent": agent.name
+                    })
             # Synthesize the responses
             synthesis_prompt = "I need you to synthesize the following agent responses into a comprehensive answer. Ensure the final output is a single, coherent response based on the inputs provided, and does not refer to the synthesis process itself or the individual agents unless it's natural to do so in the context of the combined answer:\n\n"
             for resp in agent_responses:
@@ -863,7 +869,7 @@ async def run_hybrid_orchestration_workflow(
             for i, agent in enumerate(created_agents):
                 groupchat = create_group_chat(
                     agents=[agent, user_proxy],
-                    max_round=1,
+                    max_round=max_rounds,
                     speaker_selection_method="round_robin",
                     allow_repeat_speaker=False
                 )
@@ -884,10 +890,11 @@ async def run_hybrid_orchestration_workflow(
                 for msg in reversed(groupchat.messages):
                     if msg.get("name") == agent.name and msg.get("content"):
                         agent_response = msg.get("content")
+                        # Always normalize agent message structure for frontend
                         all_messages.append({
-                            "role": msg.get("role", "assistant"),
+                            "role": "assistant",  # Always 'assistant' for agent replies
                             "content": agent_response,
-                            "agent": agent.name
+                            "agent": agent.name    # Always include agent name
                         })
                         break
                 if agent_response is None:

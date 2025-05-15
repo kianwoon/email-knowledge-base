@@ -1,8 +1,8 @@
 import logging
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger("app").setLevel(logging.DEBUG)
-logging.getLogger("app.autogen.workflows").setLevel(logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("app").setLevel(logging.INFO)
+logging.getLogger("app.autogen.workflows").setLevel(logging.INFO)
 import os
 import sys
 # Force UTC for JWT operations
@@ -84,6 +84,9 @@ from app.websockets.connection_manager import ConnectionManager
 # Import the WebSocket manager from the new module
 from app.websockets.manager import ws_manager
 from app.websockets.routes import router as websocket_router
+from app.websockets.autogen_ws import on_connect
+from autogen.io.websockets import IOWebsockets
+import threading
 
 # Configure logging
 logger = logging.getLogger("app")
@@ -158,6 +161,13 @@ async def lifespan(app: FastAPI):
         # raise e 
     # --- End Database Initialization ---
     
+    # Start the AutoGen WebSocket server in a background thread
+    def start_ws_server():
+        IOWebsockets.run_server_in_thread(on_connect=on_connect, port=8080)
+    ws_thread = threading.Thread(target=start_ws_server, daemon=True)
+    ws_thread.start()
+    logger.info("AutoGen WebSocket server started on port 8080.")
+
     logger.info("Application startup complete.")
     yield
     # Code to run on shutdown

@@ -169,11 +169,6 @@ interface ChatForm {
   temperature?: number; // <-- Add temperature
 }
 
-// Custom WebSocket type with additional properties
-interface CustomWebSocket extends WebSocket {
-  pingInterval?: NodeJS.Timeout;
-}
-
 // Utility to add a temporary system message
 const addTemporarySystemMessage = (setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>, content: string, duration = 3000) => {
   const tempId = `system-msg-${Date.now()}-${Math.random()}`;
@@ -650,261 +645,20 @@ const AutoGenPage: React.FC = () => {
       });
   };
 
-  // Add WebSocket hooks at the component level
-  const [socket, setSocket] = useState<CustomWebSocket | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const socketRef = useRef<CustomWebSocket | null>(null);
+  // Add getMessageHistoryForApi helper
+  const getMessageHistoryForApi = () =>
+    chatMessages
+      .filter(msg => !msg.isThinking)
+      .map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        agent: msg.agentName !== 'User' && msg.agentName !== 'System' ? msg.agentName : undefined
+      }));
 
-  // Authentication state (assuming it comes from a context or props, adjust as needed)
-  // For demonstration, let's assume auth is a prop or from a context like useAuth()
-  // const { isAuthenticated } = useAuth(); // Example if using an auth context
-  // For now, let's assume isAuthenticated is a state variable for this example
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // Placeholder - REMOVE if auth comes from elsewhere
-
-  // Load user settings and conversations (simplified for focus)
-  useEffect(() => {
-    // Simulate fetching user and setting isAuthenticated
-    // In a real app, this would be your actual auth check
-    const token = localStorage.getItem('access_token');
-    console.log('[AuthCheck useEffect] Token from localStorage:', token ? 'present' : 'absent'); // ADDED
-    if (token) {
-      // Replace with actual user validation if needed
-      setIsAuthenticated(true);
-      console.log('[AuthCheck useEffect] Setting isAuthenticated to true'); // ADDED
-    } else {
-      setIsAuthenticated(false);
-      console.log('[AuthCheck useEffect] Setting isAuthenticated to false'); // ADDED
-    }
-  }, []);
-
-  // Function to connect to the WebSocket - now wrapped in useCallback
-  const connectToWebSocket = useCallback((conversationId: string, token: string, convData: ConversationData | null) => {
-    console.log('[connectToWebSocket] Entered. conversationId:', conversationId, 'token:', token ? 'present' : 'absent', 'convData:', convData);
-
-    if (!conversationId || !token) {
-      console.warn('[connectToWebSocket] Missing conversationId or token. Aborting.');
-      return;
-    }
-
-    if (socketRef.current) {
-      console.log('[connectToWebSocket] Closing existing socket before creating a new one.');
-      if (socketRef.current.pingInterval) {
-        clearInterval(socketRef.current.pingInterval);
-      }
-      socketRef.current.close();
-      socketRef.current = null;
-    }
-
-    const wsBaseUrl = import.meta.env.VITE_WEBSOCKET_URL;
-    const wsUrl = `${wsBaseUrl}/chat/${conversationId}?token=${token}`;
-    console.log(`[WebSocket] Attempting to connect to: ${wsUrl}`);
-
-    const newSocket = new WebSocket(wsUrl) as CustomWebSocket;
-    socketRef.current = newSocket;
-    setSocket(newSocket); 
-
-    newSocket.onopen = () => {
-      console.log('[WebSocket] onopen: Connection established.');
-      setIsConnected(true);
-      // --- FIX: Send initial chat payload as JSON ---
-      // Gather the current chat form data and agents
-      const chatPayload = {
-        message: chatForm.message, // The message the user just submitted
-        agents: chatForm.agents.filter(agent => agent.isEnabled), // Only enabled agents
-        model_id: chatForm.model_id || userSettings.defaultModel,
-        temperature: chatForm.temperature ?? 0.7,
-        max_rounds: chatForm.max_rounds ?? 5,
-        orchestration_type: chatForm.orchestration_type ?? null,
-        use_mcp_tools: chatForm.use_mcp_tools ?? true,
-        history: getMessageHistoryForApi()
-      };
-      try {
-        newSocket.send(JSON.stringify(chatPayload));
-        console.log('[WebSocket] Sent initial chat payload:', chatPayload);
-      } catch (err) {
-        console.error('[WebSocket] Error sending initial chat payload:', err);
-      }
-      // --- END FIX ---
-      const interval = setInterval(() => {
-        if (newSocket.readyState === WebSocket.OPEN) {
-          newSocket.send('ping');
-        }
-      }, 30000);
-      newSocket.pingInterval = interval;
-    };
-
-    newSocket.onclose = (event) => {
-      console.log('[WebSocket] onclose: Connection closed.', event.code, event.reason, event.wasClean);
-      setIsConnected(false);
-      if (newSocket.pingInterval) clearInterval(newSocket.pingInterval);
-      if (socketRef.current === newSocket) socketRef.current = null; setSocket(null);
-    };
-
-    newSocket.onerror = (errorEvent) => {
-      console.error('[WebSocket] onerror: Connection error.', errorEvent);
-      setIsConnected(false);
-      if (newSocket.pingInterval) clearInterval(newSocket.pingInterval);
-      if (socketRef.current === newSocket) socketRef.current = null; setSocket(null);
-    };
-
-    newSocket.onmessage = (event) => {
-      if (event.data === "pong") {
-        // Optionally log or handle keep-alive
-        return;
-      }
-      try {
-        const data = JSON.parse(event.data);
-        console.log('[WebSocket] Received data:', JSON.stringify(data));
-        if (data.type === 'agent_message') {
-          const message = data.data.message;
-          console.log('[WebSocket] Processing agent_message:', JSON.stringify(message));
-          if (message.role !== 'system' && message.content) {
-            const agentMsg: ChatMessage = {
-              id: `${Date.now()}-${Math.random()}`,
-              role: message.role,
-              content: message.content,
-              timestamp: new Date(),
-              agentName: message.agent || 'Assistant',
-              isThinking: false,
-            };
-            console.log('[WebSocket] agentMsg constructed:', JSON.stringify(agentMsg));
-            setChatMessages(prev => {
-              console.log('[WebSocket] prevChatMessages before update:', JSON.stringify(prev.map(m => ({ id: m.id, agent: m.agentName, content: m.content.substring(0,20) + "..." }))));
-              const filteredMessages = prev.filter(msg => 
-                !(msg.isThinking && msg.agentName === agentMsg.agentName)
-              );
-              return [...filteredMessages, agentMsg];
-            });
-            // Save agent message received via WebSocket
-            if (convData && convData.id && agentMsg.role === 'assistant') {
-              addMessageToConversation(convData.id, {
-                role: agentMsg.role,
-                content: agentMsg.content,
-                agentName: agentMsg.agentName
-              }).catch(err => {
-                console.error("Error saving WebSocket agent message to conversation:", err);
-                // Optionally, inform the user via toast if saving fails
-                // toast({
-                //   title: t('common.error'),
-                //   description: "Failed to save agent's message to history.",
-                //   status: 'error',
-                //   duration: 3000,
-                //   isClosable: true,
-                // });
-              });
-            }
-          }
-        } else if (data.type === 'agent_thinking') {
-          const thinkingMsg: ChatMessage = {
-            id: `thinking-${data.data.agent_name}-${Date.now()}`,
-            role: 'assistant',
-            content: `${t('agenticAI.chat.thinking', 'Thinking')}...`,
-            timestamp: new Date(),
-            agentName: data.data.agent_name,
-            isThinking: true
-          };
-          setChatMessages(prev => {
-            const hasThinking = prev.some(msg => msg.isThinking && msg.agentName === thinkingMsg.agentName);
-            if (hasThinking) return prev;
-            return [...prev, thinkingMsg];
-          });
-        } else if (data.type === 'pong') {
-          console.debug('Pong received');
-        }
-      } catch (err) {
-        console.error('Error parsing WebSocket message:', err);
-      }
-    };
-  }, [t, toast, currentConversation]); // Added currentConversation as a dependency
-
-  // Effect to manage WebSocket connection based on conversation and auth state
-  useEffect(() => {
-    const wsToken = localStorage.getItem('access_token'); // Re-fetch for safety, can also use token from state
-
-    // DETAILED LOGGING ADDED HERE
-    console.log(
-      `[AutoGenPage useEffect WS] Evaluating conditions. isAuthenticated: ${isAuthenticated}, token: ${wsToken ? 'present' : 'absent'}`
-    );
-    if (currentConversation) {
-      console.log(
-        `[AutoGenPage useEffect WS] currentConversation object IS PRESENT. ID: ${currentConversation.id}, Full Object:`,
-        JSON.stringify(currentConversation) // Removed .name as it might not exist or cause issues with stringify if undefined
-      );
-    } else {
-      console.log(
-        `[AutoGenPage useEffect WS] currentConversation object IS NULL or UNDEFINED.`
-      );
-    }
-    // END DETAILED LOGGING
-
-    if (isAuthenticated && currentConversation && currentConversation.id && wsToken) {
-      console.log(
-        `[AutoGenPage useEffect WS] Conditions MET. Attempting to connect for conversation ID: ${currentConversation.id}.`
-      );
-      connectToWebSocket(currentConversation.id, wsToken, currentConversation);
-    } else {
-      console.log(
-        `[AutoGenPage useEffect WS] Conditions NOT met. WebSocket will not be connected or will be closed.`
-      );
-      // Log condition breakdown
-      console.log(
-        `[AutoGenPage useEffect WS] Condition check: isAuthenticated=${isAuthenticated}, currentConversationExists=${!!currentConversation}, currentConversationHasId=${!!(currentConversation && currentConversation.id)}, tokenPresent=${!!wsToken}`
-      );
-
-      // Assuming socketRef is the correct name for the WebSocket reference
-      if (socketRef.current) {
-        console.log(
-          "[AutoGenPage useEffect WS] Cleanup: Closing existing WebSocket connection due to unmet conditions."
-        );
-        if (socketRef.current.pingInterval) { // Check if pingInterval exists before clearing
-            clearInterval(socketRef.current.pingInterval);
-        }
-        socketRef.current.close();
-        socketRef.current = null;
-        // setSocket(null); // These were in the original code block that was replaced, might be needed
-        // setIsConnected(false); // Re-evaluate if these are necessary here
-      }
-    }
-
-    return () => {
-      // Assuming socketRef is the correct name for the WebSocket reference
-      if (socketRef.current) {
-        console.log(
-          "[AutoGenPage useEffect WS] Cleanup in hook return: Closing WebSocket if open."
-        );
-        if (socketRef.current.pingInterval) { // Check if pingInterval exists before clearing
-            clearInterval(socketRef.current.pingInterval);
-        }
-        socketRef.current.close();
-        socketRef.current = null;
-        // setSocket(null); // Re-evaluate
-        // setIsConnected(false); // Re-evaluate
-      }
-    };
-  }, [isAuthenticated, currentConversation, connectToWebSocket]); // Dependencies updated
-
-  // Cleanup WebSocket on component unmount
-  useEffect(() => {
-    return () => {
-      if (socket) {
-        if (socket.pingInterval) {
-          clearInterval(socket.pingInterval);
-        }
-        socket.close();
-        setSocket(null);
-      }
-    };
-  }, [socket]);
-
-  // Modify the chat submit handler to include conversation_id parameter and connect WebSocket
+  // Modify the chat submit handler to include conversation_id parameter
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatForm.message.trim()) return;
-
-    // console.log('[handleChatSubmit] Current selectedConversation:', JSON.stringify(currentConversation));
-    // console.log('[handleChatSubmit] Current chatForm.conversation_id:', chatForm.conversation_id);
-    // console.log('[handleChatSubmit] IsAuthenticated:', isAuthenticated);
-    // console.log('[handleChatSubmit] Token in localStorage:', localStorage.getItem('access_token') ? 'present' : 'absent'); // CORRECTED TOKEN KEY FOR LOGGING
 
     setChatLoading(true);
 
@@ -1382,16 +1136,6 @@ const AutoGenPage: React.FC = () => {
       setChatMessages(prev => prev.filter(msg => msg.id !== tempId));
     }, duration);
   };
-
-  // Add getMessageHistoryForApi helper
-  const getMessageHistoryForApi = () =>
-    chatMessages
-      .filter(msg => !msg.isThinking)
-      .map(msg => ({
-        role: msg.role,
-        content: msg.content,
-        agent: msg.agentName !== 'User' && msg.agentName !== 'System' ? msg.agentName : undefined
-      }));
 
   if (!statusChecked) {
     return (
