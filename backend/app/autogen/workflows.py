@@ -866,6 +866,12 @@ async def run_hybrid_orchestration_workflow(
             # Chain the user message through agents in sequence
             current_input = query
             all_messages = []
+            # Append the initial user message once
+            all_messages.append({
+                "role": "user",
+                "content": query,
+                "agent": "User"
+            })
             for i, agent in enumerate(created_agents):
                 groupchat = create_group_chat(
                     agents=[agent, user_proxy],
@@ -890,7 +896,7 @@ async def run_hybrid_orchestration_workflow(
                 for msg in reversed(groupchat.messages):
                     if msg.get("name") == agent.name and msg.get("content"):
                         agent_response = msg.get("content")
-                        # Always normalize agent message structure for frontend
+                        # Only append the agent's actual response
                         all_messages.append({
                             "role": "assistant",  # Always 'assistant' for agent replies
                             "content": agent_response,
