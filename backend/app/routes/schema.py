@@ -2,14 +2,13 @@
 import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-import duckdb
 from pyiceberg.exceptions import NoSuchTableError
 
 # Import Iceberg catalog getter (adapt path if needed)
 # We might need to adjust how the catalog is accessed if llm.py dependencies are complex
 # For now, let's assume we can import and use it similarly
 # If this causes issues, we'll refactor catalog access.
-from app.services.duckdb import get_iceberg_catalog, get_duckdb_conn
+from app.services.duckdb import get_iceberg_catalog # Removed get_duckdb_conn
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -30,51 +29,43 @@ async def get_email_facts_columns():
     logger.info("Request received for email_facts columns.")
     try:
         # Get Iceberg catalog
-        # Note: get_iceberg_catalog uses an asyncio.Lock, which should be fine here.
         catalog = await get_iceberg_catalog() 
         if not catalog:
+            logger.error("Iceberg Catalog is not available.")
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Iceberg Catalog is not available.")
 
         full_table_name = f"{settings.ICEBERG_DEFAULT_NAMESPACE}.{settings.ICEBERG_EMAIL_FACTS_TABLE}"
         
-        # Check if table exists using the catalog
+        iceberg_table = None
         try:
-            catalog.load_table(full_table_name)
-            logger.debug(f"Iceberg table '{full_table_name}' found.")
+            iceberg_table = catalog.load_table(full_table_name)
+            logger.debug(f"Iceberg table '{full_table_name}' loaded successfully.")
         except NoSuchTableError:
-            logger.error(f"Iceberg table {full_table_name} not found in catalog.")
+            logger.error(f"Iceberg table '{full_table_name}' not found in catalog.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Iceberg table '{full_table_name}' not found.")
         except Exception as load_err:
-             logger.error(f"Error loading Iceberg table '{full_table_name}': {load_err}", exc_info=True)
-             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load Iceberg table information.")
+            logger.error(f"Error loading Iceberg table '{full_table_name}': {load_err}", exc_info=True)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to load Iceberg table information.")
 
-        # Use global DuckDB connection
-        con = get_duckdb_conn()
-        
-        # Load table into a DuckDB view (required for DESCRIBE)
-        view_name = 'email_facts_view_schema_check' # Use a distinct view name
-        # This scan might be slow if the table is huge, but necessary for DESCRIBE
-        logger.debug(f"Loading Iceberg table '{full_table_name}' into DuckDB view '{view_name}' for schema description...")
-        iceberg_table = catalog.load_table(full_table_name) # Load again, necessary for scan
-        
-        # Clean up the view first if it exists
-        con.execute(f"DROP VIEW IF EXISTS {view_name}")
-        
-        # Use predicate and projection push-down to limit data scan
-        scan = iceberg_table.scan().limit(1)  # We only need schema, so limit to 1 row
-        scan.to_duckdb(table_name=view_name, connection=con)
-        logger.debug("Table loaded into DuckDB view.")
+        if not iceberg_table:
+            # This case should ideally be covered by exceptions from load_table,
+            # but as a safeguard:
+            logger.error(f"Iceberg table object for '{full_table_name}' is None after load_table call.")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to obtain valid Iceberg table object for '{full_table_name}'.")
 
-        # Execute DESCRIBE to get schema info
-        schema_info = con.execute(f"DESCRIBE {view_name};").fetchall()
+        table_schema = iceberg_table.schema()
+        if not table_schema:
+            logger.error(f"Could not retrieve a valid schema object for Iceberg table '{full_table_name}'.")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to retrieve schema for Iceberg table '{full_table_name}'.")
         
-        # Extract column names
-        column_names = [row[0] for row in schema_info] # First element of each row is the column name
+        # Ensure table_schema.fields is not None before iterating
+        if table_schema.fields is None:
+            logger.warning(f"Schema for table '{full_table_name}' has no fields (fields attribute is None). Returning empty list of columns.")
+            column_names = []
+        else:
+            column_names = [field.name for field in table_schema.fields]
         
-        # Clean up after use
-        con.execute(f"DROP VIEW IF EXISTS {view_name}")
-        
-        logger.info(f"Successfully retrieved {len(column_names)} columns for email_facts.")
+        logger.info(f"Successfully retrieved {len(column_names)} columns for '{full_table_name}' using direct schema access.")
         return column_names
 
     except HTTPException as http_exc:
@@ -85,4 +76,4 @@ async def get_email_facts_columns():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving table schema: {e}"
-        ) 
+        )
