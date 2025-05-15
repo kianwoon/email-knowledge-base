@@ -26,10 +26,19 @@ def get_milvus_client() -> MilvusClient:
             )
             # Check if the connection is successful (optional, depends on MilvusClient behavior)
             # Example: Check if a basic operation like list_collections works
-            _milvus_client.list_collections()
-            logger.info("Milvus client initialized and connection verified.")
+            _milvus_client.list_collections() # Verifies basic connectivity
+            logger.info("Milvus client connection verified.")
+
+            # Ensure the default collection exists
+            default_dim = settings.DENSE_EMBEDDING_DIMENSION
+            ensure_collection_exists(
+                client=_milvus_client,
+                collection_name=settings.MILVUS_DEFAULT_COLLECTION,
+                dim=default_dim
+            )
+            logger.info(f"Milvus client initialized and collection '{settings.MILVUS_DEFAULT_COLLECTION}' ensured.")
         except Exception as e:
-            logger.error(f"Failed to initialize Milvus client: {e}", exc_info=True)
+            logger.error(f"Failed to initialize Milvus client or ensure collection: {e}", exc_info=True)
             _milvus_client = None # Reset on failure
             raise HTTPException(status_code=503, detail=f"Could not connect to Milvus: {e}")
     return _milvus_client
@@ -40,89 +49,88 @@ def ensure_collection_exists(client: MilvusClient, collection_name: str, dim: in
     """
     logger.info(f"Ensuring Milvus collection '{collection_name}' exists with dimension {dim}.")
     try:
-        exists = client.has_collection(collection_name=collection_name)
-        if exists:
-            logger.info(f"Milvus collection '{collection_name}' already exists.")
-            # Optional: Add schema compatibility checks here if needed in the future.
-            # e.g., compare client.describe_collection(collection_name).schema with expected schema.
-            return
-        else:
-            logger.info(f"Milvus collection '{collection_name}' does not exist. Creating...")
-            
-            # Define the schema based on ACTUAL reported schema
-            # Primary Key Field
-            id_field = FieldSchema(
-                name="id", # ACTUAL NAME
-                dtype=DataType.VARCHAR, 
-                is_primary=True, 
-                auto_id=False, # We provide our own UUIDs
-                max_length=100 # ACTUAL LENGTH
-            )
-            # Vector Field
-            dense_vector_field = FieldSchema(
-                name="dense", # ACTUAL NAME
-                dtype=DataType.FLOAT_VECTOR, 
-                dim=dim # Dimension seems correct (e.g., 1024)
-            )
-            # Other ACTUAL top-level fields from schema description
-            sparse_vector_field = FieldSchema(name="sparse", dtype=DataType.SPARSE_FLOAT_VECTOR)
-            job_id_field = FieldSchema(name="job_id", dtype=DataType.VARCHAR, max_length=100) # ACTUAL LENGTH
-            content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535) # ACTUAL LENGTH
-            chunk_index_field = FieldSchema(name="chunk_index", dtype=DataType.INT64)
-            sensitivity_field = FieldSchema(name="sensitivity", dtype=DataType.VARCHAR, max_length=50) # ACTUAL LENGTH
-            
-            # Using JSON for tags and other metadata for broader compatibility for now
-            metadata_field = FieldSchema(name="metadata", dtype=DataType.JSON) # ACTUAL NAME
-            # NOTE: owner, source, type, email_id, subject, date, status, folder, etc. are NOT top-level fields
-            # They should reside within the 'metadata' JSON field if used during ingestion.
+        if client.has_collection(collection_name=collection_name):
+            logger.warning(f"Milvus collection '{collection_name}' already exists. Dropping and recreating for schema consistency during debugging.")
+            client.drop_collection(collection_name=collection_name)
+            logger.info(f"Milvus collection '{collection_name}' dropped.")
 
-            schema = CollectionSchema(
-                # Use the ACTUAL field names and structure
-                fields=[
-                    id_field, 
-                    dense_vector_field, 
-                    sparse_vector_field,
-                    job_id_field,
-                    content_field,
-                    chunk_index_field,
-                    metadata_field,
-                    sensitivity_field 
-                ],
-                description=f"Collection for storing knowledge data for {collection_name}",
-                enable_dynamic_field=True # ACTUAL VALUE is True
-            )
-            
-            # Define index parameters (example using IVF_FLAT, adjust as needed)
-            index_params = client.prepare_index_params()
-            index_params.add_index(
-                field_name="dense", # ACTUAL vector field name
-                index_type="IVF_FLAT", # Example index type
-                metric_type="COSINE", # Or L2, IP based on embedding type
-                params={"nlist": 128} # Example param
-            )
-            
-            # Add index for sparse vector if needed (example, adjust type)
-            # index_params.add_index(
-            #     field_name="sparse",
-            #     index_type="SPARSE_INVERTED_INDEX", # Or other sparse index type
-            #     metric_type="IP"
-            # )
+        logger.info(f"Creating Milvus collection '{collection_name}' with dimension {dim}.")
+        
+        # Define the schema based on ACTUAL reported schema
+        # Primary Key Field
+        id_field = FieldSchema(
+            name="id", # ACTUAL NAME
+            dtype=DataType.VARCHAR, 
+            is_primary=True, 
+            auto_id=False, # We provide our own UUIDs
+            max_length=100 # ACTUAL LENGTH
+        )
+        # Vector Field
+        dense_vector_field = FieldSchema(
+            name="dense", # ACTUAL NAME
+            dtype=DataType.FLOAT_VECTOR, 
+            dim=dim # Dimension seems correct (e.g., 1024)
+        )
+        # Other ACTUAL top-level fields from schema description
+        # sparse_vector_field = FieldSchema(name="sparse", dtype=DataType.SPARSE_FLOAT_VECTOR) # Temporarily commented out
+        job_id_field = FieldSchema(name="job_id", dtype=DataType.VARCHAR, max_length=100) # ACTUAL LENGTH
+        content_field = FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535) # ACTUAL LENGTH
+        chunk_index_field = FieldSchema(name="chunk_index", dtype=DataType.INT64)
+        sensitivity_field = FieldSchema(name="sensitivity", dtype=DataType.VARCHAR, max_length=50) # ACTUAL LENGTH
+        
+        # Using JSON for tags and other metadata for broader compatibility for now
+        metadata_field = FieldSchema(name="metadata", dtype=DataType.JSON) # ACTUAL NAME
+        # NOTE: owner, source, type, email_id, subject, date, status, folder, etc. are NOT top-level fields
+        # They should reside within the 'metadata' JSON field if used during ingestion.
 
-            # Create the collection
-            client.create_collection(
-                collection_name=collection_name,
-                schema=schema,
-                consistency_level="Bounded" # Example consistency level, adjust as needed
-            )
-            logger.info(f"Milvus collection '{collection_name}' created successfully.")
+        schema = CollectionSchema(
+            # Use the ACTUAL field names and structure
+            fields=[
+                id_field, 
+                dense_vector_field, 
+                # sparse_vector_field, # Temporarily commented out
+                job_id_field,
+                content_field,
+                chunk_index_field,
+                metadata_field,
+                sensitivity_field 
+            ],
+            description=f"Collection for storing knowledge data for {collection_name}",
+            enable_dynamic_field=True # ACTUAL VALUE is True
+        )
+        
+        # Define index parameters (example using IVF_FLAT, adjust as needed)
+        index_params = client.prepare_index_params()
+        index_params.add_index(
+            field_name="dense", # ACTUAL vector field name
+            index_type="IVF_FLAT", # Example index type
+            metric_type="COSINE", # Or L2, IP based on embedding type
+            params={"nlist": 128} # Example param
+        )
+        
+        # Add index for sparse vector if needed (example, adjust type)
+        # if 'sparse_vector_field' in locals() and sparse_vector_field is not None: # Only if field exists
+        #     index_params.add_index(
+        #         field_name="sparse",
+        #         index_type="SPARSE_INVERTED_INDEX", # Or other sparse index type
+        #         metric_type="IP"
+        #     )
 
-            # Create the index after collection creation
-            client.create_index(collection_name=collection_name, index_params=index_params)
-            logger.info(f"Index created for vector field in '{collection_name}'.")
-            
-            # Load the collection into memory (optional, depends on use case)
-            # client.load_collection(collection_name=collection_name)
-            # logger.info(f"Collection '{collection_name}' loaded into memory.")
+        # Create the collection
+        client.create_collection(
+            collection_name=collection_name,
+            schema=schema,
+            consistency_level="Bounded" # Example consistency level, adjust as needed
+        )
+        logger.info(f"Milvus collection '{collection_name}' created successfully.")
+
+        # Create the index after collection creation
+        client.create_index(collection_name=collection_name, index_params=index_params)
+        logger.info(f"Index created for vector field in '{collection_name}'.")
+        
+        # Load the collection into memory to ensure it's queryable immediately
+        client.load_collection(collection_name=collection_name)
+        logger.info(f"Collection '{collection_name}' loaded into memory.")
 
     except Exception as e:
         logger.error(f"Error checking or creating Milvus collection '{collection_name}': {e}", exc_info=True)
@@ -144,4 +152,4 @@ if __name__ == "__main__":
     except HTTPException as e:
         print(f"HTTPException connecting or ensuring collection in Milvus: {e.detail}")
     except Exception as e:
-        print(f"Failed during Milvus client example usage: {e}") 
+        print(f"Failed during Milvus client example usage: {e}")

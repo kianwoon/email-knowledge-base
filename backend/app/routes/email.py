@@ -271,41 +271,52 @@ async def analyze_emails(
         "criteria": filter_criteria_obj,
         "status": "submitted"
     }
-    query_point = {
+    # Prepare data for Milvus insertion according to the defined schema
+    # Schema fields: id, dense, job_id, metadata (JSON), sparse, content, chunk_index, sensitivity
+    milvus_data_point = {
         "id": query_point_id,
-        "vector": [0.0] * settings.EMBEDDING_DIMENSION,
-        "payload": query_payload
+        "dense": [0.0] * settings.DENSE_EMBEDDING_DIMENSION,
+        "job_id": query_payload.get("job_id", job_id),
+        "content": "",  # Matches schema order
+        "chunk_index": 0, # Matches schema order
+        "metadata": query_payload, # Matches schema order
+        "sensitivity": "" # Matches schema order
+        # "sparse" field is still temporarily removed
     }
+    # Log the exact data point being sent to Milvus for debugging
+    logger.debug(f"Milvus data point for insertion: {milvus_data_point}")
 
     try:
         vector_db_client.insert(
-            collection_name=settings.QDRANT_COLLECTION_NAME,
-            points=[query_point],
+            collection_name=settings.MILVUS_DEFAULT_COLLECTION,
+            data=[milvus_data_point], # Use the structured data
             timeout=60.0
         )
-        logger.info(f"Stored query criteria for job_id {job_id} with owner {owner} (Qdrant Point ID: {query_point_id})")
+        logger.info(f"Stored query criteria for job_id {job_id} with owner {owner} (Milvus Point ID: {query_point_id})")
 
-        # Immediate retrieval check for the query_criteria point RIGHT AFTER initial upsert
+        # Immediate retrieval check
         try:
-            retrieved_query = vector_db_client.query(
-                collection_name=settings.QDRANT_COLLECTION_NAME,
-                vector=query_point["vector"],
-                output_fields=["id", "payload"],
-                limit=1
+            # For read-after-write, try a stronger consistency level for the query
+            retrieved_query_results = vector_db_client.query(
+                collection_name=settings.MILVUS_DEFAULT_COLLECTION,
+                filter=f"id == '{query_point_id}'", 
+                output_fields=["id", "job_id", "metadata", "content", "chunk_index", "sensitivity"],
+                limit=1,
+                consistency_level="Strong" # Attempt strong consistency for this check
             )
-            if retrieved_query and retrieved_query[0]["id"] == query_point_id:
-                logger.info(f"[IMMEDIATE QUERY CRITERIA RETRIEVAL CONFIRMED IN MAIN] Query criteria point {query_point_id} found immediately after initial upsert.")
+            if retrieved_query_results and len(retrieved_query_results) > 0 and retrieved_query_results[0]["id"] == query_point_id:
+                logger.info(f"[IMMEDIATE QUERY CRITERIA RETRIEVAL CONFIRMED IN MAIN] Query criteria point {query_point_id} found. Data: {retrieved_query_results[0]}")
             else:
-                 logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Query criteria point {query_point_id} NOT found immediately after initial upsert.")
-                 # Optionally raise an error here if this is critical
-                 raise HTTPException(status_code=500, detail="Failed critical step: Could not verify query criteria storage.")
+                 logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Query criteria point {query_point_id} NOT found or data mismatch. Results: {retrieved_query_results}")
+                 raise HTTPException(status_code=500, detail="Failed critical step: Could not verify query criteria storage after insert.")
         except Exception as query_retrieval_err:
-            logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Error retrieving query criteria point {query_point_id}: {query_retrieval_err}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Failed critical step: Error verifying query criteria storage.")
+            logger.error(f"[FAILED IMMEDIATE QUERY CRITERIA RETRIEVAL IN MAIN] Error retrieving query criteria point {query_point_id} using Milvus: {query_retrieval_err}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed critical step: Error verifying query criteria storage post-insert.")
 
     except Exception as e:
-        logger.error(f"Failed to store query criteria in Qdrant for job_id {job_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initialize analysis job storage.")
+        # Log the actual exception from Milvus if possible
+        logger.error(f"Failed to store query criteria in Milvus for job_id {job_id}: {type(e).__name__} - {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to initialize analysis job storage: {e}")
 
     # Fetch email subjects using the CORRECT preview method and keywords
     subjects = []
