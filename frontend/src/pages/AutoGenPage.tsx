@@ -663,20 +663,10 @@ const AutoGenPage: React.FC = () => {
     setChatLoading(true);
 
     const userMessageContent = chatForm.message;
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: userMessageContent,
-      timestamp: new Date(),
-      agentName: 'User' 
-    };
-    
-    setChatMessages(prev => [...prev, userMessage]);
+    // Do NOT add the user message locally here
     setChatForm(prev => ({ ...prev, message: '' }));
-    
     try {
       let conversationId = chatForm.conversation_id;
-      
       if (!conversationId) {
         const conversationTitle = userMessageContent.substring(0, 50) + (userMessageContent.length > 50 ? '...' : '');
         const conversation = await createConversation({
@@ -688,32 +678,13 @@ const AutoGenPage: React.FC = () => {
         setChatForm(prev => ({ ...prev, conversation_id: conversationId }));
         setConversations(prev => [conversation, ...prev]);
       }
-      
-      if (conversationId) {
-        // Make sure to pass the token to connectToWebSocket
-        // const token = localStorage.getItem('LUMOS_TOKEN'); // This block should be removed / remain commented
-        // if (token) {
-        //   connectToWebSocket(conversationId, token);
-        // } else {
-        //   console.error('[handleChatSubmit] LUMOS_TOKEN not found in localStorage. Cannot connect WebSocket.');
-        //   toast({
-        //     title: t('common.warning'),
-        //     description: t('agenticAI.chat.webSocketTokenError', 'Could not retrieve authentication token for real-time updates. Chat will proceed without live updates.'),
-        //     status: 'warning',
-        //     duration: 7000,
-        //     isClosable: true,
-        //   });
-        // }
-      }
-      
       const historyForApi: ChatHistoryItem[] = chatMessages
-        .filter(msg => !msg.isThinking && msg.id !== userMessage.id) 
+        .filter(msg => !msg.isThinking)
         .map(msg => ({
           role: msg.role,
           content: msg.content,
           agent: msg.agentName !== 'User' && msg.agentName !== 'System' ? msg.agentName : undefined
         }));
-
       const apiAgents: ApiAgentConfig[] = chatForm.agents
         .filter(agent => agent.isEnabled)
         .map(agent => ({
@@ -721,17 +692,13 @@ const AutoGenPage: React.FC = () => {
           type: agent.type,
           systemMessage: agent.systemMessage 
         }));
-      
       const defaultAgents: ApiAgentConfig[] = [{ name: 'Assistant', type: 'assistant', systemMessage: 'You are a helpful AI assistant.' }];
-
       if (conversationId) {
         await addMessageToConversation(conversationId, {
             role: 'user',
             content: userMessageContent,
         });
       }
-
-      console.log('[handleChatSubmit] Calling sendHybridChat with userMessage:', userMessageContent, 'apiAgents:', apiAgents.length > 0 ? apiAgents : defaultAgents); // Added log
       const orchestrationType =
         chatForm.orchestration_type === 'parallel' || chatForm.orchestration_type === 'sequential' || chatForm.orchestration_type === null
           ? chatForm.orchestration_type
@@ -749,48 +716,7 @@ const AutoGenPage: React.FC = () => {
           stream: chatForm.stream
         }
       );
-      
-      // Only update chatMessages from HTTP response if streaming is disabled
-      if (!chatForm.stream) {
-        if (response.messages && response.messages.length > 0) {
-          const newMessagesFromApi = response.messages.map((msg: ChatHistoryItem) => ({
-            id: Date.now().toString() + Math.random().toString(),
-            role: msg.role as 'user' | 'assistant' | 'system',
-            content: msg.content,
-            timestamp: new Date(),
-            agentName: msg.agent || 'Assistant'
-          }));
-          setChatMessages(prev => {
-            const updatedMessages = [...prev];
-            newMessagesFromApi.forEach(newMessage => {
-              // Remove "thinking" message for this agent if one exists
-              const thinkingIndex = updatedMessages.findIndex(m => m.isThinking && m.agentName === newMessage.agentName);
-              if (thinkingIndex !== -1) {
-                updatedMessages.splice(thinkingIndex, 1);
-              }
-              updatedMessages.push(newMessage);
-            });
-            return updatedMessages;
-          });
-          if (conversationId) {
-            for (const newMessage of newMessagesFromApi) {
-              if (newMessage.role === 'assistant') {
-                await addMessageToConversation(conversationId, {
-                  role: 'assistant',
-                  content: newMessage.content,
-                  agentName: newMessage.agentName
-                });
-              }
-            }
-          }
-        }
-      }
-      
-      
-      console.log('[handleChatSubmit] Received response from sendHybridChat:', JSON.stringify(response, null, 2)); // Added log
-
       if (response.messages && response.messages.length > 0) {
-        console.log('[handleChatSubmit] response.messages is valid and has length:', response.messages.length); // Added log
         const newMessagesFromApi = response.messages.map((msg: ChatHistoryItem) => ({
           id: Date.now().toString() + Math.random().toString(),
           role: msg.role as 'user' | 'assistant' | 'system',
@@ -798,37 +724,18 @@ const AutoGenPage: React.FC = () => {
           timestamp: new Date(),
           agentName: msg.agent || 'Assistant'
         }));
-        
-        console.log('[handleChatSubmit] Mapped newMessagesFromApi:', JSON.stringify(newMessagesFromApi, null, 2)); // Added log
-        
-        setChatMessages(prev => {
-            console.log('[handleChatSubmit setChatMessages] Previous chatMessages:', JSON.stringify(prev.map(m => ({ id: m.id, agent: m.agentName, content: m.content.substring(0,30) + "..." })), null, 2)); // Added log
-            const updatedMessages = [...prev];
-            newMessagesFromApi.forEach(newMessage => {
-                // Remove "thinking" message for this agent if one exists
-                const thinkingIndex = updatedMessages.findIndex(m => m.isThinking && m.agentName === newMessage.agentName);
-                if (thinkingIndex !== -1) {
-                    updatedMessages.splice(thinkingIndex, 1);
-                }
-                // Add new message (temporarily bypassing duplicate check for diagnostics)
-                // if (!updatedMessages.some(p => p.content === newMessage.content && p.agentName === newMessage.agentName && p.role === newMessage.role)) {
-                updatedMessages.push(newMessage);
-                // }
-            });
-            console.log('[handleChatSubmit setChatMessages] New chatMessages to be set:', JSON.stringify(updatedMessages.map(m => ({ id: m.id, agent: m.agentName, content: m.content.substring(0,30) + "..." })), null, 2)); // Added log
-            return updatedMessages;
-        });
-
+        // Always REPLACE chatMessages with backend response to avoid duplication
+        setChatMessages(newMessagesFromApi);
         if (conversationId) {
-            for (const msg of newMessagesFromApi) {
-                if (msg.role === 'assistant') {
-                     await addMessageToConversation(conversationId, {
-                        role: 'assistant',
-                        content: msg.content,
-                        agentName: msg.agentName
-                    });
-                }
+          for (const msg of newMessagesFromApi as ChatMessage[]) {
+            if (msg.role === 'assistant') {
+              await addMessageToConversation(conversationId, {
+                role: 'assistant',
+                content: msg.content,
+                agentName: msg.agentName
+              });
             }
+          }
         }
       }
     } catch (error) {

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from fastapi import FastAPI
 import json
 import time # Import time for logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -437,11 +438,15 @@ async def run_chat_workflow(
         for agent_config in agents:
             logger.debug(f"Full agent_config: {agent_config}")
             logger.info(f"Creating agent {getattr(agent_config, 'name', getattr(agent_config, 'agent', 'unknown'))} with system message: {getattr(agent_config, 'system_message', '')}")
+            # Defensive system message
+            base_system_message = get_agent_field(agent_config, 'system_message') or ''
+            defensive_line = "\nDo not reply with your own name. If you have nothing to add, reply: [No valid response]."
+            system_message = base_system_message + defensive_line
             agent = create_assistant(
-                name=agent_config.name,
-                system_message=agent_config.system_message,
+                name=get_agent_field(agent_config, 'name'),
+                system_message=system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=max_rounds  # Allow agent to reply as many times as needed
+                max_consecutive_auto_reply=1  # Only allow one reply per agent
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
@@ -653,11 +658,15 @@ async def run_hybrid_orchestration_workflow(
         created_agents = []
         for agent_config in agents:
             logger.debug(f"Full agent_config: {agent_config}")
+            # Defensive system message
+            base_system_message = get_agent_field(agent_config, 'system_message') or ''
+            defensive_line = "\nDo not reply with your own name. If you have nothing to add, reply: [No valid response]."
+            system_message = base_system_message + defensive_line
             agent = create_assistant(
                 name=get_agent_field(agent_config, 'name'),
-                system_message=get_agent_field(agent_config, 'system_message'),
+                system_message=system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=max_rounds  # Allow agent to reply as many times as needed
+                max_consecutive_auto_reply=1  # Only allow one reply per agent
             )
             created_agents.append(agent)
         logger.info(f"[{time.time():.4f}] All domain agents created in {time.time() - t0:.4f}s")
@@ -800,13 +809,25 @@ async def run_hybrid_orchestration_workflow(
             logger.info(f"[{time.time():.4f}] Using PARALLEL workflow orchestration (manual fan-out)")
             agent_responses = []
             all_messages = []
+            # Append the initial user message once, but only if not already present in history
+            user_message_in_history = False
+            if history and isinstance(history, list):
+                for msg in history:
+                    if msg.get("role") == "user" and msg.get("content") == query:
+                        user_message_in_history = True
+                        break
+            if not user_message_in_history:
+                all_messages.append({
+                    "role": "user",
+                    "content": query,
+                    "agent": "User"
+                })
             for agent in created_agents:
                 logger.info(f"[{time.time():.4f}] Initiating chat with parallel agent: {agent.name}")
                 user_proxy.initiate_chat(
                     agent,
                     message=query
                 )
-                # Robustly extract chat history
                 chat_history = []
                 if agent in user_proxy.chat_messages:
                     chat_history = user_proxy.chat_messages[agent]
@@ -814,35 +835,37 @@ async def run_hybrid_orchestration_workflow(
                     chat_history = user_proxy.chat_messages[agent.name]
                 logger.debug(f"user_proxy.chat_messages after chatting with {agent.name}: {user_proxy.chat_messages}")
                 logger.debug(f"Full chat_history for {agent.name}: {chat_history}")
-                # Print every message in chat_history for diagnosis
                 for msg in chat_history:
                     logger.debug(f"Message in chat_history for {agent.name}: {msg}")
-                # Find the last non-empty message from the agent
                 agent_reply = next(
                     (msg for msg in reversed(chat_history)
                      if msg.get('name') == agent.name and msg.get('content', '').strip()),
                     None
                 )
+                response = None
                 if agent_reply:
-                    response = agent_reply['content']
-                    logger.debug(f"Extracted agent response for {agent.name}: {repr(response)}")
-                    agent_responses.append({
-                        "agent": agent.name,
-                        "response": response
-                    })
-                    # Always normalize agent message structure for frontend
-                    all_messages.append({
-                        "role": "assistant",  # Always 'assistant' for agent replies
-                        "content": response,
-                        "agent": agent.name    # Always include agent name
-                    })
+                    response = agent_reply['content'].strip()
+                    def normalize_text(text):
+                        return re.sub(r'[^a-z0-9]', '', text.strip().lower())
+                    norm_response = normalize_text(response)
+                    norm_agent_name = normalize_text(agent.name)
+                    if not norm_response or norm_response == norm_agent_name:
+                        logger.warning(f"No valid response found for agent {agent.name} (response: {repr(response)})")
+                        response = "[No valid response from agent]"
+                    else:
+                        logger.debug(f"Extracted agent response for {agent.name}: {repr(response)}")
                 else:
-                    logger.warning(f"No valid response found for agent {agent.name}")
-                    all_messages.append({
-                        "role": "assistant",
-                        "content": "[Agent did not provide a valid response]",
-                        "agent": agent.name
-                    })
+                    logger.warning(f"No valid response found for agent {agent.name} (no agent_reply)")
+                    response = "[No valid response from agent]"
+                agent_responses.append({
+                    "agent": agent.name,
+                    "response": response
+                })
+                all_messages.append({
+                    "role": "assistant",  # Always 'assistant' for agent replies
+                    "content": response,
+                    "agent": agent.name    # Always include agent name
+                })
             # Synthesize the responses
             synthesis_prompt = "I need you to synthesize the following agent responses into a comprehensive answer. Ensure the final output is a single, coherent response based on the inputs provided, and does not refer to the synthesis process itself or the individual agents unless it's natural to do so in the context of the combined answer:\n\n"
             for resp in agent_responses:
@@ -860,62 +883,81 @@ async def run_hybrid_orchestration_workflow(
                     "agent": "Synthesizer"
                 })
             logger.info(f"[{time.time():.4f}] Parallel orchestration completed. Returning {len(all_messages)} messages.")
-            return all_messages
+            # After constructing all_messages, deduplicate consecutive user messages with the same content
+            deduped_messages = []
+            last_user_content = None
+            for msg in all_messages:
+                if msg["role"] == "user":
+                    if msg["content"] == last_user_content:
+                        continue
+                    last_user_content = msg["content"]
+                deduped_messages.append(msg)
+            # Filter out '[No valid response from agent]' and Synthesizer messages
+            def is_valid_message(msg):
+                content = msg.get("content", "").strip().lower()
+                agent = msg.get("agent", "").strip().lower()
+                if content == "[no valid response from agent]" or agent == "synthesizer":
+                    return False
+                return True
+            filtered_messages = [msg for msg in deduped_messages if is_valid_message(msg)]
+            return filtered_messages
         else:  # Sequential workflow
             logger.info(f"[{time.time():.4f}] Using SEQUENTIAL workflow orchestration (group chat)")
-            # Chain the user message through agents in sequence
             current_input = query
             all_messages = []
-            # Append the initial user message once
-            all_messages.append({
-                "role": "user",
-                "content": query,
-                "agent": "User"
-            })
+            # Append the initial user message once, but only if not already present in history
+            user_message_in_history = False
+            if history and isinstance(history, list):
+                for msg in history:
+                    if msg.get("role") == "user" and msg.get("content") == query:
+                        user_message_in_history = True
+                        break
+            if not user_message_in_history:
+                all_messages.append({
+                    "role": "user",
+                    "content": query,
+                    "agent": "User"
+                })
             for i, agent in enumerate(created_agents):
-                groupchat = create_group_chat(
-                    agents=[agent, user_proxy],
-                    max_round=max_rounds,
-                    speaker_selection_method="round_robin",
-                    allow_repeat_speaker=False
-                )
-                if message_hook and hasattr(agent, 'register_message_handler'):
-                    agent.register_message_handler(on_new_message)
-                manager = create_group_chat_manager(
-                    groupchat=groupchat,
-                    llm_config=llm_config,
-                    system_message=f"You are managing a sequential agent conversation. Agent: {agent.name}"
-                )
-                # Start the conversation with the user message (ASYNC for streaming)
-                await user_proxy.a_initiate_chat(
-                    manager,
+                user_proxy.initiate_chat(
+                    agent,
                     message=current_input
                 )
-                # Extract agent's response
-                agent_response = None
-                for msg in reversed(groupchat.messages):
-                    if msg.get("name") == agent.name and msg.get("content"):
-                        agent_response = msg.get("content")
-                        # Only append the agent's actual response
+                if len(user_proxy.chat_messages[agent.name]) > 0:
+                    agent_response = user_proxy.chat_messages[agent.name][-1]["content"].strip()
+                    def normalize_text(text):
+                        return re.sub(r'[^a-z0-9]', '', text.strip().lower())
+                    norm_response = normalize_text(agent_response)
+                    norm_agent_name = normalize_text(agent.name)
+                    if not norm_response or norm_response == norm_agent_name:
+                        logger.warning(f"No valid response found for agent {agent.name} (response: {repr(agent_response)})")
+                        agent_response = "[No valid response from agent]"
+                        # Break the chain if invalid
                         all_messages.append({
-                            "role": "assistant",  # Always 'assistant' for agent replies
+                            "role": "assistant",
                             "content": agent_response,
-                            "agent": agent.name    # Always include agent name
+                            "agent": agent.name
                         })
                         break
-                if agent_response is None:
-                    logger.warning(f"[{time.time():.4f}] Agent {agent.name} did not provide a valid response.")
-                    all_messages.append({
-                        "role": "assistant",
-                        "content": "[Agent did not provide a valid response]",
-                        "agent": agent.name
-                    })
-                # Prepare input for next agent
-                if i < len(created_agents) - 1 and agent_response:
-                    current_input = f"The previous agent ({agent.name}) provided this analysis:\n\n{agent_response}\n\nPlease build on this and provide your expertise."
-                logger.info(f"Group chat messages (sequential, agent {agent.name}): {json.dumps(groupchat.messages, indent=2)}")
-            logger.info(f"[{time.time():.4f}] Sequential group chat completed. Returning {len(all_messages)} messages.")
-            return all_messages
+                    else:
+                        all_messages.append({
+                            "role": "assistant",
+                            "content": agent_response,
+                            "agent": agent.name
+                        })
+                        if i < len(created_agents) - 1:
+                            next_agent = created_agents[i + 1]
+                            current_input = f"The previous agent ({agent.name}) provided this analysis:\n\n{agent_response}\n\nPlease build on this and provide your expertise."
+            # After constructing all_messages, deduplicate consecutive user messages with the same content
+            deduped_messages = []
+            last_user_content = None
+            for msg in all_messages:
+                if msg["role"] == "user":
+                    if msg["content"] == last_user_content:
+                        continue
+                    last_user_content = msg["content"]
+                deduped_messages.append(msg)
+            return deduped_messages
     
     except Exception as e:
         logger.error(f"[{time.time():.4f}] Error in hybrid orchestration workflow: {str(e)}", exc_info=True)
