@@ -1,5 +1,8 @@
 # Placeholder for jarvis_app.py
-from backend.app.services.jarvis_mcp_client import MCPClient
+# MCP client lives at the repo root. The previous import referenced a
+# non-existent package path which caused a ModuleNotFoundError when running
+# the CLI application. Import it directly from the local module instead.
+from jarvis_mcp_client import MCPClient
 import requests # For requests.exceptions.HTTPError
 import json     # For pretty printing the output
 
